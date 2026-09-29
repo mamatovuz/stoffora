@@ -171,7 +171,7 @@ https://staffora.example.com/mini-app
 3. `.env` ichida quyidagilarni to‘ldiring:
 
 ```env
-TELEGRAM_BOT_TOKEN=123456:real-token
+TELEGRAM_BOT_TOKEN=<BotFather-tokeni>
 TELEGRAM_BOT_USERNAME=staffora_bot
 TELEGRAM_WEBAPP_URL=https://staffora.example.com/mini-app
 TELEGRAM_DEV_MODE=false
