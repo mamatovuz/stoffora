@@ -228,6 +228,38 @@ xuddi production ma’lumoti kabi himoyalang.
 - **Ekran qulfi**: Sozlamalar → Ekran qulfi. Belgilangan daqiqa harakatsizlikdan keyin panel xiralashib qulflanadi, alohida qulf paroli bilan ochiladi. Qulf serverda ham belgilanadi — sahifani yangilash uni ochmaydi.
 - **Mini App**: Telegram 8.0+ da telefonlarda to‘liq ekran rejimida ochiladi.
 
+## Tezlik va yuklamaga chidamlilik
+
+- Ma’lumotlar server xotirasida ushlab turiladi — o‘qish so‘rovlari diskka tegmaydi.
+- Yozishlar navbatga tushadi va bir nechta amal bitta SQLite tranzaksiyasida saqlanadi.
+  Amal xato bersa, xotira oxirgi saqlangan holatga qaytadi (qisman o‘zgarish qolmaydi).
+- Davomat, audit jurnali, rasmlar va kanal navbati alohida jadvallarda — faqat o‘zgargan
+  qatorlar yoziladi. Eski formatdagi baza birinchi ishga tushishda avtomatik ko‘chiriladi.
+- Rasmlar JSON javoblarda base64 emas, imzolangan va keshlanadigan URL (`/api/media/...`).
+- Javoblar gzip bilan siqiladi; `/api` uchun IP bo‘yicha umumiy limit
+  (`API_RATE_LIMIT_PER_MINUTE`, standart 3000/daqiqa).
+- `/health` — `eventLoopLagMs` va `memoryMb` ko‘rsatkichlari bilan.
+
+O‘lchov (300 xodim, 60 kunlik davomat, ketma-ket so‘rovlar):
+
+| So‘rov | Oldin | Hozir |
+|---|---|---|
+| `/api/auth/me` | 270 ms | 7 ms |
+| `/api/dashboard` | 1015 ms | 25 ms |
+| `/api/attendance/day` | 2763 ms | 15 ms |
+| 100 ta parallel yozish | 72 s | 1 s |
+
+Sinab ko‘rish (faqat test bazasida):
+
+```bash
+SQLITE_PATH=./data/load.sqlite npm run seed:load -- 300 60
+SQLITE_PATH=./data/load.sqlite API_RATE_LIMIT_PER_MINUTE=10000000 npm run dev:server
+npm run bench
+```
+
+Server bitta jarayon (1 replica) sifatida ishlashi kerak — xotiradagi holat va SQLite
+bitta yozuvchi uchun mo‘ljallangan.
+
 ## Xavfsizlik eslatmalari
 
 - `.env` faylini commit qilmang.

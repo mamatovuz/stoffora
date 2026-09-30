@@ -36,6 +36,8 @@ const weekdays = [
   "shanba",
 ];
 
+const TASHKENT_OFFSET_MS = 5 * 60 * 60 * 1000;
+
 export function dateParts(value: string | Date) {
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
     const [year, month, day] = value.split("-").map(Number);
@@ -46,26 +48,13 @@ export function dateParts(value: string | Date) {
       weekday: new Date(`${value}T12:00:00+05:00`).getDay(),
     };
   }
-  const formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Tashkent",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  const parts = Object.fromEntries(
-    formatter
-      .formatToParts(new Date(value))
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, Number(part.value)]),
-  );
-  const localDate = new Date(
-    `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}T12:00:00+05:00`,
-  );
+  // Toshkent doimiy UTC+5 (yozgi vaqt yo‘q) — Intl formatlagichdan ~50 barobar tez.
+  const shifted = new Date(new Date(value).getTime() + TASHKENT_OFFSET_MS);
   return {
-    year: parts.year,
-    month: parts.month - 1,
-    day: parts.day,
-    weekday: localDate.getDay(),
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth(),
+    day: shifted.getUTCDate(),
+    weekday: shifted.getUTCDay(),
   };
 }
 
@@ -110,10 +99,7 @@ export const initials = (first: string, last = "") =>
 /** Telefon raqamini solishtirish uchun oxirgi 9 raqam (O‘zbekiston formati). */
 export const phoneKey = (value?: string) =>
   (value || "").replace(/\D/g, "").slice(-9);
-export const tashkentClock = (value: Date = new Date()) =>
-  new Intl.DateTimeFormat("en-GB", {
-    timeZone: "Asia/Tashkent",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).format(value);
+export const tashkentClock = (value: Date = new Date()) => {
+  const shifted = new Date(value.getTime() + TASHKENT_OFFSET_MS);
+  return `${String(shifted.getUTCHours()).padStart(2, "0")}:${String(shifted.getUTCMinutes()).padStart(2, "0")}`;
+};

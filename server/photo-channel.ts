@@ -83,7 +83,9 @@ async function flushQueue() {
         );
         await updateDb((next) => {
           next.photoQueue = next.photoQueue.filter((item) => item.id !== job.id);
-          next.channelPosts.push({
+          // Postni faqat avtomatik o‘chirish yoqilgan bo‘lsa eslab qolamiz.
+          const days = next.companies.find((c) => c.id === job.companyId)?.photoChannel?.retentionDays || 0;
+          if (days > 0) next.channelPosts.push({
             companyId: job.companyId,
             chatId: job.chatId,
             messageId: message.message_id,

@@ -1,6 +1,6 @@
 import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import { z } from "zod";
-import { readDb } from "../lib/store";
+import { dataIndexes, readDb } from "../lib/store";
 import { dateParts, tashkentIsoDate } from "../lib/format";
 import type { Attendance, Database, Employee } from "../lib/types";
 import { attendanceKpi, calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
@@ -25,11 +25,12 @@ export function payrollRows(db: Database, tenant: string, month: string) {
   const monthEnd = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
   const lastDay = monthEnd < today ? monthEnd : today;
   const days = `${month}-01` <= lastDay ? datesBetween(`${month}-01`, lastDay) : [];
+  const index = dataIndexes(db);
   return db.employees
     .filter((e) => e.companyId === tenant && e.status === "ACTIVE")
     .map((e) => {
-      const rows = db.attendance.filter(
-        (x) => x.employeeId === e.id && x.date.startsWith(month),
+      const rows = (index.attendanceByEmployee.get(e.id) || []).filter((x) =>
+        x.date.startsWith(month),
       );
       const line = calculatePayroll(e.baseSalary, rows, settings);
       const byDate = new Map(rows.map((r) => [r.date, r]));
@@ -160,7 +161,8 @@ export function registerExcelReports(
         .filter(
           (e) =>
             e.companyId === tenant &&
-            (e.status === "ACTIVE" || db.attendance.some((a) => a.employeeId === e.id && a.date >= from && a.date <= to)) &&
+            (e.status === "ACTIVE" ||
+              (dataIndexes(db).attendanceByEmployee.get(e.id) || []).some((a) => a.date >= from && a.date <= to)) &&
             (!branchFilter || e.branchId === branchFilter),
         )
         .sort((a, b) => `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`));

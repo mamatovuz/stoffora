@@ -1,4 +1,4 @@
-import { readDb } from "../lib/store";
+import { dataIndexes, readDb } from "../lib/store";
 import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { sendTelegramMessage } from "./telegram";
 
@@ -30,6 +30,7 @@ export function startAttendanceReminders() {
       const now = toMinutes(tashkentClock());
       const weekday = dateParts(date).weekday;
       const db = await readDb();
+      const index = dataIndexes(db);
       for (const employee of db.employees) {
         if (
           employee.status !== "ACTIVE" ||
@@ -38,21 +39,15 @@ export function startAttendanceReminders() {
           employee.telegramId.startsWith("dev")
         )
           continue;
-        const onLeave = db.leaveRequests.some(
-          (item) =>
-            item.employeeId === employee.id &&
-            item.status === "APPROVED" &&
-            item.startDate <= date &&
-            item.endDate >= date,
+        const onLeave = (index.approvedLeaveByEmployee.get(employee.id) || []).some(
+          (item) => item.startDate <= date && item.endDate >= date,
         );
         if (onLeave) continue;
         const day = db.schedules
           .find((item) => item.id === employee.scheduleId)
           ?.days.find((item) => item.day === weekday);
         if (!day?.enabled) continue;
-        const record = db.attendance.find(
-          (item) => item.employeeId === employee.id && item.date === date,
-        );
+        const record = index.attendanceByKey.get(`${employee.id}|${date}`);
         const start = toMinutes(day.start);
         const end = toMinutes(day.end);
         const inKey = `${employee.id}:in`;

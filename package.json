@@ -13,7 +13,10 @@
     "build": "npm run prepare:face-models && vite build && tsup server/index.ts --format esm --out-dir dist-server --clean",
     "start": "node dist-server/index.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "seed:load": "tsx scripts/seed-load.ts",
+    "bench": "node scripts/bench.mjs",
+    "loadtest": "node scripts/load-test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.6",
@@ -21,6 +24,7 @@
     "@vladmandic/face-api": "^1.7.15",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.4.1",
+    "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "date-fns": "^4.1.0",
@@ -44,6 +48,7 @@
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/compression": "^1.8.1",
     "@types/cookie-parser": "^1.4.8",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
@@ -53,6 +58,7 @@
     "@types/react": "^19.0.3",
     "@types/react-dom": "^19.0.2",
     "@vitejs/plugin-react": "^4.3.4",
+    "autocannon": "^8.0.0",
     "autoprefixer": "^10.4.20",
     "concurrently": "^9.1.2",
     "postcss": "^8.4.49",

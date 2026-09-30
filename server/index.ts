@@ -13,9 +13,20 @@ import jwt from "jsonwebtoken";
 import QRCode from "qrcode";
 import { z } from "zod";
 import path from "node:path";
+import { monitorEventLoopDelay } from "node:perf_hooks";
+import compression from "compression";
 import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
-import { audit, checkDatabaseHealth, readDb, updateDb } from "../lib/store";
+import {
+  audit,
+  checkDatabaseHealth,
+  dataIndexes,
+  dataVersion,
+  flushDb,
+  queryAuditLogs,
+  readDb,
+  updateDb,
+} from "../lib/store";
 import { calculateAttendance, isValidClockTime } from "../lib/attendance";
 import {
   dateParts,
@@ -53,6 +64,7 @@ import {
 } from "./telegram";
 import { createMiniRouter } from "./mini-routes";
 import { startAttendanceReminders } from "./reminders";
+import { serveMedia, slimPhotos } from "./media";
 import { startPhotoChannelWorker, testPhotoChannel } from "./photo-channel";
 import { payrollRows, penaltyText, registerExcelReports } from "./reports";
 
@@ -146,16 +158,47 @@ app.use(
   }),
 );
 app.use(cors({ origin: publicAppUrl, credentials: true }));
+// Javoblarni siqish (JSON 5–10 barobar kichrayadi). Rasmlar allaqachon siqilgan.
+app.use(compression({ threshold: 1024 }));
 app.use(express.json({ limit: "2mb" }));
+// Imzolangan rasm URL’lari — auth va umumiy limitdan oldin, uzoq keshlanadi.
+app.get("/api/media/:kind/:file", (req, res, next) => {
+  Promise.resolve(serveMedia(req, res)).catch(next);
+});
+// Bitta IP’dan juda ko‘p so‘rov (flood) serverni band qilmasligi uchun.
+// Ofisdagi hamma xodim bitta IP’dan kirishi mumkin, shuning uchun limit keng.
+app.use(
+  "/api",
+  rateLimit({
+    windowMs: 60_000,
+    limit: Number(process.env.API_RATE_LIMIT_PER_MINUTE) || 3000,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => req.path === "/telegram/webhook",
+    message: { message: "Juda ko‘p so‘rov. Birozdan keyin qayta urinib ko‘ring." },
+  }),
+);
+app.use("/api", slimPhotos);
 app.use(cookieParser());
 
+// Event loop kechikishi — server "qotayotgani"ni ko‘rsatadi.
+const loopDelay = monitorEventLoopDelay({ resolution: 20 });
+loopDelay.enable();
+setInterval(() => loopDelay.reset(), 60_000).unref();
+let integrity: { ok: boolean; at: number } | undefined;
 app.get("/health", async (_req, res) => {
   try {
-    const database = await checkDatabaseHealth();
+    // To‘liq tekshiruv og‘ir — 10 daqiqada bir marta.
+    if (!integrity || Date.now() - integrity.at > 10 * 60_000)
+      integrity = { ok: await checkDatabaseHealth(), at: Date.now() };
+    const database = integrity.ok;
     const telegram = getTelegramBotState();
+    const memory = process.memoryUsage();
     res.status(database ? 200 : 503).json({
       status: database ? "ok" : "degraded",
       database: database ? "sqlite-ready" : "sqlite-error",
+      eventLoopLagMs: Math.round(loopDelay.percentile(99) / 1e6),
+      memoryMb: Math.round(memory.rss / 1024 / 1024),
       telegram: telegram.state,
       telegramMode: telegram.mode,
       telegramBot: telegram.username ? `@${telegram.username}` : undefined,
@@ -985,33 +1028,65 @@ type RosterState =
   | "NOT_YET"
   | "UPCOMING";
 
+/** Ro‘yxat uchun xodimning faqat kerakli (va maxfiy bo‘lmagan) maydonlari. */
+function rosterEmployee(employee: Employee) {
+  return {
+    id: employee.id,
+    companyId: employee.companyId,
+    employeeNo: employee.employeeNo,
+    firstName: employee.firstName,
+    lastName: employee.lastName,
+    phone: employee.phone,
+    branchId: employee.branchId,
+    departmentId: employee.departmentId,
+    positionId: employee.positionId,
+    scheduleId: employee.scheduleId,
+    status: employee.status,
+    startDate: employee.startDate,
+    photoDataUrl: employee.photoDataUrl,
+    telegramConnected: employee.telegramConnected,
+    faceEnrolledAt: employee.faceEnrolledAt,
+  } as Employee;
+}
+
+// Bir xil (kompaniya, sana, ma’lumot versiyasi, daqiqa) uchun natija qayta hisoblanmaydi.
+const rosterCache = new Map<string, ReturnType<typeof computeDayRoster>>();
 function dayRoster(db: Database, tenant: string, date: string) {
+  const key = `${tenant}|${date}|${dataVersion()}|${tashkentClock()}`;
+  const cached = rosterCache.get(key);
+  if (cached) return cached;
+  const value = computeDayRoster(db, tenant, date);
+  if (rosterCache.size > 300) rosterCache.clear();
+  rosterCache.set(key, value);
+  return value;
+}
+
+function computeDayRoster(db: Database, tenant: string, date: string) {
   const today = tashkentIsoDate();
   const nowClock = tashkentClock();
   const weekday = dateParts(date).weekday;
+  // O‘qish indekslari: xodim+sana bo‘yicha davomat O(1) — katta bazada ham tez.
+  const index = dataIndexes(db);
+  const byId = <T extends { id: string }>(rows: T[]) => new Map(rows.map((row) => [row.id, row]));
+  const schedules = byId(db.schedules.filter((s) => s.companyId === tenant));
+  const branches = byId(db.branches.filter((b) => b.companyId === tenant));
+  const departments = byId(db.departments.filter((d) => d.companyId === tenant));
+  const positions = byId(db.positions.filter((p) => p.companyId === tenant));
   return db.employees
     .filter(
       (employee) =>
         employee.companyId === tenant &&
         (employee.status === "ACTIVE" ||
-          db.attendance.some(
-            (a) => a.employeeId === employee.id && a.date === date,
-          )) &&
+          index.attendanceByKey.has(`${employee.id}|${date}`)) &&
         employee.startDate <= date,
     )
     .map((employee) => {
-      const record = db.attendance.find(
-        (a) => a.employeeId === employee.id && a.date === date,
-      );
-      const schedule = db.schedules.find((s) => s.id === employee.scheduleId);
+      const record = index.attendanceByKey.get(`${employee.id}|${date}`);
+      const schedule = schedules.get(employee.scheduleId);
       const day = schedule?.days.find((d) => d.day === weekday);
-      const leave = db.leaveRequests.find(
-        (l) =>
-          l.employeeId === employee.id &&
-          l.status === "APPROVED" &&
-          l.startDate <= date &&
-          l.endDate >= date,
-      );
+      const leave = index.approvedLeaveByEmployee
+        .get(employee.id)
+        ?.find((l) => l.startDate <= date && l.endDate >= date);
       let state: RosterState;
       if (record?.checkIn) state = record.checkOut ? "LEFT" : "IN";
       else if (leave) state = "ON_LEAVE";
@@ -1024,17 +1099,16 @@ function dayRoster(db: Database, tenant: string, date: string) {
         state = nh * 60 + nm <= deadline ? "NOT_YET" : "ABSENT";
       } else state = "ABSENT";
       return {
-        employee,
+        employee: rosterEmployee(employee),
         record: record || null,
         state,
         late: (record?.lateMinutes || 0) > 0,
         leaveType: leave?.type,
         scheduledStart: record?.scheduledStart || (day?.enabled ? day.start : undefined),
         scheduledEnd: record?.scheduledEnd || (day?.enabled ? day.end : undefined),
-        branch: db.branches.find((b) => b.id === employee.branchId)?.name,
-        department: db.departments.find((d) => d.id === employee.departmentId)
-          ?.name,
-        position: db.positions.find((p) => p.id === employee.positionId)?.name,
+        branch: branches.get(employee.branchId)?.name,
+        department: departments.get(employee.departmentId)?.name,
+        position: positions.get(employee.positionId)?.name,
         schedule: schedule?.name,
       };
     });
@@ -1122,6 +1196,8 @@ const photoSchema = z
       .max(700_000)
       .regex(/^data:image\/(jpeg|jpg|png|webp);base64,/),
     z.literal(""),
+    // Forma javobdagi rasm URL’ini qaytarib yuborsa — "o‘zgarmagan" deb hisoblanadi.
+    z.string().startsWith("/api/media/").transform(() => undefined),
   ])
   .optional();
 const employeeSchema = z.object({
@@ -1213,13 +1289,12 @@ app.get(
       `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`),
     );
     const today = tashkentIsoDate();
+    const index = dataIndexes(db);
     const items = rows
       .slice((page - 1) * limit, page * limit)
       .map((employee) => ({
         ...employee,
-        todayAttendance: db.attendance.find(
-          (item) => item.employeeId === employee.id && item.date === today,
-        ),
+        todayAttendance: index.attendanceByKey.get(`${employee.id}|${today}`),
       }));
     res.json({ items, total, page, pages: Math.max(1, Math.ceil(total / limit)) });
   }),
@@ -1280,10 +1355,9 @@ app.get(
       leave: db.leaveRequests
         .filter((l) => l.companyId === tenant && l.employeeId === employee.id)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-      activity: db.auditLogs
-        .filter((a) => a.companyId === tenant && a.entityId === employee.id)
-        .slice(0, 50)
-        .map(({ before: _b, after: _a, ...rest }) => rest),
+      activity: (await queryAuditLogs(tenant, { entityId: employee.id, limit: 50 })).map(
+        ({ before: _b, after: _a, ...rest }) => rest,
+      ),
       faceSamples:
         db.faceProfiles.find((f) => f.employeeId === employee.id)?.samples
           ?.length || 0,
@@ -2068,13 +2142,8 @@ app.get(
   "/api/audit",
   requirePermission("audit.view"),
   asyncRoute(async (req, res) => {
-    const db = await readDb();
-    res.json(
-      db.auditLogs
-        .filter((a) => a.companyId === companyId(req))
-        .slice(0, 300)
-        .map(({ before: _b, after: _a, ...rest }) => rest),
-    );
+    const rows = await queryAuditLogs(companyId(req), { limit: 300 });
+    res.json(rows.map(({ before: _b, after: _a, ...rest }) => rest));
   }),
 );
 app.get(
@@ -2716,6 +2785,8 @@ if (existsSync(dist)) {
       setHeaders: (res, filePath) => {
         if (filePath.includes(`${path.sep}assets${path.sep}`))
           res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        else if (filePath.includes(`${path.sep}face-models${path.sep}`))
+          res.setHeader("Cache-Control", "public, max-age=604800");
       },
     }),
   );
@@ -2751,15 +2822,24 @@ app.use(
 const server = app.listen(port, () =>
   console.log(`Staffora API http://localhost:${port}`),
 );
+// Osilib qolgan ulanishlar resurslarni band qilmasin (proksi keep-alive’dan uzunroq).
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
+server.requestTimeout = 60_000;
+// Bazani oldindan yuklab qo‘yamiz — birinchi foydalanuvchi kutmasin.
+void readDb().catch((error) => console.error("Bazani yuklashda xato", error));
 void startTelegramBot();
 startAttendanceReminders();
 startPhotoChannelWorker();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    void stopTelegramBot().finally(() => {
-      server.close(() => process.exit(0));
-      setTimeout(() => process.exit(0), 5_000).unref();
-    });
+    void stopTelegramBot()
+      .catch(() => undefined)
+      .then(() => flushDb())
+      .finally(() => {
+        server.close(() => process.exit(0));
+        setTimeout(() => process.exit(0), 5_000).unref();
+      });
   });
 }
