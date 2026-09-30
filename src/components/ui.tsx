@@ -92,10 +92,12 @@ export function Avatar({
   photo?: string;
   size?: "sm" | "lg" | "xl";
 }) {
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [photo]);
   return (
     <span className={`avatar ${size || ""}`}>
-      {photo ? (
-        <img src={photo} alt="" />
+      {photo && !broken ? (
+        <img src={photo} alt="" onError={() => setBroken(true)} />
       ) : (
         `${first?.[0] || ""}${last?.[0] || ""}`.toUpperCase() || "?"
       )}

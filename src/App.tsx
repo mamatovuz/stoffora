@@ -61,7 +61,7 @@ const RolesPage = lazy(() =>
   import("./pages/Directory").then((m) => ({ default: m.RolesPage })),
 );
 const SettingsPage = lazy(() =>
-  import("./pages/Directory").then((m) => ({ default: m.SettingsPage })),
+  import("./pages/Settings").then((m) => ({ default: m.SettingsPage })),
 );
 const CalendarPage = lazy(() =>
   import("./pages/Calendar").then((m) => ({ default: m.CalendarPage })),

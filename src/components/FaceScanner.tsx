@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  ArrowLeft,
-  ArrowRight,
-  CheckCircle2,
-  LoaderCircle,
-  RotateCcw,
-  ShieldCheck,
-  X,
-} from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { errorText, post } from "../api";
 
 type FaceApi = typeof import("@vladmandic/face-api");
-type Pose = "front" | "side" | "left" | "right";
-type Step = { title: string; hint: string; pose: Pose; capture: boolean };
+type Phase = "intro" | "loading" | "center" | "rotate" | "turn" | "final" | "sending" | "done" | "error";
+
+const TICKS = 60;
+const ENROLL_COVERAGE = 0.6;
 
 let modelPromise: Promise<FaceApi> | null = null;
 export function preloadFaceModels() {
@@ -36,10 +30,11 @@ export function preloadFaceModels() {
 
 const haptic = (type: "success" | "error" | "warning") =>
   window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred(type);
-const tick = () => window.Telegram?.WebApp?.HapticFeedback?.impactOccurred("light");
+const tap = () => window.Telegram?.WebApp?.HapticFeedback?.impactOccurred("light");
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-/** Oddiy yaw bahosi: burun uchi ko‘zlar o‘rtasidan qancha siljigan (ko‘zlar oralig‘iga nisbatan). */
-function estimateYaw(points: { x: number; y: number }[]) {
+type Point = { x: number; y: number };
+function geometry(points: Point[]) {
   const avg = (from: number, to: number) => {
     const slice = points.slice(from, to + 1);
     return {
@@ -51,16 +46,21 @@ function estimateYaw(points: { x: number; y: number }[]) {
   const right = avg(42, 47);
   const nose = points[30];
   const eyeDistance = Math.hypot(right.x - left.x, right.y - left.y) || 1;
-  return (nose.x - (left.x + right.x) / 2) / eyeDistance;
+  const mid = { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 };
+  return {
+    // musbat — xodimning chap tomoniga burilgan (kamera tasvirida o‘ngga)
+    yaw: (nose.x - mid.x) / eyeDistance,
+    pitch: (nose.y - mid.y) / eyeDistance,
+  };
 }
 
-function frameBrightness(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
-  canvas.width = 32;
-  canvas.height = 32;
+function brightness(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
+  canvas.width = 24;
+  canvas.height = 24;
   const context = canvas.getContext("2d", { willReadFrequently: true });
   if (!context) return 128;
-  context.drawImage(video, 0, 0, 32, 32);
-  const data = context.getImageData(0, 0, 32, 32).data;
+  context.drawImage(video, 0, 0, 24, 24);
+  const data = context.getImageData(0, 0, 24, 24).data;
   let sum = 0;
   for (let i = 0; i < data.length; i += 4)
     sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
@@ -74,45 +74,49 @@ function capturePhoto(video: HTMLVideoElement) {
   canvas.height = 480;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Profil rasmini tayyorlab bo‘lmadi.");
-  context.translate(canvas.width, 0);
+  context.translate(480, 0);
   context.scale(-1, 1);
-  context.drawImage(
-    video,
-    (video.videoWidth - size) / 2,
-    (video.videoHeight - size) / 2,
-    size,
-    size,
-    0,
-    0,
-    canvas.width,
-    canvas.height,
+  context.drawImage(video, (video.videoWidth - size) / 2, (video.videoHeight - size) / 2, size, size, 0, 0, 480, 480);
+  return canvas.toDataURL("image/jpeg", 0.84);
+}
+
+const distance = (a: number[], b: number[]) =>
+  Math.sqrt(a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0));
+const mean = (samples: number[][]) =>
+  samples[0].map((_, i) => samples.reduce((s, x) => s + x[i], 0) / samples.length);
+
+/** iOS uslubidagi Face ID belgisi. */
+export function FaceIdGlyph({
+  state = "idle",
+  size = 96,
+}: {
+  state?: "idle" | "scan" | "ok" | "fail";
+  size?: number;
+}) {
+  return (
+    <svg className={`faceid-glyph ${state}`} width={size} height={size} viewBox="0 0 100 100" aria-hidden="true">
+      <g className="brackets" fill="none" strokeWidth="6" strokeLinecap="round">
+        <path d="M8 30V18a10 10 0 0 1 10-10h12" />
+        <path d="M70 8h12a10 10 0 0 1 10 10v12" />
+        <path d="M92 70v12a10 10 0 0 1-10 10H70" />
+        <path d="M30 92H18A10 10 0 0 1 8 82V70" />
+      </g>
+      <g className="face" fill="none" strokeWidth="6" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M34 36v7" />
+        <path d="M66 36v7" />
+        <path d="M51 36v19h-5" />
+        <path d="M36 66c8 7 20 7 28 0" />
+      </g>
+      <path
+        className="check"
+        d="M28 52l15 15 30-32"
+        fill="none"
+        strokeWidth="7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
-  return canvas.toDataURL("image/jpeg", 0.82);
-}
-
-function distance(a: number[], b: number[]) {
-  return Math.sqrt(a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0));
-}
-function mean(samples: number[][]) {
-  return samples[0].map((_, i) => samples.reduce((s, x) => s + x[i], 0) / samples.length);
-}
-
-function buildSteps(enrolled: boolean): Step[] {
-  const direction: Pose = Math.random() < 0.5 ? "left" : "right";
-  const turn = direction === "left" ? "chapga" : "o‘ngga";
-  if (enrolled)
-    return [
-      { title: "Kameraga to‘g‘ri qarang", hint: "Yuzingizni doira markaziga joylang", pose: "front", capture: true },
-      { title: `Boshingizni sekin ${turn} buring`, hint: "Jonli tekshiruv — rasm yoki video emasligini aniqlaymiz", pose: direction, capture: false },
-      { title: "Yana to‘g‘ri qarang", hint: "Bir soniya qimirlamang", pose: "front", capture: true },
-    ];
-  return [
-    { title: "Kameraga to‘g‘ri qarang", hint: "Yorug‘ joyda, ko‘zoynak va niqobsiz", pose: "front", capture: true },
-    { title: "Boshingizni sal chapga buring", hint: "Yuzni turli burchakdan saqlaymiz", pose: "left", capture: true },
-    { title: "Endi sal o‘ngga buring", hint: "Sekin, shoshilmang", pose: "right", capture: true },
-    { title: "Yana to‘g‘ri qarang", hint: "Deyarli tayyor", pose: "front", capture: true },
-    { title: "Biroz yaqinroq keling", hint: "Oxirgi namuna", pose: "front", capture: true },
-  ];
 }
 
 export function FaceScanner({
@@ -129,33 +133,52 @@ export function FaceScanner({
   const streamRef = useRef<MediaStream | null>(null);
   const aliveRef = useRef(true);
   const runRef = useRef(0);
-  const [phase, setPhase] = useState<"loading" | "scanning" | "sending" | "done" | "error">("loading");
-  const [steps, setSteps] = useState<Step[]>(() => buildSteps(enrolled));
-  const [stepIndex, setStepIndex] = useState(0);
-  const [hint, setHint] = useState("Kamera va Face ID modeli tayyorlanmoqda…");
+  const litRef = useRef<boolean[]>(Array(TICKS).fill(false));
+  const [lit, setLit] = useState<boolean[]>(() => Array(TICKS).fill(false));
+  const [phase, setPhase] = useState<Phase>(enrolled ? "loading" : "intro");
+  const [title, setTitle] = useState("");
+  const [hint, setHint] = useState("");
+  const [arrow, setArrow] = useState<"left" | "right" | null>(null);
   const [error, setError] = useState("");
-  const [ok, setOk] = useState(false);
+  const [score, setScore] = useState(0);
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
   };
+  const light = (predicate: (index: number) => boolean) => {
+    let changed = false;
+    litRef.current = litRef.current.map((value, index) => {
+      if (!value && predicate(index)) {
+        changed = true;
+        return true;
+      }
+      return value;
+    });
+    if (changed) setLit([...litRef.current]);
+  };
+  const resetTicks = () => {
+    litRef.current = Array(TICKS).fill(false);
+    setLit([...litRef.current]);
+  };
+  const fillTo = (fraction: number) => light((i) => i < Math.round(TICKS * fraction));
 
   const run = useCallback(async () => {
     const runId = ++runRef.current;
-    const plan = buildSteps(enrolled);
-    setSteps(plan);
-    setStepIndex(0);
-    setError("");
-    setOk(false);
-    setPhase("loading");
-    setHint("Kamera va Face ID modeli tayyorlanmoqda…");
     const active = () => aliveRef.current && runRef.current === runId;
+    resetTicks();
+    setError("");
+    setArrow(null);
+    setPhase("loading");
+    setTitle(enrolled ? "Face ID" : "Tayyorlanmoqda");
+    setHint("Kamera ochilmoqda…");
     try {
-      if (!window.isSecureContext)
-        throw new Error("Face ID uchun sayt HTTPS orqali ochilishi kerak.");
+      if (!window.isSecureContext) throw new Error("Face ID uchun sayt HTTPS orqali ochilishi kerak.");
       if (!navigator.mediaDevices?.getUserMedia)
-        throw new Error("Qurilmangizda kameraga kirish imkoni yo‘q. Telegram’ni yangilang.");
+        throw new Error("Kameraga kirish imkoni yo‘q. Telegram ilovasini yangilang.");
+      const slowHint = window.setTimeout(() => {
+        if (active()) setHint("Kameraga ruxsat so‘rovini tasdiqlang (Ruxsat berish / Allow)");
+      }, 6000);
       const [faceapi, stream] = await Promise.all([
         preloadFaceModels(),
         streamRef.current
@@ -165,148 +188,220 @@ export function FaceScanner({
               audio: false,
             }),
       ]);
+      window.clearTimeout(slowHint);
       if (!active()) return;
       streamRef.current = stream;
       const video = videoRef.current;
       if (!video) return;
       if (video.srcObject !== stream) {
         video.srcObject = stream;
-        await video.play();
+        await video.play().catch(() => undefined);
       }
-      setPhase("scanning");
-      const detectorOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
-      const captureOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.55 });
+      const fast = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+      const precise = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.55 });
       const samples: number[][] = [];
       let photo = "";
       let frames = 0;
-      let firstSide = 0;
-      for (let index = 0; index < plan.length; index += 1) {
-        const step = plan[index];
-        setStepIndex(index);
-        setHint(step.hint);
+      let baselinePitch = 0;
+
+      /** Bitta kadrni tekshiradi. Sifat yaxshi bo‘lsa geometriyani qaytaradi. */
+      const inspect = async () => {
+        await sleep(90);
+        if (!active() || video.readyState < 2) return null;
+        frames += 1;
+        const faces = await faceapi.detectAllFaces(video, fast).withFaceLandmarks(true);
+        if (!active()) return null;
+        if (!faces.length) {
+          setHint("Yuzingizni doira ichiga joylang");
+          return null;
+        }
+        if (faces.length > 1) {
+          setHint("Kadrda faqat siz bo‘lishingiz kerak");
+          return null;
+        }
+        const box = faces[0].detection.box;
+        const frame = Math.min(video.videoWidth, video.videoHeight);
+        const cx = (box.x + box.width / 2) / video.videoWidth;
+        const cy = (box.y + box.height / 2) / video.videoHeight;
+        if (box.width < frame * 0.24) {
+          setHint("Yaqinroq keling");
+          return null;
+        }
+        if (box.width > frame * 0.88) {
+          setHint("Biroz uzoqroq turing");
+          return null;
+        }
+        if (Math.abs(cx - 0.5) > 0.22 || Math.abs(cy - 0.5) > 0.24) {
+          setHint("Yuzingizni markazga olib keling");
+          return null;
+        }
+        if (frames % 10 === 0 && brightness(video, canvasRef.current) < 50) {
+          setHint("Juda qorong‘i — yorug‘roq joyga o‘ting");
+          return null;
+        }
+        return geometry(faces[0].landmarks.positions);
+      };
+      const capture = async () => {
+        const full = await faceapi.detectSingleFace(video, precise).withFaceLandmarks(true).withFaceDescriptor();
+        if (!active() || !full || full.detection.score < 0.6) return false;
+        const descriptor = Array.from(full.descriptor);
+        if (samples.length && distance(samples[0], descriptor) > 0.62)
+          throw new Error("Tekshiruv davomida boshqa yuz aniqlandi. Qaytadan boshlang.");
+        samples.push(descriptor);
+        return true;
+      };
+      const waitFront = async (count: number) => {
         let stable = 0;
+        let captured = 0;
+        while (active() && captured < count) {
+          const g = await inspect();
+          if (!g) {
+            stable = 0;
+            continue;
+          }
+          if (Math.abs(g.yaw) > 0.12) {
+            stable = 0;
+            setHint("Kameraga to‘g‘ri qarang");
+            continue;
+          }
+          setHint("Qimirlamang…");
+          if (++stable < 3) continue;
+          if (await capture()) {
+            captured += 1;
+            baselinePitch = g.pitch;
+            if (!photo) photo = capturePhoto(video);
+            stable = 0;
+          }
+        }
+      };
+
+      if (!enrolled) {
+        // 1) markaz
+        setPhase("center");
+        setTitle("Yuzingizni doira ichiga joylang");
+        await waitFront(2);
+        if (!active()) return;
+        tap();
+        // 2) doirani to‘ldirish (iPhone Face ID kabi)
+        setPhase("rotate");
+        setTitle("Boshingizni sekin aylantiring");
+        setHint("Doirani to‘ldirish uchun boshingizni aylana bo‘ylab harakatlantiring");
+        const thresholds = [0.18, 0.36, 0.54];
         const startedAt = Date.now();
         while (active()) {
-          await new Promise((resolve) => setTimeout(resolve, 120));
-          if (!active()) return;
-          if (video.readyState < 2) continue;
-          frames += 1;
-          const faces = await faceapi.detectAllFaces(video, detectorOptions).withFaceLandmarks(true);
-          if (!active()) return;
-          const elapsed = Date.now() - startedAt;
-          if (faces.length === 0) {
-            stable = 0;
-            setHint(elapsed > 6000 ? "Yuz ko‘rinmayapti — yorug‘roq joyga o‘ting" : "Yuzingizni doira ichiga joylang");
-            continue;
+          const g = await inspect();
+          const coverage = litRef.current.filter(Boolean).length / TICKS;
+          const slow = Date.now() - startedAt > 35000;
+          if (samples.length >= 4 && (coverage >= ENROLL_COVERAGE || (slow && coverage >= 0.35))) break;
+          if (!g) continue;
+          // Ekran (ko‘zgu) koordinatalarida yo‘nalish
+          const dx = -g.yaw;
+          const dy = (g.pitch - baselinePitch) * 1.6;
+          const magnitude = Math.hypot(dx, dy);
+          if (magnitude > 0.1) {
+            const angle = (Math.atan2(dy, dx) * 180) / Math.PI;
+            const center = Math.round((((angle + 90 + 360) % 360) / 360) * TICKS) % TICKS;
+            const spread = magnitude > 0.22 ? 4 : 3;
+            light((i) => {
+              const d = Math.min(Math.abs(i - center), TICKS - Math.abs(i - center));
+              return d <= spread;
+            });
+            setHint(
+              Date.now() - startedAt > 20000
+                ? "Boshingizni kattaroq aylana bo‘ylab harakatlantiring"
+                : "Davom eting…",
+            );
           }
-          if (faces.length > 1) {
-            stable = 0;
-            setHint("Kadrda faqat siz bo‘lishingiz kerak");
-            continue;
+          const next = thresholds[samples.length - 2];
+          if (next !== undefined && coverage >= next && Math.abs(g.yaw) < 0.45 && magnitude > 0.12) {
+            if (await capture()) tap();
           }
-          const face = faces[0];
-          const box = face.detection.box;
-          const frame = Math.min(video.videoWidth, video.videoHeight);
-          const cx = (box.x + box.width / 2) / video.videoWidth;
-          const cy = (box.y + box.height / 2) / video.videoHeight;
-          if (box.width < frame * 0.26) {
-            stable = 0;
-            setHint("Kameraga yaqinroq keling");
-            continue;
-          }
-          if (box.width > frame * 0.85) {
-            stable = 0;
-            setHint("Biroz uzoqroq turing");
-            continue;
-          }
-          if (Math.abs(cx - 0.5) > 0.2 || Math.abs(cy - 0.5) > 0.22) {
-            stable = 0;
-            setHint("Yuzingizni markazga olib keling");
-            continue;
-          }
-          if (frames % 8 === 0 && frameBrightness(video, canvasRef.current) < 55) {
-            stable = 0;
-            setHint("Juda qorong‘i — yorug‘roq joyga o‘ting");
-            continue;
-          }
-          const yaw = estimateYaw(face.landmarks.positions);
-          let poseOk = false;
-          if (step.pose === "front") poseOk = Math.abs(yaw) < 0.12;
-          else if (step.capture) {
-            // Ro‘yxatdan o‘tish: birinchi yon — istalgan tomon, ikkinchisi — qarama-qarshi tomon.
-            const sideOk = Math.abs(yaw) > 0.14 && Math.abs(yaw) < 0.5;
-            poseOk = sideOk && (firstSide === 0 || Math.sign(yaw) === -firstSide);
-          } else poseOk = Math.abs(yaw) > 0.2; // jonlilik: harakat bo‘lishi shart
-          if (!poseOk) {
-            stable = 0;
-            setHint(step.pose === "front" ? "To‘g‘ri, kameraga qarang" : step.hint);
-            continue;
-          }
-          stable += 1;
-          if (stable < (step.capture ? 3 : 2)) continue;
-          if (step.capture) {
-            const full = await faceapi
-              .detectSingleFace(video, captureOptions)
-              .withFaceLandmarks(true)
-              .withFaceDescriptor();
-            if (!active()) return;
-            if (!full || full.detection.score < 0.6) {
-              stable = 0;
-              continue;
-            }
-            const descriptor = Array.from(full.descriptor);
-            if (samples.length && distance(samples[0], descriptor) > 0.62) {
-              throw new Error("Tekshiruv davomida boshqa yuz aniqlandi. Qaytadan boshlang.");
-            }
-            samples.push(descriptor);
-            if (step.pose !== "front" && firstSide === 0) firstSide = Math.sign(yaw);
-            if (!photo && step.pose === "front") photo = capturePhoto(video);
-          }
-          tick();
-          break;
         }
         if (!active()) return;
+        light(() => true);
+        haptic("success");
+        // 3) yakuniy to‘g‘ri namuna
+        setPhase("final");
+        setTitle("Yana to‘g‘ri qarang");
+        setHint("Oxirgi namuna");
+        await waitFront(1);
+      } else {
+        // Tasdiqlash: to‘g‘ri → bosh burish (jonlilik) → to‘g‘ri
+        setPhase("center");
+        setTitle("Kameraga qarang");
+        await waitFront(1);
+        if (!active()) return;
+        fillTo(0.34);
+        tap();
+        const direction = Math.random() < 0.5 ? "left" : "right";
+        setPhase("turn");
+        setArrow(direction);
+        setTitle(direction === "left" ? "Boshingizni chapga buring" : "Boshingizni o‘ngga buring");
+        setHint("Jonli odam ekanini tekshiramiz");
+        let moved = 0;
+        while (active()) {
+          const g = await inspect();
+          if (!g) continue;
+          if (Math.abs(g.yaw) > 0.2) {
+            if (++moved >= 2) break;
+          } else moved = 0;
+        }
+        if (!active()) return;
+        setArrow(null);
+        fillTo(0.67);
+        tap();
+        setPhase("final");
+        setTitle("Yana kameraga qarang");
+        await waitFront(1);
       }
       if (!active()) return;
-      setStepIndex(plan.length);
+      fillTo(1);
       setPhase("sending");
-      setHint(enrolled ? "Profil bilan solishtirilmoqda…" : "Face ID saqlanmoqda…");
-      const liveness = { challenge: plan.map((s) => s.pose).join("-"), passed: true, frames };
+      setTitle(enrolled ? "Tekshirilmoqda" : "Saqlanmoqda");
+      setHint("");
+      const liveness = { challenge: enrolled ? "turn" : "circle", passed: true, frames };
       const result = enrolled
         ? await post<{ proof: string; score: number }>("/mini/face/verify", {
             descriptor: mean(samples),
             liveness,
           })
         : await post<{ proof: string; score: number }>("/mini/face/enroll", {
-            samples,
+            samples: samples.slice(0, 8),
             photoDataUrl: photo,
             liveness,
           });
       if (!active()) return;
-      setOk(true);
-      setPhase("done");
-      setHint(enrolled ? `Tasdiqlandi · ${result.score}% moslik` : "Face ID saqlandi");
-      haptic("success");
       stopCamera();
-      await new Promise((resolve) => setTimeout(resolve, 600));
+      setScore(result.score);
+      setPhase("done");
+      setTitle(enrolled ? "Tasdiqlandi" : "Face ID sozlandi");
+      haptic("success");
+      await sleep(enrolled ? 900 : 1400);
+      if (!active()) return;
       await onVerified(result.proof, result.score);
     } catch (reason) {
       if (!active()) return;
-      const message =
-        reason instanceof DOMException && reason.name === "NotAllowedError"
-          ? "Kameraga ruxsat berilmadi. Telegram sozlamalarida kameraga ruxsat bering va qayta urinib ko‘ring."
-          : reason instanceof DOMException && reason.name === "NotFoundError"
+      const name = reason instanceof DOMException ? reason.name : "";
+      setError(
+        name === "NotAllowedError"
+          ? "Kameraga ruxsat berilmadi. Telefon sozlamalarida Telegram uchun kamerani yoqing."
+          : name === "NotFoundError"
             ? "Old kamera topilmadi."
-            : errorText(reason, "Face ID tasdiqlanmadi.");
-      setError(message);
+            : name === "NotReadableError"
+              ? "Kamera boshqa ilova tomonidan band. Uni yopib qayta urinib ko‘ring."
+              : errorText(reason, "Face ID tasdiqlanmadi."),
+      );
       setPhase("error");
+      setTitle("Yuz tanilmadi");
       haptic("error");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enrolled, onVerified]);
 
   useEffect(() => {
     aliveRef.current = true;
-    void run();
+    if (enrolled) void run();
+    else void preloadFaceModels().catch(() => undefined);
     return () => {
       aliveRef.current = false;
       stopCamera();
@@ -314,102 +409,105 @@ export function FaceScanner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const total = steps.length;
-  const progress = phase === "done" ? 1 : Math.min(1, stepIndex / total);
-  const circumference = 2 * Math.PI * 48;
-  const current = steps[Math.min(stepIndex, total - 1)];
-  const arrow =
-    phase === "scanning" && current && (current.pose === "left" || current.pose === "right")
-      ? current.pose
-      : null;
+  const litCount = lit.filter(Boolean).length;
+  const showCamera = !["intro", "done"].includes(phase);
+  const glyphState = phase === "done" ? "ok" : phase === "error" ? "fail" : "scan";
 
   return (
-    <div className="sheet-layer">
-      <button className="sheet-backdrop" onClick={onClose} aria-label="Yopish" />
-      <section className="sheet" role="dialog" aria-modal="true">
-        <div className="sheet-head">
-          <div>
-            <b>{enrolled ? "Face ID tasdig‘i" : "Face ID’ni sozlash"}</b>
-            <small>
-              {enrolled
-                ? "Davomat uchun yuzingizni tasdiqlang"
-                : "Bir martalik: yuzingiz 5 xil burchakdan saqlanadi"}
-            </small>
+    <div className="faceid" role="dialog" aria-modal="true" aria-label="Face ID">
+      <header className="faceid-top">
+        <button onClick={onClose}>Bekor qilish</button>
+        {!enrolled && phase !== "intro" && phase !== "done" && (
+          <span>{Math.round((litCount / TICKS) * 100)}%</span>
+        )}
+      </header>
+
+      {phase === "intro" ? (
+        <div className="faceid-intro">
+          <FaceIdGlyph state="idle" size={110} />
+          <h1>Face ID’ni sozlash</h1>
+          <p>
+            Davomat faqat sizning yuzingiz bilan tasdiqlanadi. Buning uchun yuzingizni bir marta
+            turli burchaklardan skanerlaymiz.
+          </p>
+          <ul>
+            <li>Yorug‘ joyda turing, ko‘zoynak va niqobni yeching</li>
+            <li>Telefonni yuzingiz ro‘parasida ushlang</li>
+            <li>Boshingizni sekin aylantirib doirani to‘ldiring</li>
+          </ul>
+          <div className="faceid-actions">
+            <button className="faceid-primary" onClick={() => void run()}>
+              Boshlash
+            </button>
+            <button className="faceid-link" onClick={onClose}>
+              Keyinroq
+            </button>
           </div>
-          <button className="sheet-close" onClick={onClose} aria-label="Yopish">
-            <X size={18} />
-          </button>
         </div>
-        <div className="face-stage">
-          <video ref={videoRef} muted playsInline autoPlay />
-          <svg className={`face-ring ${phase === "error" ? "error" : ok ? "ok" : ""}`} viewBox="0 0 100 100">
-            <circle className="track" cx="50" cy="50" r="48" />
-            <circle
-              className="bar"
-              cx="50"
-              cy="50"
-              r="48"
-              strokeDasharray={circumference}
-              strokeDashoffset={circumference * (1 - (phase === "error" ? 1 : progress))}
-            />
-          </svg>
-          {arrow && (
-            <span className={`face-arrow ${arrow}`} aria-hidden="true">
-              {arrow === "left" ? <ArrowLeft size={20} /> : <ArrowRight size={20} />}
-            </span>
-          )}
-          {(phase === "loading" || phase === "sending") && (
-            <span className="face-check" style={{ color: "#fff" }}>
-              <LoaderCircle className="spin" size={34} />
-            </span>
-          )}
-          {phase === "done" && (
-            <span className="face-check">
-              <CheckCircle2 size={56} />
-            </span>
-          )}
-        </div>
-        <div className="face-status" aria-live="polite">
-          <b>
+      ) : (
+        <div className="faceid-body">
+          <h1 className="faceid-title">{title}</h1>
+          <div className={`faceid-stage ${phase}`}>
+            <svg className="faceid-ticks" viewBox="0 0 200 200" aria-hidden="true">
+              {lit.map((on, i) => {
+                const angle = (i / TICKS) * Math.PI * 2 - Math.PI / 2;
+                const r1 = 88;
+                const r2 = on ? 99 : 95;
+                return (
+                  <line
+                    key={i}
+                    x1={100 + Math.cos(angle) * r1}
+                    y1={100 + Math.sin(angle) * r1}
+                    x2={100 + Math.cos(angle) * r2}
+                    y2={100 + Math.sin(angle) * r2}
+                    className={on ? "on" : ""}
+                  />
+                );
+              })}
+            </svg>
+            <div className="faceid-camera">
+              <video ref={videoRef} muted playsInline autoPlay style={{ opacity: showCamera ? 1 : 0 }} />
+              {(phase === "loading" || phase === "sending") && (
+                <div className="faceid-cover">
+                  <FaceIdGlyph state="scan" size={84} />
+                </div>
+              )}
+              {(phase === "done" || phase === "error") && (
+                <div className={`faceid-cover ${phase}`}>
+                  <FaceIdGlyph state={glyphState} size={96} />
+                </div>
+              )}
+            </div>
+            {arrow && (
+              <span className={`faceid-arrow ${arrow}`}>
+                {arrow === "left" ? <ArrowLeft size={22} /> : <ArrowRight size={22} />}
+              </span>
+            )}
+          </div>
+          <p className="faceid-hint" aria-live="polite">
             {phase === "error"
-              ? "Tasdiqlanmadi"
+              ? error
               : phase === "done"
-                ? "Tayyor!"
-                : phase === "sending"
-                  ? "Tekshirilmoqda…"
-                  : phase === "loading"
-                    ? "Tayyorlanmoqda…"
-                    : current?.title}
-          </b>
-          <small>{phase === "error" ? error : hint}</small>
+                ? enrolled
+                  ? `Moslik ${score}%`
+                  : "Endi davomatni yuzingiz bilan tasdiqlaysiz"
+                : hint}
+          </p>
+          {phase === "error" && (
+            <div className="faceid-actions">
+              <button className="faceid-primary" onClick={() => void run()}>
+                Qayta urinish
+              </button>
+              <button className="faceid-link" onClick={onClose}>
+                Bekor qilish
+              </button>
+            </div>
+          )}
         </div>
-        {phase === "scanning" && (
-          <div className="flow-steps" style={{ ["--steps" as string]: total, marginTop: 12 }}>
-            {steps.map((step, index) => (
-              <div key={index} className={index < stepIndex ? "done" : index === stepIndex ? "active" : ""}>
-                <i />
-              </div>
-            ))}
-          </div>
-        )}
-        {phase === "error" && (
-          <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
-            <button className="mini-btn" onClick={() => void run()}>
-              <RotateCcw size={17} /> Qayta urinish
-            </button>
-            <button className="mini-btn ghost" onClick={onClose}>
-              Bekor qilish
-            </button>
-          </div>
-        )}
-        <div className="mini-alert info" style={{ marginTop: 14 }}>
-          <ShieldCheck size={18} />
-          <span>
-            Yuz belgisi serverda profilingiz bilan solishtiriladi. Rasm yoki
-            videoni aniqlash uchun bosh harakati so‘raladi.
-          </span>
-        </div>
-      </section>
+      )}
+      <footer className="faceid-foot">
+        🔒 Yuz ma’lumoti shifrlangan vektor ko‘rinishida saqlanadi va faqat davomat uchun ishlatiladi.
+      </footer>
     </div>
   );
 }

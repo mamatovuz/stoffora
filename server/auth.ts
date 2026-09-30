@@ -1,8 +1,11 @@
 import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import type { Role } from "../lib/types";
+import { readDb, updateDb } from "../lib/store";
 
 export interface Session {
+  /** Qurilma (panel sessiyasi) ID — chiqarib yuborish uchun. */
+  sid?: string;
   userId: string;
   companyId?: string;
   name: string;
@@ -26,7 +29,8 @@ const employeeSecret = process.env.JWT_SECRET || `${secret}-employee`;
 export function signSession(session: Session) {
   return jwt.sign(session, secret, { expiresIn: "8h", issuer: "staffora" });
 }
-export function requireAuth(
+const lastSeenWrites = new Map<string, number>();
+export async function requireAuth(
   req: AuthedRequest,
   res: Response,
   next: NextFunction,
@@ -36,13 +40,45 @@ export function requireAuth(
     return res
       .status(401)
       .json({ message: "Sessiya topilmadi. Qayta kiring." });
+  let session: Session;
   try {
-    req.session = jwt.verify(token, secret, { issuer: "staffora" }) as Session;
-    next();
+    session = jwt.verify(token, secret, { issuer: "staffora" }) as Session;
   } catch {
     return res
       .status(401)
       .json({ message: "Sessiya muddati tugagan. Qayta kiring." });
+  }
+  try {
+    const db = await readDb();
+    const user = db.users.find((u) => u.id === session.userId);
+    const device = session.sid
+      ? db.panelSessions.find((s) => s.id === session.sid)
+      : undefined;
+    if (!user || (session.sid && (!device || device.revokedAt)))
+      return res.status(401).json({
+        message: "Bu qurilmadan chiqarildingiz. Qayta kiring.",
+      });
+    // Ism/rasm o‘zgargan bo‘lsa — yangi qiymat ishlatiladi.
+    req.session = {
+      ...session,
+      name: user.name,
+      role: user.role,
+      companyId: user.companyId,
+      photoDataUrl: user.photoDataUrl,
+    };
+    if (device) {
+      const last = lastSeenWrites.get(device.id) || 0;
+      if (Date.now() - last > 5 * 60_000) {
+        lastSeenWrites.set(device.id, Date.now());
+        void updateDb((next) => {
+          const row = next.panelSessions.find((s) => s.id === device.id);
+          if (row) row.lastSeenAt = new Date().toISOString();
+        }).catch(() => undefined);
+      }
+    }
+    next();
+  } catch (error) {
+    next(error);
   }
 }
 export function requireRole(...roles: Role[]) {

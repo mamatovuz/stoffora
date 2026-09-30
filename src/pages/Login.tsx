@@ -13,6 +13,7 @@ import {
   MapPin,
   QrCode,
   Send,
+  ShieldCheck,
   User,
 } from "lucide-react";
 import { Logo } from "../components/Logo";
@@ -97,6 +98,8 @@ export function LoginPage() {
     [error, setError] = useState(""),
     [loading, setLoading] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
+  const [challenge, setChallenge] = useState<{ id: string; telegram: string } | null>(null);
+  const [code, setCode] = useState("");
 
   useEffect(() => {
     void api<{ needsSetup: boolean }>("/setup/status")
@@ -118,16 +121,18 @@ export function LoginPage() {
     setLoading(true);
     setError("");
     try {
-      const result = await post<{ redirect: string }>("/auth/login", {
-        email,
-        password,
-      });
-      await refresh();
-      const from = (location.state as { from?: { pathname?: string } })?.from
-        ?.pathname;
-      navigate(from && from !== "/login" ? from : result.redirect, {
-        replace: true,
-      });
+      const result = await post<{
+        redirect: string;
+        requires2fa?: boolean;
+        challengeId?: string;
+        telegram?: string;
+      }>("/auth/login", { email, password });
+      if (result.requires2fa && result.challengeId) {
+        setChallenge({ id: result.challengeId, telegram: result.telegram || "Telegram" });
+        setCode("");
+        return;
+      }
+      await finish(result.redirect);
     } catch (reason) {
       setError(errorText(reason, "Kirish amalga oshmadi"));
     } finally {
@@ -135,10 +140,82 @@ export function LoginPage() {
     }
   }
 
+  async function verify(value: string) {
+    if (!challenge || value.length !== 6) return;
+    setLoading(true);
+    setError("");
+    try {
+      const result = await post<{ redirect: string }>("/auth/login/verify", {
+        challengeId: challenge.id,
+        code: value,
+      });
+      await finish(result.redirect);
+    } catch (reason) {
+      setError(errorText(reason, "Kod tasdiqlanmadi"));
+      setCode("");
+      if (reason instanceof Error && /muddati|Qaytadan/.test(reason.message)) setChallenge(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function finish(redirect: string) {
+    {
+      await refresh();
+      const from = (location.state as { from?: { pathname?: string } })?.from
+        ?.pathname;
+      navigate(from && from !== "/login" ? from : redirect, {
+        replace: true,
+      });
+    }
+  }
+
   return (
     <main className="auth-layout" id="main-content">
       <section className="auth-main">
         <Logo />
+        {challenge ? (
+          <form
+            className="auth-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void verify(code);
+            }}
+          >
+            <span className="eyebrow">
+              <ShieldCheck size={12} /> 2 bosqichli kirish
+            </span>
+            <h1>Kodni kiriting</h1>
+            <p>
+              6 xonali kod <b>{challenge.telegram}</b> ga Staffora bot orqali yuborildi.
+              Kod 5 daqiqa amal qiladi.
+            </p>
+            <CodeInput
+              value={code}
+              disabled={loading}
+              onChange={(value) => {
+                setCode(value);
+                if (value.length === 6) void verify(value);
+              }}
+            />
+            <ErrorBox message={error} />
+            <button className="btn btn-primary btn-lg btn-block" disabled={loading || code.length !== 6} style={{ marginTop: 14 }}>
+              {loading ? <LoaderCircle className="spin" size={18} /> : <ShieldCheck size={18} />}
+              Tasdiqlash
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-block"
+              style={{ marginTop: 8 }}
+              onClick={() => {
+                setChallenge(null);
+                setError("");
+              }}
+            >
+              Orqaga
+            </button>
+          </form>
+        ) : (
         <form className="auth-form" onSubmit={submit}>
           <span className="eyebrow">
             <Lock size={12} /> Boshqaruv paneli
@@ -202,6 +279,7 @@ export function LoginPage() {
             Xodimmisiz? Davomat uchun kompaniyangiz Telegram botini oching.
           </p>
         </form>
+        )}
         <p className="auth-foot">© {new Date().getFullYear()} Staffora</p>
       </section>
       <AuthAside />
@@ -398,5 +476,35 @@ export function SetupPage() {
       </section>
       <AuthAside />
     </main>
+  );
+}
+
+function CodeInput({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="code-input">
+      <input
+        value={value}
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        autoFocus
+        maxLength={6}
+        disabled={disabled}
+        aria-label="Tasdiqlash kodi"
+        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
+      />
+      {Array.from({ length: 6 }, (_, i) => (
+        <span key={i} className={i === value.length ? "active" : value[i] ? "filled" : ""}>
+          {value[i] || ""}
+        </span>
+      ))}
+    </label>
   );
 }

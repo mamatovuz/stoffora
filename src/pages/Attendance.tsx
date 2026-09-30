@@ -153,10 +153,10 @@ export function AttendancePage() {
             )}
             <a
               className="btn"
-              href={`/api/reports/attendance.csv?from=${date}&to=${date}`}
+              href={`/api/reports/attendance.xlsx?from=${date}&to=${date}`}
               download
             >
-              <Download size={16} /> CSV
+              <Download size={16} /> Excel
             </a>
           </>
         }

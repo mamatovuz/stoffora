@@ -21,6 +21,17 @@ export interface Company {
   status: "ACTIVE" | "TRIAL" | "SUSPENDED";
   timezone: string;
   createdAt: string;
+  payroll?: PayrollSettings;
+}
+export interface PayrollSettings {
+  /** NONE — ushlanmaydi; HOURLY — soatlik stavka bo‘yicha; PER_MINUTE — har daqiqa uchun belgilangan summa. */
+  latePenaltyMode: "NONE" | "HOURLY" | "PER_MINUTE";
+  latePenaltyPerMinute: number;
+  /** Oyiga shuncha daqiqa kechikish jarimasiz. */
+  freeLateMinutesPerMonth: number;
+  /** Oylik ish soatlari (soatlik stavka = oylik / shu soat). */
+  monthlyHours: number;
+  overtimePay: boolean;
 }
 export interface Branch {
   id: string;
@@ -168,6 +179,18 @@ export interface User {
   passwordHash: string;
   role: Role;
   photoDataUrl?: string;
+  telegramId?: string;
+  telegramUsername?: string;
+  twoFactorEnabled?: boolean;
+}
+export interface PanelSession {
+  id: string;
+  userId: string;
+  userAgent: string;
+  ip: string;
+  createdAt: string;
+  lastSeenAt: string;
+  revokedAt?: string;
 }
 export interface TelegramInvite {
   id: string;
@@ -228,4 +251,5 @@ export interface Database {
   attendanceSessions: AttendanceSession[];
   qrNonces: QrNonce[];
   faceProfiles: FaceProfile[];
+  panelSessions: PanelSession[];
 }

@@ -89,8 +89,8 @@ export function EmployeesPage() {
         subtitle={`${data?.total ?? 0} ta xodim`}
         actions={
           <>
-            <a className="btn" href="/api/reports/employees.csv" download>
-              <Download size={16} /> Eksport
+            <a className="btn" href="/api/reports/employees.xlsx" download>
+              <Download size={16} /> Excel
             </a>
             <Link className="btn btn-primary" to="/employees/new">
               <Plus size={16} /> Xodim qo‘shish

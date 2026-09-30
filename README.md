@@ -45,15 +45,11 @@ Frontend: `http://localhost:3000`
 
 API: `http://localhost:4000`
 
-Demo HR:
-
-- Email: `admin@staffora.uz`
-- Parol: `Staffora2026!`
-
-Super Admin:
-
-- Email: `super@staffora.uz`
-- Parol: `Staffora2026!`
+Demo ma’lumotlar yo‘q. Birinchi ochilishda `/setup` sahifasi chiqadi — kompaniya nomi,
+egasining ismi, email va parolni kiritasiz. Xohlasangiz buni `.env` orqali avtomatik
+qilish mumkin: `BOOTSTRAP_COMPANY_NAME`, `BOOTSTRAP_OWNER_NAME`, `BOOTSTRAP_ADMIN_EMAIL`,
+`BOOTSTRAP_ADMIN_PASSWORD` (va ixtiyoriy `BOOTSTRAP_SUPER_ADMIN_EMAIL/PASSWORD`).
+Ochiq serverda begona odam sozlab qo‘ymasligi uchun `SETUP_TOKEN` qo‘yish mumkin.
 
 ## Buyruqlar
 
@@ -69,7 +65,7 @@ npm start          # build qilingan server
 
 Staffora lokal va Railway production muhitida SQLite ishlatadi. Lokal default manzil `data/staffora.sqlite`, Railway uchun tavsiya etilgan manzil `/data/staffora.sqlite`.
 
-Birinchi ishga tushishda jadval va realistik demo ma’lumotlar avtomatik yaratiladi. Agar eski `data/dev-db.json` mavjud bo‘lsa, birinchi SQLite ishga tushishida uning ma’lumotlari avtomatik import qilinadi.
+Birinchi ishga tushishda jadval avtomatik yaratiladi. Eski versiyadagi demo yozuvlar (Gulnora Farm va h.k.) faqat ularning ID’lari bo‘yicha avtomatik o‘chiriladi — siz kiritgan ma’lumotlar saqlanadi.
 
 SQLite WAL rejimida ishlaydi. Railway’da SQLite ishlatilganda servisni **1 replica** bilan ishlating — bitta volume’ni bir nechta replica orasida bo‘lish tavsiya etilmaydi.
 
@@ -124,8 +120,11 @@ TELEGRAM_BOT_TOKEN=<BotFather-tokeni>
 TELEGRAM_BOT_USERNAME=<username-@-belgisiz>
 TELEGRAM_WEBAPP_URL=https://SIZNING-DOMENINGIZ.up.railway.app/mini-app
 TELEGRAM_DEV_MODE=false
-TELEGRAM_DEV_EMPLOYEE_ID=emp_001
 ```
+
+> ⚠️ `TELEGRAM_WEBAPP_URL` va `APP_URL` albatta **https://** bo‘lsin. `http://localhost` bo‘lsa
+> Telegram «Staffora’ni ochish» tugmasini ko‘rsatmaydi. Qiymat bo‘sh qolsa, Railway domenidan
+> avtomatik olinadi. Production’da bot webhook rejimida ishlaydi (`/api/telegram/webhook`).
 
 Secret yaratish buyrug‘i:
 
@@ -204,6 +203,16 @@ profilidagi “Face ID’ni qayta sozlash” amali orqali bajaradi.
 Yuz deskriptori va profil rasmi shaxsiy ma’lumot hisoblanadi. Xodim roziligini oling,
 unga kirishni faqat vakolatli rollar bilan cheklang va Volume backup nusxalarini ham
 xuddi production ma’lumoti kabi himoyalang.
+
+## Asosiy imkoniyatlar (yangi)
+
+- **Keldi-ketdi**: kunlik to‘liq ro‘yxat (ishda / ketdi / kelmadi / ta’tilda / kutilmoqda), qo‘lda belgilash, tahrirlash, audit.
+- **Face ID** (iPhone uslubida): bosh aylantirib doirani to‘ldirish, jonlilik tekshiruvi, 5–6 namuna, replay himoyasi.
+- **Excel hisobotlar** (.xlsx): Xulosa, Batafsil, rangli Tabel (xodim × kun), Kechikishlar, Ish haqi vedomosti, Xodimlar.
+- **KPI va kechikish jarimasi**: Sozlamalar → Ish haqi va jarima (daqiqasiga summa / soatlik stavka / o‘chiq, oylik bepul daqiqalar). Moliya bo‘limida har bir xodim uchun qisqa izoh.
+- **2 bosqichli kirish**: Sozlamalar → Xavfsizlik → Telegram’ni ulash → yoqish. Kod bot orqali keladi.
+- **Qurilmalar**: panelga kirgan qurilmalar ro‘yxati va chiqarib yuborish.
+- **Telegram bot**: telefon raqam orqali ulanish, kelmaganlarga va ketishni unutganlarga eslatma.
 
 ## Xavfsizlik eslatmalari
 

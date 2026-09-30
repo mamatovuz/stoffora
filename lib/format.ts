@@ -69,12 +69,12 @@ export function dateParts(value: string | Date) {
   };
 }
 
-export const money = (value: number, currency = "UZS") =>
-  new Intl.NumberFormat("uz-UZ", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(value);
+export const money = (value: number, currency = "UZS") => {
+  const amount = Math.round(value || 0)
+    .toLocaleString("ru-RU")
+    .replace(/[  ]/g, " ");
+  return currency === "UZS" ? `${amount} so‘m` : `${amount} ${currency}`;
+};
 
 export const dateUz = (value: string | Date) => {
   const part = dateParts(value);

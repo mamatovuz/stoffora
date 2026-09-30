@@ -19,6 +19,7 @@ function normalizeDatabase(database: Database): Database {
   database.attendanceSessions ||= [];
   database.qrNonces ||= [];
   database.faceProfiles ||= [];
+  database.panelSessions ||= [];
   return database;
 }
 

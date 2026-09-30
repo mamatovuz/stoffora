@@ -196,18 +196,69 @@ export async function linkEmployeeByPhone(
   });
 }
 
+const clean = (value?: string) => (value || "").trim().replace(/\/+$/, "");
+const isPublicHttps = (value: string) =>
+  /^https:\/\/[^/]+\.[^/]+/i.test(value) &&
+  !/^https:\/\/(localhost|127\.|0\.0\.0\.0|192\.168\.|10\.)/i.test(value);
+
+/**
+ * Mini App uchun ochiq HTTPS manzilni topadi. Telegram web_app tugmasi faqat
+ * HTTPS bilan ishlaydi, shuning uchun localhost/http qiymatlar o‘tkazib yuboriladi
+ * va keyingi nomzod (APP_URL, Railway domeni) sinab ko‘riladi.
+ */
+export /* Panel foydalanuvchisini (HR, rahbar) Telegram’ga ulash — 2 bosqichli kirish uchun. */
+const panelLinkCodes = new Map<string, { userId: string; expires: number }>();
+export function createPanelLinkCode(userId: string) {
+  for (const [key, value] of panelLinkCodes)
+    if (value.expires < Date.now() || value.userId === userId) panelLinkCodes.delete(key);
+  const code = crypto.randomUUID().replaceAll("-", "").slice(0, 24);
+  panelLinkCodes.set(code, { userId, expires: Date.now() + 10 * 60_000 });
+  return code;
+}
+async function linkPanelUser(
+  code: string,
+  telegram: { id: number; username?: string },
+) {
+  const entry = panelLinkCodes.get(code);
+  if (!entry || entry.expires < Date.now()) return null;
+  panelLinkCodes.delete(code);
+  return updateDb((db) => {
+    const user = db.users.find((u) => u.id === entry.userId);
+    if (!user) return null;
+    for (const other of db.users)
+      if (other.id !== user.id && other.telegramId === String(telegram.id)) {
+        other.telegramId = undefined;
+        other.twoFactorEnabled = false;
+      }
+    user.telegramId = String(telegram.id);
+    user.telegramUsername = telegram.username;
+    if (user.companyId)
+      db.auditLogs.unshift(
+        audit(user.companyId, user.name, "Panel hisobi Telegram’ga ulandi", "user", user.id),
+      );
+    return user;
+  });
+}
+
 function resolveWebAppUrl() {
-  const baseUrl = (
-    process.env.APP_URL ||
-    (process.env.RAILWAY_PUBLIC_DOMAIN
-      ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
-      : "")
-  ).replace(/\/+$/, "");
+  const railway = process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${clean(process.env.RAILWAY_PUBLIC_DOMAIN).replace(/^https?:\/\//, "")}`
+    : "";
+  const bases = [clean(process.env.APP_URL), railway].filter(Boolean);
+  const baseUrl = bases.find(isPublicHttps) || bases[0] || "";
+  const explicit = clean(process.env.TELEGRAM_WEBAPP_URL);
+  const withPath = (value: string) =>
+    /^https?:\/\/[^/]+$/i.test(value) ? `${value}/mini-app` : value;
+  const candidates = [
+    explicit && withPath(explicit),
+    ...bases.map((base) => `${base}/mini-app`),
+  ].filter(Boolean) as string[];
+  const webAppUrl = candidates.find(isPublicHttps) || candidates[0] || "";
   return {
     baseUrl,
-    webAppUrl: (
-      process.env.TELEGRAM_WEBAPP_URL || (baseUrl ? `${baseUrl}/mini-app` : "")
-    ).trim(),
+    baseOk: isPublicHttps(baseUrl),
+    webAppUrl,
+    ok: isPublicHttps(webAppUrl),
   };
 }
 
@@ -222,7 +273,7 @@ const statusLabel: Record<string, string> = {
 
 export async function startTelegramBot() {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  const { baseUrl, webAppUrl } = resolveWebAppUrl();
+  const { baseUrl, baseOk, webAppUrl } = resolveWebAppUrl();
   if (!token) {
     console.log("Telegram bot: token yo‘q, bot ishga tushirilmadi");
     botState = { state: "disabled" };
@@ -233,18 +284,25 @@ export async function startTelegramBot() {
     console.warn(`Telegram bot: ${botState.error}`);
     return;
   }
-  if (!webAppUrl.startsWith("https://"))
+  const canUseWebApp = resolveWebAppUrl().ok;
+  if (!canUseWebApp)
     console.warn(
-      "Telegram bot: Mini App URL HTTPS emas. Telegram ichida tugma ishlamaydi — HTTPS domen yoki tunnel kerak.",
+      `Telegram bot: Mini App URL (${webAppUrl}) ochiq HTTPS emas. Railway’da APP_URL=https://<domen> yoki TELEGRAM_WEBAPP_URL=https://<domen>/mini-app qiling.`,
     );
 
-  botState = { state: "starting", webAppUrl };
+  botState = {
+    state: "starting",
+    webAppUrl,
+    error: canUseWebApp ? undefined : "Mini App manzili HTTPS emas — tugma ko‘rinmaydi",
+  };
   const bot = new Bot(token);
   activeBot = bot;
-  const canUseWebApp = webAppUrl.startsWith("https://");
+  const noAppNote = canUseWebApp
+    ? ""
+    : "\n\n⚠️ Mini App hozircha ochilmaydi: serverda HTTPS manzil sozlanmagan. Administratorga xabar bering.";
   const keyboard = () =>
     canUseWebApp
-      ? new InlineKeyboard().webApp("📲 STAFFORA’NI OCHISH", webAppUrl)
+      ? new InlineKeyboard().webApp("📲 Staffora’ni ochish", webAppUrl)
       : undefined;
   const contactKeyboard = () =>
     new Keyboard()
@@ -257,18 +315,33 @@ export async function startTelegramBot() {
     employee: Employee,
     title = "✅ Hisob muvaffaqiyatli ulandi.",
   ) {
+    // Avval telefon klaviaturasini yopamiz, so‘ng tugmali xabar yuboramiz.
+    await ctx.reply(title, { reply_markup: { remove_keyboard: true } });
     await ctx.reply(
-      `${title}\n\n👤 ${employee.firstName} ${employee.lastName}\n🆔 ${employee.employeeNo}\n\nDavomatni belgilash uchun quyidagi tugmani bosing.`,
-      { reply_markup: { remove_keyboard: true } },
+      `👤 ${employee.firstName} ${employee.lastName}\n🆔 ${employee.employeeNo}\n\n` +
+        (canUseWebApp
+          ? "Davomatni belgilash uchun pastdagi «📲 Staffora’ni ochish» tugmasini bosing. Xuddi shu tugma chat pastidagi «Staffora» menyusida ham bor."
+          : noAppNote.trim()),
+      canUseWebApp ? { reply_markup: keyboard() } : undefined,
     );
-    await ctx.reply("Staffora Mini App:", { reply_markup: keyboard() });
   }
 
   bot.command("start", async (ctx) => {
     const payload = ctx.match?.trim();
     const from = ctx.from;
     if (!from) return;
-    if (payload) {
+    if (payload?.startsWith("adm_")) {
+      const user = await linkPanelUser(payload.slice(4), from);
+      await ctx.reply(
+        user
+          ? `✅ ${user.name}, panel hisobingiz Telegram’ga ulandi.
+
+Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumkin. Kirish kodlari shu chatga keladi.`
+          : "⚠️ Ulash havolasi yaroqsiz yoki muddati tugagan. Panelda yangi havola yarating.",
+      );
+      return;
+    }
+    if (payload && payload !== "link") {
       const result = await linkEmployeeByInvite(payload, from);
       if (result.ok) return welcomeLinked(ctx, result.employee);
       await ctx.reply(
@@ -301,7 +374,7 @@ export async function startTelegramBot() {
         item.employeeId === employee.id && item.date === tashkentIsoDate(),
     );
     await ctx.reply(
-      `Assalomu alaykum, ${employee.firstName}! 👋\n\n🏢 ${db.companies.find((c) => c.id === employee.companyId)?.name || "—"}\n📍 Filial: ${branch?.name || "—"}\n🕘 Bugungi grafik: ${day?.enabled ? `${day.start} – ${day.end}` : "Dam olish kuni"}\n📋 Holat: ${today ? statusLabel[today.status] || today.status : "Hali qayd etilmagan"}`,
+      `Assalomu alaykum, ${employee.firstName}! 👋\n\n🏢 ${db.companies.find((c) => c.id === employee.companyId)?.name || "—"}\n📍 Filial: ${branch?.name || "—"}\n🕘 Bugungi grafik: ${day?.enabled ? `${day.start} – ${day.end}` : "Dam olish kuni"}\n📋 Holat: ${today ? statusLabel[today.status] || today.status : "Hali qayd etilmagan"}${noAppNote}`,
       { reply_markup: keyboard() },
     );
   });
@@ -377,26 +450,32 @@ export async function startTelegramBot() {
       process.env.TELEGRAM_USE_WEBHOOK === "true" ||
       (process.env.TELEGRAM_USE_WEBHOOK !== "false" &&
         process.env.NODE_ENV === "production" &&
-        baseUrl.startsWith("https://"));
-    if (useWebhook) {
+        baseOk);
+    if (useWebhook && baseOk) {
       const secretToken = webhookSecret(token);
       webhookHandler = webhookCallback(bot, "express", {
         secretToken,
         onTimeout: "return",
       });
-      await bot.api.setWebhook(`${baseUrl}/api/telegram/webhook`, {
-        secret_token: secretToken,
-        allowed_updates: ["message", "callback_query"],
-        drop_pending_updates: false,
-      });
-      botState = {
-        state: "running",
-        mode: "webhook",
-        username: me.username,
-        webAppUrl,
-      };
-      console.log(`Staffora Telegram bot (webhook): @${me.username}`);
-      return;
+      try {
+        await bot.api.setWebhook(`${baseUrl}/api/telegram/webhook`, {
+          secret_token: secretToken,
+          allowed_updates: ["message", "callback_query"],
+          drop_pending_updates: false,
+        });
+        botState = {
+          state: "running",
+          mode: "webhook",
+          username: me.username,
+          webAppUrl,
+          error: botState.error,
+        };
+        console.log(`Staffora Telegram bot (webhook): @${me.username} → ${webAppUrl}`);
+        return;
+      } catch (reason) {
+        webhookHandler = undefined;
+        console.error("Webhook o‘rnatilmadi, polling rejimiga o‘tiladi", reason);
+      }
     }
     await bot.api.deleteWebhook({ drop_pending_updates: false });
     void runPolling(bot, me.username, webAppUrl);
@@ -529,11 +608,11 @@ export async function sendTelegramMessage(
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token) return false;
   const api = activeBot?.api || (sharedApi ||= new Api(token));
-  const { webAppUrl } = resolveWebAppUrl();
+  const { webAppUrl, ok } = resolveWebAppUrl();
   await api.sendMessage(
     telegramId,
     text,
-    options.openButton && webAppUrl.startsWith("https://")
+    options.openButton && ok
       ? {
           reply_markup: new InlineKeyboard().webApp(
             "📲 Staffora’ni ochish",

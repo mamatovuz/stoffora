@@ -3813,3 +3813,704 @@ a.check-item:hover {
     margin: 0 auto;
   }
 }
+
+/* Excel hisobot kartochkalari */
+.xlsx-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #1d8f5a, #107245);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(16, 114, 69, 0.28);
+}
+.xlsx-icon i {
+  position: absolute;
+  right: -8px;
+  bottom: -6px;
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: #fff;
+  color: #107245;
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 800;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.report-card {
+  display: flex;
+  flex-direction: column;
+}
+.report-card .card-body {
+  flex: 1;
+}
+.report-card .branch-top {
+  margin-bottom: 16px;
+}
+
+/* =====================================================================
+   Face ID — iPhone uslubi
+   ===================================================================== */
+.faceid {
+  position: fixed;
+  z-index: 600;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: calc(10px + env(safe-area-inset-top)) 22px calc(16px + env(safe-area-inset-bottom));
+  background: #000;
+  color: #fff;
+  font-family: -apple-system, "SF Pro Display", "Geist Variable", system-ui, sans-serif;
+  animation: faceid-in 0.32s var(--ease);
+  -webkit-user-select: none;
+  user-select: none;
+}
+@keyframes faceid-in {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+}
+.faceid-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 40px;
+}
+.faceid-top button {
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  color: #30d158;
+  font-size: 17px;
+}
+.faceid-top span {
+  color: #8e8e93;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.faceid-intro,
+.faceid-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.faceid-intro {
+  justify-content: center;
+  gap: 14px;
+}
+.faceid-intro h1 {
+  margin-top: 18px;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.faceid-intro p {
+  max-width: 330px;
+  color: #aeaeb2;
+  font-size: 16px;
+  line-height: 1.45;
+}
+.faceid-intro ul {
+  display: grid;
+  gap: 10px;
+  width: min(340px, 100%);
+  margin: 10px 0 6px;
+  padding: 16px;
+  border-radius: 16px;
+  background: #1c1c1e;
+  list-style: none;
+  text-align: left;
+  font-size: 14.5px;
+  color: #e5e5ea;
+}
+.faceid-intro li {
+  display: flex;
+  gap: 10px;
+}
+.faceid-intro li::before {
+  content: "✓";
+  color: #30d158;
+  font-weight: 700;
+}
+.faceid-actions {
+  display: grid;
+  gap: 6px;
+  width: min(340px, 100%);
+  margin-top: 14px;
+}
+.faceid-primary {
+  height: 52px;
+  border: 0;
+  border-radius: 14px;
+  background: #fff;
+  color: #000;
+  font-size: 17px;
+  font-weight: 600;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+.faceid-primary:active {
+  transform: scale(0.98);
+  opacity: 0.85;
+}
+.faceid-link {
+  height: 44px;
+  border: 0;
+  background: none;
+  color: #30d158;
+  font-size: 17px;
+}
+.faceid-title {
+  min-height: 64px;
+  margin: 18px 0 8px;
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
+  display: grid;
+  place-items: center;
+  animation: fade 0.25s ease;
+}
+.faceid-stage {
+  position: relative;
+  width: min(330px, 82vw);
+  aspect-ratio: 1;
+  margin: 8px 0 18px;
+}
+.faceid-ticks {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.faceid-ticks line {
+  stroke: #3a3a3c;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  transition: stroke 0.25s ease;
+}
+.faceid-ticks line.on {
+  stroke: #30d158;
+  stroke-width: 3;
+}
+.faceid-stage.loading .faceid-ticks,
+.faceid-stage.sending .faceid-ticks {
+  animation: spin 3s linear infinite;
+}
+.faceid-stage.error .faceid-ticks line {
+  stroke: #ff453a;
+}
+.faceid-camera {
+  position: absolute;
+  inset: 13%;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #1c1c1e;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+.faceid-camera video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  transition: opacity 0.3s ease;
+}
+.faceid-cover {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(8px);
+  animation: fade 0.25s ease;
+}
+.faceid-cover.done {
+  background: #000;
+}
+.faceid-arrow {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  margin-top: -23px;
+  border-radius: 50%;
+  background: #30d158;
+  color: #000;
+  box-shadow: 0 8px 26px rgba(48, 209, 88, 0.4);
+  animation: nudge 0.9s ease-in-out infinite;
+}
+.faceid-arrow.left {
+  left: -6px;
+}
+.faceid-arrow.right {
+  right: -6px;
+  --nudge: 5px;
+}
+.faceid-hint {
+  max-width: 320px;
+  min-height: 44px;
+  color: #aeaeb2;
+  font-size: 15.5px;
+  line-height: 1.4;
+}
+.faceid-stage.error ~ .faceid-hint {
+  color: #ff6961;
+}
+.faceid-foot {
+  color: #636366;
+  font-size: 11.5px;
+  text-align: center;
+}
+
+/* Face ID belgisi */
+.faceid-glyph {
+  overflow: visible;
+}
+.faceid-glyph .brackets,
+.faceid-glyph .face {
+  stroke: #fff;
+  transition: stroke 0.3s ease, opacity 0.3s ease, transform 0.35s var(--ease);
+  transform-origin: 50px 50px;
+}
+.faceid-glyph .check {
+  stroke: #30d158;
+  stroke-dasharray: 80;
+  stroke-dashoffset: 80;
+  opacity: 0;
+}
+.faceid-glyph.idle .brackets,
+.faceid-glyph.idle .face {
+  stroke: #30d158;
+}
+.faceid-glyph.idle .face {
+  animation: glyph-look 3.2s ease-in-out infinite;
+}
+.faceid-glyph.scan .brackets {
+  animation: glyph-pulse 1.1s ease-in-out infinite;
+}
+.faceid-glyph.scan .face {
+  animation: glyph-look 1.6s ease-in-out infinite;
+}
+.faceid-glyph.ok .brackets {
+  stroke: #30d158;
+  transform: scale(1.04);
+}
+.faceid-glyph.ok .face {
+  opacity: 0;
+  transform: scale(0.8);
+}
+.faceid-glyph.ok .check {
+  opacity: 1;
+  animation: glyph-check 0.45s 0.1s var(--ease) forwards;
+}
+.faceid-glyph.fail .brackets,
+.faceid-glyph.fail .face {
+  stroke: #ff453a;
+}
+.faceid-glyph.fail {
+  animation: glyph-shake 0.5s ease;
+}
+@keyframes glyph-pulse {
+  50% {
+    transform: scale(0.92);
+    opacity: 0.7;
+  }
+}
+@keyframes glyph-look {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  30% {
+    transform: translateX(-4px);
+  }
+  65% {
+    transform: translateX(4px);
+  }
+}
+@keyframes glyph-check {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes glyph-shake {
+  20%,
+  60% {
+    transform: translateX(-9px);
+  }
+  40%,
+  80% {
+    transform: translateX(9px);
+  }
+}
+
+/* 2 bosqichli kod kiritish */
+.code-input {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.code-input input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  font-size: 16px;
+}
+.code-input span {
+  display: grid;
+  place-items: center;
+  height: 56px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  font-size: 24px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.code-input span.filled {
+  border-color: #cfd8d4;
+}
+.code-input:focus-within span.active {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 4px var(--brand-glow);
+}
+
+/* Sozlamalar */
+.settings-layout {
+  display: grid;
+  grid-template-columns: 230px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.settings-nav {
+  position: sticky;
+  top: 80px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+}
+.settings-nav button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--ink-2);
+  font-weight: 550;
+  font-size: 13.5px;
+  text-align: left;
+}
+.settings-nav button:hover {
+  background: var(--gray-bg);
+}
+.settings-nav button.active {
+  background: var(--brand-50);
+  color: var(--brand);
+}
+.device-list {
+  display: grid;
+}
+.device-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line-2);
+}
+.device-row:last-child {
+  border-bottom: 0;
+}
+.device-row > span:nth-child(2) {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.device-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.device-row.current {
+  background: #f5fbf8;
+}
+.device-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--gray-bg);
+  color: var(--ink-2);
+}
+.device-row.current .device-icon {
+  background: var(--green-bg);
+  color: var(--green);
+}
+.kpi-pill {
+  display: inline-grid;
+  place-items: center;
+  min-width: 44px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-pill.A { background: var(--green-bg); color: var(--green); }
+.kpi-pill.B { background: var(--blue-bg); color: var(--blue); }
+.kpi-pill.C { background: var(--amber-bg); color: var(--amber); }
+.kpi-pill.D { background: var(--red-bg); color: var(--red); }
+.pay-note {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  max-width: 420px;
+  white-space: normal;
+}
+@media (max-width: 860px) {
+  .settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-nav {
+    position: static;
+    display: flex;
+    overflow-x: auto;
+  }
+  .settings-nav button {
+    white-space: nowrap;
+  }
+  .device-row {
+    flex-wrap: wrap;
+  }
+}
+
+/* Mini App bosh sahifa — kengroq keldi/ketdi bloki */
+.mini-hero {
+  padding: 20px 18px 18px;
+}
+.mini-clock {
+  margin: 18px 0 8px;
+  font-size: 56px;
+}
+.mini-clock-sub {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  font-size: 13px;
+}
+.mini-clock-sub span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.mini-times {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 18px 0;
+}
+.mini-times > div {
+  gap: 4px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.mini-times > div.set {
+  background: rgba(55, 211, 168, 0.12);
+  border-color: rgba(55, 211, 168, 0.2);
+}
+.mini-times small {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.mini-times b {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.mini-times em {
+  font-style: normal;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #f7c37a;
+}
+.mini-times em.ok {
+  color: #5fe0b0;
+}
+.mini-note {
+  justify-content: center;
+}
+@media (max-width: 360px) {
+  .mini-clock {
+    font-size: 46px;
+  }
+  .mini-times b {
+    font-size: 22px;
+  }
+  .mini-grid-3 .mini-stat b {
+    font-size: 17px;
+  }
+}
+
+/* Telefon uchun ixcham ko‘rinish */
+@media (max-width: 720px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .stat {
+    padding: 12px 14px;
+    gap: 2px;
+  }
+  .stat strong {
+    font-size: 21px;
+    overflow-wrap: anywhere;
+  }
+  .stat .stat-icon {
+    width: 28px;
+    height: 28px;
+  }
+  .stat small {
+    font-size: 11.5px;
+  }
+  .page-header {
+    align-items: flex-start;
+    margin-bottom: 14px;
+  }
+  .page-header .toolbar {
+    width: 100%;
+  }
+  .page-header .toolbar > .btn,
+  .page-header .toolbar > a.btn {
+    flex: 1 1 auto;
+  }
+  .card-head {
+    padding: 14px;
+    flex-wrap: wrap;
+  }
+  .card-body {
+    padding: 14px;
+  }
+  .filters {
+    padding: 10px;
+  }
+  .filters > div[style] {
+    margin-left: 0 !important;
+    width: 100%;
+  }
+  .segmented {
+    width: 100%;
+    overflow-x: auto;
+  }
+  .segmented button {
+    flex: 1 0 auto;
+  }
+  .hero-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .hero-metric b {
+    font-size: 22px;
+  }
+  .onboarding {
+    padding: 16px;
+  }
+  .onboarding h2 {
+    font-size: 19px;
+  }
+  .profile-hero {
+    padding: 16px;
+    gap: 14px;
+  }
+  .profile-hero .toolbar {
+    width: 100%;
+  }
+  .profile-hero .toolbar .btn {
+    flex: 1;
+  }
+  .table-cards td .person b {
+    white-space: normal;
+  }
+  .pay-note {
+    max-width: none;
+  }
+  .grid-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .date-nav {
+    flex: 1 1 auto;
+  }
+  .date-nav input {
+    flex: 1;
+    min-width: 0;
+  }
+  .qr-panel {
+    width: min(360px, 92vw);
+  }
+  .code-input span {
+    height: 50px;
+    font-size: 21px;
+  }
+  .device-row .btn {
+    width: 100%;
+  }
+  .branch-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .auth-main {
+    padding: 22px 18px;
+  }
+  .auth-form h1 {
+    font-size: 27px;
+  }
+}
+@media (max-width: 380px) {
+  .stat strong {
+    font-size: 18px;
+  }
+  .mode-options {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+.mode-options.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 720px) {
+  .mode-options.three {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 720px) {
+  .table-cards td:first-child {
+    display: block;
+  }
+  .settings-nav {
+    scrollbar-width: none;
+  }
+  .settings-nav::-webkit-scrollbar {
+    display: none;
+  }
+}
+@media (max-width: 720px) {
+  .filters .input-icon {
+    flex-basis: 100%;
+  }
+}

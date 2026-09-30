@@ -59,6 +59,8 @@ type HomeData = {
   attendance?: Attendance;
   todayLeave: LeaveRequest | null;
   month: {
+    deduction?: number;
+    penaltyMode?: string;
     days: number;
     late: number;
     lateMinutes: number;
@@ -204,13 +206,7 @@ export function MiniAppPage() {
     <div className="mini">
       <main className="mini-app">
         <header className="mini-top">
-          <span className="mini-avatar">
-            {home.employee.photoDataUrl ? (
-              <img src={home.employee.photoDataUrl} alt="" />
-            ) : (
-              `${home.employee.firstName[0] || ""}${home.employee.lastName[0] || ""}`
-            )}
-          </span>
+          <PhotoAvatar employee={home.employee} />
           <div>
             <small>{home.company?.name}</small>
             <b>Salom, {home.employee.firstName}!</b>
@@ -347,6 +343,22 @@ function useClock() {
   return now;
 }
 
+const clockDuration = (minutes: number) =>
+  `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
+
+function PhotoAvatar({ employee, className }: { employee: Employee; className?: string }) {
+  const [broken, setBroken] = useState(false);
+  return (
+    <span className={`mini-avatar ${className || ""}`}>
+      {employee.photoDataUrl && !broken ? (
+        <img src={employee.photoDataUrl} alt="" onError={() => setBroken(true)} />
+      ) : (
+        `${employee.firstName[0] || ""}${employee.lastName[0] || ""}`
+      )}
+    </span>
+  );
+}
+
 function minutesSince(checkIn: string) {
   const [h, m] = checkIn.split(":").map(Number);
   const [nh, nm] = tashkentClock().split(":").map(Number);
@@ -395,32 +407,37 @@ function MiniHome({
         </div>
         <div className="mini-clock">{clock}</div>
         <div className="mini-clock-sub">
-          {data.branch ? (
-            <>
-              <MapPin size={12} style={{ display: "inline", verticalAlign: -1 }} /> {data.branch.name}
-            </>
-          ) : (
-            "Filial biriktirilmagan"
-          )}
+          <span>
+            <MapPin size={13} /> {data.branch?.name || "Filial biriktirilmagan"}
+          </span>
+          <span>
+            <Clock3 size={13} /> {day?.enabled ? `${day.start} – ${day.end}` : "Dam olish kuni"}
+          </span>
         </div>
         <div className="mini-times">
-          <div>
-            <small>Grafik</small>
-            <b>{day?.enabled ? `${day.start}–${day.end}` : "Dam olish"}</b>
+          <div className={a?.checkIn ? "set" : ""}>
+            <small>
+              <LogIn size={13} /> Keldi
+            </small>
+            <b>{a?.checkIn || "--:--"}</b>
+            {a?.lateMinutes ? <em>{a.lateMinutes} daq kech</em> : a?.checkIn ? <em className="ok">vaqtida</em> : null}
           </div>
-          <div>
-            <small>Keldi</small>
-            <b>{a?.checkIn || "—"}</b>
-          </div>
-          <div>
-            <small>{finished ? "Ketdi" : "Ishladi"}</small>
+          <div className={a?.checkOut ? "set" : ""}>
+            <small>
+              <LogOut size={13} /> {finished ? "Ketdi" : "Ishlayapti"}
+            </small>
             <b>
               {finished
                 ? a?.checkOut
                 : working && a?.checkIn
-                  ? duration(minutesSince(a.checkIn))
-                  : "—"}
+                  ? clockDuration(minutesSince(a.checkIn))
+                  : "--:--"}
             </b>
+            {finished ? (
+              <em className="ok">{clockDuration(a?.workedMinutes || 0)} soat ishladi</em>
+            ) : working ? (
+              <em className="ok">soat : daqiqa</em>
+            ) : null}
           </div>
         </div>
         {missingSetup ? (
@@ -462,6 +479,16 @@ function MiniHome({
           <b>{Math.round(data.month.workedMinutes / 60)}s</b>
         </div>
       </div>
+
+      {data.month.lateMinutes > 0 && (
+        <div className="mini-alert" style={{ background: "rgba(230,150,30,.12)", color: "#a35d06" }}>
+          <AlertCircle size={18} />
+          <span>
+            Bu oy {data.month.late} marta, jami {data.month.lateMinutes} daqiqa kechikdingiz
+            {data.month.deduction ? `. Oylikdan ${data.month.deduction.toLocaleString("ru-RU")} so‘m ushlanadi.` : "."}
+          </span>
+        </div>
+      )}
 
       {!data.employee.faceEnrolledAt && !finished && !missingSetup && (
         <div className="mini-alert info">
@@ -1117,9 +1144,7 @@ function MiniProfile({ data }: { data: HomeData }) {
   return (
     <div className="mini-body">
       <div className="mini-profile">
-        <span className="mini-avatar">
-          {e.photoDataUrl ? <img src={e.photoDataUrl} alt="" /> : `${e.firstName[0] || ""}${e.lastName[0] || ""}`}
-        </span>
+        <PhotoAvatar employee={e} />
         <h1>
           {e.firstName} {e.lastName}
         </h1>

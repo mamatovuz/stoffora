@@ -78,7 +78,7 @@ export function DirectoryPage({ type }: { type: "departments" | "positions" }) {
           <Empty
             icon={Icon}
             title={`${title} yo‘q`}
-            text={isDept ? "Masalan: Savdo, Buxgalteriya, Ombor." : "Masalan: Sotuvchi, Kassir, Menejer."}
+            text={isDept ? "Masalan: Savdo, Buxgalteriya, Ombor." : "Masalan: Sotuvchi, Kassir, Omborchi."}
           />
         ) : (
           <div className="table-wrap">
@@ -255,13 +255,14 @@ export function UsersPage() {
   const { data, loading, error, reload } = useApi<SafeUser[]>("/users");
   const [open, setOpen] = useState(false);
   const [removing, setRemoving] = useState<SafeUser | null>(null);
+  const [editing, setEditing] = useState<SafeUser | null>(null);
   const toast = useToast();
   const canManage = user?.role === "COMPANY_OWNER" || user?.role === "HR_ADMIN";
   return (
     <div className="page narrow">
       <PageHeader
         title="Panel foydalanuvchilari"
-        subtitle="HR, buxgalter va filial menejerlariga panelga kirish huquqi bering"
+        subtitle="HR, buxgalter va filial rahbarlariga panelga kirish huquqi bering"
         actions={
           canManage && (
             <button className="btn btn-primary" onClick={() => setOpen(true)}>
@@ -301,6 +302,11 @@ export function UsersPage() {
                       </span>
                     </td>
                     <td className="actions">
+                      {canManage && (
+                        <button className="icon-btn" aria-label="Tahrirlash" onClick={() => setEditing(u)}>
+                          <Pencil size={15} />
+                        </button>
+                      )}
                       {canManage && u.role !== "COMPANY_OWNER" && u.id !== user?.userId && (
                         <button className="icon-btn danger" aria-label="O‘chirish" onClick={() => setRemoving(u)}>
                           <Trash2 size={15} />
@@ -320,6 +326,17 @@ export function UsersPage() {
           onSaved={() => {
             setOpen(false);
             toast("Foydalanuvchi qo‘shildi");
+            void reload(true);
+          }}
+        />
+      )}
+      {editing && (
+        <EditUserForm
+          user={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            toast("Saqlandi");
             void reload(true);
           }}
         />
@@ -396,222 +413,62 @@ function UserForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
   );
 }
 
-/* ------------------------------------------------------------ settings --- */
-type BotStatus = { state: string; mode?: string; username?: string; error?: string; webAppUrl?: string };
 
-export function SettingsPage() {
-  const { user, refresh } = useAuth();
-  const toast = useToast();
-  const { data, loading, error } = useApi<Company>("/company");
-  const { data: bot } = useApi<BotStatus>("/telegram/status");
-  const [name, setName] = useState("");
-  const [timezone, setTimezone] = useState("Asia/Tashkent");
+function EditUserForm({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: SafeUser;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { refresh, user: me } = useAuth();
+  const [name, setName] = useState(user.name);
+  const [role, setRole] = useState<Role>(user.role);
+  const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
-  const [photoBusy, setPhotoBusy] = useState(false);
-  const [passwords, setPasswords] = useState({ currentPassword: "", newPassword: "", confirm: "" });
-  const [passwordError, setPasswordError] = useState("");
-  useEffect(() => {
-    if (data) {
-      setName(data.name);
-      setTimezone(data.timezone);
-    }
-  }, [data]);
-  if (loading && !data)
-    return (
-      <div className="page narrow">
-        <Loading />
-      </div>
-    );
-  const [first, last] = (user?.name || "?").split(" ");
+  const owner = user.role === "COMPANY_OWNER";
   return (
-    <div className="page narrow">
-      <PageHeader title="Sozlamalar" subtitle="Kompaniya, profil va Telegram bot" />
-      <div style={{ display: "grid", gap: 16 }}>
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2>Mening profilim</h2>
-              <p>{user?.email}</p>
-            </div>
-          </div>
-          <div className="card-body">
-            <div className="photo-picker" style={{ marginBottom: 0 }}>
-              <Avatar first={first} last={last} photo={user?.photoDataUrl} size="lg" />
-              <div>
-                <b>{user?.name}</b>
-                <small>{user ? roleLabels[user.role] : ""}</small>
-                <label className={`btn btn-sm ${photoBusy ? "disabled" : ""}`}>
-                  <Camera size={14} /> {photoBusy ? "Yuklanmoqda…" : "Rasm yuklash"}
-                  <input
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    hidden
-                    disabled={photoBusy}
-                    onChange={async (event) => {
-                      const file = event.target.files?.[0];
-                      if (!file) return;
-                      setPhotoBusy(true);
-                      try {
-                        await put("/profile/photo", { photoDataUrl: await resizePhoto(file) });
-                        await refresh();
-                        toast("Rasm yangilandi");
-                      } catch (reason) {
-                        toast(errorText(reason), "error");
-                      } finally {
-                        setPhotoBusy(false);
-                        event.target.value = "";
-                      }
-                    }}
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <form
-          className="card"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setSaving(true);
-            try {
-              await put("/company", { name, timezone });
-              toast("Kompaniya sozlamalari saqlandi");
-            } catch (reason) {
-              toast(errorText(reason), "error");
-            } finally {
-              setSaving(false);
-            }
-          }}
-        >
-          <div className="card-head">
-            <h2>Kompaniya</h2>
-            <span className="badge plain green">{data?.plan} tarif</span>
-          </div>
-          <div className="card-body">
-            <div className="form-grid">
-              <Field label="Kompaniya nomi">
-                <input className="input" value={name} onChange={(e) => setName(e.target.value)} required minLength={2} />
-              </Field>
-              <Field label="Vaqt zonasi" hint="Davomat hisob-kitobi Toshkent vaqtida">
-                <select className="select" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                  <option>Asia/Tashkent</option>
-                  <option>Asia/Samarkand</option>
-                </select>
-              </Field>
-            </div>
-            <ErrorBox message={error} />
-            <div className="form-actions">
-              <button className="btn btn-primary" disabled={saving}>
-                <Save size={15} /> Saqlash
-              </button>
-            </div>
-          </div>
-        </form>
-
-        <section className="card">
-          <div className="card-head">
-            <div>
-              <h2>Telegram bot</h2>
-              <p>Xodimlar davomatni shu bot orqali belgilaydi</p>
-            </div>
-            {bot?.state === "running" ? (
-              <span className="badge green live">Ishlayapti</span>
-            ) : (
-              <span className="badge red">{bot?.state === "disabled" ? "O‘chirilgan" : "Xato"}</span>
-            )}
-          </div>
-          <div className="card-body">
-            <div className="kv">
-              <div>
-                <span>Bot</span>
-                <b>
-                  {bot?.username ? (
-                    <a className="link" href={`https://t.me/${bot.username}`} target="_blank" rel="noreferrer">
-                      <Send size={13} /> @{bot.username}
-                    </a>
-                  ) : (
-                    "—"
-                  )}
-                </b>
-              </div>
-              <div>
-                <span>Rejim</span>
-                <b>{bot?.mode === "webhook" ? "Webhook" : bot?.mode === "polling" ? "Polling" : "—"}</b>
-              </div>
-              <div>
-                <span>Mini App manzili</span>
-                <b>{bot?.webAppUrl || "—"}</b>
-              </div>
-            </div>
-            {bot?.error && (
-              <div className="alert warn" style={{ marginTop: 12 }}>
-                <XCircle size={18} />
-                <div>
-                  <b>Muammo</b>
-                  <p>{bot.error}</p>
-                </div>
-              </div>
-            )}
-            {bot?.state === "running" && (
-              <div className="alert success" style={{ marginTop: 12 }}>
-                <CheckCircle2 size={18} />
-                <div>
-                  <b>Xodimlarni ulash</b>
-                  <p>
-                    Xodim botda /start bosib telefon raqamini yuboradi — raqam profilidagi
-                    bilan mos kelsa avtomatik ulanadi.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-        </section>
-
-        <form
-          className="card"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            setPasswordError("");
-            if (passwords.newPassword !== passwords.confirm) {
-              setPasswordError("Yangi parollar bir xil emas.");
-              return;
-            }
-            try {
-              await put("/auth/password", {
-                currentPassword: passwords.currentPassword,
-                newPassword: passwords.newPassword,
-              });
-              setPasswords({ currentPassword: "", newPassword: "", confirm: "" });
-              toast("Parol o‘zgartirildi");
-            } catch (reason) {
-              setPasswordError(errorText(reason));
-            }
-          }}
-        >
-          <div className="card-head">
-            <h2>Parolni o‘zgartirish</h2>
-            <KeyRound size={17} className="faint" />
-          </div>
-          <div className="card-body">
-            <div className="form-grid cols-3">
-              <Field label="Joriy parol">
-                <input className="input" type="password" autoComplete="current-password" value={passwords.currentPassword} onChange={(e) => setPasswords({ ...passwords, currentPassword: e.target.value })} required />
-              </Field>
-              <Field label="Yangi parol">
-                <input className="input" type="password" autoComplete="new-password" minLength={10} value={passwords.newPassword} onChange={(e) => setPasswords({ ...passwords, newPassword: e.target.value })} required />
-              </Field>
-              <Field label="Takrorlang">
-                <input className="input" type="password" autoComplete="new-password" minLength={10} value={passwords.confirm} onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })} required />
-              </Field>
-            </div>
-            <ErrorBox message={passwordError} />
-            <div className="form-actions">
-              <button className="btn">Parolni yangilash</button>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
+    <Modal title="Foydalanuvchini tahrirlash" subtitle={user.email} onClose={onClose} size="narrow">
+      <form
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setSaving(true);
+          setError("");
+          try {
+            await put(`/users/${user.id}`, owner ? { name } : { name, role });
+            if (me?.userId === user.id) await refresh();
+            onSaved();
+          } catch (reason) {
+            setError(errorText(reason));
+          } finally {
+            setSaving(false);
+          }
+        }}
+      >
+        <Field label="Ism familiya">
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} required minLength={3} maxLength={80} autoFocus />
+        </Field>
+        <Field label="Rol" hint={owner ? "Kompaniya egasining roli o‘zgarmaydi" : undefined}>
+          <select className="select" value={role} disabled={owner} onChange={(e) => setRole(e.target.value as Role)}>
+            {(owner ? ["COMPANY_OWNER" as Role] : assignable).map((r) => (
+              <option key={r} value={r}>
+                {roleLabels[r]}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <ErrorBox message={error} />
+        <div className="form-actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Bekor qilish
+          </button>
+          <button className="btn btn-primary" disabled={saving}>
+            {saving ? "Saqlanmoqda…" : "Saqlash"}
+          </button>
+        </div>
+      </form>
+    </Modal>
   );
 }

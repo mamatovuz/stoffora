@@ -104,7 +104,7 @@ export function BranchesPage() {
                       <QrCode size={11} /> Dinamik QR
                     </span>
                   )}
-                  {b.manager && <span className="tag">Menejer: {b.manager}</span>}
+                  {b.manager && <span className="tag">Filial rahbari: {b.manager}</span>}
                 </div>
               </div>
               <div className="card-foot">
@@ -248,7 +248,7 @@ function BranchForm({
           <Field label="Filial nomi *">
             <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} required minLength={2} placeholder="Bosh ofis" />
           </Field>
-          <Field label="Mas’ul menejer">
+          <Field label="Filial rahbari">
             <input className="input" value={form.manager} onChange={(e) => set("manager", e.target.value)} />
           </Field>
           <Field label="Manzil *" className="span-2">

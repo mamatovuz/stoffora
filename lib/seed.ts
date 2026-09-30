@@ -19,6 +19,7 @@ export function emptyDatabase(): Database {
     attendanceSessions: [],
     qrNonces: [],
     faceProfiles: [],
+    panelSessions: [],
   };
 }
 

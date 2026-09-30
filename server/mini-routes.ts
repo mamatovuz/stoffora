@@ -18,6 +18,7 @@ import {
   matchFace,
 } from "../lib/face";
 import type { Attendance, Database, LeaveRequest } from "../lib/types";
+import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
 import {
   requireEmployee,
   signEmployeeSession,
@@ -68,7 +69,12 @@ function monthSummary(db: Database, employeeId: string) {
   const rows = db.attendance.filter(
     (item) => item.employeeId === employeeId && item.date.startsWith(month),
   );
+  const employee = db.employees.find((e) => e.id === employeeId);
+  const company = db.companies.find((c) => c.id === employee?.companyId);
+  const pay = calculatePayroll(employee?.baseSalary || 0, rows, company?.payroll);
   return {
+    deduction: pay.deduction,
+    penaltyMode: normalizePayrollSettings(company?.payroll).latePenaltyMode,
     days: rows.filter((item) => item.checkIn).length,
     late: rows.filter((item) => item.lateMinutes > 0).length,
     lateMinutes: rows.reduce((sum, item) => sum + item.lateMinutes, 0),
@@ -650,7 +656,7 @@ export function createMiniRouter() {
               item.companyId === auth.companyId &&
               item.branchId === session.branchId,
           );
-          assertQrNonceUsable(qrNonce, auth.employeeId);
+          assertQrNonceUsable(qrNonce, `${auth.employeeId}:${session.action}`);
         }
         const distanceMeters = haversineDistance(
           branch.latitude,
@@ -754,7 +760,7 @@ export function createMiniRouter() {
         session.usedAt = attendance.updatedAt;
         if (qrNonce) {
           qrNonce.usedEmployeeIds ||= [];
-          qrNonce.usedEmployeeIds.push(auth.employeeId);
+          qrNonce.usedEmployeeIds.push(`${auth.employeeId}:${session.action}`);
         }
         const name = `${employee.firstName} ${employee.lastName}`;
         if (session.action === "CHECK_IN" && attendance.lateMinutes > 0)

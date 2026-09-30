@@ -13,6 +13,7 @@ import jwt from "jsonwebtoken";
 import QRCode from "qrcode";
 import { z } from "zod";
 import path from "node:path";
+import { createHash, randomInt, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { audit, checkDatabaseHealth, readDb, updateDb } from "../lib/store";
 import { calculateAttendance, isValidClockTime } from "../lib/attendance";
@@ -29,8 +30,11 @@ import type {
   Database,
   Employee,
   LeaveRequest,
+  PanelSession,
   Schedule,
+  User,
 } from "../lib/types";
+import { normalizePayrollSettings } from "../lib/payroll";
 import {
   requireAuth,
   requireRole,
@@ -39,6 +43,7 @@ import {
   type Session,
 } from "./auth";
 import {
+  createPanelLinkCode,
   getTelegramBotState,
   sendTelegramMessage,
   startTelegramBot,
@@ -48,6 +53,7 @@ import {
 } from "./telegram";
 import { createMiniRouter } from "./mini-routes";
 import { startAttendanceReminders } from "./reminders";
+import { payrollRows, penaltyText, registerExcelReports } from "./reports";
 
 const fieldLabels: Record<string, string> = {
   firstName: "Ism",
@@ -80,6 +86,7 @@ z.setErrorMap((issue, ctx) => {
     return { message: `ko‘pi bilan ${issue.maximum} bo‘lsin.` };
   if (issue.code === "invalid_string" && issue.validation === "email")
     return { message: "email manzil noto‘g‘ri." };
+  if (issue.code === "invalid_type") return { message: "qiymat noto‘g‘ri." };
   return { message: ctx.defaultError };
 });
 
@@ -194,13 +201,71 @@ const sendCsv = (res: Response, name: string, rows: unknown[][]) =>
     .send("﻿" + rows.map((row) => row.map(csvCell).join(",")).join("\n"));
 
 function setSessionCookie(res: Response, session: Session) {
-  res.cookie("staffora_session", signSession(session), {
+  // Cookie 4 KB dan oshmasligi uchun tokenda faqat identifikatorlar saqlanadi.
+  const minimal: Session = {
+    sid: session.sid,
+    userId: session.userId,
+    companyId: session.companyId,
+    name: session.name,
+    email: session.email,
+    role: session.role,
+  };
+  res.cookie("staffora_session", signSession(minimal), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.COOKIE_SECURE === "true",
     maxAge: 12 * 3600_000,
   });
 }
+
+/** Yangi panel qurilmasini (sessiyani) ro‘yxatga oladi va cookie o‘rnatadi. */
+async function startPanelSession(req: Request, res: Response, user: User) {
+  const now = new Date().toISOString();
+  const device: PanelSession = {
+    id: id(),
+    userId: user.id,
+    userAgent: String(req.headers["user-agent"] || "").slice(0, 300),
+    ip: String(req.ip || "").replace(/^::ffff:/, ""),
+    createdAt: now,
+    lastSeenAt: now,
+  };
+  await updateDb((db) => {
+    // Eski (30 kundan oshgan yoki bekor qilingan) sessiyalarni tozalaymiz.
+    const cutoff = Date.now() - 30 * 86_400_000;
+    db.panelSessions = db.panelSessions.filter(
+      (s) => !s.revokedAt && new Date(s.lastSeenAt).getTime() > cutoff,
+    );
+    db.panelSessions.push(device);
+  });
+  const session: Session = {
+    sid: device.id,
+    userId: user.id,
+    companyId: user.companyId,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    photoDataUrl: user.photoDataUrl,
+  };
+  setSessionCookie(res, session);
+  return session;
+}
+
+/* 2 bosqichli kirish: Telegram orqali yuborilgan 6 xonali kod. */
+type LoginChallenge = {
+  userId: string;
+  codeHash: string;
+  expires: number;
+  attempts: number;
+};
+const loginChallenges = new Map<string, LoginChallenge>();
+function cleanupChallenges() {
+  for (const [key, value] of loginChallenges)
+    if (value.expires < Date.now()) loginChallenges.delete(key);
+}
+const hashCode = (code: string) =>
+  createHash("sha256")
+    .update(`${code}:${process.env.SESSION_SECRET || "staffora"}`)
+    .digest("hex");
 
 // ---------------------------------------------------------------- setup ---
 const needsSetup = (db: Database) =>
@@ -262,14 +327,7 @@ app.post(
       );
       return owner;
     });
-    const session: Session = {
-      userId: user.id,
-      companyId: user.companyId,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-    };
-    setSessionCookie(res, session);
+    const session = await startPanelSession(req, res, user);
     res.status(201).json({ user: session, redirect: "/dashboard" });
   }),
 );
@@ -299,22 +357,90 @@ app.post(
       return res
         .status(403)
         .json({ message: "Kompaniya hisobi to‘xtatilgan. Qo‘llab-quvvatlashga murojaat qiling." });
-    const session: Session = {
-      userId: user.id,
-      companyId: user.companyId,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      photoDataUrl: user.photoDataUrl,
-    };
-    setSessionCookie(res, session);
+    if (user.twoFactorEnabled && user.telegramId) {
+      cleanupChallenges();
+      const code = String(randomInt(100000, 1000000));
+      const challengeId = id();
+      loginChallenges.set(challengeId, {
+        userId: user.id,
+        codeHash: hashCode(code),
+        expires: Date.now() + 5 * 60_000,
+        attempts: 0,
+      });
+      try {
+        const sent = await sendTelegramMessage(
+          user.telegramId,
+          `🔐 Staffora panelga kirish kodi: ${code}\n\nKod 5 daqiqa amal qiladi. Uni hech kimga bermang.\nAgar kirishga siz urinmagan bo‘lsangiz, darhol parolingizni o‘zgartiring.`,
+        );
+        if (!sent) throw new Error("bot");
+      } catch {
+        loginChallenges.delete(challengeId);
+        throw httpError(
+          "Tasdiqlash kodini Telegram’ga yuborib bo‘lmadi. Bot ishlayotganini tekshiring.",
+          503,
+        );
+      }
+      return res.json({
+        requires2fa: true,
+        challengeId,
+        telegram: user.telegramUsername ? `@${user.telegramUsername}` : "Telegram",
+      });
+    }
+    const session = await startPanelSession(req, res, user);
     return res.json({
       user: session,
       redirect: user.role === "SUPER_ADMIN" ? "/super-admin" : "/dashboard",
     });
   }),
 );
-app.post("/api/auth/logout", (_req, res) => {
+app.post(
+  "/api/auth/login/verify",
+  rateLimit({ windowMs: 60_000, limit: 15 }),
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({
+        challengeId: z.string().min(10),
+        code: z.string().trim().regex(/^\d{6}$/, "Kod 6 ta raqam bo‘lsin."),
+      })
+      .parse(req.body);
+    cleanupChallenges();
+    const challenge = loginChallenges.get(input.challengeId);
+    if (!challenge) throw httpError("Kod muddati tugagan. Qaytadan kiring.", 410);
+    challenge.attempts += 1;
+    if (challenge.attempts > 5) {
+      loginChallenges.delete(input.challengeId);
+      throw httpError("Juda ko‘p noto‘g‘ri urinish. Qaytadan kiring.", 429);
+    }
+    const expected = Buffer.from(challenge.codeHash, "hex");
+    const received = Buffer.from(hashCode(input.code), "hex");
+    if (!timingSafeEqual(expected, received))
+      throw httpError(
+        `Kod noto‘g‘ri. Yana ${5 - challenge.attempts} ta urinish qoldi.`,
+        400,
+      );
+    loginChallenges.delete(input.challengeId);
+    const db = await readDb();
+    const user = db.users.find((u) => u.id === challenge.userId);
+    if (!user) throw httpError("Foydalanuvchi topilmadi.", 404);
+    const session = await startPanelSession(req, res, user);
+    res.json({
+      user: session,
+      redirect: user.role === "SUPER_ADMIN" ? "/super-admin" : "/dashboard",
+    });
+  }),
+);
+app.post("/api/auth/logout", async (req, res) => {
+  try {
+    const token = req.cookies?.staffora_session;
+    const payload = token ? (jwt.decode(token) as Session | null) : null;
+    if (payload?.sid)
+      await updateDb((db) => {
+        const row = db.panelSessions.find((s) => s.id === payload.sid);
+        if (row) row.revokedAt = new Date().toISOString();
+      });
+  } catch {
+    /* chiqishdagi xatoni e’tiborsiz qoldiramiz */
+  }
   res.clearCookie("staffora_session");
   res.json({ ok: true });
 });
@@ -384,12 +510,160 @@ app.put(
         );
       return row;
     });
-    const session = { ...req.session!, photoDataUrl: user.photoDataUrl };
-    delete (session as { iat?: number }).iat;
-    delete (session as { exp?: number }).exp;
-    delete (session as { iss?: string }).iss;
-    setSessionCookie(res, session);
-    return res.json({ user: session });
+    return res.json({
+      user: { ...req.session!, photoDataUrl: user.photoDataUrl },
+    });
+  }),
+);
+app.put(
+  "/api/profile",
+  asyncRoute(async (req, res) => {
+    const { name } = z
+      .object({
+        name: z.string().trim().min(3, "Ism familiya kamida 3 harf.").max(80),
+      })
+      .parse(req.body);
+    const user = await updateDb((db) => {
+      const row = db.users.find((item) => item.id === req.session!.userId);
+      if (!row) throw httpError("Foydalanuvchi topilmadi.", 404);
+      const before = row.name;
+      row.name = name;
+      if (row.role === "COMPANY_OWNER" && row.companyId) {
+        const company = db.companies.find((c) => c.id === row.companyId);
+        if (company) company.ownerName = name;
+      }
+      if (row.companyId)
+        db.auditLogs.unshift(
+          audit(row.companyId, name, "Ism familiya o‘zgartirildi", "user", row.id, { name: before }, { name }),
+        );
+      return row;
+    });
+    setSessionCookie(res, { ...req.session!, name: user.name });
+    res.json({ user: { ...req.session!, name: user.name } });
+  }),
+);
+
+/* ---- qurilmalar (panel sessiyalari) ---- */
+app.get(
+  "/api/auth/devices",
+  asyncRoute(async (req, res) => {
+    const db = await readDb();
+    res.json(
+      db.panelSessions
+        .filter((s) => s.userId === req.session!.userId && !s.revokedAt)
+        .sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))
+        .map((s) => ({ ...s, current: s.id === req.session!.sid })),
+    );
+  }),
+);
+app.delete(
+  "/api/auth/devices/:id",
+  asyncRoute(async (req, res) => {
+    await updateDb((db) => {
+      const row = db.panelSessions.find(
+        (s) => s.id === req.params.id && s.userId === req.session!.userId,
+      );
+      if (!row) throw httpError("Qurilma topilmadi.", 404);
+      row.revokedAt = new Date().toISOString();
+    });
+    res.json({ ok: true, current: req.params.id === req.session!.sid });
+  }),
+);
+app.post(
+  "/api/auth/devices/revoke-others",
+  asyncRoute(async (req, res) => {
+    const count = await updateDb((db) => {
+      let n = 0;
+      for (const row of db.panelSessions)
+        if (
+          row.userId === req.session!.userId &&
+          row.id !== req.session!.sid &&
+          !row.revokedAt
+        ) {
+          row.revokedAt = new Date().toISOString();
+          n += 1;
+        }
+      return n;
+    });
+    res.json({ ok: true, count });
+  }),
+);
+
+/* ---- Telegram ulash va 2 bosqichli kirish ---- */
+app.get(
+  "/api/auth/security",
+  asyncRoute(async (req, res) => {
+    const db = await readDb();
+    const user = db.users.find((u) => u.id === req.session!.userId);
+    res.json({
+      telegramLinked: Boolean(user?.telegramId),
+      telegramUsername: user?.telegramUsername,
+      twoFactorEnabled: Boolean(user?.twoFactorEnabled && user.telegramId),
+      botUsername: telegramBotUsername(),
+    });
+  }),
+);
+app.post(
+  "/api/auth/telegram-link",
+  asyncRoute(async (req, res) => {
+    const username = telegramBotUsername();
+    if (!username) throw httpError("Telegram bot sozlanmagan.", 503);
+    const code = createPanelLinkCode(req.session!.userId);
+    res.json({
+      code,
+      link: `https://t.me/${username}?start=adm_${code}`,
+      expiresInMinutes: 10,
+    });
+  }),
+);
+app.delete(
+  "/api/auth/telegram-link",
+  asyncRoute(async (req, res) => {
+    await updateDb((db) => {
+      const user = db.users.find((u) => u.id === req.session!.userId);
+      if (!user) throw httpError("Foydalanuvchi topilmadi.", 404);
+      user.telegramId = undefined;
+      user.telegramUsername = undefined;
+      user.twoFactorEnabled = false;
+    });
+    res.json({ ok: true });
+  }),
+);
+app.put(
+  "/api/auth/two-factor",
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({
+        enabled: z.boolean(),
+        password: z.string().min(1, "Parolni kiriting."),
+      })
+      .parse(req.body);
+    const db = await readDb();
+    const user = db.users.find((u) => u.id === req.session!.userId);
+    if (!user || !(await bcrypt.compare(input.password, user.passwordHash)))
+      throw httpError("Parol noto‘g‘ri.", 400);
+    if (input.enabled && !user.telegramId)
+      throw httpError("Avval Telegram hisobingizni ulang.", 409);
+    await updateDb((next) => {
+      const row = next.users.find((u) => u.id === user.id);
+      if (row) row.twoFactorEnabled = input.enabled;
+      if (row?.companyId)
+        next.auditLogs.unshift(
+          audit(
+            row.companyId,
+            row.name,
+            input.enabled ? "2 bosqichli kirish yoqildi" : "2 bosqichli kirish o‘chirildi",
+            "user",
+            row.id,
+          ),
+        );
+    });
+    if (input.enabled && user.telegramId)
+      void sendTelegramMessage(
+        user.telegramId,
+        "✅ Staffora: 2 bosqichli kirish yoqildi. Endi har safar panelga kirganda shu yerga kod keladi.",
+      ).catch(() => undefined);
+    res.json({ ok: true, enabled: input.enabled });
   }),
 );
 
@@ -1875,32 +2149,6 @@ app.get(
   }),
 );
 
-function payrollRows(db: Database, tenant: string, month: string) {
-  return db.employees
-    .filter((e) => e.companyId === tenant && e.status === "ACTIVE")
-    .map((e) => {
-      const rows = db.attendance.filter(
-        (x) => x.employeeId === e.id && x.date.startsWith(month),
-      );
-      const hourly = e.baseSalary / 176;
-      const overtimeMinutes = rows.reduce((s, x) => s + x.overtimeMinutes, 0);
-      const lateMinutes = rows.reduce((s, x) => s + x.lateMinutes, 0);
-      const workedMinutes = rows.reduce((s, x) => s + x.workedMinutes, 0);
-      const overtimeAmount = Math.round((overtimeMinutes / 60) * hourly);
-      const deduction = Math.round((lateMinutes / 60) * hourly);
-      return {
-        employee: e,
-        days: rows.filter((x) => x.checkIn).length,
-        workedMinutes,
-        overtimeMinutes,
-        lateMinutes,
-        base: e.baseSalary,
-        overtimeAmount,
-        deduction,
-        net: Math.max(0, e.baseSalary + overtimeAmount - deduction),
-      };
-    });
-}
 app.get(
   "/api/payroll",
   requirePermission("employees.view"),
@@ -1911,7 +2159,15 @@ app.get(
       .string()
       .regex(/^\d{4}-\d{2}$/)
       .parse(String(req.query.month || tashkentIsoDate().slice(0, 7)));
-    res.json({ month, rows: payrollRows(db, tenant, month) });
+    const settings = normalizePayrollSettings(
+      db.companies.find((c) => c.id === tenant)?.payroll,
+    );
+    res.json({
+      month,
+      settings,
+      rule: penaltyText(settings),
+      rows: payrollRows(db, tenant, month),
+    });
   }),
 );
 app.get(
@@ -1946,6 +2202,41 @@ app.get(
         x.net,
       ]),
     ]);
+  }),
+);
+
+registerExcelReports(app, {
+  requirePermission: requirePermission as unknown as (
+    permission: string,
+  ) => express.RequestHandler,
+  companyId: companyId as (req: Request) => string,
+});
+
+app.put(
+  "/api/company/payroll",
+  requirePermission("settings.manage"),
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({
+        latePenaltyMode: z.enum(["NONE", "HOURLY", "PER_MINUTE"]),
+        latePenaltyPerMinute: z.coerce.number().min(0).max(10_000_000),
+        freeLateMinutesPerMonth: z.coerce.number().min(0).max(10_000),
+        monthlyHours: z.coerce.number().min(1).max(400),
+        overtimePay: z.boolean(),
+      })
+      .parse(req.body);
+    const tenant = companyId(req);
+    const settings = normalizePayrollSettings(input);
+    await updateDb((db) => {
+      const company = db.companies.find((c) => c.id === tenant);
+      if (!company) throw httpError("Kompaniya topilmadi.", 404);
+      const before = company.payroll;
+      company.payroll = settings;
+      db.auditLogs.unshift(
+        audit(tenant, req.session!.name, "Ish haqi / jarima sozlamalari o‘zgartirildi", "company", tenant, before, settings),
+      );
+    });
+    res.json(settings);
   }),
 );
 
@@ -2057,6 +2348,40 @@ app.post(
     });
     const { passwordHash: _hash, ...safe } = user;
     res.status(201).json(safe);
+  }),
+);
+app.put(
+  "/api/users/:id",
+  requireRole("COMPANY_OWNER", "HR_ADMIN"),
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({
+        name: z.string().trim().min(3, "Ism familiya kamida 3 harf.").max(80),
+        role: z.enum(assignableRoles).optional(),
+      })
+      .parse(req.body);
+    const tenant = companyId(req);
+    const user = await updateDb((db) => {
+      const row = db.users.find(
+        (u) => u.id === req.params.id && u.companyId === tenant,
+      );
+      if (!row) throw httpError("Foydalanuvchi topilmadi.", 404);
+      if (input.role && row.role === "COMPANY_OWNER")
+        throw httpError("Kompaniya egasining rolini o‘zgartirib bo‘lmaydi.", 409);
+      const before = { name: row.name, role: row.role };
+      row.name = input.name;
+      if (input.role) row.role = input.role;
+      if (row.role === "COMPANY_OWNER") {
+        const company = db.companies.find((c) => c.id === tenant);
+        if (company) company.ownerName = input.name;
+      }
+      db.auditLogs.unshift(
+        audit(tenant, req.session!.name, "Panel foydalanuvchisi tahrirlandi", "user", row.id, before, { name: row.name, role: row.role }),
+      );
+      return row;
+    });
+    const { passwordHash: _hash, ...safe } = user;
+    res.json(safe);
   }),
 );
 app.delete(

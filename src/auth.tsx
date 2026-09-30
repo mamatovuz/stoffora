@@ -72,9 +72,9 @@ export const roleLabels: Record<Role, string> = {
   SUPER_ADMIN: "Super admin",
   COMPANY_OWNER: "Kompaniya egasi",
   HR_ADMIN: "HR administrator",
-  HR_MANAGER: "HR menejer",
+  HR_MANAGER: "HR mutaxassisi",
   FINANCE: "Moliya",
   IT_ADMIN: "IT administrator",
-  BRANCH_MANAGER: "Filial menejeri",
+  BRANCH_MANAGER: "Filial rahbari",
   EMPLOYEE: "Xodim",
 };
