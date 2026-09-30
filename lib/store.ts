@@ -1,16 +1,14 @@
-import { mkdir, readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import type { AuditLog, Database } from "./types";
-import { createSeed } from "./seed";
+import { createSeed, purgeLegacyDemoData } from "./seed";
 
 const localDataDirectory = path.join(process.cwd(), "data");
 const volumeDirectory =
   process.env.RAILWAY_VOLUME_MOUNT_PATH || localDataDirectory;
 export const sqlitePath =
   process.env.SQLITE_PATH || path.join(volumeDirectory, "staffora.sqlite");
-const legacyJsonPath = path.join(localDataDirectory, "dev-db.json");
 
 let connection: BetterSqlite3.Database | undefined;
 let initialization: Promise<BetterSqlite3.Database> | undefined;
@@ -22,22 +20,6 @@ function normalizeDatabase(database: Database): Database {
   database.qrNonces ||= [];
   database.faceProfiles ||= [];
   return database;
-}
-
-async function initialDatabase(): Promise<Database> {
-  if (existsSync(legacyJsonPath)) {
-    try {
-      return normalizeDatabase(
-        JSON.parse(await readFile(legacyJsonPath, "utf8")) as Database,
-      );
-    } catch (error) {
-      console.warn(
-        "Eski JSON bazani o‘qib bo‘lmadi, yangi seed yaratiladi.",
-        error,
-      );
-    }
-  }
-  return createSeed();
 }
 
 async function openDatabase() {
@@ -58,15 +40,52 @@ async function openDatabase() {
         )
       `);
       const existing = database
-        .prepare("SELECT id FROM app_state WHERE id = 1")
-        .get();
+        .prepare("SELECT payload FROM app_state WHERE id = 1")
+        .get() as { payload: string } | undefined;
       if (!existing) {
-        const seed = await initialDatabase();
+        const seed = await createSeed();
         database
           .prepare(
             "INSERT INTO app_state (id, payload, updated_at) VALUES (1, ?, ?)",
           )
           .run(JSON.stringify(seed), new Date().toISOString());
+      } else {
+        const current = normalizeDatabase(
+          JSON.parse(existing.payload) as Database,
+        );
+        const removed = purgeLegacyDemoData(current);
+        let bootstrapped = false;
+        if (!current.users.some((user) => user.role !== "SUPER_ADMIN")) {
+          const seed = await createSeed();
+          if (seed.users.length) {
+            // Egasiz qolgan mavjud kompaniya bo‘lsa, yangi egani o‘shanga biriktiramiz.
+            const orphan = current.companies[0];
+            if (orphan && seed.companies[0]) {
+              for (const user of seed.users)
+                if (user.companyId === seed.companies[0].id)
+                  user.companyId = orphan.id;
+              orphan.name = seed.companies[0].name;
+              orphan.ownerName = seed.companies[0].ownerName;
+            } else current.companies.push(...seed.companies);
+            current.users.push(
+              ...seed.users.filter(
+                (user) =>
+                  !current.users.some(
+                    (existingUser) => existingUser.email === user.email,
+                  ),
+              ),
+            );
+            bootstrapped = true;
+          }
+        }
+        if (removed > 0 || bootstrapped) {
+          database
+            .prepare(
+              "UPDATE app_state SET payload = ?, updated_at = ? WHERE id = 1",
+            )
+            .run(JSON.stringify(current), new Date().toISOString());
+          console.log(`Eski demo ma’lumotlar olib tashlandi: ${removed} ta yozuv.`);
+        }
       }
       connection = database;
       console.log(`SQLite ma’lumotlar bazasi: ${sqlitePath}`);

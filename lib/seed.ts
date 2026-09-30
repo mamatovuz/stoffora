@@ -1,307 +1,216 @@
 import bcrypt from "bcryptjs";
-import type { Attendance, Database, Employee } from "./types";
-import { tashkentIsoDate } from "./format";
+import type { Company, Database, User } from "./types";
 
-const id = (prefix: string, index: number) =>
-  `${prefix}_${String(index).padStart(3, "0")}`;
-const iso = (date: Date) => date.toISOString();
-
-export async function createSeed(): Promise<Database> {
-  const now = new Date();
-  const today = tashkentIsoDate(now);
-  const passwordHash = await bcrypt.hash("Staffora2026!", 12);
-  const companyId = "cmp_gulnora";
-  const branches = [
-    {
-      id: "br_andijon",
-      companyId,
-      name: "Andijon",
-      address: "Andijon sh., Bobur shoh ko‘chasi 12",
-      latitude: 40.7821,
-      longitude: 72.3442,
-      radiusMeters: 100,
-      manager: "Akmal Rasulov",
-      status: "ACTIVE" as const,
-      scheduleId: "sch_standard",
-    },
-    {
-      id: "br_asaka",
-      companyId,
-      name: "Asaka",
-      address: "Asaka sh., Amir Temur ko‘chasi 8",
-      latitude: 40.6415,
-      longitude: 72.2387,
-      radiusMeters: 120,
-      manager: "Dilshod Karimov",
-      status: "ACTIVE" as const,
-      scheduleId: "sch_standard",
-    },
-    {
-      id: "br_shahrixon",
-      companyId,
-      name: "Shahrixon",
-      address: "Shahrixon sh., Mustaqillik ko‘chasi 21",
-      latitude: 40.7132,
-      longitude: 72.0574,
-      radiusMeters: 100,
-      manager: "Madina Sobirova",
-      status: "ACTIVE" as const,
-      scheduleId: "sch_flexible",
-    },
-  ];
-  const departments = ["IT", "HR", "Savdo", "Dorixona", "Moliya"].map(
-    (name, i) => ({ id: id("dep", i + 1), companyId, name }),
-  );
-  const positions = [
-    "Dasturchi",
-    "HR menejer",
-    "Savdo menejeri",
-    "Farmatsevt",
-    "Buxgalter",
-  ].map((name, i) => ({
-    id: id("pos", i + 1),
-    companyId,
-    name,
-    departmentId: id("dep", i + 1),
-  }));
-  const schedules = [
-    {
-      id: "sch_standard",
-      companyId,
-      name: "Standart 5/2",
-      type: "FIXED" as const,
-      graceMinutes: 5,
-      overtimeEnabled: true,
-      days: [1, 2, 3, 4, 5, 6, 0].map((day) => ({
-        day,
-        enabled: day > 0 && day < 6,
-        start: "08:00",
-        end: "17:00",
-        breakMinutes: 60,
-      })),
-    },
-    {
-      id: "sch_flexible",
-      companyId,
-      name: "Moslashuvchan",
-      type: "FLEXIBLE" as const,
-      graceMinutes: 10,
-      overtimeEnabled: true,
-      days: [1, 2, 3, 4, 5, 6, 0].map((day) => ({
-        day,
-        enabled: day > 0 && day < 7,
-        start: "09:00",
-        end: "18:00",
-        breakMinutes: 60,
-      })),
-    },
-  ];
-  const names = [
-    ["Ali", "Aliyev"],
-    ["Madina", "Sobirova"],
-    ["Javohir", "Karimov"],
-    ["Dilnoza", "Ergasheva"],
-    ["Sardor", "Ismoilov"],
-    ["Gulbahor", "To‘xtayeva"],
-    ["Akmal", "Rasulov"],
-    ["Mohira", "Qodirova"],
-    ["Bekzod", "Usmonov"],
-    ["Nodira", "Abdullayeva"],
-    ["Azizbek", "Hamidov"],
-    ["Shahnoza", "Yoqubova"],
-    ["Rustam", "Xoliqov"],
-    ["Feruza", "Olimova"],
-    ["Diyor", "Tursunov"],
-    ["Malika", "Vohidova"],
-    ["Oybek", "Solijonov"],
-    ["Zilola", "Mahmudova"],
-    ["Kamron", "Ibrohimov"],
-    ["Nigora", "Ahmedova"],
-  ];
-  const employees: Employee[] = names.map(([firstName, lastName], i) => ({
-    id: id("emp", i + 1),
-    companyId,
-    employeeNo: `GF-${String(i + 1).padStart(4, "0")}`,
-    firstName,
-    lastName,
-    phone: `+998 90 ${String(1200000 + i * 7311).slice(0, 3)} ${String(1200000 + i * 7311).slice(3, 5)} ${String(1200000 + i * 7311).slice(5, 7)}`,
-    email: `${firstName.toLowerCase().replace("‘", "")}.${lastName.toLowerCase().replace("‘", "")}@gulnorafarm.uz`,
-    address: "Andijon viloyati",
-    departmentId: id("dep", (i % 5) + 1),
-    positionId: id("pos", (i % 5) + 1),
-    branchId: branches[i % 3].id,
-    scheduleId: i % 4 === 0 ? "sch_flexible" : "sch_standard",
-    manager: i % 3 === 0 ? "Akmal Rasulov" : "Madina Sobirova",
-    employmentType: i % 7 === 0 ? "PART_TIME" : "FULL_TIME",
-    startDate: `202${2 + (i % 4)}-${String((i % 9) + 1).padStart(2, "0")}-15`,
-    baseSalary: 3_500_000 + (i % 5) * 750_000,
-    currency: "UZS",
-    telegramUsername: i % 3 ? `${firstName.toLowerCase()}_${i + 1}` : undefined,
-    telegramId: i === 0 ? "7770001" : undefined,
-    telegramConnected: i === 0 || i % 3 !== 0,
-    deviceStatus: i % 3 !== 0 ? "CONNECTED" : "PENDING",
-    status: i === 19 ? "INACTIVE" : "ACTIVE",
-    createdAt: iso(new Date(now.getTime() - (i + 20) * 86400000)),
-    updatedAt: iso(now),
-  }));
-  const attendance: Attendance[] = employees.slice(0, 17).map((employee, i) => {
-    const checkIn =
-      i < 3
-        ? undefined
-        : i % 5 === 0
-          ? "08:14"
-          : i % 4 === 0
-            ? "08:07"
-            : "07:58";
-    const late = checkIn && checkIn > "08:05" ? Number(checkIn.slice(3)) : 0;
-    return {
-      id: id("att", i + 1),
-      companyId,
-      employeeId: employee.id,
-      branchId: employee.branchId,
-      date: today,
-      scheduledStart: "08:00",
-      scheduledEnd: "17:00",
-      checkIn,
-      checkOut: i > 13 ? "17:06" : undefined,
-      lateMinutes: late,
-      earlyLeaveMinutes: 0,
-      workedMinutes: i > 13 ? 548 : 0,
-      overtimeMinutes: i > 13 ? 6 : 0,
-      status: !checkIn
-        ? "ABSENT"
-        : i > 13
-          ? late
-            ? "LATE"
-            : "CHECKED_OUT"
-          : late
-            ? "LATE"
-            : "WORKING",
-      verification: checkIn ? ["GPS", "QR"] : [],
-      latitude: checkIn ? branches[i % 3].latitude : undefined,
-      longitude: checkIn ? branches[i % 3].longitude : undefined,
-      distanceMeters: checkIn ? 12 + i : undefined,
-      updatedAt: iso(now),
-    };
-  });
+export function emptyDatabase(): Database {
   return {
-    companies: [
-      {
-        id: companyId,
-        name: "Gulnora Farm",
-        slug: "gulnora-farm",
-        ownerName: "Gulnora Karimova",
-        plan: "Business",
-        status: "ACTIVE",
-        timezone: "Asia/Tashkent",
-        createdAt: iso(new Date("2024-03-12")),
-      },
-      {
-        id: "cmp_ziyoda",
-        name: "Ziyoda Textile",
-        slug: "ziyoda-textile",
-        ownerName: "Sardor Nabiyev",
-        plan: "Standard",
-        status: "TRIAL",
-        timezone: "Asia/Tashkent",
-        createdAt: iso(new Date("2026-09-12")),
-      },
-    ],
-    branches,
-    departments,
-    positions,
-    schedules,
-    employees,
-    attendance,
-    leaveRequests: [
-      {
-        id: "leave_001",
-        companyId,
-        employeeId: "emp_006",
-        type: "VACATION",
-        startDate: today,
-        endDate: today,
-        reason: "Oilaviy sabablar",
-        status: "APPROVED",
-        decidedBy: "Ozodbek Admin",
-        createdAt: iso(now),
-      },
-      {
-        id: "leave_002",
-        companyId,
-        employeeId: "emp_012",
-        type: "SICK",
-        startDate: today,
-        endDate: today,
-        reason: "Sog‘liq bilan bog‘liq",
-        status: "PENDING",
-        createdAt: iso(now),
-      },
-    ],
-    auditLogs: [
-      {
-        id: "audit_001",
-        companyId,
-        actor: "Ozodbek Admin",
-        action: "Xodim profili yaratildi",
-        entity: "employee",
-        entityId: "emp_020",
-        createdAt: iso(now),
-      },
-    ],
-    announcements: [
-      {
-        id: "ann_001",
-        companyId,
-        title: "Umumiy yig‘ilish",
-        message:
-          "Juma kuni soat 16:00 da markaziy filialda umumiy yig‘ilish bo‘ladi.",
-        audience: "Barcha xodimlar",
-        channel: ["WEB", "TELEGRAM"],
-        scheduledAt: iso(now),
-        status: "SENT",
-      },
-    ],
-    notifications: [
-      {
-        id: "not_001",
-        companyId,
-        title: "Yangi ta’til so‘rovi",
-        body: "Shahnoza Yoqubova kasallik ta’tili so‘radi.",
-        type: "LEAVE",
-        read: false,
-        createdAt: iso(now),
-      },
-      {
-        id: "not_002",
-        companyId,
-        title: "Kechikish aniqlandi",
-        body: "Bugun 3 nafar xodim kechikdi.",
-        type: "ATTENDANCE",
-        read: false,
-        createdAt: iso(now),
-      },
-    ],
-    users: [
-      {
-        id: "usr_admin",
-        companyId,
-        name: "Ozodbek Admin",
-        email: "admin@staffora.uz",
-        passwordHash,
-        role: "COMPANY_OWNER",
-      },
-      {
-        id: "usr_super",
-        name: "Staffora Super Admin",
-        email: "super@staffora.uz",
-        passwordHash,
-        role: "SUPER_ADMIN",
-      },
-    ],
+    companies: [],
+    branches: [],
+    departments: [],
+    positions: [],
+    schedules: [],
+    employees: [],
+    attendance: [],
+    leaveRequests: [],
+    auditLogs: [],
+    announcements: [],
+    notifications: [],
+    users: [],
     telegramInvites: [],
     attendanceSessions: [],
     qrNonces: [],
     faceProfiles: [],
   };
+}
+
+/**
+ * Yangi baza. Agar BOOTSTRAP_* qiymatlari berilgan bo‘lsa, kompaniya va egasi
+ * avtomatik yaratiladi. Aks holda baza bo‘sh qoladi va birinchi kirishda
+ * /setup sahifasi orqali kompaniya yaratiladi.
+ */
+export async function createSeed(): Promise<Database> {
+  const database = emptyDatabase();
+  const companyName = process.env.BOOTSTRAP_COMPANY_NAME?.trim();
+  const ownerName = process.env.BOOTSTRAP_OWNER_NAME?.trim();
+  const adminEmail = process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
+  const adminPassword = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+
+  if (companyName && ownerName && adminEmail && adminPassword) {
+    if (adminPassword.length < 10)
+      throw new Error(
+        "BOOTSTRAP_ADMIN_PASSWORD kamida 10 belgidan iborat bo‘lsin.",
+      );
+    const company = createCompany({
+      name: companyName,
+      ownerName,
+      plan: process.env.BOOTSTRAP_PLAN?.trim() || "Business",
+      status: "ACTIVE",
+    });
+    database.companies.push(company);
+    database.users.push(
+      await createUser({
+        companyId: company.id,
+        name: ownerName,
+        email: adminEmail,
+        password: adminPassword,
+        role: "COMPANY_OWNER",
+      }),
+    );
+  }
+
+  const superAdminEmail = process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL?.trim()
+    .toLowerCase();
+  const superAdminPassword = process.env.BOOTSTRAP_SUPER_ADMIN_PASSWORD;
+  if (superAdminEmail && superAdminPassword && superAdminPassword.length >= 10)
+    database.users.push(
+      await createUser({
+        name: "Staffora Super Admin",
+        email: superAdminEmail,
+        password: superAdminPassword,
+        role: "SUPER_ADMIN",
+      }),
+    );
+
+  return database;
+}
+
+export function createCompany(input: {
+  name: string;
+  ownerName: string;
+  plan?: string;
+  status?: Company["status"];
+}): Company {
+  return {
+    id: crypto.randomUUID(),
+    name: input.name,
+    slug: slugify(input.name),
+    ownerName: input.ownerName,
+    plan: input.plan || "Business",
+    status: input.status || "ACTIVE",
+    timezone: "Asia/Tashkent",
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export async function createUser(input: {
+  companyId?: string;
+  name: string;
+  email: string;
+  password: string;
+  role: User["role"];
+}): Promise<User> {
+  return {
+    id: crypto.randomUUID(),
+    companyId: input.companyId,
+    name: input.name,
+    email: input.email.trim().toLowerCase(),
+    passwordHash: await bcrypt.hash(input.password, 12),
+    role: input.role,
+  };
+}
+
+export function slugify(value: string) {
+  return (
+    value
+      .toLowerCase()
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "") || `company-${Date.now()}`
+  );
+}
+
+const demoCompanyIds = new Set(["cmp_gulnora", "cmp_ziyoda"]);
+const demoUserIds = new Set(["usr_admin", "usr_super"]);
+const demoEmails = new Set(["admin@staffora.uz", "super@staffora.uz"]);
+const demoBranchIds = new Set(["br_andijon", "br_asaka", "br_shahrixon"]);
+const demoScheduleIds = new Set(["sch_standard", "sch_flexible"]);
+const isDemoId = (value: string, prefix: string) =>
+  new RegExp(`^${prefix}_\\d{3}$`).test(value);
+
+/**
+ * Eski versiyadagi demo yozuvlarni faqat ularning ma’lum ID’lari bo‘yicha
+ * olib tashlaydi. Foydalanuvchi o‘zi kiritgan (UUID ID’li) ma’lumotlar saqlanadi.
+ * Qaytaradi: o‘chirilgan yozuvlar soni.
+ */
+export function purgeLegacyDemoData(db: Database) {
+  const before = countRows(db);
+  const demoEmployee = (item: { id: string; email?: string }) =>
+    isDemoId(item.id, "emp") &&
+    (!item.email || /@gulnorafarm\.uz$/i.test(item.email));
+  const demoEmployeeIds = new Set(
+    db.employees.filter(demoEmployee).map((item) => item.id),
+  );
+  db.employees = db.employees.filter((item) => !demoEmployeeIds.has(item.id));
+  const keepEmployees = db.employees;
+
+  db.attendance = db.attendance.filter(
+    (item) =>
+      !isDemoId(item.id, "att") && !demoEmployeeIds.has(item.employeeId),
+  );
+  db.leaveRequests = db.leaveRequests.filter(
+    (item) =>
+      !isDemoId(item.id, "leave") && !demoEmployeeIds.has(item.employeeId),
+  );
+  db.auditLogs = db.auditLogs.filter(
+    (item) => !isDemoId(item.id, "audit") && !demoEmployeeIds.has(item.entityId),
+  );
+  db.announcements = db.announcements.filter(
+    (item) => !isDemoId(item.id, "ann"),
+  );
+  db.notifications = db.notifications.filter(
+    (item) => !isDemoId(item.id, "not"),
+  );
+  db.faceProfiles = db.faceProfiles.filter(
+    (item) => !demoEmployeeIds.has(item.employeeId),
+  );
+  db.telegramInvites = db.telegramInvites.filter(
+    (item) => !demoEmployeeIds.has(item.employeeId),
+  );
+  db.attendanceSessions = db.attendanceSessions.filter(
+    (item) => !demoEmployeeIds.has(item.employeeId),
+  );
+
+  // Demo filial/grafik/bo‘lim/lavozimlarni faqat real xodim ishlatmasa o‘chiramiz.
+  db.branches = db.branches.filter(
+    (item) =>
+      !demoBranchIds.has(item.id) ||
+      keepEmployees.some((employee) => employee.branchId === item.id),
+  );
+  db.schedules = db.schedules.filter(
+    (item) =>
+      !demoScheduleIds.has(item.id) ||
+      keepEmployees.some((employee) => employee.scheduleId === item.id) ||
+      db.branches.some((branch) => branch.scheduleId === item.id),
+  );
+  db.positions = db.positions.filter(
+    (item) =>
+      !isDemoId(item.id, "pos") ||
+      keepEmployees.some((employee) => employee.positionId === item.id),
+  );
+  db.departments = db.departments.filter(
+    (item) =>
+      !isDemoId(item.id, "dep") ||
+      keepEmployees.some((employee) => employee.departmentId === item.id) ||
+      db.positions.some((position) => position.departmentId === item.id),
+  );
+
+  db.users = db.users.filter(
+    (item) =>
+      !demoUserIds.has(item.id) && !demoEmails.has(item.email.toLowerCase()),
+  );
+  db.companies = db.companies.filter(
+    (company) =>
+      !demoCompanyIds.has(company.id) ||
+      db.employees.some((item) => item.companyId === company.id) ||
+      db.branches.some((item) => item.companyId === company.id) ||
+      db.users.some((item) => item.companyId === company.id),
+  );
+  return before - countRows(db);
+}
+
+function countRows(db: Database) {
+  return Object.values(db).reduce(
+    (sum, rows) => sum + (Array.isArray(rows) ? rows.length : 0),
+    0,
+  );
 }

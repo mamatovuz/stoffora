@@ -1,41 +1,39 @@
 import { useState } from "react";
-import { LogOut, Plus } from "lucide-react";
-import { api, post } from "../api";
+import { Activity, Building2, LogOut, Plus, Send, Users } from "lucide-react";
+import { api, errorText, patch, post } from "../api";
 import { useApi } from "../hooks";
-import { ErrorBox, Loading, Modal, PageHeader, Status } from "../components/ui";
+import {
+  ErrorBox,
+  Field,
+  Loading,
+  Modal,
+  PageHeader,
+  StatCard,
+  useToast,
+} from "../components/ui";
 import { Logo } from "../components/Logo";
 import { dateUz } from "@/lib/format";
 import type { Company } from "@/lib/types";
+
 type Overview = {
-  stats: {
-    companies: number;
-    active: number;
-    trial: number;
-    employees: number;
-    eventsToday: number;
-  };
-  companies: (Company & { employees: number; branches: number })[];
+  stats: { companies: number; active: number; trial: number; employees: number; eventsToday: number };
+  telegram: { state: string; username?: string; error?: string; mode?: string };
+  companies: (Company & { employees: number; branches: number; owner?: string })[];
 };
+
 export function SuperAdminPage() {
-  const { data, loading, error, reload } = useApi<Overview>("/admin/overview"),
-    [open, setOpen] = useState(false);
+  const { data, loading, error, reload } = useApi<Overview>("/admin/overview");
+  const [open, setOpen] = useState(false);
+  const toast = useToast();
   async function logout() {
-    await api("/auth/logout", { method: "POST" });
+    await api("/auth/logout", { method: "POST" }).catch(() => undefined);
     location.href = "/login";
   }
   return (
     <div>
-      <header className="topbar" style={{ position: "sticky" }}>
+      <header className="topbar scrolled" style={{ background: "var(--surface)" }}>
         <Logo />
-        <span
-          style={{
-            marginLeft: 15,
-            paddingLeft: 15,
-            borderLeft: "1px solid var(--line)",
-            fontSize: 11,
-            color: "var(--muted)",
-          }}
-        >
+        <span className="badge dark plain" style={{ background: "var(--ink)", color: "#fff" }}>
           SUPER ADMIN
         </span>
         <button className="btn" style={{ marginLeft: "auto" }} onClick={logout}>
@@ -45,48 +43,41 @@ export function SuperAdminPage() {
       <div className="page">
         <PageHeader
           title="Platforma boshqaruvi"
-          subtitle="Staffora kompaniyalari va tizim faolligi"
+          subtitle="Kompaniyalar va tizim holati"
+          actions={
+            <button className="btn btn-primary" onClick={() => setOpen(true)}>
+              <Plus size={15} /> Kompaniya yaratish
+            </button>
+          }
         />
-        {loading ? (
+        {loading && !data ? (
           <Loading />
         ) : error ? (
           <ErrorBox message={error} />
         ) : (
           data && (
             <>
-              <div className="grid-stats">
-                {[
-                  ["Kompaniyalar", data.stats.companies],
-                  ["Faol", data.stats.active],
-                  ["Sinov muddati", data.stats.trial],
-                  ["Xodimlar", data.stats.employees],
-                  ["Davomat hodisalari", data.stats.eventsToday],
-                ].map(([label, value]) => (
-                  <div className="card stat" key={label}>
-                    <div className="stat-label">{label}</div>
-                    <div className="stat-value">{value}</div>
-                  </div>
-                ))}
+              <div className="stat-grid">
+                <StatCard label="Kompaniyalar" value={data.stats.companies} note={`${data.stats.active} faol · ${data.stats.trial} sinov`} icon={Building2} />
+                <StatCard label="Faol xodimlar" value={data.stats.employees} icon={Users} tone="green" />
+                <StatCard label="Bugungi qaydlar" value={data.stats.eventsToday} icon={Activity} tone="blue" />
+                <StatCard
+                  label="Telegram bot"
+                  value={data.telegram.state === "running" ? "Ishlayapti" : data.telegram.state}
+                  note={data.telegram.username ? `@${data.telegram.username} · ${data.telegram.mode || ""}` : data.telegram.error}
+                  icon={Send}
+                  tone={data.telegram.state === "running" ? "green" : "red"}
+                />
               </div>
-              <section className="card" style={{ marginTop: 16 }}>
-                <div className="section-head">
-                  <h2>Kompaniyalar</h2>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => setOpen(true)}
-                  >
-                    <Plus size={15} /> Kompaniya yaratish
-                  </button>
-                </div>
+              <section className="card">
                 <div className="table-wrap">
-                  <table className="table">
+                  <table className="table table-cards">
                     <thead>
                       <tr>
                         <th>Kompaniya</th>
                         <th>Egasi</th>
-                        <th>Xodimlar</th>
-                        <th>Filiallar</th>
-                        <th>Reja</th>
+                        <th>Xodim / filial</th>
+                        <th>Tarif</th>
                         <th>Holat</th>
                         <th>Yaratilgan</th>
                       </tr>
@@ -95,22 +86,42 @@ export function SuperAdminPage() {
                       {data.companies.map((c) => (
                         <tr key={c.id}>
                           <td>
-                            <b>{c.name}</b>
-                            <small
-                              className="subtle"
-                              style={{ display: "block" }}
+                            <span className="stack">
+                              <b>{c.name}</b>
+                              <small>{c.slug}</small>
+                            </span>
+                          </td>
+                          <td data-label="Egasi">
+                            <span className="stack">
+                              <span>{c.ownerName}</span>
+                              <small>{c.owner || "login yo‘q"}</small>
+                            </span>
+                          </td>
+                          <td data-label="Xodim / filial" className="num">
+                            {c.employees} / {c.branches}
+                          </td>
+                          <td data-label="Tarif">{c.plan}</td>
+                          <td data-label="Holat">
+                            <select
+                              className="select"
+                              style={{ minHeight: 32, width: 140 }}
+                              value={c.status}
+                              onChange={async (e) => {
+                                try {
+                                  await patch(`/admin/companies/${c.id}`, { status: e.target.value });
+                                  toast("Holat yangilandi");
+                                  void reload(true);
+                                } catch (reason) {
+                                  toast(errorText(reason), "error");
+                                }
+                              }}
                             >
-                              {c.slug}
-                            </small>
+                              <option value="ACTIVE">Faol</option>
+                              <option value="TRIAL">Sinov</option>
+                              <option value="SUSPENDED">To‘xtatilgan</option>
+                            </select>
                           </td>
-                          <td>{c.ownerName}</td>
-                          <td>{c.employees}</td>
-                          <td>{c.branches}</td>
-                          <td>{c.plan}</td>
-                          <td>
-                            <Status value={c.status} />
-                          </td>
-                          <td>{dateUz(c.createdAt)}</td>
+                          <td data-label="Yaratilgan">{dateUz(c.createdAt)}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -125,7 +136,8 @@ export function SuperAdminPage() {
             onClose={() => setOpen(false)}
             onSaved={() => {
               setOpen(false);
-              void reload();
+              toast("Kompaniya yaratildi");
+              void reload(true);
             }}
           />
         )}
@@ -133,81 +145,71 @@ export function SuperAdminPage() {
     </div>
   );
 }
-function CompanyForm({
-  onClose,
-  onSaved,
-}: {
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+
+function CompanyForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({
-      name: "",
-      ownerName: "",
-      plan: "Standard",
-      status: "TRIAL",
-    }),
-    [error, setError] = useState("");
+    name: "",
+    ownerName: "",
+    ownerEmail: "",
+    ownerPassword: "",
+    plan: "Standard",
+    status: "TRIAL",
+  });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm({ ...form, [k]: e.target.value });
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    setSaving(true);
+    setError("");
     try {
       await post("/admin/companies", form);
       onSaved();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Xatolik");
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setSaving(false);
     }
   }
   return (
-    <Modal title="Yangi kompaniya" onClose={onClose}>
+    <Modal title="Yangi kompaniya" subtitle="Kompaniya egasi shu email va parol bilan panelga kiradi" onClose={onClose}>
       <form onSubmit={save}>
-        <div className="field">
-          <label className="label">Kompaniya nomi</label>
-          <input
-            className="input"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            required
-          />
-        </div>
-        <div className="field">
-          <label className="label">Egasi</label>
-          <input
-            className="input"
-            value={form.ownerName}
-            onChange={(e) => setForm({ ...form, ownerName: e.target.value })}
-            required
-          />
-        </div>
+        <Field label="Kompaniya nomi *">
+          <input className="input" value={form.name} onChange={set("name")} required minLength={2} />
+        </Field>
         <div className="form-grid">
-          <div className="field">
-            <label className="label">Reja</label>
-            <select
-              className="select"
-              value={form.plan}
-              onChange={(e) => setForm({ ...form, plan: e.target.value })}
-            >
+          <Field label="Egasi F.I.Sh. *">
+            <input className="input" value={form.ownerName} onChange={set("ownerName")} required minLength={2} />
+          </Field>
+          <Field label="Egasi email *">
+            <input className="input" type="email" value={form.ownerEmail} onChange={set("ownerEmail")} required />
+          </Field>
+          <Field label="Vaqtinchalik parol *" hint="Kamida 10 belgi">
+            <input className="input" value={form.ownerPassword} onChange={set("ownerPassword")} required minLength={10} autoComplete="new-password" />
+          </Field>
+          <Field label="Tarif">
+            <select className="select" value={form.plan} onChange={set("plan")}>
               <option>Standard</option>
               <option>Business</option>
               <option>Enterprise</option>
             </select>
-          </div>
-          <div className="field">
-            <label className="label">Holat</label>
-            <select
-              className="select"
-              value={form.status}
-              onChange={(e) => setForm({ ...form, status: e.target.value })}
-            >
+          </Field>
+          <Field label="Holat">
+            <select className="select" value={form.status} onChange={set("status")}>
               <option value="TRIAL">Sinov</option>
               <option value="ACTIVE">Faol</option>
             </select>
-          </div>
+          </Field>
         </div>
-        {error && <p className="field-error">{error}</p>}
+        <ErrorBox message={error} />
         <div className="form-actions">
           <button type="button" className="btn" onClick={onClose}>
             Bekor qilish
           </button>
-          <button className="btn btn-primary">Yaratish</button>
+          <button className="btn btn-primary" disabled={saving}>
+            {saving ? "Yaratilmoqda…" : "Yaratish"}
+          </button>
         </div>
       </form>
     </Modal>

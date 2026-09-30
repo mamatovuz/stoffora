@@ -5,6 +5,12 @@ import { Shell } from "./components/Shell";
 const LoginPage = lazy(() =>
   import("./pages/Login").then((m) => ({ default: m.LoginPage })),
 );
+const SetupPage = lazy(() =>
+  import("./pages/Login").then((m) => ({ default: m.SetupPage })),
+);
+const UsersPage = lazy(() =>
+  import("./pages/Directory").then((m) => ({ default: m.UsersPage })),
+);
 const DashboardPage = lazy(() =>
   import("./pages/Dashboard").then((m) => ({ default: m.DashboardPage })),
 );
@@ -81,6 +87,7 @@ export default function App() {
     >
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/setup" element={<SetupPage />} />
         <Route path="/mini-app" element={<MiniAppPage />} />
         <Route
           path="/attendance-screen/:branchId"
@@ -128,6 +135,7 @@ export default function App() {
             element={<DirectoryPage type="positions" />}
           />
           <Route path="/roles" element={<RolesPage />} />
+          <Route path="/users" element={<UsersPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

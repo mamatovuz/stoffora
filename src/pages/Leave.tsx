@@ -1,104 +1,161 @@
-import { useState } from "react";
-import { Check, Plus, X } from "lucide-react";
-import { patch, post } from "../api";
+import { useMemo, useState } from "react";
+import { Check, Plane, Plus, X } from "lucide-react";
+import { errorText, patch, post } from "../api";
 import { useApi } from "../hooks";
 import {
-  Avatar,
   Empty,
   ErrorBox,
+  Field,
   Loading,
   Modal,
   PageHeader,
+  Person,
+  Segmented,
   Status,
+  useToast,
 } from "../components/ui";
-import { dateUz } from "@/lib/format";
+import { dateUz, tashkentIsoDate } from "@/lib/format";
 import type { Employee, LeaveRequest } from "@/lib/types";
+import { leaveTypeLabel } from "../types";
+
 type Row = LeaveRequest & { employee?: Employee };
+type Tab = "PENDING" | "APPROVED" | "ALL";
+
+const days = (from: string, to: string) =>
+  Math.round(
+    (new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) /
+      86_400_000,
+  ) + 1;
+
 export function LeavePage() {
-  const { data, loading, error, reload } = useApi<Row[]>("/leave"),
-    { data: employees } = useApi<{ items: Employee[] }>("/employees?limit=50");
+  const { data, loading, error, reload } = useApi<Row[]>("/leave");
+  const [tab, setTab] = useState<Tab>("PENDING");
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const toast = useToast();
+  const today = tashkentIsoDate();
+  const rows = useMemo(
+    () =>
+      (data || []).filter((l) =>
+        tab === "ALL" ? true : tab === "PENDING" ? l.status === "PENDING" : l.status === "APPROVED",
+      ),
+    [data, tab],
+  );
+  const onLeaveNow = (data || []).filter(
+    (l) => l.status === "APPROVED" && l.startDate <= today && l.endDate >= today,
+  ).length;
   async function decide(id: string, status: "APPROVED" | "REJECTED") {
-    await patch(`/leave/${id}`, { status });
-    void reload();
+    setBusy(id);
+    try {
+      await patch(`/leave/${id}`, { status });
+      toast(status === "APPROVED" ? "So‘rov tasdiqlandi" : "So‘rov rad etildi");
+      void reload(true);
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    } finally {
+      setBusy(null);
+    }
   }
   return (
     <div className="page">
       <PageHeader
         title="Ta’til va yo‘qlik"
-        subtitle="Xodim so‘rovlarini ko‘rib chiqing"
+        subtitle={`Hozir ta’tilda: ${onLeaveNow} nafar`}
         actions={
           <button className="btn btn-primary" onClick={() => setOpen(true)}>
-            <Plus size={16} /> So‘rov qo‘shish
+            <Plus size={16} /> Ta’til qo‘shish
           </button>
         }
       />
       <section className="card">
-        {loading ? (
+        <div className="filters">
+          <Segmented<Tab>
+            value={tab}
+            onChange={setTab}
+            options={[
+              {
+                value: "PENDING",
+                label: "Kutilmoqda",
+                count: data?.filter((l) => l.status === "PENDING").length,
+              },
+              { value: "APPROVED", label: "Tasdiqlangan" },
+              { value: "ALL", label: "Barchasi" },
+            ]}
+          />
+        </div>
+        {loading && !data ? (
           <Loading />
         ) : error ? (
-          <div className="section-body">
+          <div className="card-body">
             <ErrorBox message={error} />
           </div>
-        ) : !data?.length ? (
-          <Empty />
+        ) : !rows.length ? (
+          <Empty
+            icon={Plane}
+            title={tab === "PENDING" ? "Kutilayotgan so‘rov yo‘q" : "So‘rovlar yo‘q"}
+            text="Xodimlar Telegram Mini App orqali ta’til so‘rovi yuboradi."
+          />
         ) : (
-          <div className="table-wrap mobile-cards">
-            <table className="table">
+          <div className="table-wrap">
+            <table className="table table-cards">
               <thead>
                 <tr>
                   <th>Xodim</th>
                   <th>Turi</th>
-                  <th>Boshlanish</th>
-                  <th>Tugash</th>
+                  <th>Sana</th>
                   <th>Sabab</th>
                   <th>Holat</th>
-                  <th>Amal</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
-                {data.map((l) => (
+                {rows.map((l) => (
                   <tr key={l.id}>
                     <td>
-                      <div className="cell-person">
-                        <Avatar
-                          first={l.employee?.firstName || "?"}
-                          last={l.employee?.lastName}
-                          photo={l.employee?.photoDataUrl}
-                        />
-                        <span>
-                          <b>
-                            {l.employee?.firstName} {l.employee?.lastName}
-                          </b>
-                          <small>{l.employee?.employeeNo}</small>
+                      <Person
+                        first={l.employee?.firstName || "?"}
+                        last={l.employee?.lastName}
+                        photo={l.employee?.photoDataUrl}
+                        sub={l.employee?.employeeNo}
+                      />
+                    </td>
+                    <td data-label="Turi">{leaveTypeLabel[l.type] || l.type}</td>
+                    <td data-label="Sana">
+                      <span className="stack">
+                        <span className="num">
+                          {dateUz(l.startDate)} — {dateUz(l.endDate)}
                         </span>
-                      </div>
+                        <small>{days(l.startDate, l.endDate)} kun</small>
+                      </span>
                     </td>
-                    <td>{typeLabel(l.type)}</td>
-                    <td>{dateUz(l.startDate)}</td>
-                    <td>{dateUz(l.endDate)}</td>
-                    <td>{l.reason}</td>
-                    <td>
-                      <Status value={l.status} />
+                    <td data-label="Sabab" style={{ maxWidth: 280 }}>
+                      {l.reason}
                     </td>
-                    <td>
-                      {l.status === "PENDING" ? (
-                        <div className="toolbar">
+                    <td data-label="Holat">
+                      <span className="state-cell">
+                        <Status value={l.status} />
+                        {l.decidedBy && <small>{l.decidedBy}</small>}
+                      </span>
+                    </td>
+                    <td className="actions">
+                      {l.status === "PENDING" && (
+                        <span className="toolbar" style={{ justifyContent: "flex-end" }}>
                           <button
-                            className="btn btn-sm"
-                            onClick={() => decide(l.id, "APPROVED")}
+                            className="btn btn-sm btn-primary"
+                            disabled={busy === l.id}
+                            onClick={() => void decide(l.id, "APPROVED")}
                           >
                             <Check size={14} /> Tasdiqlash
                           </button>
                           <button
                             className="btn btn-sm btn-danger"
-                            onClick={() => decide(l.id, "REJECTED")}
+                            disabled={busy === l.id}
+                            onClick={() => void decide(l.id, "REJECTED")}
+                            aria-label="Rad etish"
                           >
                             <X size={14} />
                           </button>
-                        </div>
-                      ) : (
-                        <span className="subtle">{l.decidedBy || "—"}</span>
+                        </span>
                       )}
                     </td>
                   </tr>
@@ -110,117 +167,96 @@ export function LeavePage() {
       </section>
       {open && (
         <LeaveForm
-          employees={employees?.items || []}
           onClose={() => setOpen(false)}
           onSaved={() => {
             setOpen(false);
-            void reload();
+            toast("Ta’til qo‘shildi");
+            void reload(true);
           }}
         />
       )}
     </div>
   );
 }
-const typeLabel = (v: string) =>
-  ({
-    VACATION: "Mehnat ta’tili",
-    SICK: "Kasallik",
-    PERMISSION: "Ruxsat",
-    UNPAID: "Haq to‘lanmaydi",
-    OTHER: "Boshqa",
-  })[v] || v;
-function LeaveForm({
-  employees,
-  onClose,
-  onSaved,
-}: {
-  employees: Employee[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+
+function LeaveForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const { data: employees } = useApi<{ items: Employee[] }>("/employees?limit=200&status=ACTIVE");
+  const today = tashkentIsoDate();
   const [form, setForm] = useState({
-      employeeId: employees[0]?.id || "",
-      type: "VACATION",
-      startDate: new Date().toISOString().slice(0, 10),
-      endDate: new Date().toISOString().slice(0, 10),
-      reason: "",
-    }),
-    [error, setError] = useState("");
+    employeeId: "",
+    type: "VACATION",
+    startDate: today,
+    endDate: today,
+    reason: "",
+    approve: true,
+  });
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    setSaving(true);
+    setError("");
     try {
       await post("/leave", form);
       onSaved();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Xatolik");
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setSaving(false);
     }
   }
   return (
-    <Modal title="Ta’til so‘rovi" onClose={onClose}>
+    <Modal title="Ta’til qo‘shish" onClose={onClose}>
       <form onSubmit={save}>
-        <div className="field">
-          <label className="label">Xodim</label>
+        <Field label="Xodim *">
           <select
             className="select"
             value={form.employeeId}
             onChange={(e) => setForm({ ...form, employeeId: e.target.value })}
+            required
           >
-            {employees.map((x) => (
+            <option value="" disabled>
+              Tanlang
+            </option>
+            {employees?.items.map((x) => (
               <option key={x.id} value={x.id}>
-                {x.firstName} {x.lastName}
+                {x.firstName} {x.lastName} · {x.employeeNo}
               </option>
             ))}
           </select>
-        </div>
-        <div className="field">
-          <label className="label">Ta’til turi</label>
-          <select
-            className="select"
-            value={form.type}
-            onChange={(e) => setForm({ ...form, type: e.target.value })}
-          >
-            <option value="VACATION">Mehnat ta’tili</option>
-            <option value="SICK">Kasallik</option>
-            <option value="PERMISSION">Ruxsat</option>
-            <option value="UNPAID">Haq to‘lanmaydi</option>
-            <option value="OTHER">Boshqa</option>
+        </Field>
+        <Field label="Turi">
+          <select className="select" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+            {Object.entries(leaveTypeLabel).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
-        </div>
+        </Field>
         <div className="form-grid">
-          <div className="field">
-            <label className="label">Boshlanish</label>
-            <input
-              className="input"
-              type="date"
-              value={form.startDate}
-              onChange={(e) => setForm({ ...form, startDate: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label className="label">Tugash</label>
-            <input
-              className="input"
-              type="date"
-              value={form.endDate}
-              onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-            />
-          </div>
+          <Field label="Boshlanish">
+            <input className="input" type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value, endDate: form.endDate < e.target.value ? e.target.value : form.endDate })} required />
+          </Field>
+          <Field label="Tugash">
+            <input className="input" type="date" min={form.startDate} value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} required />
+          </Field>
         </div>
-        <div className="field">
-          <label className="label">Sabab</label>
-          <textarea
-            className="textarea"
-            value={form.reason}
-            onChange={(e) => setForm({ ...form, reason: e.target.value })}
-            required
-          />
-        </div>
-        {error && <p className="field-error">{error}</p>}
+        <Field label="Sabab *">
+          <textarea className="textarea" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} required minLength={3} />
+        </Field>
+        <label className="checkbox-row" style={{ marginBottom: 14 }}>
+          <input type="checkbox" checked={form.approve} onChange={(e) => setForm({ ...form, approve: e.target.checked })} />
+          Darhol tasdiqlash
+        </label>
+        <ErrorBox message={error} />
         <div className="form-actions">
           <button type="button" className="btn" onClick={onClose}>
             Bekor qilish
           </button>
-          <button className="btn btn-primary">Yuborish</button>
+          <button className="btn btn-primary" disabled={saving}>
+            {saving ? "Saqlanmoqda…" : "Saqlash"}
+          </button>
         </div>
       </form>
     </Modal>

@@ -1,115 +1,229 @@
 import { useMemo, useState } from "react";
-import { Download, MapPin, Pencil, Search, ShieldCheck } from "lucide-react";
-import { put } from "../api";
-import { useApi } from "../hooks";
+import { Link, useSearchParams } from "react-router-dom";
 import {
-  Avatar,
+  AlarmClock,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  LogIn,
+  LogOut,
+  MapPin,
+  Pencil,
+  Plane,
+  Search,
+  ShieldCheck,
+  Trash2,
+  UserCheck,
+  UserX,
+  Users,
+} from "lucide-react";
+import { del, errorText, post, put } from "../api";
+import { useApi, usePolling } from "../hooks";
+import {
+  Confirm,
   Empty,
   ErrorBox,
+  Field,
   Loading,
   Modal,
   PageHeader,
+  Person,
+  Segmented,
+  StatCard,
   Status,
+  useToast,
 } from "../components/ui";
-import { dateUz, duration } from "@/lib/format";
-import type { Attendance, Branch, Department, Employee } from "@/lib/types";
+import { dateLongUz, duration, tashkentClock, tashkentIsoDate } from "@/lib/format";
+import {
+  addDays,
+  leaveTypeLabel,
+  verificationLabel,
+  type Meta,
+  type RosterRow,
+  type RosterStats,
+} from "../types";
 
-type Row = Attendance & {
-  employee?: Employee;
-  branch?: string;
-  department?: string;
-  schedule?: string;
-};
-type Meta = { branches: Branch[]; departments: Department[] };
+type Day = { date: string; stats: RosterStats; rows: RosterRow[] };
+type Filter =
+  | "ALL"
+  | "PRESENT"
+  | "IN"
+  | "LEFT"
+  | "LATE"
+  | "ABSENT"
+  | "ON_LEAVE"
+  | "NOT_YET";
 
 export function AttendancePage() {
-  const [status, setStatus] = useState("");
-  const [branch, setBranch] = useState("");
-  const [department, setDepartment] = useState("");
-  const [verification, setVerification] = useState("");
-  const [date, setDate] = useState("");
+  const [params, setParams] = useSearchParams();
+  const today = tashkentIsoDate();
+  const date = params.get("date") || today;
+  const filter = (params.get("state") as Filter) || "ALL";
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<Row | null>(null);
-  const url = `/attendance?status=${status}&branch=${branch}&department=${department}&verification=${verification}&date=${date}`;
-  const { data, loading, error, reload } = useApi<Row[]>(url);
+  const [branch, setBranch] = useState("");
+  const [editing, setEditing] = useState<RosterRow | null>(null);
+  const [removing, setRemoving] = useState<RosterRow | null>(null);
+  const toast = useToast();
+  const { data, loading, error, reload } = useApi<Day>(
+    `/attendance/day?date=${date}`,
+  );
   const { data: meta } = useApi<Meta>("/meta");
-  const rows = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return data || [];
-    return (data || []).filter((row) =>
-      `${row.employee?.firstName} ${row.employee?.lastName} ${row.employee?.employeeNo}`
-        .toLowerCase()
-        .includes(normalized),
-    );
-  }, [data, query]);
-  const stats = {
-    total: rows.length,
-    working: rows.filter((row) =>
-      ["WORKING", "PRESENT", "CHECKED_OUT"].includes(row.status),
-    ).length,
-    late: rows.filter((row) => row.status === "LATE").length,
-    absent: rows.filter((row) => row.status === "ABSENT").length,
+  usePolling(() => {
+    if (date === today) void reload(true);
+  }, 30_000);
+
+  const set = (key: string, value: string) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    setParams(next, { replace: true });
   };
+
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data?.rows || [])
+      .filter((row) => !branch || row.employee.branchId === branch)
+      .filter((row) =>
+        !q
+          ? true
+          : `${row.employee.firstName} ${row.employee.lastName} ${row.employee.employeeNo} ${row.employee.phone}`
+              .toLowerCase()
+              .includes(q),
+      )
+      .filter((row) =>
+        filter === "ALL"
+          ? true
+          : filter === "LATE"
+            ? row.late
+            : filter === "PRESENT"
+              ? row.state === "IN" || row.state === "LEFT"
+              : row.state === filter,
+      )
+      .sort((a, b) => order(a) - order(b) ||
+        `${a.employee.firstName}`.localeCompare(`${b.employee.firstName}`));
+  }, [data, query, branch, filter]);
+
+  const s = data?.stats;
   return (
-    <div className="page attendance-page">
+    <div className="page">
       <PageHeader
-        title="Davomat"
-        subtitle={date ? dateUz(date) : "Barcha davomat qaydlari"}
+        title="Keldi-ketdi"
+        subtitle={
+          <>
+            {dateLongUz(date, true)}
+            {date === today && (
+              <>
+                {" "}
+                · <span className="live-dot" style={{ marginLeft: 4 }} />
+                jonli yangilanadi
+              </>
+            )}
+          </>
+        }
         actions={
-          <a className="btn" href="/api/reports/attendance.csv" download>
-            <Download size={16} /> CSV eksport
-          </a>
+          <>
+            <div className="date-nav">
+              <button
+                className="icon-btn"
+                aria-label="Oldingi kun"
+                onClick={() => set("date", addDays(date, -1))}
+              >
+                <ChevronLeft size={17} />
+              </button>
+              <input
+                type="date"
+                value={date}
+                max={today}
+                onChange={(e) => set("date", e.target.value)}
+                aria-label="Sana"
+              />
+              <button
+                className="icon-btn"
+                aria-label="Keyingi kun"
+                disabled={date >= today}
+                onClick={() => set("date", addDays(date, 1))}
+              >
+                <ChevronRight size={17} />
+              </button>
+            </div>
+            {date !== today && (
+              <button className="btn" onClick={() => set("date", "")}>
+                Bugun
+              </button>
+            )}
+            <a
+              className="btn"
+              href={`/api/reports/attendance.csv?from=${date}&to=${date}`}
+              download
+            >
+              <Download size={16} /> CSV
+            </a>
+          </>
         }
       />
-      <section className="attendance-summary">
-        <div>
-          <small>Ko‘rsatilgan qaydlar</small>
-          <b>{stats.total}</b>
+
+      {s && (
+        <div className="stat-grid">
+          <StatCard
+            label="Jami xodim"
+            value={s.total}
+            note={`${s.dayOff} nafar dam olishda`}
+            icon={Users}
+            onClick={() => set("state", "")}
+            selected={filter === "ALL"}
+          />
+          <StatCard
+            label="Keldi"
+            value={s.present}
+            note={`${s.inNow} ishda · ${s.left} ketgan`}
+            icon={UserCheck}
+            tone="green"
+            onClick={() => set("state", "PRESENT")}
+            selected={filter === "PRESENT"}
+          />
+          <StatCard
+            label="Kechikdi"
+            value={s.late}
+            icon={AlarmClock}
+            tone="amber"
+            onClick={() => set("state", "LATE")}
+            selected={filter === "LATE"}
+          />
+          <StatCard
+            label="Kelmadi"
+            value={s.absent}
+            note={s.notYet ? `${s.notYet} nafar kutilmoqda` : undefined}
+            icon={UserX}
+            tone="red"
+            onClick={() => set("state", "ABSENT")}
+            selected={filter === "ABSENT"}
+          />
+          <StatCard
+            label="Ta’tilda"
+            value={s.leave}
+            icon={Plane}
+            tone="violet"
+            onClick={() => set("state", "ON_LEAVE")}
+            selected={filter === "ON_LEAVE"}
+          />
         </div>
-        <div>
-          <i className="dot-success" />
-          <span>
-            <small>Ishda / chiqqan</small>
-            <b>{stats.working}</b>
-          </span>
-        </div>
-        <div>
-          <i className="dot-warning" />
-          <span>
-            <small>Kechikkan</small>
-            <b>{stats.late}</b>
-          </span>
-        </div>
-        <div>
-          <i className="dot-danger" />
-          <span>
-            <small>Kelmagan</small>
-            <b>{stats.absent}</b>
-          </span>
-        </div>
-      </section>
-      <section className="card attendance-workspace">
-        <div className="filters attendance-filters">
-          <div className="search-field">
+      )}
+
+      <section className="card">
+        <div className="filters">
+          <span className="input-icon">
             <Search size={16} />
             <input
               className="input"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Xodim qidirish..."
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Ism, ID yoki telefon…"
             />
-          </div>
-          <input
-            className="input date-filter"
-            aria-label="Sana"
-            type="date"
-            value={date}
-            onChange={(event) => setDate(event.target.value)}
-          />
+          </span>
           <select
             className="select"
             value={branch}
-            onChange={(event) => setBranch(event.target.value)}
+            onChange={(e) => setBranch(e.target.value)}
           >
             <option value="">Barcha filiallar</option>
             {meta?.branches.map((item) => (
@@ -118,154 +232,216 @@ export function AttendancePage() {
               </option>
             ))}
           </select>
-          <select
-            className="select"
-            value={department}
-            onChange={(event) => setDepartment(event.target.value)}
-          >
-            <option value="">Barcha bo‘limlar</option>
-            {meta?.departments.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </select>
-          <select
-            className="select"
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-          >
-            <option value="">Barcha holatlar</option>
-            <option value="WORKING">Ishlamoqda</option>
-            <option value="LATE">Kechikdi</option>
-            <option value="ABSENT">Kelmagan</option>
-            <option value="CHECKED_OUT">Ishdan chiqdi</option>
-            <option value="ON_LEAVE">Ta’tilda</option>
-          </select>
-          <select
-            className="select"
-            value={verification}
-            onChange={(event) => setVerification(event.target.value)}
-          >
-            <option value="">Barcha tasdiqlar</option>
-            <option value="GPS">GPS</option>
-            <option value="QR">Dinamik QR</option>
-            <option value="TELEGRAM">Telegram</option>
-            <option value="DEVICE">Qurilma</option>
-            <option value="MANUAL">Qo‘lda</option>
-          </select>
+          <div style={{ marginLeft: "auto", overflowX: "auto" }}>
+            <Segmented<Filter>
+              value={filter}
+              onChange={(value) => set("state", value === "ALL" ? "" : value)}
+              options={[
+                { value: "ALL", label: "Barchasi" },
+                { value: "IN", label: "Ishda", count: s?.inNow },
+                { value: "LEFT", label: "Ketgan", count: s?.left },
+                { value: "NOT_YET", label: "Kutilmoqda", count: s?.notYet },
+              ]}
+            />
+          </div>
         </div>
-        {loading ? (
+        {loading && !data ? (
           <Loading />
         ) : error ? (
-          <div className="section-body">
+          <div className="card-body">
             <ErrorBox message={error} />
           </div>
         ) : !rows.length ? (
           <Empty
-            title="Davomat qaydi topilmadi"
-            text="Tanlangan filtrlar bo‘yicha ma’lumot mavjud emas."
+            icon={Users}
+            title={data?.rows.length ? "Mos xodim topilmadi" : "Xodimlar yo‘q"}
+            text={
+              data?.rows.length
+                ? "Filtr yoki qidiruvni o‘zgartiring."
+                : "Keldi-ketdi ro‘yxati xodimlar qo‘shilgach paydo bo‘ladi."
+            }
+            action={
+              !data?.rows.length && (
+                <Link to="/employees/new" className="btn btn-primary">
+                  Xodim qo‘shish
+                </Link>
+              )
+            }
           />
         ) : (
-          <div className="table-wrap mobile-cards">
-            <table className="table attendance-table">
+          <div className="table-wrap">
+            <table className="table table-cards">
               <thead>
                 <tr>
                   <th>Xodim</th>
                   <th>Grafik</th>
-                  <th>Kelish</th>
-                  <th>Chiqish</th>
-                  <th>Kechikish</th>
-                  <th>Erta chiqish</th>
-                  <th>Ishlangan</th>
+                  <th>Keldi</th>
+                  <th>Ketdi</th>
+                  <th>Ishladi</th>
                   <th>Holat</th>
                   <th>Tasdiq</th>
                   <th />
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id}>
-                    <td>
-                      <div className="cell-person">
-                        <Avatar
-                          first={row.employee?.firstName || "?"}
-                          last={row.employee?.lastName}
-                          photo={row.employee?.photoDataUrl}
-                        />
-                        <span>
-                          <b>
-                            {row.employee?.firstName} {row.employee?.lastName}
+                {rows.map((row) => {
+                  const r = row.record;
+                  return (
+                    <tr key={row.employee.id}>
+                      <td>
+                        <Link to={`/employees/${row.employee.id}`}>
+                          <Person
+                            first={row.employee.firstName}
+                            last={row.employee.lastName}
+                            photo={row.employee.photoDataUrl}
+                            sub={[row.position, row.branch]
+                              .filter(Boolean)
+                              .join(" · ")}
+                          />
+                        </Link>
+                      </td>
+                      <td data-label="Grafik" className="num">
+                        {row.scheduledStart
+                          ? `${row.scheduledStart}–${row.scheduledEnd}`
+                          : "—"}
+                      </td>
+                      <td data-label="Keldi">
+                        <span className="stack">
+                          <b className="time">{r?.checkIn || "—"}</b>
+                          {row.late && (
+                            <small className="late-text">
+                              +{r?.lateMinutes} daq
+                            </small>
+                          )}
+                        </span>
+                      </td>
+                      <td data-label="Ketdi">
+                        <span className="stack">
+                          <b className="time">
+                            {r?.checkOut ||
+                              (r?.checkIn ? (
+                                <span className="faint">…</span>
+                              ) : (
+                                "—"
+                              ))}
                           </b>
-                          <small>
-                            {row.department || row.branch} · {dateUz(row.date)}
+                          {!!r?.earlyLeaveMinutes && (
+                            <small className="late-text">
+                              −{r.earlyLeaveMinutes} daq erta
+                            </small>
+                          )}
+                        </span>
+                      </td>
+                      <td data-label="Ishladi" className="num">
+                        {r?.checkIn
+                          ? r.checkOut
+                            ? duration(r.workedMinutes)
+                            : date === today
+                              ? duration(liveMinutes(r.checkIn))
+                              : "—"
+                          : "—"}
+                        {!!r?.overtimeMinutes && (
+                          <small className="muted" style={{ display: "block" }}>
+                            +{duration(r.overtimeMinutes)} qo‘shimcha
                           </small>
+                        )}
+                      </td>
+                      <td data-label="Holat">
+                        <span className="state-cell">
+                          <Status value={row.state} live={row.state === "IN"} />
+                          {row.state === "ON_LEAVE" && row.leaveType && (
+                            <small>{leaveTypeLabel[row.leaveType]}</small>
+                          )}
+                          {r?.note && <small title={r.note}>{truncate(r.note)}</small>}
                         </span>
-                      </div>
-                    </td>
-                    <td>
-                      <span className="stacked-cell">
-                        <b>{row.schedule || "Ish grafigi"}</b>
-                        <small>
-                          {row.scheduledStart}–{row.scheduledEnd}
-                        </small>
-                      </span>
-                    </td>
-                    <td className="time-cell">{row.checkIn || "—"}</td>
-                    <td>{row.checkOut || "—"}</td>
-                    <td>
-                      {row.lateMinutes ? (
-                        <span className="numeric-warning">
-                          {row.lateMinutes} daq
+                      </td>
+                      <td data-label="Tasdiq">
+                        <span className="tags">
+                          {r?.verification.map((item) => (
+                            <span className="tag" key={item}>
+                              {item === "MANUAL" ? (
+                                <Pencil size={10} />
+                              ) : (
+                                <ShieldCheck size={10} />
+                              )}
+                              {verificationLabel[item] || item}
+                            </span>
+                          )) || <span className="faint">—</span>}
                         </span>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td>
-                      {row.earlyLeaveMinutes
-                        ? `${row.earlyLeaveMinutes} daq`
-                        : "—"}
-                    </td>
-                    <td>
-                      {row.workedMinutes ? duration(row.workedMinutes) : "—"}
-                    </td>
-                    <td>
-                      <Status value={row.status} />
-                    </td>
-                    <td>
-                      <div className="verification-list">
-                        {row.verification.map((item) => (
-                          <span key={item}>
-                            <ShieldCheck size={12} />{" "}
-                            {item === "QR" ? "QR" : item}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td>
-                      <button
-                        className="icon-btn"
-                        aria-label="Davomatni tahrirlash"
-                        onClick={() => setSelected(row)}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="actions">
+                        <span className="roster-actions">
+                          {!r && row.state !== "UPCOMING" && (
+                            <button
+                              className="btn btn-sm"
+                              onClick={() => setEditing(row)}
+                            >
+                              <LogIn size={14} /> Belgilash
+                            </button>
+                          )}
+                          {r && !r.checkOut && date === today && (
+                            <QuickCheckout
+                              row={row}
+                              onDone={() => {
+                                toast("Ketish qayd etildi");
+                                void reload(true);
+                              }}
+                            />
+                          )}
+                          {r && (
+                            <>
+                              <button
+                                className="icon-btn"
+                                aria-label="Tahrirlash"
+                                title="Tahrirlash"
+                                onClick={() => setEditing(row)}
+                              >
+                                <Pencil size={15} />
+                              </button>
+                              <button
+                                className="icon-btn danger"
+                                aria-label="O‘chirish"
+                                title="O‘chirish"
+                                onClick={() => setRemoving(row)}
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </>
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         )}
       </section>
-      {selected && (
-        <EditAttendance
-          row={selected}
-          onClose={() => setSelected(null)}
-          onSaved={() => {
-            setSelected(null);
-            void reload();
+
+      {editing && (
+        <AttendanceForm
+          row={editing}
+          date={date}
+          onClose={() => setEditing(null)}
+          onSaved={(message) => {
+            setEditing(null);
+            toast(message);
+            void reload(true);
+          }}
+        />
+      )}
+      {removing?.record && (
+        <Confirm
+          title="Davomat qaydini o‘chirish"
+          text={`${removing.employee.firstName} ${removing.employee.lastName} uchun ${dateLongUz(date)} kungi qayd o‘chiriladi. Amal audit jurnaliga yoziladi.`}
+          confirmLabel="O‘chirish"
+          danger
+          onClose={() => setRemoving(null)}
+          onConfirm={async () => {
+            await del(`/attendance/${removing.record!.id}`);
+            toast("Qayd o‘chirildi");
+            void reload(true);
           }}
         />
       )}
@@ -273,17 +449,77 @@ export function AttendancePage() {
   );
 }
 
-function EditAttendance({
+const stateOrder: Record<string, number> = {
+  IN: 0,
+  LEFT: 1,
+  ABSENT: 2,
+  NOT_YET: 3,
+  ON_LEAVE: 4,
+  DAY_OFF: 5,
+  UPCOMING: 6,
+};
+const order = (row: RosterRow) => stateOrder[row.state] ?? 9;
+const truncate = (value: string) =>
+  value.length > 28 ? `${value.slice(0, 26)}…` : value;
+function liveMinutes(checkIn: string) {
+  const [h, m] = checkIn.split(":").map(Number);
+  const [nh, nm] = tashkentClock().split(":").map(Number);
+  return Math.max(0, nh * 60 + nm - (h * 60 + m));
+}
+
+function QuickCheckout({
   row,
+  onDone,
+}: {
+  row: RosterRow;
+  onDone: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const toast = useToast();
+  return (
+    <button
+      className="btn btn-sm"
+      disabled={busy}
+      title="Hozirgi vaqt bilan ketishni belgilash"
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await put(`/attendance/${row.record!.id}`, {
+            checkIn: row.record!.checkIn,
+            checkOut: tashkentClock(),
+            note: row.record!.note,
+          });
+          onDone();
+        } catch (reason) {
+          toast(errorText(reason), "error");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <LogOut size={14} /> Ketdi
+    </button>
+  );
+}
+
+function AttendanceForm({
+  row,
+  date,
   onClose,
   onSaved,
 }: {
-  row: Row;
+  row: RosterRow;
+  date: string;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (message: string) => void;
 }) {
-  const [checkIn, setCheckIn] = useState(row.checkIn || "08:00");
-  const [checkOut, setCheckOut] = useState(row.checkOut || "");
+  const record = row.record;
+  const [checkIn, setCheckIn] = useState(
+    record?.checkIn ||
+      (date === tashkentIsoDate() ? tashkentClock() : row.scheduledStart || "09:00"),
+  );
+  const [checkOut, setCheckOut] = useState(record?.checkOut || "");
+  const [note, setNote] = useState(record?.note || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function save(event: React.FormEvent) {
@@ -291,65 +527,91 @@ function EditAttendance({
     setSaving(true);
     setError("");
     try {
-      await put(`/attendance/${row.id}`, {
-        checkIn,
-        checkOut: checkOut || undefined,
-      });
-      onSaved();
+      if (record)
+        await put(`/attendance/${record.id}`, {
+          checkIn,
+          checkOut,
+          note: note || undefined,
+        });
+      else
+        await post("/attendance", {
+          employeeId: row.employee.id,
+          date,
+          checkIn,
+          checkOut,
+          note: note || undefined,
+        });
+      onSaved(record ? "Davomat yangilandi" : "Davomat qo‘lda belgilandi");
     } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "Davomat saqlanmadi.",
-      );
+      setError(errorText(reason, "Davomat saqlanmadi."));
     } finally {
       setSaving(false);
     }
   }
   return (
-    <Modal title="Davomatni tahrirlash" onClose={onClose}>
-      <div className="audit-notice">
+    <Modal
+      title={record ? "Davomatni tahrirlash" : "Davomatni qo‘lda belgilash"}
+      subtitle={`${row.employee.firstName} ${row.employee.lastName} · ${dateLongUz(date)}`}
+      onClose={onClose}
+    >
+      <div className="alert warn" style={{ marginBottom: 16 }}>
         <ShieldCheck size={18} />
-        <span>
-          <b>Audit nazorati yoqilgan</b>
-          <small>
-            Qo‘lda kiritilgan har bir o‘zgarish audit jurnaliga yoziladi.
-          </small>
-        </span>
+        <div>
+          <b>Audit nazorati</b>
+          <p>
+            Qo‘lda kiritilgan har bir o‘zgarish kim tomonidan qilingani bilan
+            audit jurnaliga yoziladi.
+          </p>
+        </div>
       </div>
       <form onSubmit={save}>
         <div className="form-grid">
-          <div className="field">
-            <label className="label">Kelish vaqti</label>
+          <Field
+            label="Kelish vaqti"
+            hint={row.scheduledStart ? `Grafik: ${row.scheduledStart}` : undefined}
+          >
             <input
               className="input"
               type="time"
               value={checkIn}
-              onChange={(event) => setCheckIn(event.target.value)}
+              onChange={(e) => setCheckIn(e.target.value)}
               required
             />
-          </div>
-          <div className="field">
-            <label className="label">Chiqish vaqti</label>
+          </Field>
+          <Field
+            label="Ketish vaqti"
+            hint={row.scheduledEnd ? `Grafik: ${row.scheduledEnd}` : "Bo‘sh qoldirsa — hali ishda"}
+          >
             <input
               className="input"
               type="time"
               value={checkOut}
-              onChange={(event) => setCheckOut(event.target.value)}
+              onChange={(e) => setCheckOut(e.target.value)}
             />
-          </div>
+          </Field>
+          <Field label="Izoh (sabab)" className="span-2">
+            <input
+              className="input"
+              value={note}
+              maxLength={300}
+              placeholder="Masalan: telefon ishlamadi, qo‘lda belgilandi"
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </Field>
         </div>
-        {row.distanceMeters !== undefined && (
-          <p className="subtle">
-            <MapPin size={14} style={{ display: "inline" }} /> Filialdan masofa:{" "}
-            {row.distanceMeters} metr
+        {record?.distanceMeters !== undefined && (
+          <p className="hint" style={{ marginBottom: 12 }}>
+            <MapPin size={13} style={{ display: "inline", verticalAlign: -2 }} />{" "}
+            Qayd paytida filialdan masofa: {record.distanceMeters} m
           </p>
         )}
-        {error && <p className="field-error">{error}</p>}
+        <ErrorBox message={error} />
         <div className="form-actions">
           <button type="button" className="btn" onClick={onClose}>
             Bekor qilish
           </button>
           <button className="btn btn-primary" disabled={saving}>
-            {saving ? "Saqlanmoqda..." : "Saqlash"}
+            {saving ? "Saqlanmoqda…" : "Saqlash"}
           </button>
         </div>
       </form>

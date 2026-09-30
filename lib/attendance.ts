@@ -51,7 +51,13 @@ export function calculateAttendance(input: {
     earlyLeaveMinutes,
     workedMinutes,
     overtimeMinutes,
-    status: input.checkOut ? (lateMinutes ? "LATE" : "CHECKED_OUT") : "WORKING",
+    status: input.checkOut
+      ? lateMinutes
+        ? "LATE"
+        : "CHECKED_OUT"
+      : lateMinutes
+        ? "LATE"
+        : "WORKING",
   } as const;
 }
 

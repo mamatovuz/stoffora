@@ -33,6 +33,8 @@ export interface Branch {
   manager: string;
   status: "ACTIVE" | "INACTIVE";
   scheduleId: string;
+  /** QR_GPS_FACE — filial ekranidagi QR ham talab qilinadi; GPS_FACE — faqat yuz va GPS. */
+  attendanceMode?: "QR_GPS_FACE" | "GPS_FACE";
 }
 export interface Department {
   id: string;
@@ -112,6 +114,7 @@ export interface Attendance {
   latitude?: number;
   longitude?: number;
   distanceMeters?: number;
+  note?: string;
   updatedAt: string;
 }
 export interface LeaveRequest {
@@ -189,7 +192,13 @@ export interface AttendanceSession {
 export interface FaceProfile {
   companyId: string;
   employeeId: string;
+  /** O‘rtacha (markaziy) deskriptor. */
   descriptor: number[];
+  /** Ro‘yxatdan o‘tishda olingan alohida namunalar. */
+  samples?: number[][];
+  /** Oxirgi muvaffaqiyatli tekshiruv deskriptori — replay hujumini aniqlash uchun. */
+  lastDescriptor?: number[];
+  lastVerifiedAt?: string;
   enrolledAt: string;
   updatedAt: string;
 }

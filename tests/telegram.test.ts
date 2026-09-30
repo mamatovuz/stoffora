@@ -37,7 +37,7 @@ describe("Telegram Mini App initData", () => {
     );
   });
   it("eski sessiyani rad etadi", () => {
-    const data = signedInitData(token, Math.floor(Date.now() / 1000) - 7200);
+    const data = signedInitData(token, Math.floor(Date.now() / 1000) - 2 * 86400);
     expect(() => verifyTelegramInitData(data, token)).toThrow(
       "Telegram sessiyasi eskirgan",
     );

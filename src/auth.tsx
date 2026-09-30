@@ -16,6 +16,7 @@ const AuthContext = createContext<{
   loading: boolean;
   refresh: () => Promise<void>;
 }>({ user: null, loading: true, refresh: async () => {} });
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,6 +30,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }
   useEffect(() => {
+    // Mini App sahifasida panel sessiyasi kerak emas.
+    if (window.location.pathname.startsWith("/mini-app")) {
+      setLoading(false);
+      return;
+    }
     void refresh();
   }, []);
   return (
@@ -38,6 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 }
 export const useAuth = () => useContext(AuthContext);
+
 export function Protected({
   children,
   superAdmin = false,
@@ -60,3 +67,14 @@ export function Protected({
     return <Navigate to="/super-admin" replace />;
   return children;
 }
+
+export const roleLabels: Record<Role, string> = {
+  SUPER_ADMIN: "Super admin",
+  COMPANY_OWNER: "Kompaniya egasi",
+  HR_ADMIN: "HR administrator",
+  HR_MANAGER: "HR menejer",
+  FINANCE: "Moliya",
+  IT_ADMIN: "IT administrator",
+  BRANCH_MANAGER: "Filial menejeri",
+  EMPLOYEE: "Xodim",
+};

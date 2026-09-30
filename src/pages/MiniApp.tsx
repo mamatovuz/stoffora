@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertCircle,
   Bell,
   Building2,
   CalendarDays,
@@ -8,21 +9,29 @@ import {
   Clock3,
   Home,
   LoaderCircle,
+  LogIn,
+  LogOut,
   MapPin,
+  Navigation,
+  Plane,
   QrCode,
+  RotateCcw,
+  ScanFace,
   Send,
   ShieldCheck,
   UserRound,
   X,
 } from "lucide-react";
-import { api, post } from "../api";
-import { FaceScanner } from "../components/FaceScanner";
+import { ApiError, api, errorText, patch, post, restoreBearerToken, setBearerToken } from "../api";
+import { FaceScanner, preloadFaceModels } from "../components/FaceScanner";
 import {
   dateLongUz,
   dateParts,
   dateUz,
   duration,
   monthShortUz,
+  tashkentClock,
+  tashkentIsoDate,
   tashkentWeekday,
 } from "@/lib/format";
 import { haversineDistance } from "@/lib/attendance";
@@ -37,188 +46,311 @@ import type {
   Position,
   Schedule,
 } from "@/lib/types";
+import { leaveTypeLabel, weekdayShort, weekOrder } from "../types";
 import stafforaMark from "../assets/staffora-mark.svg";
 
 type HomeData = {
   employee: Employee;
-  company: Company;
-  branch: Branch;
-  department: Department;
-  position: Position;
-  schedule: Schedule;
+  company?: Company;
+  branch: Branch | null;
+  department: Department | null;
+  position: Position | null;
+  schedule: Schedule | null;
   attendance?: Attendance;
+  todayLeave: LeaveRequest | null;
+  month: {
+    days: number;
+    late: number;
+    lateMinutes: number;
+    workedMinutes: number;
+    overtimeMinutes: number;
+  };
   notifications: Notification[];
 };
-type Tab = "home" | "attendance" | "leave" | "profile";
+type Tab = "home" | "history" | "leave" | "profile";
+type Action = "CHECK_IN" | "CHECK_OUT";
+type AuthError = { message: string; code?: string; botUsername?: string };
+
+const tg = () => window.Telegram?.WebApp;
+const haptic = (type: "success" | "error" | "warning") =>
+  tg()?.HapticFeedback?.notificationOccurred(type);
+const supports = (version: string) => Boolean(tg()?.isVersionAtLeast?.(version));
 
 export function MiniAppPage() {
-  const [authenticated, setAuthenticated] = useState(false);
-  const [authError, setAuthError] = useState("");
+  const [authError, setAuthError] = useState<AuthError | null>(null);
   const [home, setHome] = useState<HomeData | null>(null);
   const [tab, setTab] = useState<Tab>("home");
   const [loading, setLoading] = useState(true);
-  const [scan, setScan] = useState<{
-    sessionId: string;
-    action: "CHECK_IN" | "CHECK_OUT";
-  } | null>(null);
-  const [faceAction, setFaceAction] = useState<"CHECK_IN" | "CHECK_OUT" | null>(
-    null,
-  );
-  const [toast, setToast] = useState("");
+  const [faceAction, setFaceAction] = useState<Action | null>(null);
+  const [flow, setFlow] = useState<{ sessionId: string; action: Action; requiresQr: boolean } | null>(null);
+  const [toast, setToast] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
 
-  async function loadHome() {
+  const showToast = useCallback((text: string, tone: "ok" | "error" = "ok") => {
+    setToast({ text, tone });
+    window.setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 4500);
+  }, []);
+  const loadHome = useCallback(async () => {
     setHome(await api<HomeData>("/mini/home"));
-  }
-  useEffect(() => {
-    const webApp = window.Telegram?.WebApp;
-    webApp?.ready();
-    webApp?.expand();
-    document.documentElement.dataset.telegramTheme =
-      webApp?.colorScheme || "light";
-    void (async () => {
-      try {
-        await post("/telegram/auth", { initData: webApp?.initData || "" });
-        setAuthenticated(true);
-        await loadHome();
-      } catch (reason) {
-        setAuthError(
-          reason instanceof Error ? reason.message : "Kirish amalga oshmadi.",
-        );
-      } finally {
-        setLoading(false);
-      }
-    })();
   }, []);
 
-  async function beginAttendance(action: "CHECK_IN" | "CHECK_OUT") {
-    window.Telegram?.WebApp.HapticFeedback?.impactOccurred("medium");
-    setFaceAction(action);
-  }
+  const authenticate = useCallback(async () => {
+    const webApp = tg();
+    setLoading(true);
+    setAuthError(null);
+    try {
+      const localPreview = ["localhost", "127.0.0.1"].includes(window.location.hostname);
+      if (!webApp?.initData && !localPreview) {
+        // initData yo‘q, lekin avvalgi token bo‘lsa — undan foydalanamiz.
+        if (restoreBearerToken()) {
+          await loadHome();
+          return;
+        }
+        throw Object.assign(
+          new Error(
+            "Mini App Telegram tashqarisida ochildi. Uni botdagi «Staffora» tugmasi orqali oching.",
+          ),
+          { code: "NO_INIT_DATA" },
+        );
+      }
+      const result = await post<{ token: string }>("/telegram/auth", {
+        initData: webApp?.initData || "",
+      });
+      setBearerToken(result.token);
+      await loadHome();
+    } catch (reason) {
+      setAuthError({
+        message: errorText(reason, "Kirish amalga oshmadi."),
+        code:
+          reason instanceof ApiError
+            ? reason.code
+            : (reason as { code?: string })?.code,
+        botUsername:
+          reason instanceof ApiError ? (reason.data?.botUsername as string | undefined) : undefined,
+      });
+    } finally {
+      setLoading(false);
+      webApp?.ready();
+    }
+  }, [loadHome]);
+
+  useEffect(() => {
+    const webApp = tg();
+    webApp?.expand();
+    webApp?.disableVerticalSwipes?.();
+    if (supports("6.1")) {
+      webApp?.setHeaderColor?.("secondary_bg_color");
+      webApp?.setBackgroundColor?.("secondary_bg_color");
+    }
+    document.title = "Staffora";
+    void authenticate();
+    // Face modellarini oldindan yuklab qo‘yamiz — tugma bosilganda tezroq ochiladi.
+    const idle = window.setTimeout(() => void preloadFaceModels().catch(() => undefined), 1500);
+    return () => window.clearTimeout(idle);
+  }, [authenticate]);
+
+  // Ilova qayta ochilganda (fon rejimidan) ma’lumotni yangilaymiz.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && home) void loadHome().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [home, loadHome]);
+
+  // Telegram "Orqaga" tugmasi
+  useEffect(() => {
+    const back = tg()?.BackButton;
+    if (!back || !supports("6.1")) return;
+    const handler = () => {
+      if (flow) setFlow(null);
+      else if (faceAction) setFaceAction(null);
+      else setTab("home");
+    };
+    if (flow || faceAction || tab !== "home") back.show();
+    else back.hide();
+    back.onClick(handler);
+    return () => back.offClick(handler);
+  }, [flow, faceAction, tab]);
+
   if (loading)
     return (
-      <div className="mini-splash">
-        <img className="mini-logo" src={stafforaMark} alt="STAFFORA" />
-        <LoaderCircle className="spin" size={24} />
-      </div>
-    );
-  if (authError || !authenticated || !home)
-    return (
-      <div className="mini-splash mini-error">
-        <img className="mini-logo" src={stafforaMark} alt="STAFFORA" />
-        <h1>Hisob ulanmagan</h1>
-        <p>{authError || "Telegram orqali qayta oching."}</p>
-        <button
-          className="mini-primary"
-          onClick={() => window.Telegram?.WebApp.close()}
-        >
-          Botga qaytish
-        </button>
-      </div>
-    );
-  return (
-    <main className="mini-app">
-      <header className="mini-header">
-        <div>
-          <span className="mini-brand">
-            <img src={stafforaMark} alt="" /> STAFFORA
-          </span>
-          <small>{home.company.name}</small>
-          <b>Salom, {home.employee.firstName} 👋</b>
+      <div className="mini">
+        <div className="mini-splash">
+          <img src={stafforaMark} alt="Staffora" />
+          <LoaderCircle className="spin" size={24} />
         </div>
-        <span className="mini-avatar">
-          {home.employee.photoDataUrl ? (
-            <img src={home.employee.photoDataUrl} alt="" />
-          ) : (
-            <>
-              {home.employee.firstName[0]}
-              {home.employee.lastName[0]}
-            </>
-          )}
-        </span>
-      </header>
-      <div className="mini-content">
-        {tab === "home" && (
-          <MiniHome data={home} onAction={beginAttendance} onTab={setTab} />
-        )}
-        {tab === "attendance" && <MiniAttendance />}
-        {tab === "leave" && <MiniLeave />}
-        {tab === "profile" && <MiniProfile data={home} />}
       </div>
-      <nav className="mini-nav">
-        <MiniNavButton
-          icon={Home}
-          label="Bosh sahifa"
-          active={tab === "home"}
-          onClick={() => setTab("home")}
-        />
-        <MiniNavButton
-          icon={Clock3}
-          label="Davomat"
-          active={tab === "attendance"}
-          onClick={() => setTab("attendance")}
-        />
-        <MiniNavButton
-          icon={CalendarDays}
-          label="Ta’til"
-          active={tab === "leave"}
-          onClick={() => setTab("leave")}
-        />
-        <MiniNavButton
-          icon={UserRound}
-          label="Profil"
-          active={tab === "profile"}
-          onClick={() => setTab("profile")}
-        />
+    );
+  if (authError || !home) return <AuthErrorScreen error={authError} onRetry={authenticate} />;
+
+  const onVerified = async (faceProof: string) => {
+    const action = faceAction!;
+    try {
+      const session = await post<{ id: string; requiresQr: boolean }>("/mini/attendance/session", {
+        action,
+        faceProof,
+      });
+      setFaceAction(null);
+      setFlow({ sessionId: session.id, action, requiresQr: session.requiresQr });
+    } catch (reason) {
+      setFaceAction(null);
+      showToast(errorText(reason), "error");
+      haptic("error");
+    }
+    if (!home.employee.faceEnrolledAt) void loadHome();
+  };
+
+  return (
+    <div className="mini">
+      <main className="mini-app">
+        <header className="mini-top">
+          <span className="mini-avatar">
+            {home.employee.photoDataUrl ? (
+              <img src={home.employee.photoDataUrl} alt="" />
+            ) : (
+              `${home.employee.firstName[0] || ""}${home.employee.lastName[0] || ""}`
+            )}
+          </span>
+          <div>
+            <small>{home.company?.name}</small>
+            <b>Salom, {home.employee.firstName}!</b>
+          </div>
+        </header>
+        {tab === "home" && (
+          <MiniHome
+            data={home}
+            onAction={(action) => {
+              tg()?.HapticFeedback?.impactOccurred("medium");
+              setFaceAction(action);
+            }}
+            onTab={setTab}
+          />
+        )}
+        {tab === "history" && <MiniHistory home={home} />}
+        {tab === "leave" && <MiniLeave onToast={showToast} />}
+        {tab === "profile" && <MiniProfile data={home} />}
+      </main>
+      <nav className="mini-tabbar">
+        {(
+          [
+            ["home", Home, "Asosiy"],
+            ["history", Clock3, "Tarix"],
+            ["leave", Plane, "Ta’til"],
+            ["profile", UserRound, "Profil"],
+          ] as const
+        ).map(([key, Icon, label]) => (
+          <button
+            key={key}
+            className={tab === key ? "active" : ""}
+            onClick={() => {
+              tg()?.HapticFeedback?.selectionChanged?.();
+              setTab(key);
+            }}
+          >
+            <Icon size={21} strokeWidth={tab === key ? 2.3 : 1.9} />
+            <span>{label}</span>
+          </button>
+        ))}
       </nav>
       {faceAction && (
         <FaceScanner
           enrolled={Boolean(home.employee.faceEnrolledAt)}
           onClose={() => setFaceAction(null)}
-          onVerified={async (faceProof) => {
-            try {
-              const action = faceAction;
-              const session = await post<{ id: string }>(
-                "/mini/attendance/session",
-                { action, faceProof },
-              );
-              setFaceAction(null);
-              await loadHome();
-              setScan({ sessionId: session.id, action });
-            } catch (reason) {
-              setToast(
-                reason instanceof Error ? reason.message : "Amal bajarilmadi.",
-              );
-              throw reason;
-            }
-          }}
+          onVerified={onVerified}
         />
       )}
-      {scan && (
-        <QrScanner
-          session={scan}
+      {flow && home.branch && (
+        <AttendanceFlow
+          flow={flow}
           branch={home.branch}
-          onClose={() => setScan(null)}
+          onClose={() => setFlow(null)}
           onSuccess={async (message) => {
-            setScan(null);
-            setToast(message);
-            window.Telegram?.WebApp.HapticFeedback?.notificationOccurred(
-              "success",
-            );
+            setFlow(null);
+            showToast(message);
+            haptic("success");
             await loadHome();
           }}
         />
       )}
       {toast && (
-        <button className="mini-toast" onClick={() => setToast("")}>
-          <CheckCircle2 size={20} />
+        <button className={`mini-toast ${toast.tone === "error" ? "error" : ""}`} onClick={() => setToast(null)}>
+          {toast.tone === "error" ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
           <span>
-            <b>Muvaffaqiyatli</b>
-            <small>{toast}</small>
+            <b>{toast.tone === "error" ? "Xatolik" : "Muvaffaqiyatli"}</b>
+            <small>{toast.text}</small>
           </span>
         </button>
       )}
-    </main>
+    </div>
   );
+}
+
+function AuthErrorScreen({ error, onRetry }: { error: AuthError | null; onRetry: () => void }) {
+  const notLinked = error?.code === "NOT_LINKED";
+  const bot = error?.botUsername;
+  return (
+    <div className="mini">
+      <div className="mini-splash">
+        <img src={stafforaMark} alt="Staffora" />
+        <h1>{notLinked ? "Hisobingizni ulang" : "Kirib bo‘lmadi"}</h1>
+        <p>{error?.message || "Telegram orqali qayta oching."}</p>
+        {notLinked && (
+          <div className="mini-steps">
+            <div>
+              <i>1</i>
+              <span>Botga qayting va <b>/start</b> bosing</span>
+            </div>
+            <div>
+              <i>2</i>
+              <span>
+                <b>«📱 Telefon raqamni yuborish»</b> tugmasini bosing
+              </span>
+            </div>
+            <div>
+              <i>3</i>
+              <span>Raqamingiz HR profilidagi bilan mos kelsa — Mini App’ni qayta oching</span>
+            </div>
+          </div>
+        )}
+        <div className="mini-actions">
+          {notLinked && bot && tg()?.openTelegramLink && (
+            <button
+              className="mini-btn"
+              onClick={() => {
+                tg()?.openTelegramLink?.(`https://t.me/${bot}?start=link`);
+                tg()?.close();
+              }}
+            >
+              <Send size={17} /> Botni ochish
+            </button>
+          )}
+          <button className={`mini-btn ${notLinked && bot ? "secondary" : ""}`} onClick={onRetry}>
+            <RotateCcw size={17} /> Qayta urinish
+          </button>
+          {tg()?.initData && (
+            <button className="mini-btn ghost" onClick={() => tg()?.close()}>
+              Yopish
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function useClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return now;
+}
+
+function minutesSince(checkIn: string) {
+  const [h, m] = checkIn.split(":").map(Number);
+  const [nh, nm] = tashkentClock().split(":").map(Number);
+  return Math.max(0, nh * 60 + nm - (h * 60 + m));
 }
 
 function MiniHome({
@@ -227,601 +359,751 @@ function MiniHome({
   onTab,
 }: {
   data: HomeData;
-  onAction: (action: "CHECK_IN" | "CHECK_OUT") => void;
+  onAction: (action: Action) => void;
   onTab: (tab: Tab) => void;
 }) {
-  const attendance = data.attendance;
-  const isWorking = Boolean(attendance?.checkIn && !attendance.checkOut);
-  const finished = Boolean(attendance?.checkOut);
-  const today = data.schedule.days.find((day) => day.day === tashkentWeekday());
-  const worked = attendance?.checkIn
-    ? Math.max(
-        0,
-        Math.floor(
-          (Date.now() -
-            new Date(
-              `${attendance.date}T${attendance.checkIn}:00+05:00`,
-            ).getTime()) /
-            60000,
-        ),
-      )
-    : 0;
+  const now = useClock();
+  const a = data.attendance;
+  const working = Boolean(a?.checkIn && !a.checkOut);
+  const finished = Boolean(a?.checkOut);
+  const day = data.schedule?.days.find((d) => d.day === tashkentWeekday());
+  const clock = now.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Tashkent",
+  });
+  const missingSetup = !data.branch || !data.schedule;
+  const pill = finished
+    ? { text: "Ish yakunlandi", cls: "" }
+    : working
+      ? { text: a?.lateMinutes ? `Ishda · ${a.lateMinutes} daq kech` : "Ishdasiz", cls: a?.lateMinutes ? "on late" : "on" }
+      : data.todayLeave
+        ? { text: "Bugun ta’tildasiz", cls: "" }
+        : !day?.enabled
+          ? { text: "Dam olish kuni", cls: "" }
+          : { text: "Hali kelmagansiz", cls: "" };
+
   return (
-    <>
-      <section className={`mini-attendance-card ${isWorking ? "working" : ""}`}>
-        <div className="mini-card-top">
-          <span>
+    <div className="mini-body">
+      <section className={`mini-hero ${working ? "working" : ""}`}>
+        <div className="mini-hero-top">
+          <span className={`mini-pill ${pill.cls}`}>
             <i />
-            {finished
-              ? "Bugungi ish yakunlandi"
-              : isWorking
-                ? "Ishlamoqdasiz"
-                : "Ish boshlanmagan"}
+            {pill.text}
           </span>
-          <small>{dateLongUz(new Date())}</small>
+          <span>{dateLongUz(now)}</span>
         </div>
-        <div className="mini-time-row">
-          <div>
-            <small>Grafik</small>
-            <b>
-              {today?.enabled ? `${today.start} – ${today.end}` : "Dam olish"}
-            </b>
-          </div>
-          <div>
-            <small>Kelish</small>
-            <b>{attendance?.checkIn || "—"}</b>
-          </div>
-          {isWorking && (
-            <div>
-              <small>Ishlagan</small>
-              <b>{duration(worked)}</b>
-            </div>
+        <div className="mini-clock">{clock}</div>
+        <div className="mini-clock-sub">
+          {data.branch ? (
+            <>
+              <MapPin size={12} style={{ display: "inline", verticalAlign: -1 }} /> {data.branch.name}
+            </>
+          ) : (
+            "Filial biriktirilmagan"
           )}
         </div>
-        {!finished ? (
-          <button
-            className="mini-action"
-            onClick={() => onAction(isWorking ? "CHECK_OUT" : "CHECK_IN")}
-          >
-            {isWorking ? "ISHDAN CHIQISH" : "ISHGA KELISH"}
-            <ChevronRight size={20} />
-          </button>
-        ) : (
-          <div className="mini-complete">
-            <CheckCircle2 size={19} /> {attendance?.checkIn} –{" "}
-            {attendance?.checkOut}
+        <div className="mini-times">
+          <div>
+            <small>Grafik</small>
+            <b>{day?.enabled ? `${day.start}–${day.end}` : "Dam olish"}</b>
           </div>
+          <div>
+            <small>Keldi</small>
+            <b>{a?.checkIn || "—"}</b>
+          </div>
+          <div>
+            <small>{finished ? "Ketdi" : "Ishladi"}</small>
+            <b>
+              {finished
+                ? a?.checkOut
+                : working && a?.checkIn
+                  ? duration(minutesSince(a.checkIn))
+                  : "—"}
+            </b>
+          </div>
+        </div>
+        {missingSetup ? (
+          <div className="mini-done" style={{ color: "#f7c37a", background: "rgba(247,195,122,.12)" }}>
+            <AlertCircle size={18} /> HR filial va grafikni biriktirishi kerak
+          </div>
+        ) : finished ? (
+          <div className="mini-done">
+            <CheckCircle2 size={19} /> {a?.checkIn} – {a?.checkOut} · {duration(a?.workedMinutes || 0)}
+          </div>
+        ) : (
+          <button
+            className={`mini-action ${working ? "out" : ""}`}
+            onClick={() => onAction(working ? "CHECK_OUT" : "CHECK_IN")}
+          >
+            {working ? <LogOut size={21} /> : <LogIn size={21} />}
+            {working ? "ISHDAN KETDIM" : "ISHGA KELDIM"}
+          </button>
         )}
-        <div className="mini-verify">
-          <ShieldCheck size={14} /> Face ID + GPS + dinamik QR bilan
+        <div className="mini-note">
+          <ShieldCheck size={13} />
+          Face ID + GPS
+          {(data.branch?.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE" ? " + dinamik QR" : ""} bilan
           himoyalangan
         </div>
       </section>
-      <section className="mini-section">
-        <h2>Bugungi ma’lumot</h2>
-        <div className="mini-info-list">
-          <div>
-            <span className="mini-icon">
-              <Building2 size={18} />
-            </span>
-            <span>
-              <small>Filial</small>
-              <b>{data.branch.name}</b>
-            </span>
-          </div>
-          <div>
-            <span className="mini-icon">
-              <MapPin size={18} />
-            </span>
-            <span>
-              <small>Manzil</small>
-              <b>{data.branch.address}</b>
-            </span>
-          </div>
+
+      <div className="mini-grid-3">
+        <div className="mini-stat">
+          <small>Bu oy kelgan</small>
+          <b>{data.month.days}</b>
         </div>
-      </section>
-      <section className="mini-quick-actions" aria-label="Tezkor amallar">
-        <button onClick={() => onTab("attendance")}>
-          <Clock3 size={19} />
-          <span>Davomat</span>
-        </button>
-        <button onClick={() => onTab("leave")}>
-          <CalendarDays size={19} />
-          <span>Ta’til</span>
-        </button>
-        <button onClick={() => onTab("profile")}>
-          <UserRound size={19} />
-          <span>Profil</span>
-        </button>
-      </section>
+        <div className="mini-stat">
+          <small>Kechikish</small>
+          <b style={{ color: data.month.late ? "#b36b06" : undefined }}>{data.month.late}</b>
+        </div>
+        <div className="mini-stat">
+          <small>Ishlagan</small>
+          <b>{Math.round(data.month.workedMinutes / 60)}s</b>
+        </div>
+      </div>
+
+      {!data.employee.faceEnrolledAt && !finished && !missingSetup && (
+        <div className="mini-alert info">
+          <ScanFace size={18} />
+          <span>
+            Birinchi marta Face ID sozlanadi: yuzingizni 5 xil burchakdan skanerlaymiz (≈15
+            soniya). Yorug‘ joyda turing.
+          </span>
+        </div>
+      )}
+
       {data.notifications.length > 0 && (
-        <section className="mini-section">
-          <div className="mini-section-head">
-            <h2>Bildirishnomalar</h2>
-            <Bell size={18} />
+        <section className="mini-card">
+          <h3>
+            <Bell size={15} style={{ display: "inline", verticalAlign: -2 }} /> Xabarlar
+          </h3>
+          <div className="mini-rows">
+            {data.notifications.slice(0, 3).map((item) => (
+              <div className="mini-row" key={item.id}>
+                <span>
+                  <b>{item.title}</b>
+                  <small>{item.body}</small>
+                </span>
+              </div>
+            ))}
           </div>
-          {data.notifications.slice(0, 2).map((item) => (
-            <div className="mini-notification" key={item.id}>
-              <b>{item.title}</b>
-              <p>{item.body}</p>
-            </div>
-          ))}
         </section>
       )}
-      <button className="mini-link-row" onClick={() => onTab("attendance")}>
-        <span>Davomat tarixini ko‘rish</span>
-        <ChevronRight size={18} />
-      </button>
-    </>
-  );
-}
 
-function MiniAttendance() {
-  const [rows, setRows] = useState<Attendance[] | null>(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    void api<Attendance[]>("/mini/attendance")
-      .then(setRows)
-      .catch((e) => setError(e.message));
-  }, []);
-  const stats = useMemo(
-    () => ({
-      days: rows?.length || 0,
-      late: rows?.filter((item) => item.lateMinutes > 0).length || 0,
-      hours: Math.round(
-        (rows?.reduce((sum, item) => sum + item.workedMinutes, 0) || 0) / 60,
-      ),
-    }),
-    [rows],
-  );
-  return (
-    <>
-      <div className="mini-page-title">
-        <h1>Davomat</h1>
-        <p>Ish vaqtingiz tarixi</p>
-      </div>
-      <div className="mini-stats">
-        <div>
-          <b>{stats.days}</b>
-          <small>Ish kuni</small>
-        </div>
-        <div>
-          <b>{stats.late}</b>
-          <small>Kechikish</small>
-        </div>
-        <div>
-          <b>{stats.hours}s</b>
-          <small>Ishlangan</small>
-        </div>
-      </div>
-      {error && <p className="mini-inline-error">{error}</p>}
-      <section className="mini-list">
-        {rows === null ? (
-          <MiniLoader />
-        ) : rows.length === 0 ? (
-          <MiniEmpty text="Davomat tarixi yo‘q" />
-        ) : (
-          rows.map((item) => (
-            <article key={item.id}>
-              <div className="mini-date">
-                <b>{dateParts(item.date).day}</b>
-                <small>{monthShortUz(item.date)}</small>
-              </div>
-              <div className="mini-list-main">
-                <b>
-                  {item.checkIn || "—"} → {item.checkOut || "—"}
-                </b>
-                <small>
-                  {item.lateMinutes
-                    ? `${item.lateMinutes} daqiqa kechikdi`
-                    : "Vaqtida"}
-                </small>
-              </div>
-              <span
-                className={`mini-status ${item.lateMinutes ? "late" : "ok"}`}
-              >
-                {item.status === "ABSENT"
-                  ? "Kelmagan"
-                  : item.checkOut
-                    ? "Tugadi"
-                    : "Ishda"}
-              </span>
-            </article>
-          ))
-        )}
-      </section>
-    </>
-  );
-}
-
-function MiniLeave() {
-  const [rows, setRows] = useState<LeaveRequest[] | null>(null);
-  const [open, setOpen] = useState(false);
-  const load = () => api<LeaveRequest[]>("/mini/leave").then(setRows);
-  useEffect(() => {
-    void load();
-  }, []);
-  return (
-    <>
-      <div className="mini-page-title">
-        <h1>Ta’til</h1>
-        <p>So‘rovlar va ularning holati</p>
-      </div>
-      <button className="mini-primary" onClick={() => setOpen(true)}>
-        <CalendarDays size={18} /> Yangi so‘rov
-      </button>
-      <section className="mini-list mini-leave-list">
-        {rows === null ? (
-          <MiniLoader />
-        ) : rows.length === 0 ? (
-          <MiniEmpty text="Ta’til so‘rovlari yo‘q" />
-        ) : (
-          rows.map((item) => (
-            <article key={item.id}>
-              <span className="mini-icon">
-                <CalendarDays size={18} />
-              </span>
-              <div className="mini-list-main">
-                <b>{leaveType(item.type)}</b>
-                <small>
-                  {dateUz(item.startDate)} – {dateUz(item.endDate)}
-                </small>
-              </div>
-              <span className={`mini-status ${item.status.toLowerCase()}`}>
-                {leaveStatus(item.status)}
-              </span>
-            </article>
-          ))
-        )}
-      </section>
-      {open && (
-        <LeaveSheet
-          onClose={() => setOpen(false)}
-          onSaved={async () => {
-            setOpen(false);
-            await load();
-          }}
-        />
-      )}
-    </>
-  );
-}
-
-function MiniProfile({ data }: { data: HomeData }) {
-  return (
-    <>
-      <div className="mini-profile-head">
-        <span className="mini-profile-avatar">
-          {data.employee.photoDataUrl ? (
-            <img src={data.employee.photoDataUrl} alt="" />
-          ) : (
-            <>
-              {data.employee.firstName[0]}
-              {data.employee.lastName[0]}
-            </>
-          )}
-        </span>
-        <h1>
-          {data.employee.firstName} {data.employee.lastName}
-        </h1>
-        <p>
-          {data.position.name} · {data.employee.employeeNo}
-        </p>
-      </div>
-      <section className="mini-section mini-profile-section">
-        <h2>Ish ma’lumotlari</h2>
-        <ProfileRow label="Bo‘lim" value={data.department.name} />
-        <ProfileRow label="Filial" value={data.branch.name} />
-        <ProfileRow label="Ish grafigi" value={data.schedule.name} />
-        <ProfileRow
-          label="Ish boshlagan"
-          value={dateUz(data.employee.startDate)}
-        />
-      </section>
-      <section className="mini-section mini-profile-section">
-        <h2>Aloqa</h2>
-        <ProfileRow label="Telefon" value={data.employee.phone} />
-        <ProfileRow label="Email" value={data.employee.email} />
-        <ProfileRow
-          label="Telegram"
-          value={data.employee.telegramConnected ? "Ulangan ✓" : "Ulanmagan"}
-        />
-        <ProfileRow label="Qurilma" value={data.employee.deviceStatus} />
-        <ProfileRow
-          label="Face ID"
-          value={
-            data.employee.faceEnrolledAt
-              ? `Faol · ${dateUz(data.employee.faceEnrolledAt)}`
-              : "Sozlanmagan"
-          }
-        />
-      </section>
-    </>
-  );
-}
-
-function QrScanner({
-  session,
-  branch,
-  onClose,
-  onSuccess,
-}: {
-  session: { sessionId: string; action: string };
-  branch: Branch;
-  onClose: () => void;
-  onSuccess: (message: string) => void;
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [manual, setManual] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [locationReady, setLocationReady] = useState(false);
-  const locationRef = useRef<GeolocationPosition | null>(null);
-  const completed = useRef(false);
-  async function commit(qrToken: string) {
-    if (completed.current || busy) return;
-    completed.current = true;
-    setBusy(true);
-    setError("");
-    try {
-      const location = locationRef.current;
-      if (!location) throw new Error("Joylashuv hali tasdiqlanmadi.");
-      const row = await post<Attendance>("/mini/attendance/commit", {
-        sessionId: session.sessionId,
-        qrToken,
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      });
-      onSuccess(
-        `${session.action === "CHECK_IN" ? "Ishga kelish" : "Ishdan chiqish"} ${row.checkOut || row.checkIn} da qayd etildi.`,
-      );
-    } catch (reason) {
-      completed.current = false;
-      setError(
-        isGeolocationError(reason)
-          ? "Joylashuvni aniqlashga ruxsat bering."
-          : reason instanceof Error
-            ? reason.message
-            : "Tekshiruv amalga oshmadi.",
-      );
-      window.Telegram?.WebApp.HapticFeedback?.notificationOccurred("error");
-    } finally {
-      setBusy(false);
-    }
-  }
-  useEffect(() => {
-    let stream: MediaStream | undefined, timer: number | undefined;
-    void (async () => {
-      try {
-        const location = await new Promise<GeolocationPosition>(
-          (resolve, reject) =>
-            navigator.geolocation.getCurrentPosition(resolve, reject, {
-              enableHighAccuracy: true,
-              timeout: 15000,
-              maximumAge: 0,
-            }),
-        );
-        const distance = haversineDistance(
-          location.coords.latitude,
-          location.coords.longitude,
-          branch.latitude,
-          branch.longitude,
-        );
-        if (distance > branch.radiusMeters)
-          throw new Error(`Filial hududidan ${distance} metr uzoqdasiz.`);
-        locationRef.current = location;
-        setLocationReady(true);
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" },
-          audio: false,
-        });
-        if (!videoRef.current) return;
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        if (window.BarcodeDetector) {
-          const detector = new window.BarcodeDetector({ formats: ["qr_code"] });
-          timer = window.setInterval(async () => {
-            if (!videoRef.current || completed.current) return;
-            const codes = await detector.detect(videoRef.current);
-            if (codes[0]?.rawValue) void commit(codes[0].rawValue);
-          }, 500);
-        }
-      } catch (reason) {
-        if (isGeolocationError(reason)) {
-          setError("Joylashuvni aniqlashga ruxsat bering.");
-          return;
-        }
-        if (
-          reason instanceof Error &&
-          reason.message.includes("Filial hududidan")
-        ) {
-          setError(reason.message);
-          return;
-        }
-        setError("Kamerani ochib bo‘lmadi. Quyida QR tokenni kiriting.");
-      }
-    })();
-    return () => {
-      if (timer) clearInterval(timer);
-      stream?.getTracks().forEach((track) => track.stop());
-    };
-  }, []);
-  return (
-    <div className="mini-sheet-layer">
-      <button className="mini-sheet-backdrop" onClick={onClose} />
-      <section className="mini-sheet scanner-sheet">
-        <div className="mini-sheet-head">
-          <div>
-            <b>QR kodni skanerlang</b>
-            <small>Filial ekranidagi dinamik QR</small>
-          </div>
-          <button onClick={onClose}>
-            <X size={20} />
+      <section className="mini-card">
+        <div className="mini-rows">
+          <button className="mini-row" style={{ border: 0, background: "none", width: "100%", textAlign: "left", color: "inherit", padding: "4px 0" }} onClick={() => onTab("history")}>
+            <span className="mini-ico">
+              <CalendarDays size={18} />
+            </span>
+            <span>
+              <b>Davomat tarixi</b>
+              <small>Kalendar va barcha qaydlar</small>
+            </span>
+            <ChevronRight size={18} style={{ opacity: 0.5 }} />
           </button>
         </div>
-        <div className="attendance-steps">
-          <span className="done">
-            <i>1</i>
-            <b>Face ID</b>
-            <small>Tasdiqlandi</small>
-          </span>
-          <span className="done">
-            <i>2</i>
-            <b>Filial</b>
-            <small>{branch.name}</small>
-          </span>
-          <span className={locationReady ? "done" : "active"}>
-            <i>3</i>
-            <b>GPS</b>
-            <small>
-              {locationReady ? "Hudud tasdiqlandi" : "Tekshirilmoqda"}
-            </small>
-          </span>
-          <span
-            className={locationReady && !busy ? "active" : busy ? "done" : ""}
-          >
-            <i>4</i>
-            <b>QR</b>
-            <small>{busy ? "O‘qildi" : "Skanerlang"}</small>
-          </span>
-          <span className={busy ? "active" : ""}>
-            <i>5</i>
-            <b>Server</b>
-            <small>{busy ? "Tekshirilmoqda" : "Kutilmoqda"}</small>
-          </span>
-        </div>
-        <div className="scanner-view">
-          <video ref={videoRef} muted playsInline />
-          <div className="scanner-frame">
-            <i />
-            <i />
-            <i />
-            <i />
-          </div>
-          {busy && (
-            <div className="scanner-busy">
-              <LoaderCircle className="spin" />
-              Tekshirilmoqda...
-            </div>
-          )}
-        </div>
-        <div className="mini-security">
-          <ShieldCheck size={17} />
-          <span>
-            GPS joylashuvingiz va bir martalik QR serverda tekshiriladi.
-          </span>
-        </div>
-        {error && <p className="mini-inline-error">{error}</p>}
-        <details className="mini-manual">
-          <summary>Kamera ishlamasa</summary>
-          <textarea
-            placeholder="QR token"
-            value={manual}
-            onChange={(e) => setManual(e.target.value)}
-          />
-          <button
-            className="mini-primary"
-            disabled={manual.length < 20 || busy}
-            onClick={() => void commit(manual)}
-          >
-            Tekshirish
-          </button>
-        </details>
       </section>
     </div>
   );
 }
 
-function LeaveSheet({
-  onClose,
-  onSaved,
-}: {
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const today = new Date().toISOString().slice(0, 10);
-  const [form, setForm] = useState({
-    type: "VACATION",
-    startDate: today,
-    endDate: today,
-    reason: "",
+/* ------------------------------------------------------ attendance flow --- */
+type Gps = { lat: number; lng: number; accuracy: number; distance: number };
+
+function getPosition(highAccuracy: boolean) {
+  return new Promise<GeolocationPosition>((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("Qurilma joylashuvni aniqlay olmaydi."));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: highAccuracy,
+      timeout: highAccuracy ? 15_000 : 10_000,
+      maximumAge: highAccuracy ? 0 : 30_000,
+    });
   });
+}
+
+function AttendanceFlow({
+  flow,
+  branch,
+  onClose,
+  onSuccess,
+}: {
+  flow: { sessionId: string; action: Action; requiresQr: boolean };
+  branch: Branch;
+  onClose: () => void;
+  onSuccess: (message: string) => void;
+}) {
+  const [gps, setGps] = useState<Gps | null>(null);
+  const [gpsState, setGpsState] = useState<"loading" | "ok" | "far" | "error">("loading");
+  const [gpsError, setGpsError] = useState("");
+  const [qrToken, setQrToken] = useState<string | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const committed = useRef(false);
+  const nativeQr = supports("6.4") && Boolean(tg()?.showScanQrPopup);
+
+  const locate = useCallback(async () => {
+    setGpsState("loading");
+    setGpsError("");
+    try {
+      let position: GeolocationPosition;
+      try {
+        position = await getPosition(true);
+      } catch (reason) {
+        if ((reason as GeolocationPositionError)?.code === 1) throw reason;
+        position = await getPosition(false);
+      }
+      const { latitude, longitude, accuracy } = position.coords;
+      const distance = haversineDistance(latitude, longitude, branch.latitude, branch.longitude);
+      const value = { lat: latitude, lng: longitude, accuracy: Math.round(accuracy), distance };
+      setGps(value);
+      setGpsState(distance - Math.min(35, accuracy) > branch.radiusMeters ? "far" : "ok");
+    } catch (reason) {
+      const code = (reason as GeolocationPositionError)?.code;
+      setGpsError(
+        code === 1
+          ? "Joylashuvga ruxsat berilmagan. Telefon sozlamalarida Telegram uchun joylashuvni yoqing."
+          : code === 3
+            ? "GPS signal topilmadi. Ochiq joyga chiqib qayta urinib ko‘ring."
+            : errorText(reason, "Joylashuv aniqlanmadi."),
+      );
+      setGpsState("error");
+    }
+  }, [branch]);
+
+  useEffect(() => {
+    void locate();
+  }, [locate]);
+
+  const commit = useCallback(
+    async (token: string | null) => {
+      if (committed.current || !gps) return;
+      committed.current = true;
+      setBusy(true);
+      setError("");
+      try {
+        const row = await post<Attendance>("/mini/attendance/commit", {
+          sessionId: flow.sessionId,
+          qrToken: token || undefined,
+          latitude: gps.lat,
+          longitude: gps.lng,
+          accuracy: gps.accuracy,
+        });
+        onSuccess(
+          flow.action === "CHECK_IN"
+            ? `Ishga kelish ${row.checkIn} da qayd etildi${row.lateMinutes ? ` (${row.lateMinutes} daq kechikish)` : ""}.`
+            : `Ketish ${row.checkOut} da qayd etildi. Ishlagan vaqt: ${duration(row.workedMinutes)}.`,
+        );
+      } catch (reason) {
+        committed.current = false;
+        setQrToken(null);
+        setError(errorText(reason, "Tekshiruv amalga oshmadi."));
+        haptic("error");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [flow, gps, onSuccess],
+  );
+
+  // GPS tayyor va QR kerak bo‘lmasa — darhol yuboramiz.
+  useEffect(() => {
+    if (gpsState === "ok" && !flow.requiresQr && !committed.current && !error) void commit(null);
+  }, [gpsState, flow.requiresQr, commit, error]);
+  useEffect(() => {
+    if (qrToken && gpsState === "ok") void commit(qrToken);
+  }, [qrToken, gpsState, commit]);
+
+  const onQr = (text: string) => {
+    const value = text.trim();
+    if (value.split(".").length !== 3) {
+      setError("Bu Staffora davomat QR kodi emas. Filial ekranidagi QR’ni skanerlang.");
+      haptic("warning");
+      return false;
+    }
+    setError("");
+    setQrToken(value);
+    return true;
+  };
+
+  function scanNative() {
+    setError("");
+    tg()?.showScanQrPopup?.({ text: `${branch.name} ekranidagi QR kodni skanerlang` }, (text) => {
+      const accepted = onQr(text);
+      if (accepted) tg()?.closeScanQrPopup?.();
+      return accepted;
+    });
+  }
+
+  const steps = [
+    { label: "Face ID", state: "done" },
+    { label: "GPS", state: gpsState === "ok" ? "done" : gpsState === "loading" ? "active" : "" },
+    ...(flow.requiresQr
+      ? [{ label: "QR", state: qrToken ? "done" : gpsState === "ok" ? "active" : "" }]
+      : []),
+    { label: "Tasdiq", state: busy ? "active" : "" },
+  ];
+
+  return (
+    <div className="sheet-layer">
+      <button className="sheet-backdrop" onClick={onClose} aria-label="Yopish" />
+      <section className="sheet" role="dialog" aria-modal="true">
+        <div className="sheet-head">
+          <div>
+            <b>{flow.action === "CHECK_IN" ? "Ishga kelish" : "Ishdan ketish"}</b>
+            <small>Face ID tasdiqlandi ✓ · {branch.name}</small>
+          </div>
+          <button className="sheet-close" onClick={onClose} aria-label="Yopish">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flow-steps" style={{ ["--steps" as string]: steps.length }}>
+          {steps.map((step) => (
+            <div key={step.label} className={step.state}>
+              <i />
+              {step.label}
+            </div>
+          ))}
+        </div>
+
+        <div className="gps-card">
+          <span className="mini-ico">
+            {gpsState === "loading" ? <LoaderCircle size={18} className="spin" /> : <Navigation size={18} />}
+          </span>
+          <span>
+            <b>
+              {gpsState === "loading"
+                ? "Joylashuv aniqlanmoqda…"
+                : gpsState === "ok"
+                  ? "Siz filial hududidasiz"
+                  : gpsState === "far"
+                    ? "Filialdan uzoqdasiz"
+                    : "Joylashuv aniqlanmadi"}
+            </b>
+            <small>
+              {gps
+                ? `Masofa: ${gps.distance} m · ruxsat: ${branch.radiusMeters} m · aniqlik ±${gps.accuracy} m`
+                : gpsError || "GPS yoqilgan bo‘lsin"}
+            </small>
+          </span>
+          {(gpsState === "far" || gpsState === "error") && (
+            <button className="sheet-close" onClick={() => void locate()} aria-label="Qayta aniqlash">
+              <RotateCcw size={16} />
+            </button>
+          )}
+        </div>
+
+        {flow.requiresQr && gpsState === "ok" && !busy && (
+          <>
+            {cameraOpen ? (
+              <QrCamera onResult={(text) => onQr(text) && setCameraOpen(false)} />
+            ) : null}
+            <div style={{ display: "grid", gap: 8 }}>
+              {nativeQr ? (
+                <button className="mini-btn" onClick={scanNative}>
+                  <QrCode size={18} /> QR kodni skanerlash
+                </button>
+              ) : (
+                !cameraOpen && (
+                  <button className="mini-btn" onClick={() => setCameraOpen(true)}>
+                    <QrCode size={18} /> Kamerani ochish
+                  </button>
+                )
+              )}
+              {nativeQr && !cameraOpen && (
+                <button className="mini-btn ghost" onClick={() => setCameraOpen(true)}>
+                  Ichki kamera orqali skanerlash
+                </button>
+              )}
+            </div>
+          </>
+        )}
+
+        {busy && (
+          <div className="mini-empty">
+            <LoaderCircle className="spin" size={28} />
+            Server tekshirmoqda…
+          </div>
+        )}
+        {error && (
+          <div className="mini-alert" style={{ marginTop: 12 }}>
+            <AlertCircle size={18} />
+            <span>{error}</span>
+          </div>
+        )}
+        {error && !flow.requiresQr && gpsState === "ok" && !busy && (
+          <button className="mini-btn" style={{ marginTop: 10 }} onClick={() => void commit(null)}>
+            <RotateCcw size={17} /> Qayta yuborish
+          </button>
+        )}
+        {gpsState === "far" && (
+          <div className="mini-alert" style={{ marginTop: 12 }}>
+            <MapPin size={18} />
+            <span>
+              Davomatni faqat filial hududida belgilash mumkin. Filialga yaqinroq kelib, ↻
+              tugmasini bosing.
+            </span>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function QrCamera({ onResult }: { onResult: (text: string) => void }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [error, setError] = useState("");
+  const done = useRef(false);
+  const resultRef = useRef(onResult);
+  resultRef.current = onResult;
+  useEffect(() => {
+    let stream: MediaStream | undefined;
+    let timer: number | undefined;
+    let alive = true;
+    void (async () => {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
+          audio: false,
+        });
+        if (!alive || !videoRef.current) return;
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        const detector = window.BarcodeDetector
+          ? new window.BarcodeDetector({ formats: ["qr_code"] })
+          : null;
+        const jsQR = detector ? null : (await import("jsqr")).default;
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("2d", { willReadFrequently: true });
+        timer = window.setInterval(async () => {
+          const video = videoRef.current;
+          if (!video || done.current || video.readyState < 2) return;
+          try {
+            let text: string | undefined;
+            if (detector) text = (await detector.detect(video))[0]?.rawValue;
+            else if (jsQR && context) {
+              const size = Math.min(video.videoWidth, video.videoHeight, 720);
+              const scale = size / Math.min(video.videoWidth, video.videoHeight);
+              canvas.width = Math.round(video.videoWidth * scale);
+              canvas.height = Math.round(video.videoHeight * scale);
+              context.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const image = context.getImageData(0, 0, canvas.width, canvas.height);
+              text = jsQR(image.data, image.width, image.height, { inversionAttempts: "dontInvert" })?.data;
+            }
+            if (text) {
+              done.current = true;
+              resultRef.current(text);
+              window.setTimeout(() => (done.current = false), 1500);
+            }
+          } catch {
+            /* keyingi kadr */
+          }
+        }, 300);
+      } catch {
+        setError("Kamerani ochib bo‘lmadi. Telegram’ga kamera ruxsatini bering.");
+      }
+    })();
+    return () => {
+      alive = false;
+      if (timer) window.clearInterval(timer);
+      stream?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+  return (
+    <>
+      <div className="scan-view">
+        <video ref={videoRef} muted playsInline />
+        <div className="scan-frame">
+          <i />
+          <i />
+          <i />
+          <i />
+        </div>
+      </div>
+      {error && (
+        <div className="mini-alert" style={{ marginBottom: 10 }}>
+          <AlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
+    </>
+  );
+}
+
+/* -------------------------------------------------------------- history --- */
+function MiniHistory({ home }: { home: HomeData }) {
+  const [rows, setRows] = useState<Attendance[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    void api<Attendance[]>("/mini/attendance")
+      .then(setRows)
+      .catch((e) => setError(errorText(e)));
+  }, []);
+  const today = tashkentIsoDate();
+  const month = today.slice(0, 7);
+  const [year, m] = month.split("-").map(Number);
+  const days = new Date(Date.UTC(year, m, 0)).getUTCDate();
+  const offset = (new Date(Date.UTC(year, m - 1, 1)).getUTCDay() + 6) % 7;
+  const byDate = useMemo(() => new Map((rows || []).map((r) => [r.date, r])), [rows]);
+  return (
+    <div className="mini-body">
+      <div className="mini-title">
+        <h1>Davomat tarixi</h1>
+        <p>{dateLongUz(today).split(" ").slice(1).join(" ")}</p>
+      </div>
+      <section className="mini-card">
+        <div className="mini-cal">
+          {weekOrder.map((d) => (
+            <span key={d}>{weekdayShort[d]}</span>
+          ))}
+          {Array.from({ length: offset }, (_, i) => (
+            <i key={`b${i}`} />
+          ))}
+          {Array.from({ length: days }, (_, i) => {
+            const date = `${month}-${String(i + 1).padStart(2, "0")}`;
+            const row = byDate.get(date);
+            const weekday = dateParts(date).weekday;
+            const workday = home.schedule?.days.find((d) => d.day === weekday)?.enabled ?? true;
+            const tone = row?.checkIn
+              ? row.lateMinutes
+                ? "late"
+                : "present"
+              : date < today && workday && date >= home.employee.startDate
+                ? "absent"
+                : !workday
+                  ? "off"
+                  : "";
+            return (
+              <span key={date} className={`mini-cal-day ${tone} ${date === today ? "today" : ""}`}>
+                {i + 1}
+              </span>
+            );
+          })}
+        </div>
+        <div className="mini-note" style={{ color: "var(--m-muted)", gap: 12, flexWrap: "wrap" }}>
+          <span>🟩 Vaqtida</span>
+          <span>🟧 Kechikkan</span>
+          <span>🟥 Kelmagan</span>
+        </div>
+      </section>
+      {error && (
+        <div className="mini-alert">
+          <AlertCircle size={18} />
+          <span>{error}</span>
+        </div>
+      )}
+      <section className="mini-card">
+        {rows === null ? (
+          <div className="mini-loader">
+            <LoaderCircle className="spin" />
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="mini-empty">
+            <Clock3 size={28} />
+            Hali davomat qaydlari yo‘q
+          </div>
+        ) : (
+          <div className="mini-rows">
+            {rows.map((item) => (
+              <div className="mini-row" key={item.id}>
+                <span className="mini-date">
+                  <b>{dateParts(item.date).day}</b>
+                  <small>{monthShortUz(item.date)}</small>
+                </span>
+                <span>
+                  <b>
+                    {item.checkIn || "—"} → {item.checkOut || "…"}
+                  </b>
+                  <small>
+                    {item.workedMinutes ? duration(item.workedMinutes) : "Ish davom etmoqda"}
+                    {item.lateMinutes ? ` · ${item.lateMinutes} daq kech` : ""}
+                  </small>
+                </span>
+                <span className={`mini-chip ${item.lateMinutes ? "warn" : item.checkOut ? "ok" : "info"}`}>
+                  {item.lateMinutes ? "Kechikdi" : item.checkOut ? "Vaqtida" : "Ishda"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------------- leave --- */
+function MiniLeave({ onToast }: { onToast: (text: string, tone?: "ok" | "error") => void }) {
+  const [rows, setRows] = useState<LeaveRequest[] | null>(null);
+  const [open, setOpen] = useState(false);
+  const load = useCallback(
+    () =>
+      api<LeaveRequest[]>("/mini/leave")
+        .then(setRows)
+        .catch((e) => onToast(errorText(e), "error")),
+    [onToast],
+  );
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const statusChip: Record<string, [string, string]> = {
+    PENDING: ["Kutilmoqda", "warn"],
+    APPROVED: ["Tasdiqlandi", "ok"],
+    REJECTED: ["Rad etildi", "bad"],
+    CANCELLED: ["Bekor qilindi", ""],
+  };
+  return (
+    <div className="mini-body">
+      <div className="mini-title">
+        <h1>Ta’til</h1>
+        <p>So‘rov yuboring va holatini kuzating</p>
+      </div>
+      <button className="mini-btn" onClick={() => setOpen(true)}>
+        <CalendarDays size={18} /> Yangi so‘rov
+      </button>
+      <section className="mini-card">
+        {rows === null ? (
+          <div className="mini-loader">
+            <LoaderCircle className="spin" />
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="mini-empty">
+            <Plane size={28} />
+            Hali so‘rov yubormagansiz
+          </div>
+        ) : (
+          <div className="mini-rows">
+            {rows.map((item) => {
+              const [label, tone] = statusChip[item.status] || [item.status, ""];
+              return (
+                <div className="mini-row" key={item.id}>
+                  <span className="mini-ico">
+                    <Plane size={18} />
+                  </span>
+                  <span>
+                    <b>{leaveTypeLabel[item.type] || item.type}</b>
+                    <small>
+                      {dateUz(item.startDate)} – {dateUz(item.endDate)}
+                    </small>
+                    {item.status === "PENDING" && (
+                      <button
+                        style={{ border: 0, background: "none", padding: "4px 0 0", color: "var(--m-danger)", fontSize: 12.5, textAlign: "left", fontWeight: 600 }}
+                        onClick={async () => {
+                          try {
+                            await patch(`/mini/leave/${item.id}/cancel`);
+                            onToast("So‘rov bekor qilindi");
+                            void load();
+                          } catch (reason) {
+                            onToast(errorText(reason), "error");
+                          }
+                        }}
+                      >
+                        Bekor qilish
+                      </button>
+                    )}
+                  </span>
+                  <span className={`mini-chip ${tone}`}>{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+      {open && (
+        <LeaveSheet
+          onClose={() => setOpen(false)}
+          onSaved={() => {
+            setOpen(false);
+            onToast("So‘rov HR’ga yuborildi");
+            haptic("success");
+            void load();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function LeaveSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const today = tashkentIsoDate();
+  const [form, setForm] = useState({ type: "VACATION", startDate: today, endDate: today, reason: "" });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   async function save(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
+    setError("");
     try {
       await post("/mini/leave", form);
       onSaved();
     } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "So‘rov yuborilmadi.",
-      );
+      setError(errorText(reason, "So‘rov yuborilmadi."));
     } finally {
       setBusy(false);
     }
   }
   return (
-    <div className="mini-sheet-layer">
-      <button className="mini-sheet-backdrop" onClick={onClose} />
-      <section className="mini-sheet">
-        <div className="mini-sheet-head">
+    <div className="sheet-layer">
+      <button className="sheet-backdrop" onClick={onClose} aria-label="Yopish" />
+      <section className="sheet">
+        <div className="sheet-head">
           <div>
             <b>Ta’til so‘rovi</b>
-            <small>HR ko‘rib chiqishi uchun</small>
+            <small>HR ko‘rib chiqadi, javob Telegram’ga keladi</small>
           </div>
-          <button onClick={onClose}>
-            <X size={20} />
+          <button className="sheet-close" onClick={onClose} aria-label="Yopish">
+            <X size={18} />
           </button>
         </div>
         <form onSubmit={save}>
           <label>
-            Ta’til turi
-            <select
-              value={form.type}
-              onChange={(e) => setForm({ ...form, type: e.target.value })}
-            >
-              <option value="VACATION">Mehnat ta’tili</option>
-              <option value="SICK">Kasallik</option>
-              <option value="PERMISSION">Ruxsat</option>
-              <option value="UNPAID">Haq to‘lanmaydi</option>
-              <option value="OTHER">Boshqa</option>
+            Turi
+            <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+              {Object.entries(leaveTypeLabel).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
             </select>
           </label>
-          <div className="mini-form-grid">
+          <div className="grid-2">
             <label>
               Boshlanish
               <input
                 type="date"
                 value={form.startDate}
                 onChange={(e) =>
-                  setForm({ ...form, startDate: e.target.value })
+                  setForm({
+                    ...form,
+                    startDate: e.target.value,
+                    endDate: form.endDate < e.target.value ? e.target.value : form.endDate,
+                  })
                 }
+                required
               />
             </label>
             <label>
               Tugash
-              <input
-                type="date"
-                value={form.endDate}
-                onChange={(e) => setForm({ ...form, endDate: e.target.value })}
-              />
+              <input type="date" min={form.startDate} value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} required />
             </label>
           </div>
           <label>
             Sabab
-            <textarea
-              value={form.reason}
-              onChange={(e) => setForm({ ...form, reason: e.target.value })}
-              required
-              minLength={3}
-            />
+            <textarea value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} required minLength={3} placeholder="Qisqacha yozing" />
           </label>
-          {error && <p className="mini-inline-error">{error}</p>}
-          <button className="mini-primary" disabled={busy}>
-            <Send size={17} />
-            {busy ? "Yuborilmoqda..." : "So‘rovni yuborish"}
+          {error && (
+            <div className="mini-alert">
+              <AlertCircle size={18} />
+              <span>{error}</span>
+            </div>
+          )}
+          <button className="mini-btn" disabled={busy}>
+            {busy ? <LoaderCircle size={17} className="spin" /> : <Send size={17} />}
+            {busy ? "Yuborilmoqda…" : "Yuborish"}
           </button>
         </form>
       </section>
@@ -829,63 +1111,74 @@ function LeaveSheet({
   );
 }
 
-function MiniNavButton({
-  icon: Icon,
-  label,
-  active,
-  onClick,
-}: {
-  icon: typeof Home;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
+/* -------------------------------------------------------------- profile --- */
+function MiniProfile({ data }: { data: HomeData }) {
+  const e = data.employee;
   return (
-    <button className={active ? "active" : ""} onClick={onClick}>
-      <Icon size={20} />
-      <span>{label}</span>
-    </button>
-  );
-}
-function MiniLoader() {
-  return (
-    <div className="mini-loader">
-      <LoaderCircle className="spin" />
+    <div className="mini-body">
+      <div className="mini-profile">
+        <span className="mini-avatar">
+          {e.photoDataUrl ? <img src={e.photoDataUrl} alt="" /> : `${e.firstName[0] || ""}${e.lastName[0] || ""}`}
+        </span>
+        <h1>
+          {e.firstName} {e.lastName}
+        </h1>
+        <p>
+          {data.position?.name || "—"} · {e.employeeNo}
+        </p>
+      </div>
+      <section className="mini-card mini-kv">
+        <div>
+          <span>Kompaniya</span>
+          <b>{data.company?.name || "—"}</b>
+        </div>
+        <div>
+          <span>Bo‘lim</span>
+          <b>{data.department?.name || "—"}</b>
+        </div>
+        <div>
+          <span>Filial</span>
+          <b>{data.branch?.name || "—"}</b>
+        </div>
+        <div>
+          <span>Grafik</span>
+          <b>{data.schedule?.name || "—"}</b>
+        </div>
+        <div>
+          <span>Ish boshlagan</span>
+          <b>{dateUz(e.startDate)}</b>
+        </div>
+      </section>
+      <section className="mini-card mini-kv">
+        <div>
+          <span>Telefon</span>
+          <b>{e.phone}</b>
+        </div>
+        <div>
+          <span>Telegram</span>
+          <b>{e.telegramConnected ? "Ulangan ✓" : "Ulanmagan"}</b>
+        </div>
+        <div>
+          <span>Face ID</span>
+          <b>{e.faceEnrolledAt ? `Faol · ${dateUz(e.faceEnrolledAt)}` : "Sozlanmagan"}</b>
+        </div>
+      </section>
+      {data.branch && (
+        <section className="mini-card">
+          <div className="mini-row" style={{ border: 0, padding: 0 }}>
+            <span className="mini-ico">
+              <Building2 size={18} />
+            </span>
+            <span>
+              <b>{data.branch.name}</b>
+              <small>{data.branch.address}</small>
+            </span>
+          </div>
+        </section>
+      )}
+      <p style={{ textAlign: "center", color: "var(--m-muted)", fontSize: 12 }}>
+        Ma’lumotlarni o‘zgartirish uchun HR bo‘limiga murojaat qiling.
+      </p>
     </div>
   );
-}
-function MiniEmpty({ text }: { text: string }) {
-  return (
-    <div className="mini-empty">
-      <CalendarDays size={28} />
-      <p>{text}</p>
-    </div>
-  );
-}
-function ProfileRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="mini-profile-row">
-      <span>{label}</span>
-      <b>{value}</b>
-    </div>
-  );
-}
-const leaveType = (value: string) =>
-  ({
-    VACATION: "Mehnat ta’tili",
-    SICK: "Kasallik",
-    PERMISSION: "Ruxsat",
-    UNPAID: "Haq to‘lanmaydi",
-    OTHER: "Boshqa",
-  })[value] || value;
-const leaveStatus = (value: string) =>
-  ({
-    PENDING: "Kutilmoqda",
-    APPROVED: "Tasdiqlandi",
-    REJECTED: "Rad etildi",
-    CANCELLED: "Bekor qilindi",
-  })[value] || value;
-
-function isGeolocationError(value: unknown): value is GeolocationPositionError {
-  return typeof value === "object" && value !== null && "code" in value;
 }

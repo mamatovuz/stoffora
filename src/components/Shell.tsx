@@ -30,52 +30,56 @@ import {
   LogOut,
   ChevronDown,
   CircleUserRound,
+  Plane,
+  UserCog,
 } from "lucide-react";
-import type { Company, Notification, Role } from "@/lib/types";
+import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
 import { Avatar } from "./ui";
-import { useAuth } from "../auth";
+import { roleLabels, useAuth } from "../auth";
 import { api } from "../api";
-import { useApi } from "../hooks";
+import { useApi, usePolling } from "../hooks";
 
-const sections = [
+type NavItem = [string, string, typeof Users, string?];
+const sections: { label: string; items: NavItem[] }[] = [
   {
     label: "Asosiy",
     items: [
       ["/dashboard", "Bosh sahifa", LayoutDashboard],
+      ["/attendance", "Keldi-ketdi", Clock3],
       ["/employees", "Xodimlar", Users],
-      ["/attendance", "Davomat", Clock3],
       ["/calendar", "Kalendar", CalendarDays],
-      ["/branches", "Filiallar", Building2],
+      ["/leave", "Ta’til va yo‘qlik", Plane, "leave"],
     ],
   },
   {
     label: "Tashkilot",
     items: [
+      ["/branches", "Filiallar", Building2],
+      ["/schedules", "Ish grafiklari", ClipboardList],
       ["/departments", "Bo‘limlar", Network],
       ["/positions", "Lavozimlar", BriefcaseBusiness],
-      ["/schedules", "Ish grafiklari", ClipboardList],
     ],
   },
   {
-    label: "Boshqaruv",
+    label: "Hisobot va aloqa",
     items: [
-      ["/leave", "Ta’til va yo‘qlik", CalendarDays],
       ["/payroll", "Ish haqi", Banknote],
       ["/reports", "Hisobotlar", ChartNoAxesCombined],
       ["/announcements", "E’lonlar", Megaphone],
-      ["/notifications", "Bildirishnomalar", Bell],
+      ["/notifications", "Bildirishnomalar", Bell, "notifications"],
     ],
   },
   {
     label: "Tizim",
     items: [
-      ["/roles", "Rollar va ruxsatlar", ShieldCheck],
+      ["/users", "Panel foydalanuvchilari", UserCog],
+      ["/roles", "Rollar", ShieldCheck],
       ["/audit", "Audit jurnali", ScrollText],
       ["/settings", "Sozlamalar", Settings],
     ],
   },
-] as const;
+];
 
 const pageNames = Object.fromEntries(
   sections.flatMap((section) =>
@@ -88,36 +92,71 @@ export function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const searchRef = useRef<HTMLInputElement>(null);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem("staffora_sidebar") === "collapsed";
+    } catch {
+      return false;
+    }
+  });
   const [mobile, setMobile] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
   const { data: company } = useApi<Company>("/company");
-  const { data: notifications } = useApi<Notification[]>("/notifications");
+  const { data: notifications, reload: reloadNotifications } =
+    useApi<Notification[]>("/notifications");
+  const { data: leave, reload: reloadLeave } =
+    useApi<{ status: string }[]>("/leave");
+  usePolling(() => {
+    void reloadNotifications(true);
+    void reloadLeave(true);
+  }, 60_000);
 
+  const counts: Record<string, number> = {
+    notifications: notifications?.filter((item) => !item.read).length || 0,
+    leave: leave?.filter((item) => item.status === "PENDING").length || 0,
+  };
   const pageTitle = useMemo(() => {
     const exact = pageNames[location.pathname];
     if (exact) return exact;
+    if (location.pathname === "/employees/new") return "Yangi xodim";
     if (location.pathname.startsWith("/employees/")) return "Xodim profili";
-    return "STAFFORA";
+    return "Staffora";
   }, [location.pathname]);
-  const unread = notifications?.filter((item) => !item.read).length || 0;
 
   useEffect(() => {
+    try {
+      localStorage.setItem("staffora_sidebar", collapsed ? "collapsed" : "open");
+    } catch {
+      /* ignore */
+    }
+  }, [collapsed]);
+  useEffect(() => {
+    setMobile(false);
+    setProfileOpen(false);
+    document.title = `${pageTitle} · Staffora`;
+  }, [location.pathname, pageTitle]);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 4);
     const shortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         searchRef.current?.focus();
       }
     };
+    window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("keydown", shortcut);
-    return () => window.removeEventListener("keydown", shortcut);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("keydown", shortcut);
+    };
   }, []);
 
   async function logout() {
-    await api("/auth/logout", { method: "POST" });
-    navigate("/login");
-    window.location.reload();
+    await api("/auth/logout", { method: "POST" }).catch(() => undefined);
+    window.location.href = "/login";
   }
+  const [firstName, lastName] = (user?.name || "?").split(" ");
 
   return (
     <div className="app-shell">
@@ -131,8 +170,10 @@ export function Shell() {
       <aside
         className={`sidebar ${collapsed ? "collapsed" : ""} ${mobile ? "mobile-open" : ""}`}
       >
-        <div className="sidebar-logo">
-          <Logo compact={collapsed} />
+        <div className="sidebar-head">
+          <Link to="/dashboard">
+            <Logo compact={collapsed} />
+          </Link>
           <button
             className="icon-btn collapse"
             aria-label={collapsed ? "Menyuni yoyish" : "Menyuni yig‘ish"}
@@ -153,66 +194,66 @@ export function Shell() {
           </button>
         </div>
 
-        <div className="company-switch" title={company?.name}>
-          <span className="company-mark">
+        <div className="company-chip" title={company?.name}>
+          <span className="mark">
             {company?.name
-              .split(" ")
+              .split(/\s+/)
               .map((word) => word[0])
               .slice(0, 2)
-              .join("") || "ST"}
+              .join("")
+              .toUpperCase() || "ST"}
           </span>
-          {!collapsed && (
-            <>
-              <span>
-                <b>{company?.name || "Yuklanmoqda..."}</b>
-                <small>{company ? `${company.plan} reja` : "Kompaniya"}</small>
-              </span>
-              <ChevronDown size={14} />
-            </>
-          )}
+          <span>
+            <b>{company?.name || "…"}</b>
+            <small>{company ? `${company.plan} tarif` : "Kompaniya"}</small>
+          </span>
         </div>
 
-        <nav className="side-nav" aria-label="Asosiy navigatsiya">
+        <nav className="nav" aria-label="Asosiy navigatsiya">
           {sections.map((section) => (
-            <div className="nav-section" key={section.label}>
-              {!collapsed && (
-                <div className="nav-section-label">{section.label}</div>
-              )}
-              {section.items.map(([to, label, Icon]) => (
+            <div key={section.label}>
+              <div className="nav-label">{section.label}</div>
+              {section.items.map(([to, label, Icon, countKey]) => (
                 <NavLink
                   to={to}
                   key={to}
-                  onClick={() => setMobile(false)}
                   className={({ isActive }) =>
                     `nav-link ${isActive ? "active" : ""}`
                   }
                   title={collapsed ? label : undefined}
                 >
-                  <Icon size={17} strokeWidth={1.8} />
-                  {!collapsed && <span>{label}</span>}
+                  <Icon size={18} strokeWidth={1.9} />
+                  <span>{label}</span>
+                  {countKey && counts[countKey] > 0 && (
+                    <em className="nav-count">
+                      {counts[countKey] > 99 ? "99+" : counts[countKey]}
+                    </em>
+                  )}
                 </NavLink>
               ))}
             </div>
           ))}
         </nav>
 
-        <div className="side-user">
-          <Avatar
-            first={user?.name.split(" ")[0] || "?"}
-            last={user?.name.split(" ")[1]}
-            photo={user?.photoDataUrl}
-          />
-          {!collapsed && (
-            <span>
-              <b>{user?.name}</b>
-              <small>{roleLabel(user?.role)}</small>
-            </span>
-          )}
+        <div className="sidebar-foot">
+          <Avatar first={firstName} last={lastName} photo={user?.photoDataUrl} />
+          <span>
+            <b>{user?.name}</b>
+            <small>{user ? roleLabels[user.role] : ""}</small>
+          </span>
+          <button
+            className="icon-btn"
+            aria-label="Chiqish"
+            title="Chiqish"
+            onClick={() => void logout()}
+          >
+            <LogOut size={16} />
+          </button>
         </div>
       </aside>
 
       <div className={`app-main ${collapsed ? "expanded" : ""}`}>
-        <header className="topbar">
+        <header className={`topbar ${scrolled ? "scrolled" : ""}`}>
           <button
             className="icon-btn mobile-menu"
             aria-label="Menyuni ochish"
@@ -220,66 +261,78 @@ export function Shell() {
           >
             <Menu size={21} />
           </button>
-          <div className="top-context">
-            <small>{company?.name || "STAFFORA"}</small>
+          <div className="topbar-title">
+            <small>{company?.name || "Staffora"}</small>
             <b>{pageTitle}</b>
           </div>
-          <div className="global-search">
+          <form
+            className="search"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const value = searchRef.current?.value.trim();
+              if (!value) return;
+              navigate(`/employees?q=${encodeURIComponent(value)}`);
+              searchRef.current?.blur();
+            }}
+          >
             <Search size={16} />
             <input
               ref={searchRef}
               aria-label="Xodim qidirish"
-              placeholder="Xodim yoki ID bo‘yicha qidiring"
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && event.currentTarget.value.trim()) {
-                  navigate(
-                    `/employees?q=${encodeURIComponent(event.currentTarget.value.trim())}`,
-                  );
-                  event.currentTarget.blur();
-                }
-              }}
+              placeholder="Xodim, ID yoki telefon…"
             />
-            <kbd>⌘ K</kbd>
-          </div>
+            <kbd>Ctrl K</kbd>
+          </form>
           <div className="top-actions">
             <Link
               to="/notifications"
-              className="icon-btn top-notification"
-              aria-label={`${unread} ta o‘qilmagan bildirishnoma`}
+              className="icon-btn bell"
+              aria-label={`${counts.notifications} ta o‘qilmagan bildirishnoma`}
             >
-              <Bell size={18} />
-              {unread > 0 && <span>{unread > 9 ? "9+" : unread}</span>}
+              <Bell size={19} />
+              {counts.notifications > 0 && (
+                <i>{counts.notifications > 9 ? "9+" : counts.notifications}</i>
+              )}
             </Link>
-            <div className="top-user-wrap">
+            <div className="user-menu">
               <button
-                className="top-user"
+                className="user-trigger"
                 aria-expanded={profileOpen}
                 onClick={() => setProfileOpen(!profileOpen)}
               >
                 <Avatar
-                  first={user?.name.split(" ")[0] || "?"}
-                  last={user?.name.split(" ")[1]}
+                  first={firstName}
+                  last={lastName}
                   photo={user?.photoDataUrl}
+                  size="sm"
                 />
                 <span>
-                  <b>{user?.name.split(" ")[0]}</b>
-                  <small>{roleLabel(user?.role)}</small>
+                  <b>{firstName}</b>
+                  <small>{user ? roleLabels[user.role] : ""}</small>
                 </span>
                 <ChevronDown size={14} />
               </button>
               {profileOpen && (
-                <div className="user-popover">
-                  <div>
-                    <b>{user?.name}</b>
-                    <small>{user?.email}</small>
+                <>
+                  <button
+                    className="backdrop"
+                    style={{ background: "transparent", zIndex: 70 }}
+                    aria-label="Yopish"
+                    onClick={() => setProfileOpen(false)}
+                  />
+                  <div className="popover">
+                    <div className="popover-head">
+                      <b>{user?.name}</b>
+                      <small>{user?.email}</small>
+                    </div>
+                    <Link to="/settings">
+                      <CircleUserRound size={16} /> Profil va sozlamalar
+                    </Link>
+                    <button className="danger" onClick={() => void logout()}>
+                      <LogOut size={16} /> Tizimdan chiqish
+                    </button>
                   </div>
-                  <Link to="/settings" onClick={() => setProfileOpen(false)}>
-                    <CircleUserRound size={16} /> Profil va sozlamalar
-                  </Link>
-                  <button onClick={() => void logout()}>
-                    <LogOut size={16} /> Tizimdan chiqish
-                  </button>
-                </div>
+                </>
               )}
             </div>
           </div>
@@ -290,17 +343,4 @@ export function Shell() {
       </div>
     </div>
   );
-}
-
-function roleLabel(role?: Role) {
-  const labels: Partial<Record<Role, string>> = {
-    COMPANY_OWNER: "Kompaniya egasi",
-    HR_ADMIN: "HR administrator",
-    HR_MANAGER: "HR menejer",
-    FINANCE: "Moliya",
-    IT_ADMIN: "IT administrator",
-    BRANCH_MANAGER: "Filial menejeri",
-    EMPLOYEE: "Xodim",
-  };
-  return role ? labels[role] || role.replaceAll("_", " ") : "";
 }

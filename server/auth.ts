@@ -65,7 +65,7 @@ export function requireEmployee(
   const bearer = req.headers.authorization?.startsWith("Bearer ")
     ? req.headers.authorization.slice(7)
     : undefined;
-  const token = req.cookies?.staffora_employee_session || bearer;
+  const token = bearer || req.cookies?.staffora_employee_session;
   if (!token)
     return res.status(401).json({
       message: "Telegram sessiyasi topilmadi. Mini App’ni bot orqali oching.",

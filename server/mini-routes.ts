@@ -9,21 +9,27 @@ import {
   calculateAttendance,
   haversineDistance,
 } from "../lib/attendance";
-import { dateParts, tashkentIsoDate } from "../lib/format";
+import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { audit, readDb, updateDb } from "../lib/store";
 import {
+  assertConsistentSamples,
   assertFaceDescriptor,
-  faceDistance,
-  faceMatchThreshold,
+  isReplayedDescriptor,
+  matchFace,
 } from "../lib/face";
-import type { Attendance, LeaveRequest } from "../lib/types";
+import type { Attendance, Database, LeaveRequest } from "../lib/types";
 import {
   requireEmployee,
   signEmployeeSession,
   type AuthedRequest,
   type EmployeeSession,
 } from "./auth";
-import { sendTelegramMessage, verifyTelegramInitData } from "./telegram";
+import {
+  linkEmployeeByInvite,
+  sendTelegramMessage,
+  telegramBotUsername,
+  verifyTelegramInitData,
+} from "./telegram";
 
 type EmployeeRequest = AuthedRequest & { employeeSession?: EmployeeSession };
 const asyncRoute =
@@ -31,19 +37,45 @@ const asyncRoute =
   (req: EmployeeRequest, res: Response, next: NextFunction) =>
     Promise.resolve(handler(req, res)).catch(next);
 const id = () => crypto.randomUUID();
-const nowInTashkent = () => {
-  const now = new Date();
+const httpError = (message: string, status: number) =>
+  Object.assign(new Error(message), { status });
+const faceSecret = () =>
+  process.env.JWT_SECRET || "staffora-local-face-secret-change-me";
+const qrSecret = () =>
+  process.env.QR_SIGNING_SECRET || "staffora-local-qr-secret-change-me";
+/** GPS aniqligi past bo‘lsa ham adolatli bo‘lishi uchun maksimal qo‘shimcha tolerantlik. */
+const GPS_ACCURACY_ALLOWANCE = 35;
+
+const descriptorSchema = z.array(z.number()).length(128);
+const livenessSchema = z
+  .object({
+    challenge: z.string().max(40),
+    passed: z.boolean(),
+    frames: z.number().int().min(0).max(500).optional(),
+  })
+  .optional();
+
+function signFaceProof(employeeId: string, companyId: string) {
+  return jwt.sign(
+    { type: "FACE_VERIFICATION", employeeId, companyId },
+    faceSecret(),
+    { expiresIn: 180, issuer: "staffora-face" },
+  );
+}
+
+function monthSummary(db: Database, employeeId: string) {
+  const month = tashkentIsoDate().slice(0, 7);
+  const rows = db.attendance.filter(
+    (item) => item.employeeId === employeeId && item.date.startsWith(month),
+  );
   return {
-    now,
-    date: tashkentIsoDate(now),
-    time: new Intl.DateTimeFormat("en-GB", {
-      timeZone: "Asia/Tashkent",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
-    }).format(now),
+    days: rows.filter((item) => item.checkIn).length,
+    late: rows.filter((item) => item.lateMinutes > 0).length,
+    lateMinutes: rows.reduce((sum, item) => sum + item.lateMinutes, 0),
+    workedMinutes: rows.reduce((sum, item) => sum + item.workedMinutes, 0),
+    overtimeMinutes: rows.reduce((sum, item) => sum + item.overtimeMinutes, 0),
   };
-};
+}
 
 export function createMiniRouter() {
   const router = Router();
@@ -51,34 +83,74 @@ export function createMiniRouter() {
     "/telegram/auth",
     rateLimit({ windowMs: 60_000, limit: 30 }),
     asyncRoute(async (req, res) => {
-      const { initData } = z.object({ initData: z.string() }).parse(req.body);
-      const devMode = process.env.TELEGRAM_DEV_MODE === "true";
+      const { initData } = z
+        .object({ initData: z.string().max(8192) })
+        .parse(req.body);
+      const devMode =
+        process.env.TELEGRAM_DEV_MODE === "true" &&
+        process.env.NODE_ENV !== "production";
       let telegramId: string;
+      let employeeId: string | undefined;
       if (devMode && !initData) {
-        telegramId = "dev-telegram-user";
+        const db = await readDb();
+        const preferred = process.env.TELEGRAM_DEV_EMPLOYEE_ID;
+        const employee =
+          db.employees.find(
+            (item) => item.id === preferred && item.status === "ACTIVE",
+          ) || db.employees.find((item) => item.status === "ACTIVE");
+        if (!employee)
+          return res.status(403).json({
+            code: "NO_EMPLOYEES",
+            message:
+              "Dev rejim: bazada faol xodim yo‘q. Avval panelda xodim qo‘shing.",
+          });
+        telegramId = employee.telegramId || "dev-telegram-user";
+        employeeId = employee.id;
       } else {
-        const token = process.env.TELEGRAM_BOT_TOKEN;
+        if (!initData)
+          return res.status(400).json({
+            code: "NO_INIT_DATA",
+            message:
+              "Telegram kirish ma’lumoti kelmadi. Mini App’ni bot ichidagi «Staffora» tugmasi orqali oching.",
+          });
+        const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
         if (!token)
-          return res
-            .status(503)
-            .json({ message: "Telegram bot tokeni sozlanmagan." });
-        telegramId = String(verifyTelegramInitData(initData, token).id);
+          return res.status(503).json({
+            code: "BOT_NOT_CONFIGURED",
+            message: "Serverda Telegram bot tokeni sozlanmagan.",
+          });
+        let identity: ReturnType<typeof verifyTelegramInitData>;
+        try {
+          identity = verifyTelegramInitData(initData, token);
+        } catch (reason) {
+          return res.status(401).json({
+            code: "BAD_SIGNATURE",
+            message:
+              reason instanceof Error
+                ? reason.message
+                : "Telegram ma’lumoti yaroqsiz.",
+          });
+        }
+        telegramId = String(identity.id);
+        // startapp=<taklif kodi> orqali ochilgan bo‘lsa — shu yerning o‘zida ulaymiz.
+        if (identity.startParam && /^[a-f0-9]{16,64}$/i.test(identity.startParam))
+          await linkEmployeeByInvite(identity.startParam, identity);
       }
       const db = await readDb();
-      const employee =
-        devMode && !initData
-          ? db.employees.find(
-              (item) =>
-                item.id === (process.env.TELEGRAM_DEV_EMPLOYEE_ID || "emp_001"),
-            )
-          : db.employees.find(
-              (item) =>
-                item.telegramId === telegramId && item.telegramConnected,
-            );
+      const employee = employeeId
+        ? db.employees.find((item) => item.id === employeeId)
+        : db.employees.find(
+            (item) =>
+              item.telegramId === telegramId &&
+              item.telegramConnected &&
+              item.status === "ACTIVE",
+          );
       if (!employee || employee.status !== "ACTIVE")
         return res.status(403).json({
+          code: "NOT_LINKED",
+          botUsername: telegramBotUsername(),
           message:
-            "Telegram hisobingiz xodim profiliga ulanmagan. HR bilan bog‘laning.",
+            "Telegram hisobingiz hali xodim profiliga ulanmagan. Botda /start bosib, telefon raqamingizni yuboring yoki HR bergan havolani oching.",
         });
       const session: EmployeeSession = {
         employeeId: employee.id,
@@ -86,13 +158,17 @@ export function createMiniRouter() {
         telegramId,
         kind: "employee",
       };
-      res.cookie("staffora_employee_session", signEmployeeSession(session), {
+      const token = signEmployeeSession(session);
+      const secure = process.env.COOKIE_SECURE === "true";
+      res.cookie("staffora_employee_session", token, {
         httpOnly: true,
-        sameSite: process.env.COOKIE_SECURE === "true" ? "none" : "lax",
-        secure: process.env.COOKIE_SECURE === "true",
+        // Telegram Web Mini App’ni iframe ichida ochadi — cookie uchun SameSite=None kerak.
+        sameSite: secure ? "none" : "lax",
+        secure,
         maxAge: 24 * 3600_000,
       });
-      return res.json({ ok: true, employeeId: employee.id });
+      // Cookie bloklangan muhitlar (iOS, Telegram Web) uchun Bearer token ham qaytariladi.
+      return res.json({ ok: true, employeeId: employee.id, token });
     }),
   );
   router.post("/telegram/logout", (_req, res) => {
@@ -111,28 +187,44 @@ export function createMiniRouter() {
           item.id === session.employeeId &&
           item.companyId === session.companyId,
       );
-      if (!employee)
-        return res.status(404).json({ message: "Xodim topilmadi." });
-      const { date } = nowInTashkent();
+      if (!employee || employee.status !== "ACTIVE")
+        return res
+          .status(403)
+          .json({ message: "Xodim profili faol emas. HR bilan bog‘laning." });
+      const date = tashkentIsoDate();
+      const todayLeave = db.leaveRequests.find(
+        (item) =>
+          item.employeeId === employee.id &&
+          item.status === "APPROVED" &&
+          item.startDate <= date &&
+          item.endDate >= date,
+      );
       return res.json({
         employee,
         company: db.companies.find((item) => item.id === employee.companyId),
-        branch: db.branches.find((item) => item.id === employee.branchId),
-        department: db.departments.find(
-          (item) => item.id === employee.departmentId,
-        ),
-        position: db.positions.find((item) => item.id === employee.positionId),
-        schedule: db.schedules.find((item) => item.id === employee.scheduleId),
+        branch: db.branches.find((item) => item.id === employee.branchId) || null,
+        department:
+          db.departments.find((item) => item.id === employee.departmentId) ||
+          null,
+        position:
+          db.positions.find((item) => item.id === employee.positionId) || null,
+        schedule:
+          db.schedules.find((item) => item.id === employee.scheduleId) || null,
         attendance: db.attendance.find(
           (item) => item.employeeId === employee.id && item.date === date,
         ),
+        todayLeave: todayLeave || null,
+        month: monthSummary(db, employee.id),
+        serverTime: new Date().toISOString(),
         notifications: db.notifications
           .filter(
             (item) =>
               item.companyId === employee.companyId &&
-              (!item.employeeId || item.employeeId === employee.id),
+              (item.employeeId === employee.id ||
+                (!item.employeeId && item.type === "ANNOUNCEMENT")),
           )
-          .slice(0, 4),
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .slice(0, 5),
       });
     }),
   );
@@ -148,7 +240,8 @@ export function createMiniRouter() {
               item.companyId === session.companyId &&
               item.employeeId === session.employeeId,
           )
-          .sort((a, b) => b.date.localeCompare(a.date)),
+          .sort((a, b) => b.date.localeCompare(a.date))
+          .slice(0, 90),
       );
     }),
   );
@@ -170,13 +263,14 @@ export function createMiniRouter() {
   );
   router.post(
     "/mini/leave",
+    rateLimit({ windowMs: 60_000, limit: 10 }),
     asyncRoute(async (req, res) => {
       const input = z
         .object({
           type: z.enum(["VACATION", "SICK", "PERMISSION", "UNPAID", "OTHER"]),
-          startDate: z.string(),
-          endDate: z.string(),
-          reason: z.string().min(3).max(1000),
+          startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+          reason: z.string().trim().min(3).max(1000),
         })
         .refine((value) => value.endDate >= value.startDate, {
           message:
@@ -185,6 +279,24 @@ export function createMiniRouter() {
         .parse(req.body);
       const session = req.employeeSession!;
       const row = await updateDb((db) => {
+        const employee = db.employees.find(
+          (item) =>
+            item.id === session.employeeId &&
+            item.companyId === session.companyId,
+        );
+        if (!employee) throw httpError("Xodim topilmadi.", 404);
+        const overlap = db.leaveRequests.some(
+          (item) =>
+            item.employeeId === employee.id &&
+            ["PENDING", "APPROVED"].includes(item.status) &&
+            item.startDate <= input.endDate &&
+            item.endDate >= input.startDate,
+        );
+        if (overlap)
+          throw httpError(
+            "Bu sanalar uchun sizda allaqachon so‘rov mavjud.",
+            409,
+          );
         const value: LeaveRequest = {
           id: id(),
           companyId: session.companyId,
@@ -194,11 +306,20 @@ export function createMiniRouter() {
           createdAt: new Date().toISOString(),
         };
         db.leaveRequests.push(value);
+        db.notifications.unshift({
+          id: id(),
+          companyId: session.companyId,
+          title: "Yangi ta’til so‘rovi",
+          body: `${employee.firstName} ${employee.lastName}: ${input.startDate} – ${input.endDate}`,
+          type: "LEAVE",
+          read: false,
+          createdAt: value.createdAt,
+        });
         db.auditLogs.unshift(
           audit(
             session.companyId,
-            "Xodim (Mini App)",
-            "Ta’til so‘rovi yuborildi",
+            `${employee.firstName} ${employee.lastName}`,
+            "Ta’til so‘rovi yuborildi (Mini App)",
             "leave",
             value.id,
           ),
@@ -208,20 +329,48 @@ export function createMiniRouter() {
       return res.status(201).json(row);
     }),
   );
+  router.patch(
+    "/mini/leave/:id/cancel",
+    asyncRoute(async (req, res) => {
+      const session = req.employeeSession!;
+      const row = await updateDb((db) => {
+        const leave = db.leaveRequests.find(
+          (item) =>
+            item.id === req.params.id &&
+            item.employeeId === session.employeeId &&
+            item.companyId === session.companyId,
+        );
+        if (!leave) throw httpError("So‘rov topilmadi.", 404);
+        if (leave.status !== "PENDING")
+          throw httpError("Faqat kutilayotgan so‘rovni bekor qilish mumkin.", 409);
+        leave.status = "CANCELLED";
+        return leave;
+      });
+      return res.json(row);
+    }),
+  );
+
   router.post(
     "/mini/face/enroll",
-    rateLimit({ windowMs: 60_000, limit: 5 }),
+    rateLimit({ windowMs: 60_000, limit: 6 }),
     asyncRoute(async (req, res) => {
       const input = z
         .object({
-          descriptor: z.array(z.number()).length(128),
+          samples: z.array(descriptorSchema).min(3).max(8).optional(),
+          descriptor: descriptorSchema.optional(),
           photoDataUrl: z
             .string()
             .max(700_000)
             .regex(/^data:image\/(jpeg|jpg|webp);base64,/),
+          liveness: livenessSchema,
         })
         .parse(req.body);
-      assertFaceDescriptor(input.descriptor);
+      const samples = input.samples || (input.descriptor ? [input.descriptor] : []);
+      const center =
+        samples.length >= 3
+          ? assertConsistentSamples(samples)
+          : (samples.forEach(assertFaceDescriptor), samples[0]);
+      if (!center) throw httpError("Yuz namunasi yuborilmadi.", 400);
       const auth = req.employeeSession!;
       const employee = await updateDb((db) => {
         const row = db.employees.find(
@@ -229,19 +378,31 @@ export function createMiniRouter() {
             item.id === auth.employeeId && item.companyId === auth.companyId,
         );
         if (!row || row.status !== "ACTIVE")
-          throw Object.assign(new Error("Xodim faol emas."), { status: 403 });
+          throw httpError("Xodim faol emas.", 403);
         if (db.faceProfiles.some((item) => item.employeeId === row.id))
-          throw Object.assign(
-            new Error(
-              "Face ID avval ro‘yxatdan o‘tkazilgan. Qayta sozlash uchun HR’ga murojaat qiling.",
-            ),
-            { status: 409 },
+          throw httpError(
+            "Face ID avval ro‘yxatdan o‘tkazilgan. Qayta sozlash uchun HR’ga murojaat qiling.",
+            409,
+          );
+        // Boshqa xodimning yuzi bilan ro‘yxatdan o‘tishni oldini olish.
+        const duplicate = db.faceProfiles.find(
+          (item) =>
+            item.companyId === row.companyId &&
+            matchFace(item, center, 0.42).matched,
+        );
+        if (duplicate)
+          throw httpError(
+            "Bu yuz kompaniyadagi boshqa xodim profiliga biriktirilgan. HR bilan bog‘laning.",
+            409,
           );
         const now = new Date().toISOString();
         db.faceProfiles.push({
           companyId: row.companyId,
           employeeId: row.id,
-          descriptor: input.descriptor,
+          descriptor: center,
+          samples: samples.length > 1 ? samples : undefined,
+          lastDescriptor: samples[samples.length - 1],
+          lastVerifiedAt: now,
           enrolledAt: now,
           updatedAt: now,
         });
@@ -252,7 +413,7 @@ export function createMiniRouter() {
           audit(
             row.companyId,
             `${row.firstName} ${row.lastName}`,
-            "Face ID ro‘yxatdan o‘tkazildi",
+            `Face ID ro‘yxatdan o‘tkazildi (${samples.length} namuna${input.liveness?.passed ? ", jonlilik tekshiruvi o‘tdi" : ""})`,
             "employee",
             row.id,
           ),
@@ -262,15 +423,18 @@ export function createMiniRouter() {
       return res.status(201).json({
         enrolledAt: employee.faceEnrolledAt,
         photoDataUrl: employee.photoDataUrl,
+        proof: signFaceProof(auth.employeeId, auth.companyId),
+        matched: true,
+        score: 100,
       });
     }),
   );
   router.post(
     "/mini/face/verify",
-    rateLimit({ windowMs: 60_000, limit: 8 }),
+    rateLimit({ windowMs: 60_000, limit: 10 }),
     asyncRoute(async (req, res) => {
-      const { descriptor } = z
-        .object({ descriptor: z.array(z.number()).length(128) })
+      const { descriptor, liveness } = z
+        .object({ descriptor: descriptorSchema, liveness: livenessSchema })
         .parse(req.body);
       assertFaceDescriptor(descriptor);
       const auth = req.employeeSession!;
@@ -285,50 +449,52 @@ export function createMiniRouter() {
             item.companyId === auth.companyId,
         );
         if (!employee || !profile)
-          throw Object.assign(
-            new Error("Face ID hali ro‘yxatdan o‘tkazilmagan."),
-            { status: 428 },
+          throw httpError("Face ID hali ro‘yxatdan o‘tkazilmagan.", 428);
+        if (isReplayedDescriptor(profile.lastDescriptor, descriptor))
+          throw httpError(
+            "Takroriy so‘rov aniqlandi. Yuzni kamerada qayta skanerlang.",
+            409,
           );
-        const distance = faceDistance(profile.descriptor, descriptor);
-        const matched = distance <= faceMatchThreshold();
+        const match = matchFace(profile, descriptor);
+        if (match.matched) {
+          profile.lastDescriptor = descriptor;
+          profile.lastVerifiedAt = new Date().toISOString();
+        }
         db.auditLogs.unshift(
           audit(
             auth.companyId,
             `${employee.firstName} ${employee.lastName}`,
-            matched
+            match.matched
               ? "Face ID muvaffaqiyatli tasdiqlandi"
               : "Face ID mos kelmadi",
             "employee",
             employee.id,
             undefined,
-            { matched, distance: Number(distance.toFixed(4)) },
+            {
+              matched: match.matched,
+              distance: Number(match.distance.toFixed(4)),
+              liveness: liveness?.passed ?? null,
+            },
           ),
         );
-        return { matched, distance, employee };
+        return match;
       });
       if (!result.matched)
         return res.status(403).json({
-          message: "Yuz xodim profilidagi Face ID bilan mos kelmadi.",
+          message:
+            "Yuz profildagi Face ID bilan mos kelmadi. Yorug‘ joyda, ko‘zoynak/niqobsiz qayta urinib ko‘ring.",
+          score: result.score,
         });
-      const proof = jwt.sign(
-        {
-          type: "FACE_VERIFICATION",
-          employeeId: auth.employeeId,
-          companyId: auth.companyId,
-        },
-        process.env.JWT_SECRET || "staffora-local-face-secret-change-me",
-        { expiresIn: 120, issuer: "staffora-face" },
-      );
       return res.json({
-        proof,
+        proof: signFaceProof(auth.employeeId, auth.companyId),
         matched: true,
-        score: Math.max(0, Math.round((1 - result.distance) * 100)),
+        score: result.score,
       });
     }),
   );
   router.post(
     "/mini/attendance/session",
-    rateLimit({ windowMs: 60_000, limit: 10 }),
+    rateLimit({ windowMs: 60_000, limit: 12 }),
     asyncRoute(async (req, res) => {
       const { action, faceProof } = z
         .object({
@@ -343,11 +509,9 @@ export function createMiniRouter() {
         companyId: string;
       };
       try {
-        facePayload = jwt.verify(
-          faceProof,
-          process.env.JWT_SECRET || "staffora-local-face-secret-change-me",
-          { issuer: "staffora-face" },
-        ) as typeof facePayload;
+        facePayload = jwt.verify(faceProof, faceSecret(), {
+          issuer: "staffora-face",
+        }) as typeof facePayload;
       } catch {
         return res.status(401).json({
           message: "Face ID tasdig‘i tugagan. Yuzni qayta skanerlang.",
@@ -365,8 +529,17 @@ export function createMiniRouter() {
             item.id === auth.employeeId && item.companyId === auth.companyId,
         );
         if (!employee || employee.status !== "ACTIVE")
-          throw Object.assign(new Error("Xodim faol emas."), { status: 403 });
-        const { date } = nowInTashkent();
+          throw httpError("Xodim faol emas.", 403);
+        const branch = db.branches.find(
+          (item) =>
+            item.id === employee.branchId && item.companyId === auth.companyId,
+        );
+        if (!branch || branch.status !== "ACTIVE")
+          throw httpError(
+            "Sizga faol filial biriktirilmagan. HR bilan bog‘laning.",
+            422,
+          );
+        const date = tashkentIsoDate();
         const attendance = db.attendance.find(
           (item) => item.employeeId === employee.id && item.date === date,
         );
@@ -380,53 +553,55 @@ export function createMiniRouter() {
           id: id(),
           companyId: employee.companyId,
           employeeId: employee.id,
-          branchId: employee.branchId,
+          branchId: branch.id,
           action,
           nonce: id(),
           createdAt: now.toISOString(),
-          expiresAt: new Date(now.getTime() + 2 * 60_000).toISOString(),
+          expiresAt: new Date(now.getTime() + 3 * 60_000).toISOString(),
           faceVerifiedAt: now.toISOString(),
         };
         db.attendanceSessions.push(value);
-        return value;
+        return {
+          ...value,
+          requiresQr: (branch.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE",
+        };
       });
       return res.status(201).json(session);
     }),
   );
   router.post(
     "/mini/attendance/commit",
-    rateLimit({ windowMs: 60_000, limit: 10 }),
+    rateLimit({ windowMs: 60_000, limit: 12 }),
     asyncRoute(async (req, res) => {
       const input = z
         .object({
           sessionId: z.string().min(1),
-          qrToken: z.string().min(20),
+          qrToken: z.string().min(20).max(2000).optional(),
           latitude: z.coerce.number().min(-90).max(90),
           longitude: z.coerce.number().min(-180).max(180),
+          accuracy: z.coerce.number().min(0).max(100_000).optional(),
         })
         .parse(req.body);
       const auth = req.employeeSession!;
-      let qrPayload: {
-        companyId: string;
-        branchId: string;
-        nonce: string;
-        type: string;
-      };
-      try {
-        qrPayload = jwt.verify(
-          input.qrToken,
-          process.env.QR_SIGNING_SECRET || "staffora-local-qr-secret-change-me",
-        ) as typeof qrPayload;
-      } catch (reason) {
-        const expired = reason instanceof jwt.TokenExpiredError;
-        return res.status(expired ? 410 : 400).json({
-          message: expired
-            ? "QR kod muddati tugagan. Yangi kodni skanerlang."
-            : "QR kod imzosi yaroqsiz.",
-        });
+      let qrPayload:
+        | { companyId: string; branchId: string; nonce: string; type: string }
+        | undefined;
+      if (input.qrToken) {
+        try {
+          qrPayload = jwt.verify(input.qrToken.trim(), qrSecret(), {
+            clockTolerance: 5,
+          }) as typeof qrPayload;
+        } catch (reason) {
+          const expired = reason instanceof jwt.TokenExpiredError;
+          return res.status(expired ? 410 : 400).json({
+            message: expired
+              ? "QR kod muddati tugagan. Ekrandagi yangi kodni skanerlang."
+              : "Bu Staffora davomat QR kodi emas.",
+          });
+        }
+        if (qrPayload?.type !== "ATTENDANCE_QR")
+          return res.status(400).json({ message: "QR turi noto‘g‘ri." });
       }
-      if (qrPayload.type !== "ATTENDANCE_QR")
-        return res.status(400).json({ message: "QR turi noto‘g‘ri." });
       const result = await updateDb((db) => {
         const session = db.attendanceSessions.find(
           (item) =>
@@ -435,31 +610,20 @@ export function createMiniRouter() {
             item.companyId === auth.companyId,
         );
         if (!session || session.usedAt)
-          throw Object.assign(new Error("Davomat sessiyasi yaroqsiz."), {
-            status: 409,
-          });
+          throw httpError(
+            "Davomat sessiyasi yaroqsiz. Jarayonni boshidan boshlang.",
+            409,
+          );
         if (
           !session.faceVerifiedAt ||
-          Date.now() - new Date(session.faceVerifiedAt).getTime() > 3 * 60_000
+          Date.now() - new Date(session.faceVerifiedAt).getTime() > 4 * 60_000
         )
-          throw Object.assign(new Error("Face ID tasdig‘i eskirgan."), {
-            status: 401,
-          });
+          throw httpError("Face ID tasdig‘i eskirgan. Qaytadan boshlang.", 401);
         if (new Date(session.expiresAt).getTime() < Date.now())
-          throw Object.assign(new Error("Davomat sessiyasi muddati tugagan."), {
-            status: 410,
-          });
-        const qrNonce = db.qrNonces.find(
-          (item) =>
-            item.nonce === qrPayload.nonce &&
-            item.companyId === auth.companyId &&
-            item.branchId === session.branchId,
-        );
-        assertQrNonceUsable(qrNonce, auth.employeeId);
-        assertQrScope(qrPayload, {
-          companyId: auth.companyId,
-          branchId: session.branchId,
-        });
+          throw httpError(
+            "Davomat sessiyasi muddati tugagan. Qaytadan boshlang.",
+            410,
+          );
         const branch = db.branches.find(
           (item) =>
             item.id === session.branchId && item.companyId === auth.companyId,
@@ -469,45 +633,63 @@ export function createMiniRouter() {
             item.id === auth.employeeId && item.companyId === auth.companyId,
         );
         if (!branch || !employee)
-          throw Object.assign(new Error("Filial yoki xodim topilmadi."), {
-            status: 404,
+          throw httpError("Filial yoki xodim topilmadi.", 404);
+        const requiresQr =
+          (branch.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE";
+        let qrNonce: Database["qrNonces"][number] | undefined;
+        if (requiresQr) {
+          if (!qrPayload)
+            throw httpError("Filial ekranidagi QR kodni skanerlang.", 400);
+          assertQrScope(qrPayload, {
+            companyId: auth.companyId,
+            branchId: session.branchId,
           });
+          qrNonce = db.qrNonces.find(
+            (item) =>
+              item.nonce === qrPayload!.nonce &&
+              item.companyId === auth.companyId &&
+              item.branchId === session.branchId,
+          );
+          assertQrNonceUsable(qrNonce, auth.employeeId);
+        }
         const distanceMeters = haversineDistance(
           branch.latitude,
           branch.longitude,
           input.latitude,
           input.longitude,
         );
-        if (distanceMeters > branch.radiusMeters)
-          throw Object.assign(
-            new Error(
-              `Siz filial hududidan ${distanceMeters - branch.radiusMeters} metr tashqaridasiz.`,
-            ),
-            { status: 422 },
+        const allowance = Math.min(
+          GPS_ACCURACY_ALLOWANCE,
+          Math.max(0, input.accuracy || 0),
+        );
+        if (distanceMeters - allowance > branch.radiusMeters)
+          throw httpError(
+            `Siz filial hududidan ${Math.round(distanceMeters - branch.radiusMeters)} metr tashqaridasiz. Filialga yaqinroq keling.`,
+            422,
           );
         const schedule = db.schedules.find(
           (item) => item.id === employee.scheduleId,
         );
-        const { date, time } = nowInTashkent();
+        const date = tashkentIsoDate();
+        const time = tashkentClock();
         const day = schedule?.days.find(
           (item) => item.day === dateParts(date).weekday,
         );
-        if (!day?.enabled)
-          throw Object.assign(new Error("Bugun ish kuni emas."), {
-            status: 422,
-          });
         let attendance = db.attendance.find(
           (item) => item.employeeId === employee.id && item.date === date,
         );
         if (!attendance) {
+          if (session.action === "CHECK_OUT")
+            throw httpError("Avval ishga kelishni qayd eting.", 409);
           attendance = {
             id: id(),
             companyId: auth.companyId,
             employeeId: employee.id,
             branchId: branch.id,
             date,
-            scheduledStart: day.start,
-            scheduledEnd: day.end,
+            // Dam olish kunida ham kelishga ruxsat — overtime sifatida hisoblanadi.
+            scheduledStart: day?.enabled ? day.start : time,
+            scheduledEnd: day?.enabled ? day.end : time,
             lateMinutes: 0,
             earlyLeaveMinutes: 0,
             workedMinutes: 0,
@@ -521,10 +703,7 @@ export function createMiniRouter() {
         const before = { ...attendance };
         if (session.action === "CHECK_IN") {
           if (attendance.checkIn)
-            throw Object.assign(
-              new Error("Ishga kelish allaqachon qayd etilgan."),
-              { status: 409 },
-            );
+            throw httpError("Ishga kelish allaqachon qayd etilgan.", 409);
           const calculated = calculateAttendance({
             scheduledStart: attendance.scheduledStart,
             scheduledEnd: attendance.scheduledEnd,
@@ -533,57 +712,86 @@ export function createMiniRouter() {
           });
           attendance.checkIn = time;
           attendance.lateMinutes = calculated.lateMinutes;
-          attendance.status = calculated.lateMinutes ? "LATE" : "WORKING";
+          attendance.status = calculated.status;
+          if (!day?.enabled) attendance.note = "Dam olish kunida ishga keldi";
         } else {
           if (!attendance.checkIn)
-            throw Object.assign(new Error("Ishga kelish qayd etilmagan."), {
-              status: 409,
-            });
+            throw httpError("Ishga kelish qayd etilmagan.", 409);
           if (attendance.checkOut)
-            throw Object.assign(new Error("Chiqish allaqachon qayd etilgan."), {
-              status: 409,
-            });
+            throw httpError("Ketish allaqachon qayd etilgan.", 409);
+          if (time <= attendance.checkIn)
+            throw httpError(
+              "Ketish vaqti kelish vaqtidan keyin bo‘lishi kerak.",
+              409,
+            );
           attendance.checkOut = time;
-          Object.assign(
-            attendance,
-            calculateAttendance({
-              scheduledStart: attendance.scheduledStart,
-              scheduledEnd: attendance.scheduledEnd,
-              checkIn: attendance.checkIn,
-              checkOut: time,
-              graceMinutes: schedule?.graceMinutes || 0,
-            }),
-          );
+          const calculated = calculateAttendance({
+            scheduledStart: attendance.scheduledStart,
+            scheduledEnd: attendance.scheduledEnd,
+            checkIn: attendance.checkIn,
+            checkOut: time,
+            graceMinutes: schedule?.graceMinutes || 0,
+          });
+          Object.assign(attendance, calculated);
+          if (!day?.enabled) {
+            attendance.overtimeMinutes = attendance.workedMinutes;
+            attendance.earlyLeaveMinutes = 0;
+          }
         }
-        attendance.verification = ["GPS", "QR", "TELEGRAM", "DEVICE", "FACE"];
+        attendance.verification = [
+          ...new Set<Attendance["verification"][number]>([
+            ...attendance.verification.filter((item) => item !== "MANUAL"),
+            "FACE",
+            "GPS",
+            "TELEGRAM",
+            ...(requiresQr ? (["QR"] as const) : []),
+          ]),
+        ];
         attendance.latitude = input.latitude;
         attendance.longitude = input.longitude;
         attendance.distanceMeters = distanceMeters;
         attendance.updatedAt = new Date().toISOString();
         session.usedAt = attendance.updatedAt;
-        qrNonce.usedEmployeeIds ||= [];
-        qrNonce.usedEmployeeIds.push(auth.employeeId);
+        if (qrNonce) {
+          qrNonce.usedEmployeeIds ||= [];
+          qrNonce.usedEmployeeIds.push(auth.employeeId);
+        }
+        const name = `${employee.firstName} ${employee.lastName}`;
+        if (session.action === "CHECK_IN" && attendance.lateMinutes > 0)
+          db.notifications.unshift({
+            id: id(),
+            companyId: auth.companyId,
+            title: "Kechikish",
+            body: `${name} ${attendance.lateMinutes} daqiqa kechikib keldi (${time}, ${branch.name}).`,
+            type: "ATTENDANCE",
+            read: false,
+            createdAt: attendance.updatedAt,
+          });
         db.auditLogs.unshift(
           audit(
             auth.companyId,
-            `${employee.firstName} ${employee.lastName}`,
+            name,
             session.action === "CHECK_IN"
               ? "Ishga kelish qayd etildi"
-              : "Ishdan chiqish qayd etildi",
+              : "Ishdan ketish qayd etildi",
             "attendance",
             attendance.id,
             before,
             attendance,
           ),
         );
-        return { attendance, employee };
+        return { attendance: { ...attendance }, employee, branch };
       });
-      const message = `${result.attendance.checkOut ? "🔴 Ishdan chiqish" : "🟢 Ishga kelish"} qayd etildi\nVaqt: ${result.attendance.checkOut || result.attendance.checkIn}\nFilialdan masofa: ${result.attendance.distanceMeters} m`;
-      if (result.employee.telegramId)
+      const a = result.attendance;
+      const message =
+        a.checkOut && a.checkIn
+          ? `🔴 Ishdan ketish qayd etildi\n🕔 ${a.checkOut}\n⏱ Ishlangan: ${Math.floor(a.workedMinutes / 60)} soat ${a.workedMinutes % 60} daqiqa\n📍 ${result.branch.name}`
+          : `🟢 Ishga kelish qayd etildi\n🕘 ${a.checkIn}${a.lateMinutes ? `\n⚠️ Kechikish: ${a.lateMinutes} daqiqa` : ""}\n📍 ${result.branch.name} (${a.distanceMeters} m)`;
+      if (result.employee.telegramId && !result.employee.telegramId.startsWith("dev"))
         void sendTelegramMessage(result.employee.telegramId, message).catch(
           console.error,
         );
-      return res.json(result.attendance);
+      return res.json(a);
     }),
   );
   return router;

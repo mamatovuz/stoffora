@@ -107,3 +107,13 @@ export const duration = (minutes: number) =>
   `${Math.floor(minutes / 60)}s ${minutes % 60}d`;
 export const initials = (first: string, last = "") =>
   `${first[0] || ""}${last[0] || ""}`.toUpperCase();
+/** Telefon raqamini solishtirish uchun oxirgi 9 raqam (O‘zbekiston formati). */
+export const phoneKey = (value?: string) =>
+  (value || "").replace(/\D/g, "").slice(-9);
+export const tashkentClock = (value: Date = new Date()) =>
+  new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Tashkent",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(value);

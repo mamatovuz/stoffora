@@ -1,109 +1,127 @@
+import { useState } from "react";
 import {
+  AlarmClock,
+  Banknote,
   Download,
   FileSpreadsheet,
-  FileText,
   Timer,
+  TrendingUp,
   Users,
+  Wallet,
 } from "lucide-react";
 import { useApi } from "../hooks";
-import { Avatar, ErrorBox, Loading, PageHeader } from "../components/ui";
-import { money } from "@/lib/format";
+import {
+  Empty,
+  ErrorBox,
+  Field,
+  Loading,
+  PageHeader,
+  Person,
+  StatCard,
+} from "../components/ui";
+import { duration, money, monthYearUz, tashkentIsoDate } from "@/lib/format";
 import type { Employee } from "@/lib/types";
+
 type Payroll = {
-  employee: Employee;
-  base: number;
-  overtimeAmount: number;
-  deduction: number;
-  net: number;
+  month: string;
+  rows: {
+    employee: Employee;
+    days: number;
+    workedMinutes: number;
+    overtimeMinutes: number;
+    lateMinutes: number;
+    base: number;
+    overtimeAmount: number;
+    deduction: number;
+    net: number;
+  }[];
 };
+
 export function PayrollPage() {
-  const { data, loading, error } = useApi<Payroll[]>("/payroll");
-  const total = data?.reduce((s, x) => s + x.net, 0) || 0;
+  const [month, setMonth] = useState(tashkentIsoDate().slice(0, 7));
+  const { data, loading, error } = useApi<Payroll>(`/payroll?month=${month}`);
+  const rows = data?.rows || [];
+  const total = rows.reduce((s, x) => s + x.net, 0);
+  const overtime = rows.reduce((s, x) => s + x.overtimeAmount, 0);
+  const deduction = rows.reduce((s, x) => s + x.deduction, 0);
   return (
     <div className="page">
       <PageHeader
         title="Ish haqi"
-        subtitle="Joriy oy uchun hisob-kitob tayyorlamasi"
+        subtitle={`${monthYearUz(`${month}-15`)} · davomat asosida hisob-kitob`}
         actions={
-          <a className="btn" href="/api/reports/payroll.csv" download>
-            <Download size={16} /> Eksport
-          </a>
+          <>
+            <div className="date-nav">
+              <input
+                type="month"
+                value={month}
+                max={tashkentIsoDate().slice(0, 7)}
+                onChange={(e) => e.target.value && setMonth(e.target.value)}
+                aria-label="Oy"
+              />
+            </div>
+            <a className="btn" href={`/api/reports/payroll.csv?month=${month}`} download>
+              <Download size={16} /> CSV
+            </a>
+          </>
         }
       />
-      <div
-        className="grid-stats"
-        style={{ gridTemplateColumns: "repeat(3,1fr)", marginBottom: 16 }}
-      >
-        <div className="card stat">
-          <div className="stat-label">Xodimlar</div>
-          <div className="stat-value">{data?.length || 0}</div>
-          <div className="stat-note">Hisob-kitobga kiritilgan</div>
-        </div>
-        <div className="card stat">
-          <div className="stat-label">Jami hisoblangan</div>
-          <div className="stat-value" style={{ fontSize: 20 }}>
-            {money(total)}
-          </div>
-          <div className="stat-note">Sof to‘lov</div>
-        </div>
-        <div className="card stat">
-          <div className="stat-label">Davr</div>
-          <div className="stat-value" style={{ fontSize: 20 }}>
-            Sentabr 2026
-          </div>
-          <div className="stat-note">Ochiq davr</div>
-        </div>
+      <div className="stat-grid">
+        <StatCard label="Xodimlar" value={rows.length} icon={Users} />
+        <StatCard label="Jami to‘lov" value={money(total)} icon={Wallet} tone="green" />
+        <StatCard label="Qo‘shimcha ish" value={money(overtime)} icon={TrendingUp} tone="blue" />
+        <StatCard label="Kechikish ushlanmasi" value={money(deduction)} icon={AlarmClock} tone="amber" />
       </div>
       <section className="card">
-        {loading ? (
+        {loading && !data ? (
           <Loading />
         ) : error ? (
-          <div className="section-body">
+          <div className="card-body">
             <ErrorBox message={error} />
           </div>
+        ) : !rows.length ? (
+          <Empty icon={Banknote} title="Hisob-kitob uchun xodim yo‘q" />
         ) : (
           <div className="table-wrap">
-            <table className="table">
+            <table className="table table-cards">
               <thead>
                 <tr>
                   <th>Xodim</th>
+                  <th>Ish kuni</th>
+                  <th>Ishlagan</th>
                   <th>Bazaviy</th>
-                  <th>Qo‘shimcha ish</th>
+                  <th>Qo‘shimcha</th>
                   <th>Ushlanma</th>
                   <th>Sof summa</th>
-                  <th>Holat</th>
                 </tr>
               </thead>
               <tbody>
-                {data?.map((x) => (
+                {rows.map((x) => (
                   <tr key={x.employee.id}>
                     <td>
-                      <div className="cell-person">
-                        <Avatar
-                          first={x.employee.firstName}
-                          last={x.employee.lastName}
-                          photo={x.employee.photoDataUrl}
-                        />
-                        <span>
-                          <b>
-                            {x.employee.firstName} {x.employee.lastName}
-                          </b>
-                          <small>{x.employee.employeeNo}</small>
-                        </span>
-                      </div>
+                      <Person
+                        first={x.employee.firstName}
+                        last={x.employee.lastName}
+                        photo={x.employee.photoDataUrl}
+                        sub={x.employee.employeeNo}
+                      />
                     </td>
-                    <td>{money(x.base)}</td>
-                    <td style={{ color: "var(--brand)" }}>
-                      + {money(x.overtimeAmount)}
+                    <td data-label="Ish kuni" className="num">{x.days}</td>
+                    <td data-label="Ishlagan" className="num">{duration(x.workedMinutes)}</td>
+                    <td data-label="Bazaviy" className="num">{money(x.base, x.employee.currency)}</td>
+                    <td data-label="Qo‘shimcha" className="num" style={{ color: "var(--green)" }}>
+                      {x.overtimeAmount ? `+ ${money(x.overtimeAmount, x.employee.currency)}` : "—"}
                     </td>
-                    <td style={{ color: "var(--danger)" }}>
-                      - {money(x.deduction)}
+                    <td data-label="Ushlanma" className="num" style={{ color: "var(--red)" }}>
+                      {x.deduction ? `− ${money(x.deduction, x.employee.currency)}` : "—"}
+                      {x.lateMinutes > 0 && (
+                        <small className="muted" style={{ display: "block" }}>
+                          {x.lateMinutes} daq kechikish
+                        </small>
+                      )}
                     </td>
-                    <td>
-                      <b>{money(x.net)}</b>
-                    </td>
-                    <td>
-                      <span className="badge badge-amber">Tayyorlanmoqda</span>
+                    <td data-label="Sof summa" className="num">
+                      <b>{money(x.net, x.employee.currency)}</b>
                     </td>
                   </tr>
                 ))}
@@ -112,87 +130,76 @@ export function PayrollPage() {
           </div>
         )}
       </section>
+      <p className="hint" style={{ marginTop: 12 }}>
+        Hisob: soatlik stavka = oylik / 176. Qo‘shimcha ish va kechikish daqiqalari
+        shu stavka bo‘yicha hisoblanadi. Yakuniy to‘lovdan oldin buxgalteriya bilan
+        tekshiring.
+      </p>
     </div>
   );
 }
-const reports = [
-  {
-    name: "Davomat hisoboti",
-    desc: "Kelish, chiqish va davomat holatlari",
-    icon: Timer,
-    ready: true,
-  },
-  {
-    name: "Kechikish hisoboti",
-    desc: "Kechikishlar va davomiylik",
-    icon: FileText,
-    ready: true,
-  },
-  {
-    name: "Ish vaqti hisoboti",
-    desc: "Ishlangan va qo‘shimcha soatlar",
-    icon: FileSpreadsheet,
-    ready: true,
-  },
-  {
-    name: "Xodimlar hisoboti",
-    desc: "Xodimlar ro‘yxati va ish ma’lumotlari",
-    icon: Users,
-    ready: false,
-  },
-];
+
 export function ReportsPage() {
+  const today = tashkentIsoDate();
+  const [from, setFrom] = useState(`${today.slice(0, 7)}-01`);
+  const [to, setTo] = useState(today);
+  const reports = [
+    {
+      name: "Davomat hisoboti",
+      desc: "Har bir kelish/ketish, holat, masofa va tasdiq usuli",
+      icon: Timer,
+      href: `/api/reports/attendance.csv?from=${from}&to=${to}`,
+    },
+    {
+      name: "Kechikishlar hisoboti",
+      desc: "Faqat kechikkan kunlar va daqiqalar",
+      icon: AlarmClock,
+      href: `/api/reports/attendance.csv?from=${from}&to=${to}&type=late`,
+    },
+    {
+      name: "Ish haqi hisoboti",
+      desc: "Tanlangan oyning hisob-kitobi",
+      icon: FileSpreadsheet,
+      href: `/api/reports/payroll.csv?month=${from.slice(0, 7)}`,
+    },
+    {
+      name: "Xodimlar ro‘yxati",
+      desc: "Barcha xodimlar, filial, lavozim, Telegram va Face ID holati",
+      icon: Users,
+      href: "/api/reports/employees.csv",
+    },
+  ];
   return (
     <div className="page">
-      <PageHeader
-        title="Hisobotlar"
-        subtitle="Ma’lumotlarni tahlil qiling va eksport qiling"
-      />
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))",
-          gap: 14,
-        }}
-      >
+      <PageHeader title="Hisobotlar" subtitle="Excel’da ochiladigan CSV fayllar" />
+      <section className="card card-body" style={{ marginBottom: 16 }}>
+        <div className="form-grid" style={{ maxWidth: 520 }}>
+          <Field label="Boshlanish">
+            <input className="input" type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} />
+          </Field>
+          <Field label="Tugash">
+            <input className="input" type="date" value={to} min={from} max={today} onChange={(e) => setTo(e.target.value)} />
+          </Field>
+        </div>
+      </section>
+      <div className="grid-cards">
         {reports.map((r) => (
-          <article className="card section-body" key={r.name}>
-            <r.icon size={22} color="var(--brand)" />
-            <h2 style={{ fontSize: 15, margin: "14px 0 6px" }}>{r.name}</h2>
-            <p className="subtle" style={{ fontSize: 12, minHeight: 32 }}>
-              {r.desc}
-            </p>
-            <div className="form-grid" style={{ marginTop: 18 }}>
-              <div className="field">
-                <label className="label">Boshlanish</label>
-                <input
-                  className="input"
-                  type="date"
-                  defaultValue="2026-09-01"
-                />
-              </div>
-              <div className="field">
-                <label className="label">Tugash</label>
-                <input
-                  className="input"
-                  type="date"
-                  defaultValue="2026-09-30"
-                />
-              </div>
+          <article className="card" key={r.name}>
+            <div className="card-body">
+              <span className="branch-icon" style={{ marginBottom: 14 }}>
+                <r.icon size={20} />
+              </span>
+              <h3 style={{ fontSize: 15.5, fontWeight: 650 }}>{r.name}</h3>
+              <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+                {r.desc}
+              </p>
             </div>
-            {r.ready ? (
-              <a
-                className="btn btn-primary"
-                href="/api/reports/attendance.csv"
-                download
-              >
-                <Download size={15} /> CSV yuklash
+            <div className="card-foot">
+              <span className="hint">CSV · UTF-8</span>
+              <a className="btn btn-sm btn-primary" href={r.href} download>
+                <Download size={14} /> Yuklab olish
               </a>
-            ) : (
-              <button className="btn" disabled>
-                Tez orada
-              </button>
-            )}
+            </div>
           </article>
         ))}
       </div>
