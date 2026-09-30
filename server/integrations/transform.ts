@@ -75,6 +75,8 @@ export interface RemoteEmployee {
   employment_status?: string | null;
   hired_at?: string | null;
   schedule?: { work_hours?: string | null; rest_day?: string | null; shift?: string | null };
+  /** Faqat kalitda employees:salary ruxsati bo‘lsa keladi. */
+  salary?: { monthly_salary?: string | number | null; currency?: string } | null;
   created_at?: string | null;
   updated_at?: string | null;
   [key: string]: unknown;
@@ -153,6 +155,26 @@ export function splitFullName(fullName?: string | null) {
   return { firstName, lastName, middleName: rest.length ? rest.join(" ") : undefined };
 }
 
+/**
+ * Bot'dagi maosh erkin matn: «5000000», «5 000 000», «3.5 mln», «4,2 mln so‘m», «800 ming».
+ * Tushunib bo‘lmasa — undefined (taxmin qilinmaydi).
+ */
+export function parseSalary(value?: string | number | null) {
+  if (value === null || value === undefined) return undefined;
+  if (typeof value === "number") return Number.isFinite(value) && value > 0 ? Math.round(value) : undefined;
+  const text = value.toLowerCase().replace(/[’'`ʻ]/g, "").trim();
+  if (!text) return undefined;
+  const unit = /mln|million|миллион|млн/.test(text) ? 1_000_000 : /ming|минг|тыс|k\b/.test(text) ? 1_000 : 1;
+  const match = /(\d[\d\s.,]*)/.exec(text);
+  if (!match) return undefined;
+  let digits = match[1].trim().replace(/\s+/g, "");
+  if (unit > 1) digits = digits.replace(",", ".");
+  else digits = digits.replace(/[.,](?=\d{3}(\D|$))/g, "").replace(",", ".");
+  const amount = Number(digits) * unit;
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 10_000_000_000) return undefined;
+  return Math.round(amount);
+}
+
 export function joinFullName(employee: Pick<Employee, "firstName" | "lastName" | "middleName">) {
   return [employee.lastName, employee.firstName, employee.middleName].filter((x) => x && x.trim()).join(" ").trim();
 }
@@ -224,6 +246,7 @@ export function employeeFromRemote(remote: RemoteEmployee): Partial<Employee> {
     telegramUsername: remote.telegram_username || undefined,
     telegramId,
     status: remote.status === "blocked" ? "INACTIVE" : "ACTIVE",
+    baseSalary: parseSalary(remote.salary?.monthly_salary),
   };
 }
 

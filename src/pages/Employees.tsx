@@ -1407,9 +1407,43 @@ export function RehireModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { data: meta } = useApi<Meta>("/meta");
   const [startDate, setStartDate] = useState(tashkentIsoDate());
+  const [refs, setRefs] = useState({
+    branchId: employee.branchId,
+    departmentId: employee.departmentId,
+    positionId: employee.positionId,
+    scheduleId: employee.scheduleId,
+  });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Oldingi bo‘lim/lavozim o‘chirilgan bo‘lsa, yangisini tanlash so‘raladi.
+  const missing = meta
+    ? {
+        branchId: !meta.branches.some((b) => b.id === refs.branchId),
+        departmentId: !meta.departments.some((d) => d.id === refs.departmentId),
+        positionId: !meta.positions.some((p) => p.id === refs.positionId),
+        scheduleId: !meta.schedules.some((x) => x.id === refs.scheduleId),
+      }
+    : { branchId: false, departmentId: false, positionId: false, scheduleId: false };
+  const anyMissing = Object.values(missing).some(Boolean);
+  const pick = (key: keyof typeof refs, label: string, rows: { id: string; name: string }[]) => (
+    <Field label={label} hint={missing[key] ? "Oldingisi o‘chirilgan — yangisini tanlang" : undefined}>
+      <select
+        className={`select ${missing[key] ? "field-error" : ""}`}
+        value={missing[key] ? "" : refs[key]}
+        onChange={(e) => setRefs((r) => ({ ...r, [key]: e.target.value }))}
+        required
+      >
+        <option value="">Tanlang…</option>
+        {rows.map((row) => (
+          <option key={row.id} value={row.id}>
+            {row.name}
+          </option>
+        ))}
+      </select>
+    </Field>
+  );
   return (
     <Modal
       title="Qayta ishga olish"
@@ -1423,7 +1457,7 @@ export function RehireModal({
           setBusy(true);
           setError("");
           try {
-            await post(`/employees/${employee.id}/rehire`, { startDate });
+            await post(`/employees/${employee.id}/rehire`, { startDate, ...refs });
             onDone();
           } catch (reason) {
             setError(errorText(reason));
@@ -1433,18 +1467,30 @@ export function RehireModal({
         }}
       >
         <p className="muted" style={{ marginBottom: 14, fontSize: 13.5 }}>
-          Xodim yana faol bo‘ladi: Telegram orqali davomat belgilaydi va ish haqi hisobiga kiradi. Filial,
-          lavozim va grafik avvalgidek qoladi — kerak bo‘lsa keyin tahrirlang.
+          Xodim yana faol bo‘ladi: Telegram orqali davomat belgilaydi va ish haqi hisobiga kiradi.
         </p>
         <Field label="Yangi ish boshlash sanasi">
           <input className="input" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
         </Field>
+        {meta && (
+          <div className="form-grid">
+            {pick("branchId", "Filial", meta.branches)}
+            {pick("departmentId", "Bo‘lim", meta.departments)}
+            {pick("positionId", "Lavozim", meta.positions)}
+            {pick("scheduleId", "Ish grafigi", meta.schedules)}
+          </div>
+        )}
+        {anyMissing && (
+          <p className="late-text" style={{ fontSize: 12.5, marginBottom: 10 }}>
+            Ba’zi bog‘lanishlar o‘chirilgan — qizil maydonlarni to‘ldiring.
+          </p>
+        )}
         <ErrorBox message={error} />
         <div className="form-actions">
           <button type="button" className="btn" onClick={onClose}>
             Bekor qilish
           </button>
-          <button className="btn btn-primary" disabled={busy}>
+          <button className="btn btn-primary" disabled={busy || !meta || anyMissing}>
             <UserPlus size={15} /> {busy ? "Saqlanmoqda…" : "Qayta ishga olish"}
           </button>
         </div>

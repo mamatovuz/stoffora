@@ -22,6 +22,8 @@ import {
   UserRound,
   X,
   CalendarCheck,
+  CheckCheck,
+  Megaphone,
 } from "lucide-react";
 import { ApiError, api, errorText, patch, post, restoreBearerToken, setBearerToken } from "../api";
 import { FaceScanner, preloadFaceModels } from "../components/FaceScanner";
@@ -70,6 +72,7 @@ type HomeData = {
     overtimeMinutes: number;
   };
   notifications: Notification[];
+  unreadNotifications?: number;
 };
 type Tab = "home" | "history" | "leave" | "profile";
 type Action = "CHECK_IN" | "CHECK_OUT";
@@ -81,6 +84,7 @@ const haptic = (type: "success" | "error" | "warning") =>
 const supports = (version: string) => Boolean(tg()?.isVersionAtLeast?.(version));
 
 export function MiniAppPage() {
+  const [notifOpen, setNotifOpen] = useState(false);
   const [authError, setAuthError] = useState<AuthError | null>(null);
   const [home, setHome] = useState<HomeData | null>(null);
   const [tab, setTab] = useState<Tab>("home");
@@ -157,7 +161,7 @@ export function MiniAppPage() {
     document.title = "Staffora";
     void authenticate();
     // Face modellarini oldindan yuklab qo‘yamiz — tugma bosilganda tezroq ochiladi.
-    const idle = window.setTimeout(() => void preloadFaceModels().catch(() => undefined), 1500);
+    const idle = window.setTimeout(() => void preloadFaceModels().catch(() => undefined), 300);
     return () => window.clearTimeout(idle);
   }, [authenticate]);
 
@@ -175,15 +179,16 @@ export function MiniAppPage() {
     const back = tg()?.BackButton;
     if (!back || !supports("6.1")) return;
     const handler = () => {
-      if (flow) setFlow(null);
+      if (notifOpen) setNotifOpen(false);
+      else if (flow) setFlow(null);
       else if (faceAction) setFaceAction(null);
       else setTab("home");
     };
-    if (flow || faceAction || tab !== "home") back.show();
+    if (notifOpen || flow || faceAction || tab !== "home") back.show();
     else back.hide();
     back.onClick(handler);
     return () => back.offClick(handler);
-  }, [flow, faceAction, tab]);
+  }, [flow, faceAction, tab, notifOpen]);
 
   if (loading)
     return (
@@ -222,6 +227,19 @@ export function MiniAppPage() {
             <small>{home.company?.name}</small>
             <b>Salom, {home.employee.firstName}!</b>
           </div>
+          <button
+            className="mini-bell"
+            aria-label="Xabarnomalar"
+            onClick={() => {
+              tg()?.HapticFeedback?.impactOccurred("light");
+              setNotifOpen(true);
+            }}
+          >
+            <Bell size={21} />
+            {(home.unreadNotifications || 0) > 0 && (
+              <span className="mini-badge">{Math.min(99, home.unreadNotifications || 0)}</span>
+            )}
+          </button>
         </header>
         {tab === "home" && (
           <MiniHome
@@ -231,6 +249,7 @@ export function MiniAppPage() {
               setFaceAction(action);
             }}
             onTab={setTab}
+            onNotifications={() => setNotifOpen(true)}
           />
         )}
         {tab === "history" && <MiniHistory home={home} />}
@@ -277,6 +296,15 @@ export function MiniAppPage() {
             haptic("success");
             await loadHome();
           }}
+        />
+      )}
+      {notifOpen && (
+        <NotificationsSheet
+          onClose={() => {
+            setNotifOpen(false);
+            void loadHome().catch(() => undefined);
+          }}
+          onChanged={() => void loadHome().catch(() => undefined)}
         />
       )}
       {toast && (
@@ -380,10 +408,12 @@ function MiniHome({
   data,
   onAction,
   onTab,
+  onNotifications,
 }: {
   data: HomeData;
   onAction: (action: Action) => void;
   onTab: (tab: Tab) => void;
+  onNotifications: () => void;
 }) {
   const now = useClock();
   const a = data.attendance;
@@ -451,6 +481,7 @@ function MiniHome({
             ) : null}
           </div>
         </div>
+        {working && day?.enabled && a?.checkIn && <ShiftProgress start={a.checkIn} end={day.end} now={now} />}
         {missingSetup ? (
           <div className="mini-done warn">
             <AlertCircle size={18} /> HR filial va grafikni biriktirishi kerak
@@ -521,18 +552,19 @@ function MiniHome({
       )}
 
       {data.notifications.length > 0 && (
-        <section className="mini-card">
-          <h3>
-            <Bell size={15} style={{ display: "inline", verticalAlign: -2 }} /> Xabarlar
-          </h3>
-          <div className="mini-rows">
+        <section className="mini-card mn-card">
+          <div className="mn-card-head">
+            <h3>
+              <Bell size={15} /> Xabarlar
+              {(data.unreadNotifications || 0) > 0 && <span className="mini-badge inline">{data.unreadNotifications}</span>}
+            </h3>
+            <button onClick={onNotifications}>
+              Hammasi <ChevronRight size={15} />
+            </button>
+          </div>
+          <div className="mn-list">
             {data.notifications.slice(0, 3).map((item) => (
-              <div className="mini-row" key={item.id}>
-                <span>
-                  <b>{item.title}</b>
-                  <small>{item.body}</small>
-                </span>
-              </div>
+              <NotifItem key={item.id} item={item} onOpen={onNotifications} />
             ))}
           </div>
         </section>
@@ -1231,6 +1263,169 @@ function MiniProfile({ data }: { data: HomeData }) {
       <p style={{ textAlign: "center", color: "var(--m-muted)", fontSize: 12 }}>
         Ma’lumotlarni o‘zgartirish uchun HR bo‘limiga murojaat qiling.
       </p>
+    </div>
+  );
+}
+
+function ShiftProgress({ start, end, now }: { start: string; end: string; now: Date }) {
+  const toMin = (v: string) => Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5));
+  const current = toMin(tashkentClock(now));
+  const total = Math.max(1, toMin(end) - toMin(start));
+  const done = Math.min(total, Math.max(0, current - toMin(start)));
+  const left = Math.max(0, toMin(end) - current);
+  const percent = Math.round((done / total) * 100);
+  return (
+    <div className="mini-shift" aria-label={`Ish kuni ${percent}%`}>
+      <div className="mini-shift-bar">
+        <i style={{ width: `${percent}%` }} />
+      </div>
+      <div className="mini-shift-text">
+        <span>{percent}% bajarildi</span>
+        <span>{left ? `${Math.floor(left / 60)} soat ${left % 60} daq qoldi` : "Ish vaqti tugadi"}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------- xabarnomalar --- */
+
+const notifKinds: Record<string, { icon: typeof Bell; tone: string; label: string }> = {
+  ATTENDANCE: { icon: Clock3, tone: "warn", label: "Davomat" },
+  LEAVE: { icon: Plane, tone: "blue", label: "Ta’til" },
+  ANNOUNCEMENT: { icon: Megaphone, tone: "green", label: "E’lon" },
+};
+const kindOf = (type: string) => notifKinds[type] || { icon: Bell, tone: "gray", label: "Xabar" };
+
+function relativeTime(iso: string) {
+  const diff = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (diff < 1) return "hozir";
+  if (diff < 60) return `${diff} daq oldin`;
+  const day = tashkentIsoDate(new Date(iso));
+  if (day === tashkentIsoDate()) return tashkentClock(new Date(iso));
+  return `${dateUz(day)}, ${tashkentClock(new Date(iso))}`;
+}
+function dayGroup(iso: string) {
+  const day = tashkentIsoDate(new Date(iso));
+  if (day === tashkentIsoDate()) return "Bugun";
+  if (day === tashkentIsoDate(new Date(Date.now() - 86_400_000))) return "Kecha";
+  return dateLongUz(day);
+}
+
+function NotifItem({ item, onOpen }: { item: Notification; onOpen?: () => void }) {
+  const kind = kindOf(item.type);
+  const Icon = kind.icon;
+  return (
+    <button className={`mn-item ${item.read ? "" : "unread"}`} onClick={onOpen}>
+      <span className={`mn-icon ${kind.tone}`}>
+        <Icon size={17} />
+      </span>
+      <span className="mn-text">
+        <span className="mn-head">
+          <b>{item.title.replace(/^📢\s*/, "")}</b>
+          <time>{relativeTime(item.createdAt)}</time>
+        </span>
+        <small>{item.body}</small>
+      </span>
+      {!item.read && <i className="mn-dot" aria-label="O‘qilmagan" />}
+    </button>
+  );
+}
+
+function NotificationsSheet({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+  const [items, setItems] = useState<Notification[] | null>(null);
+  const [error, setError] = useState("");
+  const [open, setOpen] = useState<Notification | null>(null);
+  useEffect(() => {
+    api<{ items: Notification[] }>("/mini/notifications")
+      .then((r) => setItems(r.items))
+      .catch((reason) => setError(errorText(reason)));
+  }, []);
+  const markRead = async (ids?: string[]) => {
+    setItems((list) => list?.map((n) => (!ids || ids.includes(n.id) ? { ...n, read: true } : n)) || null);
+    await post("/mini/notifications/read", ids ? { ids } : { all: true }).catch(() => undefined);
+    onChanged();
+  };
+  const unread = items?.filter((n) => !n.read).length || 0;
+  const groups = (items || []).reduce<[string, Notification[]][]>((acc, n) => {
+    const label = dayGroup(n.createdAt);
+    const group = acc.find(([key]) => key === label);
+    if (group) group[1].push(n);
+    else acc.push([label, [n]]);
+    return acc;
+  }, []);
+  return (
+    <div className="sheet-layer">
+      <button className="sheet-backdrop" onClick={onClose} aria-label="Yopish" />
+      <section className="sheet mn-sheet">
+        <div className="sheet-head">
+          <div>
+            <b>Xabarnomalar</b>
+            <small>{unread ? `${unread} ta o‘qilmagan` : "Hammasi o‘qilgan"}</small>
+          </div>
+          {unread > 0 && (
+            <button className="mn-readall" onClick={() => void markRead()}>
+              <CheckCheck size={15} /> O‘qildi
+            </button>
+          )}
+          <button className="sheet-close" onClick={onClose} aria-label="Yopish">
+            <X size={18} />
+          </button>
+        </div>
+        {error ? (
+          <div className="mini-alert warn">
+            <AlertCircle size={18} />
+            <span>{error}</span>
+          </div>
+        ) : !items ? (
+          <div className="mn-loading">
+            <LoaderCircle className="spin" size={22} />
+          </div>
+        ) : !items.length ? (
+          <div className="mini-empty">
+            <Bell size={26} />
+            <b>Xabarlar yo‘q</b>
+            <small>E’lonlar, ta’til javoblari va eslatmalar shu yerda ko‘rinadi.</small>
+          </div>
+        ) : (
+          <div className="mn-scroll">
+            {groups.map(([label, rows]) => (
+              <div key={label} className="mn-group">
+                <div className="mn-day">{label}</div>
+                <div className="mn-list">
+                  {rows.map((item) => (
+                    <NotifItem
+                      key={item.id}
+                      item={item}
+                      onOpen={() => {
+                        setOpen(item);
+                        if (!item.read) void markRead([item.id]);
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {open && (
+          <div className="mn-detail" role="dialog" aria-label={open.title}>
+            <button className="mn-back" onClick={() => setOpen(null)}>
+              <ChevronRight size={16} style={{ transform: "rotate(180deg)" }} /> Orqaga
+            </button>
+            <span className={`mn-icon lg ${kindOf(open.type).tone}`}>
+              {(() => {
+                const Icon = kindOf(open.type).icon;
+                return <Icon size={22} />;
+              })()}
+            </span>
+            <small className="mn-kind">
+              {kindOf(open.type).label} · {relativeTime(open.createdAt)}
+            </small>
+            <h2>{open.title.replace(/^📢\s*/, "")}</h2>
+            <p>{open.body}</p>
+          </div>
+        )}
+      </section>
     </div>
   );
 }

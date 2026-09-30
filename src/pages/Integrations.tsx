@@ -1033,92 +1033,87 @@ function AccessPanel({ integrationId, ttlHours, botUsername }: { integrationId: 
       {!rows.length ? (
         <Empty icon={Users} title="Xodim yo‘q" text="Bu filtr bo‘yicha xodim topilmadi." />
       ) : (
-        <div className="table-wrap ic-table">
-          <table className="table">
-            <thead>
-              <tr>
-                <th style={{ width: 36 }}>
-                  <input
-                    type="checkbox"
-                    checked={allSelected}
-                    onChange={() => setSelected(allSelected ? [] : selectable.map((row) => row.employeeId))}
-                    aria-label="Hammasini tanlash"
-                  />
-                </th>
-                <th>Xodim</th>
-                <th>Holat</th>
-                <th>Telegram</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => {
-                const state = accessState(row);
-                return (
-                  <tr key={row.employeeId}>
-                    <td>
-                      <input
-                        type="checkbox"
-                        disabled={!row.inBot || row.connected}
-                        checked={selected.includes(row.employeeId)}
-                        onChange={() => setSelected((list) => (list.includes(row.employeeId) ? list.filter((x) => x !== row.employeeId) : [...list, row.employeeId]))}
-                        aria-label={row.name}
-                      />
-                    </td>
-                    <td>
-                      <b>{row.name}</b>
-                      <small className="muted block">
-                        {row.employeeNo}
-                        {row.phone ? ` · ${row.phone}` : ""}
-                      </small>
-                    </td>
-                    <td>
-                      <span className={`badge ${state.tone}`}>{state.label}</span>
-                      {state.note && <small className="muted block">{state.note}</small>}
-                    </td>
-                    <td>{row.telegramKnown ? <span className="tag">ID bor</span> : <span className="tag">—</span>}</td>
-                    <td className="ic-row-actions">
-                      {!row.connected && (
-                        <button
-                          className="btn btn-sm"
-                          disabled={!bot}
-                          title="Shaxsiy havolani yaratish va nusxalash"
-                          onClick={async () => {
-                            try {
-                              const result = await post<{ link: string; expiresAt: string }>(`/integrations/${integrationId}/access/${row.employeeId}/link`, {});
-                              setLink({ name: row.name, ...result });
-                              void reload(true);
-                            } catch (reason) {
-                              toast(errorText(reason), "error");
-                            }
-                          }}
-                        >
-                          <Link2 size={14} /> Havola
-                        </button>
-                      )}
-                      {row.invite?.state === "ACTIVE" && (
-                        <button
-                          className="btn btn-sm btn-ghost"
-                          title="Havolani bekor qilish"
-                          onClick={async () => {
-                            try {
-                              await post(`/employees/${row.employeeId}/access/revoke`, {});
-                              toast("Havola bekor qilindi");
-                              void reload(true);
-                            } catch (reason) {
-                              toast(errorText(reason), "error");
-                            }
-                          }}
-                        >
-                          <XCircle size={14} />
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="ic-people">
+          <div className="ic-people-head">
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={() => setSelected(allSelected ? [] : selectable.map((row) => row.employeeId))}
+                aria-label="Hammasini tanlash"
+              />
+              <span>{allSelected ? "Tanlovni bekor qilish" : `Ulanmaganlarni tanlash (${selectable.length})`}</span>
+            </label>
+            <span className="muted">{rows.length} ta xodim</span>
+          </div>
+          {rows.map((row) => {
+            const state = accessState(row);
+            const [first, ...rest] = row.name.split(" ");
+            const disabled = !row.inBot || row.connected;
+            return (
+              <div key={row.employeeId} className={`ic-person ${selected.includes(row.employeeId) ? "selected" : ""}`}>
+                <input
+                  type="checkbox"
+                  disabled={disabled}
+                  checked={selected.includes(row.employeeId)}
+                  onChange={() => setSelected((list) => (list.includes(row.employeeId) ? list.filter((x) => x !== row.employeeId) : [...list, row.employeeId]))}
+                  aria-label={row.name}
+                />
+                <span className={`ic-avatar ${state.tone}`}>{`${first?.[0] || ""}${rest.join(" ")[0] || ""}`.toUpperCase()}</span>
+                <div className="ic-person-main">
+                  <b>{row.name}</b>
+                  <small>
+                    {row.employeeNo}
+                    {row.phone ? ` · ${row.phone}` : ""}
+                    {row.telegramKnown ? " · Telegram ID bor" : " · Telegram ID yo‘q"}
+                  </small>
+                </div>
+                <div className="ic-person-state">
+                  <span className={`badge ${state.tone}`}>{state.label}</span>
+                  {state.note && <small>{state.note}</small>}
+                </div>
+                <div className="ic-person-actions">
+                  {!row.connected && (
+                    <button
+                      className="btn btn-sm"
+                      disabled={!bot}
+                      title="Shaxsiy havolani yaratish va nusxalash"
+                      onClick={async () => {
+                        try {
+                          const result = await post<{ link: string; expiresAt: string }>(`/integrations/${integrationId}/access/${row.employeeId}/link`, {});
+                          setLink({ name: row.name, ...result });
+                          void reload(true);
+                        } catch (reason) {
+                          toast(errorText(reason), "error");
+                        }
+                      }}
+                    >
+                      <Link2 size={14} /> Havola
+                    </button>
+                  )}
+                  {row.invite?.state === "ACTIVE" && !row.connected && (
+                    <button
+                      className="icon-btn"
+                      title="Havolani bekor qilish"
+                      aria-label="Havolani bekor qilish"
+                      onClick={async () => {
+                        try {
+                          await post(`/employees/${row.employeeId}/access/revoke`, {});
+                          toast("Havola bekor qilindi");
+                          void reload(true);
+                        } catch (reason) {
+                          toast(errorText(reason), "error");
+                        }
+                      }}
+                    >
+                      <XCircle size={16} />
+                    </button>
+                  )}
+                  {row.connected && <CheckCircle2 size={18} className="ic-ok" />}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
       {link && (

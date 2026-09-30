@@ -566,6 +566,31 @@ describe("hayot sikli", () => {
   });
 });
 
+describe("maosh", () => {
+  it("employees:salary ruxsati bo‘lsa maosh import qilinadi, Staffora'da kiritilgani ustidan yozilmaydi", async () => {
+    const all = [
+      "employees:read", "employees:salary", "branches:read", "departments:read", "positions:read", "attendance:read",
+      "integration:read", "company:read", "webhooks:write",
+    ];
+    ctx = await boot({ scopes: all });
+    await ctx.store.updateDb((db) => {
+      db.employees.push({
+        id: "existing", companyId: "c1", employeeNo: "EMP-0001", firstName: "Ism2", lastName: "Familiya2", phone: "+998900000002", email: "",
+        departmentId: "", positionId: "", branchId: "", scheduleId: "", employmentType: "FULL_TIME", startDate: "2026-01-01", baseSalary: 7000000,
+        currency: "UZS", telegramConnected: false, deviceStatus: "PENDING", status: "ACTIVE", createdAt: "", updatedAt: "",
+      });
+    });
+    const id = await ctx.connect();
+    await ctx.initialSync(id);
+    const db = await ctx.store.readDb();
+    expect(db.employees.find((e) => e.firstName === "Ism1")!.baseSalary).toBe(5_000_000);
+    expect(db.employees.find((e) => e.firstName === "Ism3")!.baseSalary).toBe(3_500_000);
+    expect(db.employees.find((e) => e.id === "existing")!.baseSalary).toBe(7_000_000);
+    // Maosh snapshot (mapping) ga tushmaydi
+    expect(JSON.stringify(db.entityMappings)).not.toContain("5 000 000");
+  });
+});
+
 describe("bot'dagi o‘chirish va hisoblash sanasi", () => {
   it("bot'da o‘chirilgan xodim Staffora'da ishdan bo‘shatiladi (ma’lumot o‘chmaydi)", async () => {
     ctx = await boot();

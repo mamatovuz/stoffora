@@ -945,7 +945,7 @@ app.delete(
       if (!value) throw httpError("Bo‘lim topilmadi.", 404);
       if (
         db.employees.some(
-          (e) => e.departmentId === value.id && e.status !== "ARCHIVED",
+          (e) => e.departmentId === value.id && occupiesSlot(e),
         ) ||
         db.positions.some((p) => p.departmentId === value.id)
       )
@@ -1025,7 +1025,7 @@ app.delete(
       if (!value) throw httpError("Lavozim topilmadi.", 404);
       if (
         db.employees.some(
-          (e) => e.positionId === value.id && e.status !== "ARCHIVED",
+          (e) => e.positionId === value.id && occupiesSlot(e),
         )
       )
         throw httpError("Bu lavozimda xodimlar bor.", 409);
@@ -1274,6 +1274,10 @@ function assertEmployeeRefs(
   check(db.schedules, input.scheduleId, "Ish grafigi");
 }
 
+/** Faol (ishdan bo‘shatilmagan) xodim — bo‘lim, lavozim, filial va grafikni band qiladi. */
+const occupiesSlot = (employee: Employee) =>
+  employee.status !== "ARCHIVED" && employee.status !== "DISMISSED";
+
 function nextEmployeeNo(db: Database, tenant: string) {
   const numbers = db.employees
     .filter((e) => e.companyId === tenant)
@@ -1388,6 +1392,43 @@ app.get(
         db.faceProfiles.find((f) => f.employeeId === employee.id)?.samples
           ?.length || 0,
     });
+  }),
+);
+// Bir nechta xodim maoshini birdan kiritish (masalan, integratsiyadan keyin 0 bo‘lib qolganlar).
+app.put(
+  "/api/employees/salaries",
+  asyncRoute(async (req, res) => {
+    const role = req.session!.role;
+    if (!can(role, "employees.edit") && !can(role, "payroll.edit"))
+      return res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
+    const input = z
+      .object({
+        items: z
+          .array(z.object({ id: z.string().min(1), baseSalary: z.coerce.number().min(0).max(10_000_000_000) }))
+          .min(1)
+          .max(5000),
+      })
+      .parse(req.body);
+    const tenant = companyId(req);
+    const updated = await updateDb((db) => {
+      const byId = new Map(db.employees.filter((e) => e.companyId === tenant).map((e) => [e.id, e]));
+      let count = 0;
+      const now = new Date().toISOString();
+      for (const item of input.items) {
+        const employee = byId.get(item.id);
+        if (!employee) throw httpError("Xodim topilmadi.", 404);
+        const amount = Math.round(item.baseSalary);
+        if (employee.baseSalary === amount) continue;
+        db.auditLogs.unshift(
+          audit(tenant, req.session!.name, "Oylik o‘zgartirildi", "employee", employee.id, { baseSalary: employee.baseSalary }, { baseSalary: amount }),
+        );
+        employee.baseSalary = amount;
+        employee.updatedAt = now;
+        count += 1;
+      }
+      return count;
+    });
+    res.json({ updated });
   }),
 );
 app.put(
@@ -1545,13 +1586,24 @@ app.post(
   "/api/employees/:id/rehire",
   requirePermission("employees.edit"),
   asyncRoute(async (req, res) => {
-    const input = z.object({ startDate: dateSchema.optional() }).parse(req.body);
+    const input = z
+      .object({
+        startDate: dateSchema.optional(),
+        // Oldingi bo‘lim/lavozim o‘chirilgan bo‘lsa — yangisini tanlash mumkin.
+        branchId: z.string().min(1).optional(),
+        departmentId: z.string().min(1).optional(),
+        positionId: z.string().min(1).optional(),
+        scheduleId: z.string().min(1).optional(),
+      })
+      .parse(req.body);
     const tenant = companyId(req);
     const row = await updateDb((db) => {
       const employee = db.employees.find(
         (e) => e.id === req.params.id && e.companyId === tenant,
       );
       if (!employee) throw httpError("Xodim topilmadi.", 404);
+      for (const key of ["branchId", "departmentId", "positionId", "scheduleId"] as const)
+        if (input[key]) employee[key] = input[key]!;
       assertEmployeeRefs(db, tenant, {
         branchId: employee.branchId,
         scheduleId: employee.scheduleId,
@@ -1918,7 +1970,7 @@ app.delete(
       if (!branch) throw httpError("Filial topilmadi.", 404);
       if (
         db.employees.some(
-          (e) => e.branchId === branch.id && e.status !== "ARCHIVED",
+          (e) => e.branchId === branch.id && occupiesSlot(e),
         )
       )
         throw httpError(
@@ -2031,7 +2083,7 @@ app.delete(
       if (!schedule) throw httpError("Grafik topilmadi.", 404);
       if (
         db.employees.some(
-          (e) => e.scheduleId === schedule.id && e.status !== "ARCHIVED",
+          (e) => e.scheduleId === schedule.id && occupiesSlot(e),
         )
       )
         throw httpError("Bu grafikdan xodimlar foydalanmoqda.", 409);

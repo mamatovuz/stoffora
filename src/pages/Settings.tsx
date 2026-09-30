@@ -54,7 +54,7 @@ export function SettingsPage() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get("tab") as Tab) || "profile";
   return (
-    <div className="page narrow">
+    <div className={`page ${tab === "integrations" ? "wide-settings" : "narrow"}`}>
       <PageHeader title="Sozlamalar" subtitle="Profil, xavfsizlik, qurilmalar va kompaniya" />
       <div className="settings-layout">
         <nav className="settings-nav card">

@@ -10,12 +10,13 @@ import {
   haversineDistance,
 } from "../lib/attendance";
 import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
-import { audit, readDb, updateDb } from "../lib/store";
+import { audit, dataIndexes, readDb, updateDb } from "../lib/store";
 import {
   assertConsistentSamples,
   assertFaceDescriptor,
   isReplayedDescriptor,
   matchFace,
+  faceMatchThreshold,
 } from "../lib/face";
 import type { Attendance, Database, LeaveRequest } from "../lib/types";
 import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
@@ -70,8 +71,8 @@ function signFaceProof(employeeId: string, companyId: string) {
 
 function monthSummary(db: Database, employeeId: string) {
   const month = tashkentIsoDate().slice(0, 7);
-  const rows = db.attendance.filter(
-    (item) => item.employeeId === employeeId && item.date.startsWith(month),
+  const rows = (dataIndexes(db).attendanceByEmployee.get(employeeId) || []).filter((item) =>
+    item.date.startsWith(month),
   );
   const employee = db.employees.find((e) => e.id === employeeId);
   const company = db.companies.find((c) => c.id === employee?.companyId);
@@ -88,6 +89,12 @@ function monthSummary(db: Database, employeeId: string) {
     workedMinutes: rows.reduce((sum, item) => sum + item.workedMinutes, 0),
     overtimeMinutes: rows.reduce((sum, item) => sum + item.overtimeMinutes, 0),
   };
+}
+
+function ownNotifications(db: Database, employeeId: string, companyId: string) {
+  return db.notifications
+    .filter((item) => item.companyId === companyId && item.employeeId === employeeId)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export function createMiniRouter() {
@@ -225,22 +232,48 @@ export function createMiniRouter() {
           db.positions.find((item) => item.id === employee.positionId) || null,
         schedule:
           db.schedules.find((item) => item.id === employee.scheduleId) || null,
-        attendance: db.attendance.find(
-          (item) => item.employeeId === employee.id && item.date === date,
-        ),
+        attendance: dataIndexes(db).attendanceByKey.get(`${employee.id}|${date}`),
         todayLeave: todayLeave || null,
         month: monthSummary(db, employee.id),
         serverTime: new Date().toISOString(),
-        notifications: db.notifications
-          .filter(
-            (item) =>
-              item.companyId === employee.companyId &&
-              (item.employeeId === employee.id ||
-                (!item.employeeId && item.type === "ANNOUNCEMENT")),
-          )
-          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-          .slice(0, 5),
+        notifications: ownNotifications(db, employee.id, employee.companyId).slice(0, 5),
+        unreadNotifications: ownNotifications(db, employee.id, employee.companyId).filter((n) => !n.read).length,
       });
+    }),
+  );
+  // Xodimning shaxsiy xabarnomalari (o‘qilgan/o‘qilmagan holati bilan).
+  router.get(
+    "/mini/notifications",
+    asyncRoute(async (req, res) => {
+      const db = await readDb();
+      const session = req.employeeSession!;
+      const rows = ownNotifications(db, session.employeeId, session.companyId);
+      res.json({ items: rows.slice(0, 60), unread: rows.filter((n) => !n.read).length });
+    }),
+  );
+  router.post(
+    "/mini/notifications/read",
+    asyncRoute(async (req, res) => {
+      const input = z
+        .object({ ids: z.array(z.string()).max(200).optional(), all: z.boolean().optional() })
+        .parse(req.body || {});
+      const session = req.employeeSession!;
+      const changed = await updateDb((db) => {
+        let count = 0;
+        const ids = new Set(input.ids || []);
+        for (const item of db.notifications)
+          if (
+            item.employeeId === session.employeeId &&
+            item.companyId === session.companyId &&
+            !item.read &&
+            (input.all || ids.has(item.id))
+          ) {
+            item.read = true;
+            count += 1;
+          }
+        return count;
+      });
+      res.json({ ok: true, changed });
     }),
   );
   router.get(
@@ -448,10 +481,11 @@ export function createMiniRouter() {
     "/mini/face/verify",
     rateLimit({ windowMs: 60_000, limit: 10 }),
     asyncRoute(async (req, res) => {
-      const { descriptor, liveness } = z
-        .object({ descriptor: descriptorSchema, liveness: livenessSchema })
+      const { descriptor, turnDescriptor, liveness } = z
+        .object({ descriptor: descriptorSchema, turnDescriptor: descriptorSchema.optional(), liveness: livenessSchema })
         .parse(req.body);
       assertFaceDescriptor(descriptor);
+      if (turnDescriptor) assertFaceDescriptor(turnDescriptor);
       const auth = req.employeeSession!;
       const result = await updateDb((db) => {
         const employee = db.employees.find(
@@ -470,7 +504,10 @@ export function createMiniRouter() {
             "Takroriy so‘rov aniqlandi. Yuzni kamerada qayta skanerlang.",
             409,
           );
-        const match = matchFace(profile, descriptor);
+        const front = matchFace(profile, descriptor);
+        // Bosh burilgan kadr ham shu odamniki bo‘lishi shart (burilishda aniqlik pastroq — biroz yumshoq chegara).
+        const turned = turnDescriptor ? matchFace(profile, turnDescriptor, faceMatchThreshold() + 0.1) : undefined;
+        const match = { ...front, matched: front.matched && (!turned || turned.matched) };
         if (match.matched) {
           profile.lastDescriptor = descriptor;
           profile.lastVerifiedAt = new Date().toISOString();

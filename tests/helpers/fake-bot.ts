@@ -63,7 +63,8 @@ export function createFakeBot(options: FakeBotOptions = {}) {
       employment_status: "regular",
       hired_at: "2026-07-01T10:00:00+05:00",
       schedule: { work_hours: "08:00 - 17:00", rest_day: "Yakshanba", shift: null },
-      monthly_salary: "5000000",
+      // Haqiqiy bot kabi: maosh faqat employees:salary ruxsati bo‘lsa qaytadi.
+      ...(scopes.includes("employees:salary") ? { salary: { monthly_salary: i === 1 ? "5 000 000" : "3.5 mln", currency: "UZS" } } : {}),
       created_at: now,
       updated_at: now,
     });

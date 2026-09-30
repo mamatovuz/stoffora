@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlarmClock,
+  AlertTriangle,
   Banknote,
   Download,
   FileSpreadsheet,
@@ -12,14 +13,17 @@ import {
   Wallet,
 } from "lucide-react";
 import { useApi } from "../hooks";
+import { errorText, put } from "../api";
 import {
   Empty,
   ErrorBox,
   Field,
   Loading,
+  Modal,
   PageHeader,
   Person,
   StatCard,
+  useToast,
 } from "../components/ui";
 import { duration, money, monthYearUz, tashkentIsoDate } from "@/lib/format";
 import type { Employee } from "@/lib/types";
@@ -49,8 +53,10 @@ type Payroll = {
 
 export function PayrollPage() {
   const [month, setMonth] = useState(tashkentIsoDate().slice(0, 7));
-  const { data, loading, error } = useApi<Payroll>(`/payroll?month=${month}`);
+  const { data, loading, error, reload } = useApi<Payroll>(`/payroll?month=${month}`);
+  const [salaryOpen, setSalaryOpen] = useState(false);
   const rows = data?.rows || [];
+  const noSalary = rows.filter((x) => !x.employee.baseSalary).length;
   const total = rows.reduce((s, x) => s + x.net, 0);
   const deduction = rows.reduce((s, x) => s + x.deduction, 0);
   const avgKpi = rows.length ? Math.round(rows.reduce((s, x) => s + x.kpi.score, 0) / rows.length) : 0;
@@ -71,6 +77,9 @@ export function PayrollPage() {
                 aria-label="Oy"
               />
             </div>
+            <button className="btn" onClick={() => setSalaryOpen(true)} disabled={!rows.length}>
+              <Wallet size={16} /> Maoshlar
+            </button>
             <Link className="btn" to="/settings?tab=payroll">
               <Settings2 size={16} /> Jarima sozlamasi
             </Link>
@@ -86,6 +95,21 @@ export function PayrollPage() {
         <StatCard label="O‘rtacha KPI" value={`${avgKpi}`} note="Davomat 60% + vaqtida kelish 40%" icon={TrendingUp} tone="violet" />
         <StatCard label="Qo‘shimcha ish" value={money(rows.reduce((s, x) => s + x.overtimeAmount, 0))} icon={Banknote} tone="blue" />
       </div>
+      {noSalary > 0 && (
+        <div className="alert warn" style={{ marginBottom: 16 }}>
+          <AlertTriangle size={18} />
+          <div style={{ flex: 1 }}>
+            <b>{noSalary} ta xodimning oyligi kiritilmagan (0 so‘m)</b>
+            <p>
+              Integratsiyada maosh faqat bot kalitida <code>employees:salary</code> ruxsati bo‘lsa keladi. Oyliklarni shu yerda
+              lavozim bo‘yicha yoki alohida kiriting.
+            </p>
+          </div>
+          <button className="btn btn-sm btn-primary" onClick={() => setSalaryOpen(true)}>
+            Kiritish
+          </button>
+        </div>
+      )}
       <section className="card">
         {loading && !data ? (
           <Loading />
@@ -140,7 +164,13 @@ export function PayrollPage() {
                       )}
                     </td>
                     <td data-label="Oylik" className="num">
-                      {money(x.base, x.employee.currency)}
+                      {x.base ? (
+                        money(x.base, x.employee.currency)
+                      ) : (
+                        <button className="link" onClick={() => setSalaryOpen(true)}>
+                          Kiritilmagan
+                        </button>
+                      )}
                       {x.overtimeAmount > 0 && (
                         <small className="muted" style={{ display: "block", color: "var(--green)" }}>
                           + {money(x.overtimeAmount, x.employee.currency)}
@@ -160,6 +190,16 @@ export function PayrollPage() {
           </div>
         )}
       </section>
+      {salaryOpen && (
+        <SalaryModal
+          employees={rows.map((x) => x.employee)}
+          onClose={() => setSalaryOpen(false)}
+          onSaved={() => {
+            setSalaryOpen(false);
+            void reload(true);
+          }}
+        />
+      )}
       <p className="hint" style={{ marginTop: 12 }}>
         Kechikish daqiqalari grafikdagi imtiyozdan keyin hisoblanadi va oy davomida yig‘ilib, oylikdan bir marta ushlanadi.
         Ushlanma oylikdan oshmaydi. Yakuniy to‘lovdan oldin buxgalteriya bilan tekshiring.
@@ -284,4 +324,128 @@ function lastMonth(today: string): [string, string] {
   const first = new Date(Date.UTC(y, m - 2, 1));
   const last = new Date(Date.UTC(y, m - 1, 0));
   return [first.toISOString().slice(0, 10), last.toISOString().slice(0, 10)];
+}
+
+/* ------------------------------------------------ maoshlarni kiritish --- */
+
+type SalaryRow = { id: string; name: string; no: string; positionId: string; branchId: string; salary: number };
+
+const formatAmount = (value: string) => {
+  const digits = value.replace(/\D/g, "").slice(0, 11);
+  return digits ? Number(digits).toLocaleString("ru-RU").replace(/\s/g, " ") : "";
+};
+const parseAmount = (value: string) => Number(value.replace(/\D/g, "")) || 0;
+
+function SalaryModal({ employees, onClose, onSaved }: { employees: Employee[]; onClose: () => void; onSaved: () => void }) {
+  const { data: meta } = useApi<Meta>("/meta");
+  const toast = useToast();
+  const [onlyEmpty, setOnlyEmpty] = useState(true);
+  const [q, setQ] = useState("");
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(employees.map((e) => [e.id, e.baseSalary ? formatAmount(String(e.baseSalary)) : ""])),
+  );
+  const [bulkPosition, setBulkPosition] = useState("");
+  const [bulkAmount, setBulkAmount] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const positions = new Map((meta?.positions || []).map((p) => [p.id, p.name]));
+  const branches = new Map((meta?.branches || []).map((b) => [b.id, b.name]));
+  const rows: SalaryRow[] = employees
+    .map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}`.trim(), no: e.employeeNo, positionId: e.positionId, branchId: e.branchId, salary: e.baseSalary }))
+    .filter((r) => (!onlyEmpty || !r.salary) && `${r.name} ${r.no}`.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => (positions.get(a.positionId) || "").localeCompare(positions.get(b.positionId) || "") || a.name.localeCompare(b.name));
+  const changed = employees.filter((e) => parseAmount(values[e.id] || "") !== e.baseSalary && (values[e.id] || "") !== "");
+  const usedPositions = [...new Set(employees.map((e) => e.positionId))].filter((id) => positions.has(id));
+  return (
+    <Modal title="Maoshlarni kiritish" subtitle="Oylik (so‘m) — bir martada bir nechta xodimga" onClose={onClose} size="wide">
+      <div className="salary-bulk">
+        <Field label="Lavozim bo‘yicha to‘ldirish">
+          <select className="select" value={bulkPosition} onChange={(e) => setBulkPosition(e.target.value)}>
+            <option value="">Lavozimni tanlang…</option>
+            {usedPositions.map((id) => (
+              <option key={id} value={id}>
+                {positions.get(id)} ({employees.filter((e) => e.positionId === id).length})
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Oylik">
+          <input className="input" inputMode="numeric" placeholder="4 000 000" value={bulkAmount} onChange={(e) => setBulkAmount(formatAmount(e.target.value))} />
+        </Field>
+        <button
+          type="button"
+          className="btn"
+          disabled={!bulkPosition || !bulkAmount}
+          onClick={() => {
+            setValues((v) => {
+              const next = { ...v };
+              for (const e of employees) if (e.positionId === bulkPosition && (!onlyEmpty || !e.baseSalary)) next[e.id] = bulkAmount;
+              return next;
+            });
+            toast(`${positions.get(bulkPosition)} lavozimidagilarga qo‘yildi — saqlashni unutmang`);
+          }}
+        >
+          Qo‘llash
+        </button>
+      </div>
+      <div className="ic-toolbar" style={{ margin: "4px 0 10px" }}>
+        <input className="input" style={{ maxWidth: 260 }} placeholder="Qidirish…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <label className="checkbox-row">
+          <input type="checkbox" checked={onlyEmpty} onChange={(e) => setOnlyEmpty(e.target.checked)} />
+          Faqat maoshi kiritilmaganlar
+        </label>
+      </div>
+      <div className="salary-list">
+        {rows.map((r) => (
+          <label key={r.id} className={`salary-row ${values[r.id] ? "" : "empty"}`}>
+            <span>
+              <b>{r.name}</b>
+              <small>
+                {r.no} · {positions.get(r.positionId) || "—"}
+                {branches.get(r.branchId) ? ` · ${branches.get(r.branchId)}` : ""}
+              </small>
+            </span>
+            <span className="salary-input">
+              <input
+                className="input"
+                inputMode="numeric"
+                placeholder="0"
+                value={values[r.id] || ""}
+                onChange={(e) => setValues((v) => ({ ...v, [r.id]: formatAmount(e.target.value) }))}
+              />
+              <em>so‘m</em>
+            </span>
+          </label>
+        ))}
+        {!rows.length && <p className="muted" style={{ padding: 16, textAlign: "center" }}>Hamma xodimning maoshi kiritilgan.</p>}
+      </div>
+      <ErrorBox message={error} />
+      <div className="form-actions">
+        <button className="btn" onClick={onClose}>
+          Bekor qilish
+        </button>
+        <button
+          className="btn btn-primary"
+          disabled={busy || !changed.length}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              const result = await put<{ updated: number }>("/employees/salaries", {
+                items: changed.map((e) => ({ id: e.id, baseSalary: parseAmount(values[e.id]) })),
+              });
+              toast(`${result.updated} ta xodim maoshi saqlandi`);
+              onSaved();
+            } catch (reason) {
+              setError(errorText(reason));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <Wallet size={15} /> Saqlash ({changed.length})
+        </button>
+      </div>
+    </Modal>
+  );
 }

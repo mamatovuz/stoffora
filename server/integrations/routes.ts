@@ -75,10 +75,11 @@ const permit = (permission: string) => (req: Request, res: Response, next: NextF
 /** Minimal ruxsatlar: shular bo‘lmasa import ishlamaydi. */
 export const REQUIRED_SCOPES = ["integration:read", "employees:read", "branches:read", "departments:read", "positions:read", "attendance:read"];
 /** Kerakli emas va xavfli ruxsatlar — kalitdan olib tashlash tavsiya etiladi. */
-export const EXCESSIVE_SCOPES = ["employees:salary", "employees:sensitive", "admin"];
+export const EXCESSIVE_SCOPES = ["employees:sensitive", "admin"];
 const FEATURE_SCOPES: Record<string, string[]> = {
   "Staffora → bot (xodim/filial tahrirlari)": ["employees:write", "branches:write", "departments:write", "positions:write", "integration:write"],
   "Keldi-ketdini botga yuborish": ["attendance:write"],
+  "Maoshlarni import qilish (ixtiyoriy)": ["employees:salary"],
   "Bot orqali xabar va havola yuborish": ["notifications:write", "notifications:read"],
   "Bot orqali e’lon": ["announcements:write", "announcements:read"],
   "Webhook (real vaqt)": ["webhooks:write"],

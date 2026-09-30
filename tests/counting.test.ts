@@ -4,6 +4,7 @@ import { calculatePayroll } from "../lib/payroll";
 import {
   attendanceFromRemote,
   isoToTashkent,
+  parseSalary,
   parseBirthDate,
   parseRestDays,
   parseWorkHours,
@@ -72,6 +73,17 @@ describe("bot ma’lumotini o‘girish", () => {
     )!;
     expect(row).toMatchObject({ date: "2026-09-18", checkIn: "15:24", checkOut: "15:24", lateMinutes: 445, earlyLeaveMinutes: 514, workedMinutes: 0, status: "LATE", verification: ["TELEGRAM"], distanceMeters: 4019 });
     expect(attendanceFromRemote({ id: 1, date: "2026-09-18", check_in: null }, undefined)).toBeUndefined();
+  });
+
+  it("maosh matni (bot'da erkin yoziladi)", () => {
+    expect(parseSalary("5000000")).toBe(5_000_000);
+    expect(parseSalary("5 000 000 so‘m")).toBe(5_000_000);
+    expect(parseSalary("5.000.000")).toBe(5_000_000);
+    expect(parseSalary("3.5 mln")).toBe(3_500_000);
+    expect(parseSalary("4,2 mln so'm")).toBe(4_200_000);
+    expect(parseSalary("800 ming")).toBe(800_000);
+    expect(parseSalary("kelishilgan")).toBeUndefined();
+    expect(parseSalary(null)).toBeUndefined();
   });
 
   it("API manzili /api/v1 ga keltiriladi", () => {

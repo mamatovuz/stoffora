@@ -331,7 +331,8 @@ function createLocal(
     manager: fields.manager as string | undefined,
     employmentType: "FULL_TIME",
     startDate: hired,
-    baseSalary: 0,
+    // Maosh faqat kalitda employees:salary ruxsati bo‘lsa keladi; aks holda Staffora'da kiritiladi.
+    baseSalary: typeof fields.baseSalary === "number" ? fields.baseSalary : 0,
     currency: "UZS",
     telegramUsername: fields.telegramUsername as string | undefined,
     telegramId: fields.telegramId as string | undefined,
@@ -493,6 +494,11 @@ export function applyRemoteEntity(db: Database, integration: Integration, entity
       }
     }
     if (r.telegram_username && !local.telegramUsername) local.telegramUsername = r.telegram_username;
+    // Maosh: Staffora'da kiritilmagan (0) bo‘lsa botdagisi olinadi; kiritilgani hech qachon ustidan yozilmaydi.
+    if (typeof fields.baseSalary === "number" && !Number(local.baseSalary)) {
+      local.baseSalary = fields.baseSalary;
+      changed = true;
+    }
   }
 
   upsertMapping(db, integration, entity, String(local.id), remote.id, {
