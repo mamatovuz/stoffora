@@ -5,6 +5,7 @@ import { dateParts, tashkentIsoDate } from "../lib/format";
 import type { Attendance, Database, Employee } from "../lib/types";
 import { attendanceKpi, calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
 import { countedRecords, isPracticeDay } from "../lib/counting";
+import { dayPlan, workingDaysInMonth } from "../lib/schedule";
 import {
   addTableSheet,
   addTimesheetSheet,
@@ -27,17 +28,26 @@ export function payrollRows(db: Database, tenant: string, month: string) {
   const lastDay = monthEnd < today ? monthEnd : today;
   const days = `${month}-01` <= lastDay ? datesBetween(`${month}-01`, lastDay) : [];
   const index = dataIndexes(db);
+  const adjustments = db.payrollAdjustments.filter((a) => a.companyId === tenant && a.month === month);
   return db.employees
     .filter((e) => e.companyId === tenant && e.status === "ACTIVE")
     .map((e) => {
       const rows = (index.attendanceByEmployee.get(e.id) || []).filter((x) =>
         x.date.startsWith(month),
       );
-      // Hisoblash boshlanish sanasigacha bo‘lgan (mashq) kunlar oylikka ta’sir qilmaydi.
-      const line = calculatePayroll(e.baseSalary, countedRecords(rows, company, e), settings);
       const byDate = new Map(rows.map((r) => [r.date, r]));
       const statuses = days.map((d) => dayStatus(db, e, d, today, byDate.get(d)));
       const expectedDays = statuses.filter((s) => ["present", "late", "absent"].includes(s.kind)).length;
+      const own = adjustments.filter((a) => a.employeeId === e.id);
+      const sum = (type: string) => own.filter((a) => a.type === type).reduce((s, a) => s + a.amount, 0);
+      // Hisoblash boshlanish sanasigacha bo‘lgan (mashq) kunlar oylikka ta’sir qilmaydi.
+      const line = calculatePayroll(e.baseSalary, countedRecords(rows, company, e), settings, {
+        absentDays: statuses.filter((s) => s.kind === "absent").length,
+        workingDays: workingDaysInMonth(db, e, month),
+        bonus: sum("BONUS"),
+        fine: sum("FINE"),
+        advance: sum("ADVANCE"),
+      });
       const kpi = attendanceKpi({
         expectedDays,
         presentDays: line.days,
@@ -47,7 +57,7 @@ export function payrollRows(db: Database, tenant: string, month: string) {
         employee: e,
         ...line,
         expectedDays,
-        absentDays: statuses.filter((s) => s.kind === "absent").length,
+        adjustments: own,
         kpi,
       };
     });
@@ -85,10 +95,9 @@ function dayStatus(db: Database, employee: Employee, date: string, today: string
     (l) => l.employeeId === employee.id && l.status === "APPROVED" && l.startDate <= date && l.endDate >= date,
   );
   if (leave) return { code: "T", tone: "violet", kind: "leave" };
-  const day = db.schedules
-    .find((s) => s.id === employee.scheduleId)
-    ?.days.find((d) => d.day === dateParts(date).weekday);
-  if (!day?.enabled) return { code: "D", tone: "gray", kind: "off" };
+  // Smena almashish (grafik o‘zgarishi) ham hisobga olinadi.
+  const day = dayPlan(db, employee, date);
+  if (!day.enabled) return { code: "D", tone: "gray", kind: "off", note: day.reason };
   if (date === today) return { code: "", tone: "gray", kind: "open" };
   return { code: "X", tone: "red", kind: "absent" };
 }

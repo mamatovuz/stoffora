@@ -6,6 +6,8 @@ export const defaultPayrollSettings: PayrollSettings = {
   freeLateMinutesPerMonth: 0,
   monthlyHours: 176,
   overtimePay: true,
+  absencePenalty: "NONE",
+  overtimeRequiresApproval: false,
 };
 
 export function normalizePayrollSettings(
@@ -24,8 +26,20 @@ export function normalizePayrollSettings(
     freeLateMinutesPerMonth: int(merged.freeLateMinutesPerMonth, 0, 10_000, 0),
     monthlyHours: int(merged.monthlyHours, 1, 400, 176),
     overtimePay: Boolean(merged.overtimePay),
+    absencePenalty: merged.absencePenalty === "DAILY" ? "DAILY" : "NONE",
+    overtimeRequiresApproval: Boolean(merged.overtimeRequiresApproval),
   };
 }
+
+export type PayrollExtras = {
+  /** Sababsiz kelmagan kunlar (mashq, ta’til, dam olish hisobga kirmaydi). */
+  absentDays?: number;
+  /** Oydagi rejalashtirilgan ish kunlari — kunlik stavka shundan. */
+  workingDays?: number;
+  bonus?: number;
+  fine?: number;
+  advance?: number;
+};
 
 export type PayrollLine = {
   base: number;
@@ -35,27 +49,38 @@ export type PayrollLine = {
   chargeableLateMinutes: number;
   workedMinutes: number;
   overtimeMinutes: number;
+  /** Tasdiq kutilayotgan qo‘shimcha ish (hali pul emas). */
+  pendingOvertimeMinutes: number;
   hourlyRate: number;
+  dailyRate: number;
   overtimeAmount: number;
+  /** Kechikish ushlanmasi (eski nom saqlangan). */
   deduction: number;
+  absentDays: number;
+  absenceDeduction: number;
+  bonus: number;
+  fine: number;
+  advance: number;
+  /** Hisoblangan (avansdan oldin). */
+  gross: number;
+  /** Qo‘lga beriladi. */
   net: number;
   explanation: string;
 };
 
 const som = (value: number) =>
-  `${Math.round(value).toLocaleString("ru-RU").replace(/ /g, " ")} so‘m`;
+  `${Math.round(value).toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m`;
 
 /**
- * Bitta xodimning oylik hisob-kitobi. Barcha summalar butun so‘mga yaxlitlanadi,
- * ushlanma oylikdan oshmaydi, qo‘shimcha va ushlanma alohida ko‘rsatiladi.
+ * Bitta xodimning oylik hisob-kitobi. Barcha summalar butun so‘mga yaxlitlanadi.
+ *   hisoblangan = oylik + qo‘shimcha ish + bonus − kechikish − kelmaslik − jarima (≥ 0)
+ *   qo‘lga      = hisoblangan − avans (≥ 0)
  */
 export function calculatePayroll(
   baseSalary: number,
-  records: Pick<
-    Attendance,
-    "checkIn" | "lateMinutes" | "workedMinutes" | "overtimeMinutes"
-  >[],
+  records: Pick<Attendance, "checkIn" | "lateMinutes" | "workedMinutes" | "overtimeMinutes" | "overtimeApproved">[],
   settingsInput?: Partial<PayrollSettings>,
+  extras: PayrollExtras = {},
 ): PayrollLine {
   const settings = normalizePayrollSettings(settingsInput);
   const base = Math.max(0, Math.round(baseSalary || 0));
@@ -63,28 +88,44 @@ export function calculatePayroll(
   const lateMinutes = present.reduce((s, r) => s + Math.max(0, Math.round(r.lateMinutes || 0)), 0);
   const lateDays = present.filter((r) => (r.lateMinutes || 0) > 0).length;
   const workedMinutes = present.reduce((s, r) => s + Math.max(0, r.workedMinutes || 0), 0);
-  const overtimeMinutes = present.reduce((s, r) => s + Math.max(0, r.overtimeMinutes || 0), 0);
+  const approved = (r: (typeof present)[number]) => !settings.overtimeRequiresApproval || r.overtimeApproved === true;
+  const overtimeMinutes = present.filter(approved).reduce((s, r) => s + Math.max(0, r.overtimeMinutes || 0), 0);
+  const pendingOvertimeMinutes = settings.overtimeRequiresApproval
+    ? present.filter((r) => r.overtimeApproved === undefined).reduce((s, r) => s + Math.max(0, r.overtimeMinutes || 0), 0)
+    : 0;
   const hourlyRate = base / settings.monthlyHours;
   const chargeableLateMinutes = Math.max(0, lateMinutes - settings.freeLateMinutesPerMonth);
 
   let rawDeduction = 0;
-  if (settings.latePenaltyMode === "PER_MINUTE")
-    rawDeduction = chargeableLateMinutes * settings.latePenaltyPerMinute;
-  else if (settings.latePenaltyMode === "HOURLY")
-    rawDeduction = (chargeableLateMinutes / 60) * hourlyRate;
-  const overtimeAmount = settings.overtimePay
-    ? Math.round((overtimeMinutes / 60) * hourlyRate)
-    : 0;
+  if (settings.latePenaltyMode === "PER_MINUTE") rawDeduction = chargeableLateMinutes * settings.latePenaltyPerMinute;
+  else if (settings.latePenaltyMode === "HOURLY") rawDeduction = (chargeableLateMinutes / 60) * hourlyRate;
+  const overtimeAmount = settings.overtimePay ? Math.round((overtimeMinutes / 60) * hourlyRate) : 0;
   const deduction = Math.min(base, Math.round(rawDeduction));
-  const net = Math.max(0, base + overtimeAmount - deduction);
 
-  let explanation: string;
-  if (!lateMinutes)
-    explanation = `Oylik ${som(base)}. Bu oy kechikish yo‘q — to‘liq to‘lanadi${overtimeAmount ? ` (+${som(overtimeAmount)} qo‘shimcha ish)` : ""}.`;
-  else if (!deduction)
-    explanation = `Oylik ${som(base)}. ${lateDays} marta, jami ${lateMinutes} daqiqa kechikdi, lekin ${settings.latePenaltyMode === "NONE" ? "jarima o‘chirilgan" : `${settings.freeLateMinutesPerMonth} daqiqagacha jarimasiz`} — ushlanma yo‘q.`;
-  else
-    explanation = `Oylik ${som(base)} edi. ${lateDays} marta, jami ${lateMinutes} daqiqa kech qolgani uchun ${som(deduction)} ushlab qolinadi. To‘lanadi: ${som(net)}.`;
+  const absentDays = Math.max(0, Math.round(extras.absentDays || 0));
+  const workingDays = Math.max(0, Math.round(extras.workingDays || 0));
+  const dailyRate = workingDays ? base / workingDays : 0;
+  const absenceDeduction =
+    settings.absencePenalty === "DAILY" && dailyRate ? Math.min(Math.max(0, base - deduction), Math.round(absentDays * dailyRate)) : 0;
+  const bonus = Math.max(0, Math.round(extras.bonus || 0));
+  const fine = Math.max(0, Math.round(extras.fine || 0));
+  const advance = Math.max(0, Math.round(extras.advance || 0));
+  const gross = Math.max(0, base + overtimeAmount + bonus - deduction - absenceDeduction - fine);
+  const net = Math.max(0, gross - advance);
+
+  const parts: string[] = [`Oylik ${som(base)}`];
+  if (overtimeAmount) parts.push(`+${som(overtimeAmount)} qo‘shimcha ish`);
+  if (bonus) parts.push(`+${som(bonus)} bonus`);
+  if (deduction) parts.push(`−${som(deduction)} kechikish (${lateMinutes} daq)`);
+  else if (lateMinutes)
+    parts.push(`${lateMinutes} daq kechikish — ${settings.latePenaltyMode === "NONE" ? "jarima o‘chirilgan" : `${settings.freeLateMinutesPerMonth} daqiqagacha jarimasiz`}`);
+  if (absenceDeduction) parts.push(`−${som(absenceDeduction)} kelmagan ${absentDays} kun`);
+  if (fine) parts.push(`−${som(fine)} jarima`);
+  if (advance) parts.push(`−${som(advance)} avans berilgan`);
+  const explanation =
+    parts.length === 1
+      ? `Oylik ${som(base)}. Kechikish va ushlanma yo‘q — to‘liq to‘lanadi.`
+      : `${parts.join(" · ")}. Qo‘lga: ${som(net)}.`;
 
   return {
     base,
@@ -94,9 +135,17 @@ export function calculatePayroll(
     chargeableLateMinutes,
     workedMinutes,
     overtimeMinutes,
+    pendingOvertimeMinutes,
     hourlyRate,
+    dailyRate,
     overtimeAmount,
     deduction,
+    absentDays,
+    absenceDeduction,
+    bonus,
+    fine,
+    advance,
+    gross,
     net,
     explanation,
   };

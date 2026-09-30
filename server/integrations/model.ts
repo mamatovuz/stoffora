@@ -32,6 +32,7 @@ export function defaultIntegrationSettings(): IntegrationSettings {
       leave: ["staffora", "telegram"],
       announcements: ["staffora", "telegram", "bot"],
       system: ["staffora"],
+      payroll: ["staffora", "telegram", "bot"],
     },
   };
 }

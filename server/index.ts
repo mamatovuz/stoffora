@@ -36,6 +36,7 @@ import {
 } from "../lib/format";
 import { can, canAny } from "../lib/permissions";
 import { isPracticeDay } from "../lib/counting";
+import { dayPlan } from "../lib/schedule";
 import { alignDepartment, assertEmployeeCapacity, limitInfo, purgeEmployees } from "../lib/limits";
 import { createCompany, createUser } from "../lib/seed";
 import type {
@@ -74,6 +75,7 @@ import { startPhotoChannelWorker, testPhotoChannel } from "./photo-channel";
 import { payrollRows, penaltyText, registerExcelReports } from "./reports";
 import { createIntegrationRouter, createIntegrationWebhookRouter } from "./integrations/routes";
 import { startIntegrationWorker } from "./integrations/worker";
+import { closedPeriod, createPayrollRouter } from "./payroll-routes";
 import {
   createCompanyBotRouter,
   createCompanyBotWebhookRouter,
@@ -556,6 +558,7 @@ app.use("/api", createCompanyBotWebhookRouter());
 app.use("/api", requireAuth);
 app.use("/api", createIntegrationRouter());
 app.use("/api", createCompanyBotRouter());
+app.use("/api", createPayrollRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();
@@ -1134,7 +1137,9 @@ function computeDayRoster(db: Database, tenant: string, date: string) {
     .map((employee) => {
       const record = index.attendanceByKey.get(`${employee.id}|${date}`);
       const schedule = schedules.get(employee.scheduleId);
-      const day = schedule?.days.find((d) => d.day === weekday);
+      void weekday;
+      // Grafik o‘zgarishi (smena almashish) hisobga olinadi.
+      const day = dayPlan(db, employee, date);
       const leave = index.approvedLeaveByEmployee
         .get(employee.id)
         ?.find((l) => l.startDate <= date && l.endDate >= date);
@@ -1821,9 +1826,7 @@ app.post(
           409,
         );
       const schedule = db.schedules.find((s) => s.id === employee.scheduleId);
-      const day = schedule?.days.find(
-        (d) => d.day === dateParts(input.date).weekday,
-      );
+      const day = dayPlan(db, employee, input.date);
       const scheduledStart = day?.enabled ? day.start : input.checkIn;
       const scheduledEnd = day?.enabled
         ? day.end
@@ -2561,11 +2564,13 @@ app.get(
     const settings = normalizePayrollSettings(
       db.companies.find((c) => c.id === tenant)?.payroll,
     );
+    // Yopilgan oy — muzlatilgan raqamlar; ochiq oy — jonli hisob.
     res.json({
       month,
       settings,
       rule: penaltyText(settings),
       rows: payrollRows(db, tenant, month),
+      closed: closedPeriod(db, tenant, month) || null,
     });
   }),
 );
@@ -2622,6 +2627,8 @@ app.put(
         freeLateMinutesPerMonth: z.coerce.number().min(0).max(10_000),
         monthlyHours: z.coerce.number().min(1).max(400),
         overtimePay: z.boolean(),
+        absencePenalty: z.enum(["NONE", "DAILY"]).default("NONE"),
+        overtimeRequiresApproval: z.boolean().default(false),
       })
       .parse(req.body);
     const tenant = companyId(req);

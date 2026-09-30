@@ -77,6 +77,10 @@ export interface PayrollSettings {
   /** Oylik ish soatlari (soatlik stavka = oylik / shu soat). */
   monthlyHours: number;
   overtimePay: boolean;
+  /** Sababsiz kelmagan kun uchun ushlanma: NONE — yo‘q; DAILY — kunlik stavka (oylik / oydagi ish kunlari). */
+  absencePenalty?: "NONE" | "DAILY";
+  /** Qo‘shimcha ish faqat rahbar tasdiqlagandan keyin pul bo‘ladi. */
+  overtimeRequiresApproval?: boolean;
 }
 export interface Branch {
   id: string;
@@ -163,6 +167,8 @@ export interface Employee {
   registrationId?: string;
   /** Anketadagi qo‘shimcha savollar javoblari (savol → javob). */
   customFields?: Record<string, string>;
+  /** Mini App va bot tili. */
+  language?: "uz" | "ru";
   createdAt: string;
   updatedAt: string;
 }
@@ -190,8 +196,15 @@ export interface Attendance {
   source?: "STAFFORA" | "BOT";
   /** Tashqi tizimlardagi ID lar: { gulnora_hr_bot: "123" }. */
   externalIds?: Record<string, string>;
+  /** Qo‘shimcha ish tasdig‘i: true — tasdiqlangan, false — rad etilgan, yo‘q — kutilmoqda. */
+  overtimeApproved?: boolean;
+  overtimeDecidedBy?: string;
+  /** Shubhali belgilar (masalan soxta GPS) — HR ko‘rib chiqadi. */
+  flags?: AttendanceFlag[];
+  flagsReviewedBy?: string;
   updatedAt: string;
 }
+export type AttendanceFlag = "GPS_ACCURACY" | "GPS_EXACT_REPEAT" | "GPS_TELEPORT" | "GPS_EDGE" | "GPS_STALE";
 export interface LeaveRequest {
   id: string;
   companyId: string;
@@ -269,6 +282,10 @@ export interface User {
   telegramId?: string;
   telegramUsername?: string;
   twoFactorEnabled?: boolean;
+  /** Filial rahbari faqat shu filiallarni ko‘radi (bo‘sh — hech qaysi). */
+  branchIds?: string[];
+  /** Panel tili. */
+  language?: "uz" | "ru";
   screenLock?: { enabled: boolean; minutes: number; passwordHash?: string };
 }
 export interface PanelSession {
@@ -374,6 +391,101 @@ export interface Database {
   syncJobs: SyncJob[];
   integrationConflicts: IntegrationConflict[];
   registrations: RegistrationRequest[];
+  payrollAdjustments: PayrollAdjustment[];
+  payrollPeriods: PayrollPeriod[];
+  scheduleOverrides: ScheduleOverride[];
+  shiftSwaps: ShiftSwapRequest[];
+  documents: EmployeeDocument[];
+  /** Tug‘ilgan kun tabriklari va hujjat eslatmalari takror yuborilmasligi uchun. */
+  sentGreetings: { key: string; at: string }[];
+}
+
+/* ---------------------------------------------------------- ish haqi --- */
+export interface PayrollAdjustment {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  /** YYYY-MM */
+  month: string;
+  type: "ADVANCE" | "BONUS" | "FINE";
+  amount: number;
+  note?: string;
+  createdBy: string;
+  createdAt: string;
+}
+export interface PayslipLine {
+  employeeId: string;
+  employeeNo: string;
+  name: string;
+  position?: string;
+  base: number;
+  days: number;
+  expectedDays: number;
+  absentDays: number;
+  lateMinutes: number;
+  overtimeAmount: number;
+  bonus: number;
+  lateDeduction: number;
+  absenceDeduction: number;
+  fine: number;
+  advance: number;
+  net: number;
+  explanation: string;
+}
+/** Yopilgan oy — raqamlar o‘zgarmaydi. */
+export interface PayrollPeriod {
+  id: string;
+  companyId: string;
+  month: string;
+  closedAt: string;
+  closedBy: string;
+  lines: PayslipLine[];
+  total: number;
+  payslipsSentAt?: string;
+}
+
+/* --------------------------------------------------- grafik o‘zgarishi --- */
+/** Bitta kunga grafik o‘zgarishi (smena almashish natijasi). */
+export interface ScheduleOverride {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  date: string;
+  working: boolean;
+  start?: string;
+  end?: string;
+  reason: string;
+  swapId?: string;
+}
+export interface ShiftSwapRequest {
+  id: string;
+  companyId: string;
+  requesterId: string;
+  colleagueId: string;
+  /** Talab qiluvchi bera oladigan ish kuni (hamkasb shu kuni ishlaydi). */
+  giveDate: string;
+  /** Ixtiyoriy: talab qiluvchi o‘rniga hamkasbning shu kunida ishlaydi. */
+  takeDate?: string;
+  reason?: string;
+  status: "PENDING_COLLEAGUE" | "PENDING_MANAGER" | "APPROVED" | "REJECTED" | "CANCELLED";
+  decidedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/* ---------------------------------------------------------- hujjatlar --- */
+export type DocumentType = "PASSPORT" | "DIPLOMA" | "MEDICAL" | "SANITARY" | "CONTRACT" | "OTHER";
+export interface EmployeeDocument {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  type: DocumentType;
+  title: string;
+  mime: string;
+  size: number;
+  expiresAt?: string;
+  uploadedBy: string;
+  createdAt: string;
 }
 
 /* ------------------------------------------ botdagi ro‘yxatdan o‘tish --- */
@@ -501,7 +613,7 @@ export interface IntegrationSettings {
    */
   miniAppLink?: string;
   /** Bildirishnoma yo‘nalishlari: toifa → kanallar. */
-  routing: Record<"attendance" | "leave" | "announcements" | "system", NotificationChannel[]>;
+  routing: Record<"attendance" | "leave" | "announcements" | "system" | "payroll", NotificationChannel[]>;
 }
 
 export interface Integration {

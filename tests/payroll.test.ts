@@ -24,7 +24,7 @@ describe("ish haqi va kechikish jarimasi", () => {
     expect(r.lateDays).toBe(2);
     expect(r.deduction).toBe(50_000);
     expect(r.net).toBe(4_950_000);
-    expect(r.explanation).toContain("25 daqiqa");
+    expect(r.explanation).toContain("25 daq");
     expect(r.explanation).toContain("50 000 so‘m");
   });
 

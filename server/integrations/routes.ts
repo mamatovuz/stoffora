@@ -209,7 +209,7 @@ const settingsSchema = z
     routing: z
       .object(
         Object.fromEntries(
-          ["attendance", "leave", "announcements", "system"].map((k) => [k, z.array(z.enum(["staffora", "telegram", "bot"])).max(3)]),
+          ["attendance", "leave", "announcements", "system", "payroll"].map((k) => [k, z.array(z.enum(["staffora", "telegram", "bot"])).max(3)]),
         ) as Record<string, z.ZodArray<z.ZodEnum<["staffora", "telegram", "bot"]>>>,
       )
       .partial(),

@@ -670,10 +670,46 @@ function PayrollSection() {
             </Field>
           )}
         </div>
-        <label className="checkbox-row" style={{ marginBottom: 16 }}>
-          <input type="checkbox" checked={form.overtimePay} onChange={(e) => setForm({ ...form, overtimePay: e.target.checked })} />
-          Qo‘shimcha ish vaqti uchun soatlik stavka bo‘yicha qo‘shib to‘lansin
-        </label>
+        <div className="stack" style={{ gap: 8, marginBottom: 16 }}>
+          <label className="setting-row">
+            <span>
+              <b>Qo‘shimcha ish uchun to‘lash</b>
+              <small>Grafikdan tashqari ishlangan soatlar soatlik stavka bo‘yicha qo‘shiladi</small>
+            </span>
+            <span className="switch">
+              <input type="checkbox" checked={form.overtimePay} onChange={(e) => setForm({ ...form, overtimePay: e.target.checked })} />
+              <span />
+            </span>
+          </label>
+          <label className="setting-row">
+            <span>
+              <b>Qo‘shimcha ish faqat tasdiqlangandan keyin</b>
+              <small>Rahbar «Ish haqi → Qo‘shimcha ish» oynasida tasdiqlagan soatlargina pul bo‘ladi</small>
+            </span>
+            <span className="switch">
+              <input
+                type="checkbox"
+                checked={Boolean(form.overtimeRequiresApproval)}
+                onChange={(e) => setForm({ ...form, overtimeRequiresApproval: e.target.checked })}
+              />
+              <span />
+            </span>
+          </label>
+          <label className="setting-row">
+            <span>
+              <b>Sababsiz kelmagan kun uchun ushlanma</b>
+              <small>Kunlik stavka = oylik / oydagi ish kunlari. Ta’til, dam olish va mashq davri hisobga kirmaydi</small>
+            </span>
+            <span className="switch">
+              <input
+                type="checkbox"
+                checked={form.absencePenalty === "DAILY"}
+                onChange={(e) => setForm({ ...form, absencePenalty: e.target.checked ? "DAILY" : "NONE" })}
+              />
+              <span />
+            </span>
+          </label>
+        </div>
         <div className="alert info" style={{ marginBottom: 14 }}>
           <Banknote size={18} />
           <div>

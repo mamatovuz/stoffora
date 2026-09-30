@@ -7091,3 +7091,127 @@ button.ic-stat small {
   font-size: 12px;
   text-align: center;
 }
+
+/* ---- Ish haqi 2.0 ---- */
+.pay-table td.plus {
+  color: var(--green);
+}
+.pay-table td.minus {
+  color: var(--red);
+}
+.adj-types {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.adj-type {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.adj-type.on.advance {
+  border-color: var(--blue);
+  background: var(--blue-bg);
+  color: var(--blue);
+}
+.adj-type.on.bonus {
+  border-color: var(--green);
+  background: var(--green-bg);
+  color: var(--green);
+}
+.adj-type.on.fine {
+  border-color: var(--red);
+  background: var(--red-bg);
+  color: var(--red);
+}
+.adj-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.adj-list > div {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.adj-list small {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ot-list {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.ot-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line-2);
+}
+.ot-row:last-child {
+  border-bottom: 0;
+}
+.ot-row > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+.ot-row small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.ot-min {
+  color: var(--green);
+  font-weight: 650;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ot-actions {
+  display: flex;
+  gap: 6px;
+}
+.close-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.close-summary > div {
+  display: grid;
+  gap: 2px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.close-summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.close-summary b {
+  font-size: 18px;
+}
+@media (max-width: 640px) {
+  .ot-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .ot-actions {
+    grid-column: 1 / -1;
+  }
+  .ot-actions .btn {
+    flex: 1;
+    justify-content: center;
+  }
+}

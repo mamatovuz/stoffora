@@ -1,6 +1,7 @@
 import { dataIndexes, readDb } from "../lib/store";
 import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { notifyEmployee } from "./integrations/hooks";
+import { dayPlan } from "../lib/schedule";
 
 const toMinutes = (value: string) => {
   const [hour, minute] = value.split(":").map(Number);
@@ -48,10 +49,10 @@ export function startAttendanceReminders() {
           (item) => item.startDate <= date && item.endDate >= date,
         );
         if (onLeave) continue;
-        const day = db.schedules
-          .find((item) => item.id === employee.scheduleId)
-          ?.days.find((item) => item.day === weekday);
-        if (!day?.enabled) continue;
+        void weekday;
+        // Mashq davri va smena almashish hisobga olinadi.
+        const day = dayPlan(db, employee, date);
+        if (!day.enabled) continue;
         const record = index.attendanceByKey.get(`${employee.id}|${date}`);
         const start = toMinutes(day.start);
         const end = toMinutes(day.end);

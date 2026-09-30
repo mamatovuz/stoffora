@@ -22,6 +22,7 @@ import type { Attendance, Database, Employee, LeaveRequest } from "../lib/types"
 import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
 import { onStafforaAttendance } from "./integrations/hooks";
 import { verifyViaEmployeeBot } from "./integrations/identity";
+import { dayPlan } from "../lib/schedule";
 import { companyBotTokens } from "./company-bots";
 import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
 import { enqueueAttendancePhoto } from "./photo-channel";
@@ -802,9 +803,8 @@ export function createMiniRouter() {
         );
         const date = tashkentIsoDate();
         const time = tashkentClock();
-        const day = schedule?.days.find(
-          (item) => item.day === dateParts(date).weekday,
-        );
+        // Smena almashish bo‘lsa — o‘sha kungi o‘zgargan grafik.
+        const day = dayPlan(db, employee, date);
         let attendance = db.attendance.find(
           (item) => item.employeeId === employee.id && item.date === date,
         );

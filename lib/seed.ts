@@ -27,6 +27,12 @@ export function emptyDatabase(): Database {
     syncJobs: [],
     integrationConflicts: [],
     registrations: [],
+    payrollAdjustments: [],
+    payrollPeriods: [],
+    scheduleOverrides: [],
+    shiftSwaps: [],
+    documents: [],
+    sentGreetings: [],
   };
 }
 
