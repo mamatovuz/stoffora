@@ -83,12 +83,52 @@ const haptic = (type: "success" | "error" | "warning") =>
   tg()?.HapticFeedback?.notificationOccurred(type);
 const supports = (version: string) => Boolean(tg()?.isVersionAtLeast?.(version));
 
+/*
+ * Tezkor ochilish: oxirgi bosh sahifa ma’lumoti qurilmada saqlanadi va Mini App
+ * ochilishi bilan darhol ko‘rsatiladi; yangi ma’lumot fonda keladi. Kalit Telegram
+ * foydalanuvchi ID si bilan — boshqa hisobga aralashmaydi. Maosh keshga yozilmaydi.
+ */
+const cacheKey = () => {
+  const id = tg()?.initDataUnsafe?.user?.id;
+  return id ? `staffora:mini:home:${id}` : "";
+};
+function readCachedHome(): HomeData | null {
+  try {
+    const key = cacheKey();
+    const raw = key ? localStorage.getItem(key) : null;
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as { savedAt: number; home: HomeData };
+    // Kechagi ma’lumot bugungi holatni noto‘g‘ri ko‘rsatadi — faqat bugungisi.
+    if (new Date(cached.savedAt).toDateString() !== new Date().toDateString()) return null;
+    return cached.home;
+  } catch {
+    return null;
+  }
+}
+function writeCachedHome(home: HomeData) {
+  try {
+    const key = cacheKey();
+    if (!key) return;
+    const safe = { ...home, employee: { ...home.employee, baseSalary: 0 } };
+    localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), home: safe }));
+  } catch {
+    /* xotira to‘la yoki bloklangan — muhim emas */
+  }
+}
+
 export function MiniAppPage() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [authError, setAuthError] = useState<AuthError | null>(null);
-  const [home, setHome] = useState<HomeData | null>(null);
+  const [home, setHomeState] = useState<HomeData | null>(() => readCachedHome());
+  // Keshdan ko‘rsatilgan (hali serverdan tasdiqlanmagan) holat — amallar vaqtincha kutadi.
+  const [stale, setStale] = useState(() => home === null ? false : true);
+  const setHome = useCallback((next: HomeData) => {
+    setHomeState(next);
+    setStale(false);
+    writeCachedHome(next);
+  }, []);
   const [tab, setTab] = useState<Tab>("home");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !readCachedHome());
   const [faceAction, setFaceAction] = useState<Action | null>(null);
   const [flow, setFlow] = useState<{ sessionId: string; action: Action; requiresQr: boolean; photo?: string } | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
@@ -99,11 +139,11 @@ export function MiniAppPage() {
   }, []);
   const loadHome = useCallback(async () => {
     setHome(await api<HomeData>("/mini/home"));
-  }, []);
+  }, [setHome]);
 
   const authenticate = useCallback(async () => {
     const webApp = tg();
-    setLoading(true);
+    if (!readCachedHome()) setLoading(true);
     setAuthError(null);
     try {
       const localPreview = ["localhost", "127.0.0.1"].includes(window.location.hostname);
@@ -120,11 +160,13 @@ export function MiniAppPage() {
           { code: "NO_INIT_DATA" },
         );
       }
-      const result = await post<{ token: string }>("/telegram/auth", {
+      const result = await post<{ token: string; home?: HomeData }>("/telegram/auth", {
         initData: webApp?.initData || "",
       });
       setBearerToken(result.token);
-      await loadHome();
+      // Server bosh sahifani auth javobida qaytaradi — alohida so‘rov kerak emas.
+      if (result.home) setHome(result.home);
+      else await loadHome();
     } catch (reason) {
       setAuthError({
         message: errorText(reason, "Kirish amalga oshmadi."),
@@ -139,10 +181,12 @@ export function MiniAppPage() {
       setLoading(false);
       webApp?.ready();
     }
-  }, [loadHome]);
+  }, [loadHome, setHome]);
 
   useEffect(() => {
     const webApp = tg();
+    // Keshdan ko‘rsatilayotgan bo‘lsa, Telegram yuklanish belgisini darhol olib tashlaymiz.
+    if (home) webApp?.ready();
     webApp?.expand();
     webApp?.disableVerticalSwipes?.();
     // Telegram 8.0+: telefonlarda to‘liq ekran rejimi.
@@ -246,8 +290,10 @@ export function MiniAppPage() {
             data={home}
             onAction={(action) => {
               tg()?.HapticFeedback?.impactOccurred("medium");
+              prefetchPosition();
               setFaceAction(action);
             }}
+            stale={stale}
             onTab={setTab}
             onNotifications={() => setNotifOpen(true)}
           />
@@ -406,11 +452,12 @@ function minutesSince(checkIn: string) {
 
 function MiniHome({
   data,
+  stale,
   onAction,
-  onTab,
   onNotifications,
 }: {
   data: HomeData;
+  stale: boolean;
   onAction: (action: Action) => void;
   onTab: (tab: Tab) => void;
   onNotifications: () => void;
@@ -426,164 +473,129 @@ function MiniHome({
     timeZone: "Asia/Tashkent",
   });
   const missingSetup = !data.branch || !data.schedule;
-  const pill = finished
-    ? { text: "Ish yakunlandi", cls: "" }
+  const status = finished
+    ? { text: "Ish kuni yakunlandi", tone: "done" }
     : working
-      ? { text: a?.lateMinutes ? `Ishda · ${a.lateMinutes} daq kech` : "Ishdasiz", cls: a?.lateMinutes ? "on late" : "on" }
+      ? { text: a?.lateMinutes ? `Ishdasiz · ${a.lateMinutes} daq kech` : "Ishdasiz", tone: a?.lateMinutes ? "late" : "on" }
       : data.todayLeave
-        ? { text: "Bugun ta’tildasiz", cls: "" }
+        ? { text: "Bugun ta’tildasiz", tone: "off" }
         : !day?.enabled
-          ? { text: "Dam olish kuni", cls: "" }
-          : { text: "Hali kelmagansiz", cls: "" };
+          ? { text: "Dam olish kuni", tone: "off" }
+          : { text: "Hali kelmagansiz", tone: "idle" };
+  const qr = (data.branch?.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE";
 
   return (
-    <div className="mini-body">
-      <section className={`mini-hero ${working ? "working" : ""}`}>
-        <div className="mini-hero-top">
-          <span className={`mini-pill ${pill.cls}`}>
+    <div className="mini-body mh">
+      <section className={`mh-hero ${status.tone}`}>
+        <div className="mh-status">
+          <span>
             <i />
-            {pill.text}
+            {status.text}
           </span>
-          <span>{dateLongUz(now)}</span>
+          <time>{dateLongUz(now)}</time>
         </div>
-        <div className="mini-clock">{clock}</div>
-        <div className="mini-clock-sub">
-          <span>
-            <MapPin size={13} /> {data.branch?.name || "Filial biriktirilmagan"}
-          </span>
-          <span>
-            <Clock3 size={13} /> {day?.enabled ? `${day.start} – ${day.end}` : "Dam olish kuni"}
-          </span>
+        <div className="mh-clock">{clock}</div>
+        <div className="mh-meta">
+          <MapPin size={13} /> {data.branch?.name || "Filial biriktirilmagan"}
+          <span>·</span>
+          {day?.enabled ? `${day.start}–${day.end}` : "Dam olish"}
         </div>
-        <div className="mini-times">
-          <div className={a?.checkIn ? "set" : ""}>
-            <small>
-              <LogIn size={13} /> Keldi
-            </small>
-            <b>{a?.checkIn || "--:--"}</b>
-            {a?.lateMinutes ? <em>{a.lateMinutes} daq kech</em> : a?.checkIn ? <em className="ok">vaqtida</em> : null}
+
+        <div className="mh-times">
+          <div>
+            <small>Keldi</small>
+            <b className={a?.checkIn ? "" : "empty"}>{a?.checkIn || "--:--"}</b>
+            {a?.checkIn && <em className={a.lateMinutes ? "late" : "ok"}>{a.lateMinutes ? `${a.lateMinutes} daq kech` : "vaqtida"}</em>}
           </div>
-          <div className={a?.checkOut || working ? "set" : ""}>
-            <small>
-              <LogOut size={13} /> {finished ? "Ketdi" : "Ishlayapti"}
-            </small>
-            <b>
-              {finished
-                ? a?.checkOut
-                : working && a?.checkIn
-                  ? clockDuration(minutesSince(a.checkIn))
-                  : "--:--"}
+          <div>
+            <small>{finished ? "Ketdi" : "Ishlangan"}</small>
+            <b className={finished || working ? "" : "empty"}>
+              {finished ? a?.checkOut : working && a?.checkIn ? clockDuration(minutesSince(a.checkIn)) : "--:--"}
             </b>
-            {finished ? (
-              <em className="ok">{clockDuration(a?.workedMinutes || 0)} soat ishladi</em>
-            ) : working ? (
-              <em className="ok">soat : daqiqa</em>
-            ) : null}
+            {finished && <em className="ok">{clockDuration(a?.workedMinutes || 0)} soat</em>}
           </div>
         </div>
+
         {working && day?.enabled && a?.checkIn && <ShiftProgress start={a.checkIn} end={day.end} now={now} />}
+
         {missingSetup ? (
-          <div className="mini-done warn">
-            <AlertCircle size={18} /> HR filial va grafikni biriktirishi kerak
+          <div className="mh-done warn">
+            <AlertCircle size={17} /> HR filial va grafikni biriktirishi kerak
           </div>
         ) : finished ? (
-          <div className="mini-done">
-            <CheckCircle2 size={19} /> {a?.checkIn} – {a?.checkOut} · {duration(a?.workedMinutes || 0)}
+          <div className="mh-done">
+            <CheckCircle2 size={17} /> {a?.checkIn} – {a?.checkOut} · {duration(a?.workedMinutes || 0)}
           </div>
         ) : (
           <button
-            className={`mini-action ${working ? "out" : ""}`}
+            className={`mh-action ${working ? "out" : ""}`}
+            disabled={stale}
             onClick={() => onAction(working ? "CHECK_OUT" : "CHECK_IN")}
           >
-            {working ? <LogOut size={21} /> : <LogIn size={21} />}
-            {working ? "ISHDAN KETDIM" : "ISHGA KELDIM"}
+            {stale ? <LoaderCircle size={19} className="spin" /> : working ? <LogOut size={19} /> : <ScanFace size={19} />}
+            {stale ? "Yangilanmoqda…" : working ? "Ishdan ketdim" : "Ishga keldim"}
           </button>
         )}
-        <div className="mini-note">
-          <ShieldCheck size={13} />
-          Face ID + GPS
-          {(data.branch?.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE" ? " + dinamik QR" : ""} bilan
-          himoyalangan
+        <div className="mh-note">
+          <ShieldCheck size={12} /> Face ID · GPS{qr ? " · QR" : ""}
         </div>
       </section>
 
-      <div className="mini-grid-3">
-        <div className="mini-stat">
-          <small>Bu oy kelgan</small>
+      <section className="mh-stats">
+        <div>
           <b>{data.month.days}</b>
+          <small>kun keldi</small>
         </div>
-        <div className="mini-stat">
-          <small>Kechikish</small>
-          <b className={data.month.late ? "warn" : undefined}>{data.month.late}</b>
+        <div>
+          <b className={data.month.late ? "warn" : ""}>{data.month.late}</b>
+          <small>kechikish</small>
         </div>
-        <div className="mini-stat">
-          <small>Ishlagan</small>
-          <b>{Math.round(data.month.workedMinutes / 60)} soat</b>
+        <div>
+          <b>{Math.round(data.month.workedMinutes / 60)}</b>
+          <small>soat</small>
         </div>
-      </div>
+      </section>
 
       {data.month.practiceUntil && (
-        <div className="mini-alert info">
-          <CalendarCheck size={18} />
+        <div className="mh-hint info">
+          <CalendarCheck size={16} />
           <span>
-            Mashq davri: {data.month.practiceUntil.split("-").reverse().join(".")} gacha keldi-ketdini bemalol sinab ko‘ring — kechikish va ushlanmalar hisoblanmaydi.
+            {data.month.practiceUntil.split("-").reverse().join(".")} gacha mashq davri — kechikish va ushlanmalar hisoblanmaydi.
           </span>
         </div>
       )}
-
-      {data.month.lateMinutes > 0 && (
-        <div className="mini-alert warn">
-          <AlertCircle size={18} />
+      {!data.month.practiceUntil && data.month.lateMinutes > 0 && (
+        <div className="mh-hint warn">
+          <AlertCircle size={16} />
           <span>
-            Bu oy {data.month.late} marta, jami {data.month.lateMinutes} daqiqa kechikdingiz
-            {data.month.deduction ? `. Oylikdan ${data.month.deduction.toLocaleString("ru-RU")} so‘m ushlanadi.` : "."}
+            Bu oy {data.month.lateMinutes} daqiqa kechikdingiz
+            {data.month.deduction ? ` · ${data.month.deduction.toLocaleString("ru-RU")} so‘m ushlanadi` : ""}
           </span>
         </div>
       )}
-
       {!data.employee.faceEnrolledAt && !finished && !missingSetup && (
-        <div className="mini-alert info">
-          <ScanFace size={18} />
-          <span>
-            Birinchi marta Face ID sozlanadi: yuzingizni 5 xil burchakdan skanerlaymiz (≈15
-            soniya). Yorug‘ joyda turing.
-          </span>
+        <div className="mh-hint info">
+          <ScanFace size={16} />
+          <span>Birinchi marta Face ID sozlanadi (~15 soniya). Yorug‘ joyda turing.</span>
         </div>
       )}
 
       {data.notifications.length > 0 && (
-        <section className="mini-card mn-card">
-          <div className="mn-card-head">
-            <h3>
-              <Bell size={15} /> Xabarlar
+        <section className="mh-notifs">
+          <button className="mh-notifs-head" onClick={onNotifications}>
+            <span>
+              Xabarlar
               {(data.unreadNotifications || 0) > 0 && <span className="mini-badge inline">{data.unreadNotifications}</span>}
-            </h3>
-            <button onClick={onNotifications}>
-              Hammasi <ChevronRight size={15} />
-            </button>
-          </div>
+            </span>
+            <ChevronRight size={16} />
+          </button>
           <div className="mn-list">
-            {data.notifications.slice(0, 3).map((item) => (
+            {data.notifications.slice(0, 2).map((item) => (
               <NotifItem key={item.id} item={item} onOpen={onNotifications} />
             ))}
           </div>
         </section>
       )}
-
-      <section className="mini-card">
-        <div className="mini-rows">
-          <button className="mini-row" onClick={() => onTab("history")}>
-            <span className="mini-ico">
-              <CalendarDays size={18} />
-            </span>
-            <span>
-              <b>Davomat tarixi</b>
-              <small>Kalendar va barcha qaydlar</small>
-            </span>
-            <ChevronRight size={18} style={{ opacity: 0.5 }} />
-          </button>
-        </div>
-      </section>
     </div>
   );
 }
@@ -603,6 +615,31 @@ function getPosition(highAccuracy: boolean) {
       maximumAge: highAccuracy ? 0 : 30_000,
     });
   });
+}
+
+/**
+ * GPS'ni Face ID bilan parallel boshlash: tugma bosilganda joylashuv so‘raladi,
+ * Face ID tugaguncha u tayyor bo‘ladi. Natija 60 soniya ichida qayta ishlatiladi.
+ */
+let gpsPrefetch: { at: number; promise: Promise<GeolocationPosition> } | null = null;
+export function prefetchPosition() {
+  if (gpsPrefetch && Date.now() - gpsPrefetch.at < 20_000) return;
+  const promise = getPosition(true).catch((reason) => {
+    if ((reason as GeolocationPositionError)?.code === 1) throw reason;
+    return getPosition(false);
+  });
+  promise.catch(() => undefined);
+  gpsPrefetch = { at: Date.now(), promise };
+}
+async function takePrefetchedPosition() {
+  const current = gpsPrefetch;
+  gpsPrefetch = null;
+  if (!current || Date.now() - current.at > 60_000) return null;
+  try {
+    return await current.promise;
+  } catch {
+    return null;
+  }
 }
 
 function AttendanceFlow({
@@ -630,12 +667,14 @@ function AttendanceFlow({
     setGpsState("loading");
     setGpsError("");
     try {
-      let position: GeolocationPosition;
-      try {
-        position = await getPosition(true);
-      } catch (reason) {
-        if ((reason as GeolocationPositionError)?.code === 1) throw reason;
-        position = await getPosition(false);
+      let position: GeolocationPosition | null = await takePrefetchedPosition();
+      if (!position) {
+        try {
+          position = await getPosition(true);
+        } catch (reason) {
+          if ((reason as GeolocationPositionError)?.code === 1) throw reason;
+          position = await getPosition(false);
+        }
       }
       const { latitude, longitude, accuracy } = position.coords;
       const distance = haversineDistance(latitude, longitude, branch.latitude, branch.longitude);

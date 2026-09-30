@@ -18,7 +18,7 @@ import {
   matchFace,
   faceMatchThreshold,
 } from "../lib/face";
-import type { Attendance, Database, LeaveRequest } from "../lib/types";
+import type { Attendance, Database, Employee, LeaveRequest } from "../lib/types";
 import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
 import { onStafforaAttendance } from "./integrations/hooks";
 import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
@@ -91,6 +91,54 @@ function monthSummary(db: Database, employeeId: string) {
   };
 }
 
+function buildHome(db: Database, employee: Employee) {
+  const date = tashkentIsoDate();
+  const notifications = ownNotifications(db, employee.id, employee.companyId);
+  const todayLeave = db.leaveRequests.find(
+    (item) =>
+      item.employeeId === employee.id &&
+      item.status === "APPROVED" &&
+      item.startDate <= date &&
+      item.endDate >= date,
+  );
+  return {
+    employee,
+    company: db.companies.find((item) => item.id === employee.companyId),
+    branch: db.branches.find((item) => item.id === employee.branchId) || null,
+    department:
+      db.departments.find((item) => item.id === employee.departmentId) ||
+      null,
+    position:
+      db.positions.find((item) => item.id === employee.positionId) || null,
+    schedule:
+      db.schedules.find((item) => item.id === employee.scheduleId) || null,
+    attendance: dataIndexes(db).attendanceByKey.get(`${employee.id}|${date}`),
+    todayLeave: todayLeave || null,
+    month: monthSummary(db, employee.id),
+    serverTime: new Date().toISOString(),
+    notifications: notifications.slice(0, 5),
+    unreadNotifications: notifications.filter((n) => !n.read).length,
+  };
+}
+
+/**
+ * Mini App limitlari xodim bo‘yicha (IP bo‘yicha emas): ertalab butun ofis bitta
+ * Wi‑Fi dan kirganda bir-birini bloklab qo‘ymasin. Har bir xodim o‘z chegarasiga ega.
+ */
+function perEmployeeLimit(limit: number) {
+  return rateLimit({
+    windowMs: 60_000,
+    limit,
+    standardHeaders: true,
+    legacyHeaders: false,
+    keyGenerator: (req) => {
+      const session = (req as unknown as { employeeSession?: EmployeeSession }).employeeSession;
+      return session ? `emp:${session.companyId}:${session.employeeId}` : `ip:${req.ip}`;
+    },
+    message: { message: "Juda ko‘p urinish. Bir daqiqadan keyin qayta urinib ko‘ring." },
+  });
+}
+
 function ownNotifications(db: Database, employeeId: string, companyId: string) {
   return db.notifications
     .filter((item) => item.companyId === companyId && item.employeeId === employeeId)
@@ -101,7 +149,8 @@ export function createMiniRouter() {
   const router = Router();
   router.post(
     "/telegram/auth",
-    rateLimit({ windowMs: 60_000, limit: 30 }),
+    // Ofisdagi hamma bitta Wi‑Fi (bitta IP) dan kirishi mumkin — limit keng.
+    rateLimit({ windowMs: 60_000, limit: 400, standardHeaders: true, legacyHeaders: false }),
     asyncRoute(async (req, res) => {
       const { initData } = z
         .object({ initData: z.string().max(8192) })
@@ -190,7 +239,7 @@ export function createMiniRouter() {
         maxAge: 24 * 3600_000,
       });
       // Cookie bloklangan muhitlar (iOS, Telegram Web) uchun Bearer token ham qaytariladi.
-      return res.json({ ok: true, employeeId: employee.id, token });
+      return res.json({ ok: true, employeeId: employee.id, token, home: buildHome(db, employee) });
     }),
   );
   router.post("/telegram/logout", (_req, res) => {
@@ -213,32 +262,7 @@ export function createMiniRouter() {
         return res
           .status(403)
           .json({ message: "Xodim profili faol emas. HR bilan bog‘laning." });
-      const date = tashkentIsoDate();
-      const todayLeave = db.leaveRequests.find(
-        (item) =>
-          item.employeeId === employee.id &&
-          item.status === "APPROVED" &&
-          item.startDate <= date &&
-          item.endDate >= date,
-      );
-      return res.json({
-        employee,
-        company: db.companies.find((item) => item.id === employee.companyId),
-        branch: db.branches.find((item) => item.id === employee.branchId) || null,
-        department:
-          db.departments.find((item) => item.id === employee.departmentId) ||
-          null,
-        position:
-          db.positions.find((item) => item.id === employee.positionId) || null,
-        schedule:
-          db.schedules.find((item) => item.id === employee.scheduleId) || null,
-        attendance: dataIndexes(db).attendanceByKey.get(`${employee.id}|${date}`),
-        todayLeave: todayLeave || null,
-        month: monthSummary(db, employee.id),
-        serverTime: new Date().toISOString(),
-        notifications: ownNotifications(db, employee.id, employee.companyId).slice(0, 5),
-        unreadNotifications: ownNotifications(db, employee.id, employee.companyId).filter((n) => !n.read).length,
-      });
+      return res.json(buildHome(db, employee));
     }),
   );
   // Xodimning shaxsiy xabarnomalari (o‘qilgan/o‘qilmagan holati bilan).
@@ -311,7 +335,7 @@ export function createMiniRouter() {
   );
   router.post(
     "/mini/leave",
-    rateLimit({ windowMs: 60_000, limit: 10 }),
+    perEmployeeLimit(10),
     asyncRoute(async (req, res) => {
       const input = z
         .object({
@@ -400,7 +424,7 @@ export function createMiniRouter() {
 
   router.post(
     "/mini/face/enroll",
-    rateLimit({ windowMs: 60_000, limit: 6 }),
+    perEmployeeLimit(6),
     asyncRoute(async (req, res) => {
       const input = z
         .object({
@@ -479,7 +503,7 @@ export function createMiniRouter() {
   );
   router.post(
     "/mini/face/verify",
-    rateLimit({ windowMs: 60_000, limit: 10 }),
+    perEmployeeLimit(10),
     asyncRoute(async (req, res) => {
       const { descriptor, turnDescriptor, liveness } = z
         .object({ descriptor: descriptorSchema, turnDescriptor: descriptorSchema.optional(), liveness: livenessSchema })
@@ -546,7 +570,7 @@ export function createMiniRouter() {
   );
   router.post(
     "/mini/attendance/session",
-    rateLimit({ windowMs: 60_000, limit: 12 }),
+    perEmployeeLimit(12),
     asyncRoute(async (req, res) => {
       const { action, faceProof } = z
         .object({
@@ -623,7 +647,7 @@ export function createMiniRouter() {
   );
   router.post(
     "/mini/attendance/commit",
-    rateLimit({ windowMs: 60_000, limit: 12 }),
+    perEmployeeLimit(12),
     asyncRoute(async (req, res) => {
       const input = z
         .object({

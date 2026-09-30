@@ -527,8 +527,18 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
       reason instanceof Error ? reason.message : "Telegram bilan aloqa xatosi";
     botState = { state: "error", webAppUrl, error: message };
     console.error("Telegram bot sozlanmadi", reason);
+    // Vaqtinchalik tarmoq xatosi bo‘lsa bot o‘chiq qolib ketmasin — qayta urinamiz.
+    const unauthorized = reason instanceof GrammyError && reason.error_code === 401;
+    if (!stopping && !unauthorized) {
+      startAttempts += 1;
+      const delay = Math.min(5 * 60_000, 10_000 * 2 ** Math.min(5, startAttempts - 1));
+      setTimeout(() => {
+        if (!stopping && botState.state === "error") void startTelegramBot();
+      }, delay).unref();
+    }
   }
 }
+let startAttempts = 0;
 
 /** Polling: 409 (boshqa instansiya ishlayapti) yoki tarmoq xatosida qayta urinadi. */
 async function runPolling(bot: Bot, username: string, webAppUrl: string) {
@@ -649,6 +659,21 @@ export function botApi() {
   if (!token) return undefined;
   return activeBot?.api || (sharedApi ||= new Api(token));
 }
+// Telegram bitta botga soniyasiga ~30 xabar ruxsat beradi — biz 25 tadan oshirmaymiz.
+const SEND_SPACING_MS = 40;
+let nextSendAt = 0;
+async function sendSlot() {
+  const now = Date.now();
+  const at = Math.max(now, nextSendAt);
+  nextSendAt = at + SEND_SPACING_MS;
+  if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+}
+
+/**
+ * Xodimga xabar. Ko‘p xabar birdan yuborilsa ham navbat bilan ketadi, Telegram
+ * 429 qaytarsa ko‘rsatilgan vaqt kutib qayta uriniladi. Xodim botni bloklagan
+ * bo‘lsa (403) — xato otilmaydi, false qaytadi.
+ */
 export async function sendTelegramMessage(
   telegramId: string,
   text: string,
@@ -658,17 +683,28 @@ export async function sendTelegramMessage(
   if (!token) return false;
   const api = activeBot?.api || (sharedApi ||= new Api(token));
   const { webAppUrl, ok } = resolveWebAppUrl();
-  await api.sendMessage(
-    telegramId,
-    text,
+  const extra =
     options.openButton && ok
-      ? {
-          reply_markup: new InlineKeyboard().webApp(
-            "📲 Staffora’ni ochish",
-            webAppUrl,
-          ),
+      ? { reply_markup: new InlineKeyboard().webApp("📲 Staffora’ni ochish", webAppUrl) }
+      : undefined;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    await sendSlot();
+    try {
+      await api.sendMessage(telegramId, text, extra);
+      return true;
+    } catch (reason) {
+      if (reason instanceof GrammyError) {
+        if (reason.error_code === 429) {
+          const wait = Number(reason.parameters?.retry_after || 1) * 1000;
+          nextSendAt = Math.max(nextSendAt, Date.now() + wait);
+          continue;
         }
-      : undefined,
-  );
-  return true;
+        // Bloklagan, o‘chirilgan yoki botni boshlamagan foydalanuvchi — qayta urinish befoyda.
+        if (reason.error_code === 403 || reason.error_code === 400) return false;
+      }
+      if (attempt === 3) throw reason;
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+    }
+  }
+  return false;
 }

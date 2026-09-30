@@ -192,7 +192,12 @@ app.use(
     limit: Number(process.env.API_RATE_LIMIT_PER_MINUTE) || 3000,
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => req.path === "/telegram/webhook",
+    // Mini App yo‘llari o‘z (xodim bo‘yicha) limitiga ega — umumiy IP limiti ofisni bloklamasin.
+    skip: (req) =>
+      req.path === "/telegram/webhook" ||
+      req.path.startsWith("/mini/") ||
+      req.path === "/telegram/auth" ||
+      /^\/integrations\/[^/]+\/webhook$/.test(req.path),
     message: { message: "Juda ko‘p so‘rov. Birozdan keyin qayta urinib ko‘ring." },
   }),
 );
