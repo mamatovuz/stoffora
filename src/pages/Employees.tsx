@@ -33,6 +33,8 @@ import {
 import { del, errorText, post, put } from "../api";
 import { useAuth } from "../auth";
 import { CountdownConfirm } from "../components/CountdownConfirm";
+import { DocumentsPanel } from "../components/Documents";
+import { can } from "@/lib/permissions";
 import { useApi, useDebounced } from "../hooks";
 import {
   Avatar,
@@ -651,6 +653,7 @@ export function EmployeeProfilePage() {
   const [purge, setPurge] = useState(false);
   const { user } = useAuth();
   const isOwner = user?.role === "COMPANY_OWNER";
+  const canEditDocs = Boolean(user && can(user.role, "employees.edit"));
   const navigate = useNavigate();
 
   if (loading && !data)
@@ -680,6 +683,7 @@ export function EmployeeProfilePage() {
     ["overview", "Umumiy"],
     ["attendance", `Davomat (${data.attendance.length})`],
     ["leave", `Ta’til (${data.leave.length})`],
+    ["documents", "Hujjatlar"],
     ["connect", "Telegram va Face ID"],
     ["activity", "Faoliyat"],
   ];
@@ -875,6 +879,7 @@ export function EmployeeProfilePage() {
               </div>
             )}
             {tab === "attendance" && <AttendanceTable rows={data.attendance} />}
+            {tab === "documents" && <DocumentsPanel employeeId={e.id} canEdit={canEditDocs} />}
             {tab === "leave" &&
               (data.leave.length ? (
                 <div className="table-wrap">

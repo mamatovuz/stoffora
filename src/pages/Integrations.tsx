@@ -32,7 +32,7 @@ import { Confirm, Empty, ErrorBox, Field, Loading, Modal, Segmented, useToast } 
 type SyncMode = "IMPORT" | "EXPORT" | "TWO_WAY" | "OFF";
 type Entity = "branch" | "department" | "position" | "employee" | "attendance";
 type Channel = "staffora" | "telegram" | "bot";
-type Category = "attendance" | "leave" | "announcements" | "system" | "payroll";
+type Category = "attendance" | "leave" | "announcements" | "system" | "payroll" | "hr";
 interface Settings {
   syncModes: Record<Entity, SyncMode>;
   conflictStrategy: "STAFFORA_WINS" | "BOT_WINS" | "LATEST" | "MANUAL";
@@ -1200,6 +1200,7 @@ const categoryLabels: Record<Category, [string, string]> = {
   announcements: ["E’lonlar", "Yangi e’lon uchun standart kanallar"],
   system: ["Tizim", "Xizmat xabarlari"],
   payroll: ["Ish haqi", "Oylik hisob varaqasi (oy yopilganda)"],
+  hr: ["HR", "Tabriklar, hujjat muddati eslatmalari"],
 };
 const channelLabels: Record<Channel, string> = { staffora: "Staffora", telegram: "Staffora boti", bot: "Xodimlar boti" };
 

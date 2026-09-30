@@ -47,7 +47,7 @@ export function onStafforaAttendance(companyId: string, attendance: Attendance, 
   })().catch((error) => console.error("Davomatni botga navbatlashda xato", error));
 }
 
-export type RoutingCategory = "attendance" | "leave" | "announcements" | "system" | "payroll";
+export type RoutingCategory = "attendance" | "leave" | "announcements" | "system" | "payroll" | "hr";
 
 /**
  * Xodimga xabar yuborish — sozlamadagi yo‘nalish bo‘yicha:

@@ -75,6 +75,9 @@ const QrScreen = lazy(() =>
 const SuperAdminPage = lazy(() =>
   import("./pages/SuperAdmin").then((m) => ({ default: m.SuperAdminPage })),
 );
+const AnalyticsPage = lazy(() =>
+  import("./pages/Analytics").then((m) => ({ default: m.AnalyticsPage })),
+);
 const RegistrationsPage = lazy(() =>
   import("./pages/Registrations").then((m) => ({ default: m.RegistrationsPage })),
 );
@@ -131,6 +134,7 @@ export default function App() {
           <Route path="/leave" element={<LeavePage />} />
           <Route path="/payroll" element={<PayrollPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/announcements" element={<AnnouncementsPage />} />
           <Route path="/notifications" element={<NotificationsPage />} />
           <Route path="/audit" element={<AuditPage />} />

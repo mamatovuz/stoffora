@@ -613,7 +613,7 @@ export interface IntegrationSettings {
    */
   miniAppLink?: string;
   /** Bildirishnoma yo‘nalishlari: toifa → kanallar. */
-  routing: Record<"attendance" | "leave" | "announcements" | "system" | "payroll", NotificationChannel[]>;
+  routing: Record<"attendance" | "leave" | "announcements" | "system" | "payroll" | "hr", NotificationChannel[]>;
 }
 
 export interface Integration {

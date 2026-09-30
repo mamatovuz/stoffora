@@ -76,8 +76,8 @@ export function datesBetween(from: string, to: string) {
 
 type DayCode = { code: string; tone: Tone; note?: string; kind: "present" | "late" | "absent" | "leave" | "off" | "open" | "none" | "practice" };
 
-/** Bitta xodimning bitta kundagi holati (tabel uchun). */
-function dayStatus(db: Database, employee: Employee, date: string, today: string, record?: Attendance): DayCode {
+/** Bitta xodimning bitta kundagi holati (tabel va tahlil uchun). */
+export function dayStatus(db: Database, employee: Employee, date: string, today: string, record?: Attendance): DayCode {
   if (date < employee.startDate || date > today) return { code: "", tone: "gray", kind: "none" };
   const company = db.companies.find((c) => c.id === employee.companyId);
   if (isPracticeDay(date, company, employee))

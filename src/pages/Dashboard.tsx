@@ -14,6 +14,11 @@ import {
   Send,
   UserPlus,
   Users,
+  Bot,
+  Wallet,
+  Banknote,
+  PartyPopper,
+  X,
 } from "lucide-react";
 import {
   Bar,
@@ -54,7 +59,12 @@ type Dashboard = {
     employees: number;
     telegramLinked: number;
     faceEnrolled: number;
+    salaries: number;
+    payrollConfigured: boolean;
+    companyBot: boolean;
+    panelUsers: number;
   };
+  celebrations: { employeeId: string; name: string; kind: "BIRTHDAY" | "ANNIVERSARY"; date: string; daysLeft: number; years: number }[];
   bot: { state: string; username?: string };
   notifications: Notification[];
   leave: number;
@@ -79,6 +89,15 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const [days, setDays] = useState<"7" | "14" | "30">("7");
   const { data, loading, error, reload } = useApi<Dashboard>(`/dashboard?days=${days}`);
+  // Yashirilgan bo‘lsa — yangi qadam bajarilgunicha ko‘rinmaydi.
+  const [hiddenAt, setHiddenAt] = useState<number | null>(() => {
+    try {
+      const value = localStorage.getItem("staffora_hide_setup");
+      return value === null ? null : Number(value);
+    } catch {
+      return null;
+    }
+  });
   usePolling(() => void reload(true), 30_000);
 
   if (loading && !data)
@@ -131,6 +150,13 @@ export function DashboardPage() {
       icon: UserPlus,
     },
     {
+      done: setup.companyBot,
+      title: "Ro‘yxat botini ulang",
+      text: "Xodimlar botda anketa to‘ldirib o‘zlari qo‘shiladi",
+      to: "/settings?tab=regbot",
+      icon: Bot,
+    },
+    {
       done: setup.employees > 0 && setup.telegramLinked > 0,
       title: "Xodimlar Telegram’ni ulasin",
       text: data.bot.username
@@ -139,8 +165,24 @@ export function DashboardPage() {
       to: "/employees",
       icon: Send,
     },
+    {
+      done: setup.payrollConfigured,
+      title: "Ish haqi qoidalari",
+      text: "Kechikish jarimasi, qo‘shimcha ish, kelmaslik ushlanmasi",
+      to: "/settings?tab=payroll",
+      icon: Wallet,
+    },
+    {
+      done: setup.employees > 0 && setup.salaries >= setup.employees,
+      title: "Oyliklarni kiriting",
+      text: `${setup.salaries} / ${setup.employees} xodimning oyligi kiritilgan`,
+      to: "/payroll",
+      icon: Banknote,
+    },
   ];
   const setupDone = steps.filter((step) => step.done).length;
+  const canSetup = user?.role === "COMPANY_OWNER" || user?.role === "HR_ADMIN";
+  const hideSetup = hiddenAt !== null && hiddenAt >= setupDone;
   const chart = data.weekly.map((item) => ({
     ...item,
     day: days === "7" ? weekdayShortUz(item.date) : String(Number(item.date.slice(8))),
@@ -170,11 +212,26 @@ export function DashboardPage() {
         }
       />
 
-      {setupDone < steps.length && (
+      {canSetup && setupDone < steps.length && !hideSetup && (
         <section className="card onboarding">
           <div>
             <span className="badge blue plain">Boshlash</span>
-            <h2 style={{ marginTop: 10 }}>Staffora’ni 5 qadamda sozlang</h2>
+            <button
+              className="icon-btn onboarding-close"
+              aria-label="Yashirish"
+              title="Keyinroq"
+              onClick={() => {
+                setHiddenAt(setupDone);
+                try {
+                  localStorage.setItem("staffora_hide_setup", String(setupDone));
+                } catch {
+                  /* e’tiborsiz */
+                }
+              }}
+            >
+              <X size={16} />
+            </button>
+            <h2 style={{ marginTop: 10 }}>Staffora’ni {steps.length} qadamda sozlang</h2>
             <p>
               Keldi-ketdi ishlashi uchun avval grafik va filial kerak. So‘ng
               xodimlarni qo‘shing — ular botda telefon raqamini yuborib avtomatik
@@ -483,6 +540,30 @@ export function DashboardPage() {
           />
         )}
       </section>
+      {data.celebrations.length > 0 && (
+        <section className="card celebrations">
+          <div className="card-head">
+            <div>
+              <h2>
+                <PartyPopper size={17} /> Yaqin tabriklar
+              </h2>
+              <p>Tug‘ilgan kun va ish yubileylari — xodimga bot orqali avtomatik tabrik boradi</p>
+            </div>
+          </div>
+          <div className="celebration-list">
+            {data.celebrations.map((c) => (
+              <Link key={`${c.kind}-${c.employeeId}`} to={`/employees/${c.employeeId}`} className={`celebration ${c.daysLeft === 0 ? "today" : ""}`}>
+                <span className="celebration-icon">{c.kind === "BIRTHDAY" ? "🎂" : "🏆"}</span>
+                <span>
+                  <b>{c.name}</b>
+                  <small>{c.kind === "BIRTHDAY" ? `Tug‘ilgan kun · ${c.years} yosh` : `${c.years} yillik ish yubileyi`}</small>
+                </span>
+                <em>{c.daysLeft === 0 ? "Bugun" : c.daysLeft === 1 ? "Ertaga" : `${c.daysLeft} kundan keyin`}</em>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
       {setup.employees > 0 && setup.faceEnrolled < setup.employees && (
         <div className="alert info" style={{ marginTop: 16 }}>
           <ScanFace size={18} />

@@ -76,6 +76,9 @@ import { payrollRows, penaltyText, registerExcelReports } from "./reports";
 import { createIntegrationRouter, createIntegrationWebhookRouter } from "./integrations/routes";
 import { startIntegrationWorker } from "./integrations/worker";
 import { closedPeriod, createPayrollRouter } from "./payroll-routes";
+import { createDocumentRouter } from "./documents";
+import { createAnalyticsRouter } from "./analytics";
+import { startHrWorker, upcomingCelebrations } from "./hr-worker";
 import {
   createCompanyBotRouter,
   createCompanyBotWebhookRouter,
@@ -572,6 +575,8 @@ app.use("/api", requireAuth);
 app.use("/api", createIntegrationRouter());
 app.use("/api", createCompanyBotRouter());
 app.use("/api", createPayrollRouter());
+app.use("/api", createDocumentRouter());
+app.use("/api", createAnalyticsRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();
@@ -1248,7 +1253,16 @@ app.get(
         employees: employees.length,
         telegramLinked: employees.filter((e) => e.telegramConnected).length,
         faceEnrolled: employees.filter((e) => e.faceEnrolledAt).length,
+        salaries: employees.filter((e) => e.baseSalary > 0).length,
+        payrollConfigured: Boolean(db.companies.find((c) => c.id === tenant)?.payroll),
+        companyBot: Boolean(db.companies.find((c) => c.id === tenant)?.bot?.tokenEnc),
+        panelUsers: db.users.filter((u) => u.companyId === tenant).length,
       },
+      // Yaqin 14 kundagi tug‘ilgan kun va ish yubileylari.
+      celebrations: upcomingCelebrations(db, tenant, 14).filter((c) => {
+        const e = db.employees.find((x) => x.id === c.employeeId);
+        return e ? inScope(scope, e.branchId) : false;
+      }).slice(0, 8),
       bot: {
         state: getTelegramBotState().state,
         username: telegramBotUsername(),
@@ -3068,6 +3082,7 @@ void startTelegramBot();
 startAttendanceReminders();
 startPhotoChannelWorker();
 startIntegrationWorker();
+startHrWorker();
 void startCompanyBots();
 void updateDb((db) => {
   const fixed = new Map<string, number>();

@@ -33,6 +33,7 @@ export function defaultIntegrationSettings(): IntegrationSettings {
       announcements: ["staffora", "telegram", "bot"],
       system: ["staffora"],
       payroll: ["staffora", "telegram", "bot"],
+      hr: ["staffora", "telegram", "bot"],
     },
   };
 }

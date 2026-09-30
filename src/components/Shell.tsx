@@ -35,6 +35,7 @@ import {
   UserMinus,
   Lock,
   ClipboardCheck,
+  TrendingUp,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -72,6 +73,7 @@ const sections: { label: string; items: NavItem[] }[] = [
     label: "Hisobot va aloqa",
     items: [
       ["/payroll", "Ish haqi", Banknote],
+      ["/analytics", "Tahlil", TrendingUp],
       ["/reports", "Hisobotlar", ChartNoAxesCombined],
       ["/announcements", "E’lonlar", Megaphone],
       ["/notifications", "Bildirishnomalar", Bell, "notifications"],

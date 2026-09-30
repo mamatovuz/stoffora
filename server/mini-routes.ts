@@ -24,6 +24,7 @@ import { onStafforaAttendance } from "./integrations/hooks";
 import { verifyViaEmployeeBot } from "./integrations/identity";
 import { dayPlan } from "../lib/schedule";
 import { FLAG_LABELS, gpsFlags } from "../lib/gps";
+import { createMiniDocumentRouter } from "./documents";
 import { companyBotTokens } from "./company-bots";
 import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
 import { enqueueAttendancePhoto } from "./photo-channel";
@@ -299,6 +300,7 @@ export function createMiniRouter() {
   });
 
   router.use("/mini", requireEmployee);
+  router.use(createMiniDocumentRouter());
   router.get(
     "/mini/home",
     asyncRoute(async (req, res) => {

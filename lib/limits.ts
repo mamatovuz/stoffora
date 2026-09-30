@@ -60,6 +60,11 @@ export function purgeEmployees(db: Database, companyId: string, ids: Set<string>
   // Yuz ma’lumoti (Face ID vektorlari, oxirgi skan) va navbatdagi keldi-ketdi rasmlari ham o‘chadi.
   db.faceProfiles = db.faceProfiles.filter((f) => !mine(f));
   db.photoQueue = db.photoQueue.filter((job) => !mine(job));
+  // Hujjatlar (fayllari kechasi tozalanadi) va grafik o‘zgarishlari, smena almashishlari.
+  db.documents = db.documents.filter((d) => !mine(d));
+  db.scheduleOverrides = db.scheduleOverrides.filter((o) => !mine(o));
+  db.shiftSwaps = db.shiftSwaps.filter((s) => !(s.companyId === companyId && (ids.has(s.requesterId) || ids.has(s.colleagueId))));
+  db.payrollAdjustments = db.payrollAdjustments.filter((a) => !mine(a));
   db.telegramInvites = db.telegramInvites.filter((i) => !mine(i));
   db.attendanceSessions = db.attendanceSessions.filter((s) => !mine(s));
   db.notifications = db.notifications.filter((n) => !mine(n));
