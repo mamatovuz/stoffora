@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { CountingStartCard, IntegrationCenter } from "./Integrations";
 import { CompanyBotSection } from "./Registrations";
+import { FormBuilder } from "./FormBuilder";
 import { canAny } from "@/lib/permissions";
 
 /** Har bir tab uchun kerakli ruxsat (bo‘sh — hamma panel foydalanuvchisi). */
@@ -71,7 +72,7 @@ export function SettingsPage() {
   const requested = (params.get("tab") as Tab) || "profile";
   const tab = allowed.some(([key]) => key === requested) ? requested : "profile";
   return (
-    <div className={`page ${tab === "integrations" ? "wide-settings" : "narrow"}`}>
+    <div className={`page ${tab === "integrations" || tab === "regbot" ? "wide-settings" : "narrow"}`}>
       <PageHeader title="Sozlamalar" subtitle="Profil, xavfsizlik, qurilmalar va kompaniya" />
       <div className="settings-layout">
         <nav className="settings-nav card">
@@ -104,7 +105,12 @@ export function SettingsPage() {
           {tab === "channel" && <PhotoChannelSection />}
           {tab === "bot" && <BotSection />}
           {tab === "integrations" && <IntegrationCenter />}
-          {tab === "regbot" && <CompanyBotSection />}
+          {tab === "regbot" && (
+            <>
+              <CompanyBotSection />
+              <FormBuilder />
+            </>
+          )}
         </div>
       </div>
     </div>

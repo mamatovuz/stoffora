@@ -796,6 +796,14 @@ export function EmployeeProfilePage() {
                   }
                 />
                 <Info label="Xodim ID" value={e.employeeNo} />
+                {e.birthDate && <Info label="Tug‘ilgan sana" value={e.birthDate.split("-").reverse().join(".")} />}
+                {e.parentPhone && <Info label="Ota-ona telefoni" value={e.parentPhone} />}
+                {e.shift && <Info label="Smena" value={{ DAY: "Kunduzgi", NIGHT: "Kechki", BOTH: "Qo‘sh smena" }[e.shift]} />}
+                {e.education && <Info label="Ma’lumoti" value={e.education} />}
+                {Object.entries(e.customFields || {}).map(([label, value]) => (
+                  <Info key={label} label={label} value={value} />
+                ))}
+                {e.registrationId && <Info label="Qo‘shilgan" value="Botdagi anketa orqali" />}
               </div>
             )}
             {tab === "attendance" && <AttendanceTable rows={data.attendance} />}

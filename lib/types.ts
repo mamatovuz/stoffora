@@ -26,6 +26,8 @@ export interface Company {
   attendanceCounting?: AttendanceCountingSettings;
   /** Kompaniyaning o‘z Telegram boti (ro‘yxatdan o‘tish, xabarlar, Mini App). */
   bot?: CompanyBotSettings;
+  /** Botdagi xodim anketasi (savollar kompaniyaga moslab sozlanadi). */
+  registrationForm?: RegistrationForm;
 }
 export interface CompanyBotSettings {
   /** AES-256-GCM bilan shifrlangan bot tokeni — frontendga qaytmaydi. */
@@ -155,6 +157,8 @@ export interface Employee {
   shift?: "DAY" | "NIGHT" | "BOTH";
   /** Botdagi anketa orqali ro‘yxatdan o‘tgan bo‘lsa — ariza ID si. */
   registrationId?: string;
+  /** Anketadagi qo‘shimcha savollar javoblari (savol → javob). */
+  customFields?: Record<string, string>;
   createdAt: string;
   updatedAt: string;
 }
@@ -368,7 +372,8 @@ export interface Database {
 }
 
 /* ------------------------------------------ botdagi ro‘yxatdan o‘tish --- */
-export type RegistrationStep =
+/** Xodim profiliga bevosita yoziladigan (tizim) maydonlari. */
+export type BuiltinField =
   | "fullName"
   | "birthDate"
   | "phone"
@@ -379,11 +384,48 @@ export type RegistrationStep =
   | "shift"
   | "workHours"
   | "salary"
-  | "salaryConfirm"
   | "restDay"
-  | "education"
-  | "summary"
-  | "editPick";
+  | "education";
+export type QuestionType =
+  | "name"
+  | "text"
+  | "number"
+  | "date"
+  | "birthdate"
+  | "phone"
+  | "money"
+  | "choice"
+  | "yesno"
+  | "position"
+  | "branch"
+  | "shift"
+  | "workHours"
+  | "weekday";
+/** Anketa savoli — kompaniya panelda qo‘shadi, o‘chiradi, tahrirlaydi. */
+export interface RegistrationQuestion {
+  id: string;
+  /** Tizim maydoni bo‘lsa — javob xodim profilidagi shu maydonga yoziladi. */
+  field?: BuiltinField;
+  type: QuestionType;
+  title: string;
+  hint?: string;
+  options?: string[];
+  required: boolean;
+  enabled: boolean;
+}
+export interface RegistrationForm {
+  questions: RegistrationQuestion[];
+  /** /start dagi salomlashish matni ({company} — kompaniya nomi). */
+  intro?: string;
+  /** Anketa yuborilgandan keyingi matn. */
+  submittedText?: string;
+  /** Tasdiqlanganda xodimga boradigan matn ({name}, {company}). */
+  approvedText?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+/** Anketa holati: savol ID si yoki xulosa / tahrirlash tanlovi. */
+export type RegistrationStep = string;
 export interface RegistrationData {
   fullName?: string;
   birthDate?: string;
@@ -398,6 +440,8 @@ export interface RegistrationData {
   /** 0–6 (yakshanba=0) yoki -1 — dam olishsiz. */
   restDay?: number;
   education?: string;
+  /** Kompaniya qo‘shgan savollar javoblari (savol ID → javob). */
+  custom?: Record<string, string>;
 }
 export interface RegistrationRequest {
   id: string;
@@ -409,6 +453,10 @@ export interface RegistrationRequest {
   step: RegistrationStep;
   /** Bitta maydonni tahrirlayapti — javobdan keyin xulosaga qaytadi. */
   editing?: boolean;
+  /** Summa kiritildi — tasdiqlash kutilmoqda. */
+  confirming?: boolean;
+  /** Yuborilgan paytdagi savollar (sarlavhalar o‘zgarsa ham ariza to‘g‘ri ko‘rinadi). */
+  questions?: RegistrationQuestion[];
   data: RegistrationData;
   lastPromptId?: number;
   hrMessages?: { chatId: string; messageId: number }[];

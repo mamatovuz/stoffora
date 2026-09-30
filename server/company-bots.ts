@@ -4,31 +4,35 @@ import { Api, Bot, GrammyError, InlineKeyboard, webhookCallback, type Context } 
 import { z } from "zod";
 import { audit, readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
-import type { Company, CompanyBotSettings, Database, Employee, RegistrationData, RegistrationRequest, RegistrationStep } from "../lib/types";
+import type { Company, CompanyBotSettings, Database, Employee, RegistrationForm, RegistrationQuestion, RegistrationRequest } from "../lib/types";
 import type { AuthedRequest } from "./auth";
 import { registerCompanyBotApi } from "./bot-registry";
 import { decryptSecret, encryptSecret } from "./integrations/secrets";
 import {
-  EDUCATION_OPTIONS,
-  FIELD_LABELS,
-  QUESTION_ORDER,
-  SHIFTS,
-  WEEKDAYS,
-  WEEK_ORDER,
+  BUILTINS,
+  CUSTOM_TYPES,
+  DEFAULT_TEXTS,
+  activeQuestions,
   approveRegistration,
-  checkAddress,
-  checkBirthDate,
-  checkFullName,
-  checkPhone,
-  checkSalary,
-  checkWorkHours,
+  buttonsFor,
+  companyForm,
+  describe,
+  escape,
+  findQuestion,
+  firstStep,
+  firstUnanswered,
   isComplete,
-  money,
+  lookupsFor,
   nextStep,
+  normalizeForm,
+  parseButton,
   previousStep,
   questionText,
   rejectRegistration,
+  setValue,
+  shortLabel,
   summaryText,
+  validateText,
 } from "./registration";
 import { resolveWebAppUrl } from "./telegram";
 
@@ -44,7 +48,6 @@ type Running = { bot: Bot; token: string; webhook?: (req: Request, res: Response
 const running = new Map<string, Running>();
 let stopping = false;
 
-const escape = (value: string) => value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 export function defaultBotSettings(): CompanyBotSettings {
   return { enabled: false, registrationEnabled: true, approverTelegramIds: [] };
@@ -115,6 +118,13 @@ export async function startCompanyBot(companyId: string) {
       { command: "cancel", description: "Anketani bekor qilish" },
     ]);
     if (ok) await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "Staffora", web_app: { url: webAppUrl } } });
+    // START bosishdan oldingi oynada kompaniya nomi ko‘rinadi (bot nomi o‘zgartirilmaydi).
+    await bot.api
+      .setMyDescription(`🏢 ${company.name}
+
+Xodimlar uchun rasmiy bot: ro‘yxatdan o‘tish, keldi-ketdi va ish grafigi. Boshlash uchun «Start» ni bosing.`)
+      .catch(() => undefined);
+    await bot.api.setMyShortDescription(`${company.name} — xodimlar boti`.slice(0, 120)).catch(() => undefined);
     const useWebhook =
       process.env.TELEGRAM_USE_WEBHOOK === "true" ||
       (process.env.TELEGRAM_USE_WEBHOOK !== "false" && process.env.NODE_ENV === "production" && baseOk);
@@ -171,104 +181,75 @@ export function createCompanyBotWebhookRouter() {
 
 /* ------------------------------------------------------ bot mantiqi --- */
 
+/** Admin yozgan matn: hammasi xavfsiz, faqat <b>, <i>, <u> teglari qoladi. */
+function safeHtml(text: string) {
+  return escape(text).replace(/&lt;(\/?)(b|i|u)&gt;/g, "<$1$2>");
+}
+
 function webAppKeyboard(label = "📲 Profilimni ochish") {
   const { webAppUrl, ok } = resolveWebAppUrl();
   return ok ? new InlineKeyboard().webApp(label, webAppUrl) : undefined;
 }
 
-function lookups(db: Database, companyId: string, data: RegistrationData) {
-  return {
-    position: db.positions.find((p) => p.id === data.positionId && p.companyId === companyId)?.name,
-    branch: db.branches.find((b) => b.id === data.branchId && b.companyId === companyId)?.name,
-  };
-}
-
-function keyboardFor(db: Database, request: RegistrationRequest): InlineKeyboard {
+function keyboardFor(db: Database, request: RegistrationRequest, form: RegistrationForm): InlineKeyboard {
   const kb = new InlineKeyboard();
-  const nav = () => {
-    const back = previousStep(request.step);
-    if (request.editing) kb.row().text("⬅️ Xulosaga qaytish", "rg:summary");
-    else {
-      kb.row();
-      if (back) kb.text("⬅️ Orqaga", "rg:back");
-      kb.text("✖️ Bekor qilish", "rg:cancel");
-    }
-    return kb;
-  };
-  const tenant = request.companyId;
-  switch (request.step) {
-    case "positionId": {
-      const rows = db.positions.filter((p) => p.companyId === tenant).sort((a, b) => a.name.localeCompare(b.name));
-      rows.forEach((p, i) => {
-        if (i % 2 === 0) kb.row();
-        kb.text(p.name.slice(0, 40), `rg:pos:${p.id}`);
-      });
-      return nav();
-    }
-    case "branchId": {
-      const rows = db.branches.filter((b) => b.companyId === tenant && b.status === "ACTIVE").sort((a, b) => a.name.localeCompare(b.name));
-      rows.forEach((b, i) => {
-        if (i % 2 === 0) kb.row();
-        kb.text(b.name.slice(0, 40), `rg:br:${b.id}`);
-      });
-      return nav();
-    }
-    case "shift":
-      kb.row().text(SHIFTS.DAY.label, "rg:sh:DAY").row().text(SHIFTS.NIGHT.label, "rg:sh:NIGHT").row().text(SHIFTS.BOTH.label, "rg:sh:BOTH");
-      return nav();
-    case "workHours": {
-      const presets = SHIFTS[request.data.shift || "DAY"].hours;
-      kb.row();
-      presets.forEach((hours, i) => kb.text(`🕒 ${hours}`, `rg:wh:${i}`));
-      kb.row().text("✍️ Boshqa vaqt", "rg:wh:other");
-      return nav();
-    }
-    case "salaryConfirm":
-      kb.row().text("✅ Ha, to‘g‘ri", "rg:sc:yes").text("✏️ Tahrirlash", "rg:sc:edit");
-      return kb;
-    case "restDay":
-      WEEK_ORDER.forEach((day, i) => {
-        if (i % 3 === 0) kb.row();
-        kb.text(WEEKDAYS[day], `rg:rd:${day}`);
-      });
-      kb.row().text("♾ Dam olishsiz", "rg:rd:-1");
-      return nav();
-    case "education":
-      EDUCATION_OPTIONS.forEach((label, i) => kb.row().text(label, `rg:ed:${i}`));
-      return nav();
-    case "summary":
-      kb.row().text("✅ Tasdiqlash va yuborish", "rg:submit").row().text("✏️ Tahrirlash", "rg:edit").text("✖️ Bekor qilish", "rg:cancel");
-      return kb;
-    case "editPick":
-      (Object.keys(FIELD_LABELS) as (keyof RegistrationData)[]).forEach((key, i) => {
-        if (i % 2 === 0) kb.row();
-        kb.text(FIELD_LABELS[key], `rg:ef:${key}`);
-      });
+  const nav = (question?: RegistrationQuestion) => {
+    kb.row();
+    if (question && !question.required) kb.text("⏭ O‘tkazib yuborish", "rg:skip");
+    if (request.editing) {
       kb.row().text("⬅️ Xulosaga qaytish", "rg:summary");
       return kb;
-    default:
-      return nav();
+    }
+    const back = previousStep(form, request.step);
+    kb.row();
+    if (back) kb.text("⬅️ Orqaga", "rg:back");
+    kb.text("✖️ Bekor qilish", "rg:cancel");
+    return kb;
+  };
+  if (request.step === "summary") {
+    kb.row().text("✅ Tasdiqlash va yuborish", "rg:submit").row().text("✏️ Tahrirlash", "rg:edit").text("✖️ Bekor qilish", "rg:cancel");
+    return kb;
   }
+  if (request.step === "editPick") {
+    activeQuestions(form).forEach((q, i) => {
+      if (i % 2 === 0) kb.row();
+      kb.text(shortLabel(q).slice(0, 30), `rg:ef:${q.id}`);
+    });
+    kb.row().text("⬅️ Xulosaga qaytish", "rg:summary");
+    return kb;
+  }
+  const question = findQuestion(form, request.step);
+  if (!question) return kb;
+  if (request.confirming) {
+    kb.row().text("✅ Ha, to‘g‘ri", "rg:ok").text("✏️ Qayta yozish", "rg:redo");
+    return kb;
+  }
+  for (const row of buttonsFor(question, db, request.companyId, request.data) || []) {
+    kb.row();
+    for (const button of row) kb.text(button.label, `rg:a:${question.id}:${button.value}`);
+  }
+  return nav(question);
 }
 
-function promptText(db: Database, request: RegistrationRequest, company: Company) {
+function promptText(db: Database, request: RegistrationRequest, company: Company, form: RegistrationForm) {
+  const lookups = lookupsFor(db, company.id);
   if (request.step === "summary")
-    return summaryText(request, company.name, lookups(db, company.id, request.data), "Ma’lumotlar to‘g‘rimi? Tasdiqlasangiz, anketa HR bo‘limiga yuboriladi.");
-  if (request.step === "editPick")
-    return summaryText(request, company.name, lookups(db, company.id, request.data), "✏️ <b>Qaysi ma’lumotni o‘zgartirasiz?</b>");
-  return questionText(request.step, request.data, company.name);
+    return summaryText(form, request, company.name, lookups, "Ma’lumotlar to‘g‘rimi? Tasdiqlasangiz, anketa HR bo‘limiga yuboriladi.");
+  if (request.step === "editPick") return summaryText(form, request, company.name, lookups, "✏️ <b>Qaysi javobni o‘zgartirasiz?</b>");
+  const question = findQuestion(form, request.step);
+  if (!question) return summaryText(form, request, company.name, lookups);
+  return questionText(form, question, company.name, request.data, request.confirming);
 }
 
 /** Joriy savolni yuboradi; oldingi savol tugmalarini olib tashlaydi. */
-async function ask(ctx: Context, companyId: string, requestId: string, note?: string) {
+async function ask(ctx: Context, companyId: string, requestId: string) {
   const db = await readDb();
   const company = db.companies.find((c) => c.id === companyId);
   const request = db.registrations.find((r) => r.id === requestId);
   if (!company || !request || !ctx.chat) return;
-  if (request.lastPromptId)
-    await ctx.api.editMessageReplyMarkup(ctx.chat.id, request.lastPromptId).catch(() => undefined);
-  const text = `${note ? `${note}\n\n` : ""}${promptText(db, request, company)}`;
-  const sent = await ctx.reply(text, { parse_mode: "HTML", reply_markup: keyboardFor(db, request) });
+  const form = companyForm(company);
+  if (request.lastPromptId) await ctx.api.editMessageReplyMarkup(ctx.chat.id, request.lastPromptId).catch(() => undefined);
+  const sent = await ctx.reply(promptText(db, request, company, form), { parse_mode: "HTML", reply_markup: keyboardFor(db, request, form) });
   await updateDb((next) => {
     const row = next.registrations.find((r) => r.id === requestId);
     if (row) row.lastPromptId = sent.message_id;
@@ -280,17 +261,48 @@ async function activeDraft(companyId: string, telegramId: string) {
   return db.registrations.find((r) => r.companyId === companyId && r.telegramId === telegramId && r.status === "DRAFT");
 }
 
-async function setAnswer(requestId: string, step: RegistrationStep, patch: Partial<RegistrationData>) {
+/** Javobni saqlab keyingi qadamga o‘tadi. `confirm` — summani tasdiqlatish. */
+async function answer(requestId: string, questionId: string, value: string | number | undefined, options: { confirm?: boolean } = {}) {
   return updateDb((db) => {
     const row = db.registrations.find((r) => r.id === requestId && r.status === "DRAFT");
     if (!row) return undefined;
-    Object.assign(row.data, patch);
+    const form = companyForm(db.companies.find((c) => c.id === row.companyId));
+    const question = findQuestion(form, questionId);
+    if (!question || row.step !== questionId) return { ...row };
+    setValue(question, row.data, value);
     // Smena o‘zgarsa oldingi ish vaqti yaroqsiz bo‘lishi mumkin.
-    if (step === "shift") row.data.workHours = undefined;
-    row.step = nextStep(row, step);
-    if (row.step === "summary") row.editing = false;
+    if (question.type === "shift") {
+      const hours = activeQuestions(form).find((q) => q.type === "workHours");
+      if (hours) setValue(hours, row.data, undefined);
+    }
+    if (options.confirm) row.confirming = true;
+    else {
+      row.confirming = false;
+      row.step = nextStep(form, row, questionId);
+      if (row.step === "summary") row.editing = false;
+    }
     row.updatedAt = new Date().toISOString();
     return { ...row };
+  });
+}
+
+async function moveTo(requestId: string, change: (row: RegistrationRequest, form: RegistrationForm) => void) {
+  return updateDb((db) => {
+    const row = db.registrations.find((r) => r.id === requestId && r.status === "DRAFT");
+    if (!row) return undefined;
+    change(row, companyForm(db.companies.find((c) => c.id === row.companyId)));
+    row.updatedAt = new Date().toISOString();
+    return { ...row };
+  });
+}
+
+async function cancelDraft(requestId: string) {
+  await updateDb((db) => {
+    const row = db.registrations.find((r) => r.id === requestId);
+    if (row) {
+      row.status = "CANCELLED";
+      row.updatedAt = new Date().toISOString();
+    }
   });
 }
 
@@ -306,13 +318,7 @@ export function attachHandlers(bot: Bot, companyId: string) {
     if (!ctx.from) return;
     const draft = await activeDraft(companyId, String(ctx.from.id));
     if (!draft) return void (await ctx.reply("Faol anketa yo‘q. Boshlash uchun /start bosing."));
-    await updateDb((db) => {
-      const row = db.registrations.find((r) => r.id === draft.id);
-      if (row) {
-        row.status = "CANCELLED";
-        row.updatedAt = new Date().toISOString();
-      }
-    });
+    await cancelDraft(draft.id);
     await ctx.reply("Anketa bekor qilindi. Qaytadan boshlash uchun /start bosing.");
   });
 
@@ -343,21 +349,28 @@ export function attachHandlers(bot: Bot, companyId: string) {
           }
         });
       await ctx.reply(
-        `Assalomu alaykum, <b>${escape(employee.firstName)}</b>! 👋\n\n🏢 ${escape(company.name)}\n\nKeldi-ketdi, ish grafigi va ta’til — hammasi Staffora ilovasida. Pastdagi tugmani bosing.`,
+        `Assalomu alaykum, <b>${escape(employee.firstName)}</b>! 👋\n\n🏢 <b>${escape(company.name)}</b>\n\nKeldi-ketdi, ish grafigi va ta’til — hammasi Staffora ilovasida. Pastdagi tugmani bosing.`,
         { parse_mode: "HTML", reply_markup: webAppKeyboard("📲 Staffora'ni ochish") },
       );
       return;
     }
     const pending = db.registrations.find((r) => r.companyId === companyId && r.telegramId === telegramId && r.status === "PENDING");
     if (pending) {
-      await ctx.reply("⏳ Anketangiz HR bo‘limida ko‘rib chiqilmoqda. Qaror chiqishi bilan shu yerga xabar keladi.");
+      await ctx.reply(`⏳ <b>${escape(company.name)}</b>: anketangiz HR bo‘limida ko‘rib chiqilmoqda. Qaror chiqishi bilan shu yerga xabar keladi.`, {
+        parse_mode: "HTML",
+      });
       return;
     }
     if (!company.bot?.registrationEnabled) {
-      await ctx.reply("Assalomu alaykum! Hozircha bot orqali ro‘yxatdan o‘tish yopiq. Iltimos, HR bo‘limi bilan bog‘laning.");
+      await ctx.reply(`Assalomu alaykum! <b>${escape(company.name)}</b> boti.\n\nHozircha bot orqali ro‘yxatdan o‘tish yopiq. Iltimos, HR bo‘limi bilan bog‘laning.`, {
+        parse_mode: "HTML",
+      });
       return;
     }
+    const form = companyForm(company);
     let draft = db.registrations.find((r) => r.companyId === companyId && r.telegramId === telegramId && r.status === "DRAFT");
+    if (draft && !findQuestion(form, draft.step) && !["summary", "editPick"].includes(draft.step))
+      draft = await moveTo(draft.id, (row, f) => (row.step = firstUnanswered(f, row.data)));
     if (!draft) {
       const now = new Date().toISOString();
       draft = await updateDb((next) => {
@@ -368,7 +381,7 @@ export function attachHandlers(bot: Bot, companyId: string) {
           telegramUsername: ctx.from?.username,
           telegramName: [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" "),
           status: "DRAFT",
-          step: "fullName",
+          step: firstStep(form),
           data: {},
           createdAt: now,
           updatedAt: now,
@@ -376,122 +389,102 @@ export function attachHandlers(bot: Bot, companyId: string) {
         next.registrations.unshift(row);
         return row;
       });
+      const count = activeQuestions(form).length;
       await ctx.reply(
-        `🏢 <b>${escape(company.name)}</b> — xodim ro‘yxati\n\nAssalomu alaykum! Quyidagi ${QUESTION_ORDER.length} ta savolga javob bering — anketangiz HR bo‘limiga boradi. Tasdiqlangach, shu yerning o‘zida profilingiz ochiladi.\n\n⏱ Taxminan 2 daqiqa.`,
+        `${safeHtml(fillTemplateRaw(form.intro || DEFAULT_TEXTS.intro, { company: company.name }))}\n\n📝 ${count} ta savol · ⏱ taxminan ${Math.max(1, Math.round(count / 5))} daqiqa`,
         { parse_mode: "HTML" },
       );
     } else {
       await ctx.reply("↩️ Anketani to‘xtagan joyingizdan davom ettiramiz.");
     }
-    await ask(ctx, companyId, draft.id);
+    await ask(ctx, companyId, draft!.id);
   });
 
   bot.on("callback_query:data", async (ctx) => {
     const data = ctx.callbackQuery.data;
-    const from = ctx.from;
     if (data.startsWith("hr:")) return handleHrDecision(ctx, companyId, data);
     if (!data.startsWith("rg:")) return void (await ctx.answerCallbackQuery());
-    const draft = await activeDraft(companyId, String(from.id));
+    const draft = await activeDraft(companyId, String(ctx.from.id));
     if (!draft) {
       await ctx.answerCallbackQuery({ text: "Anketa topilmadi. /start bosing." });
       return;
     }
-    const [, action, ...restParts] = data.split(":");
-    const arg = restParts.join(":");
-    const db = await readDb();
-    const tenant = companyId;
+    const [, action, ...parts] = data.split(":");
     let updated: RegistrationRequest | undefined;
-    let note: string | undefined;
     switch (action) {
       case "cancel":
-        await updateDb((next) => {
-          const row = next.registrations.find((r) => r.id === draft.id);
-          if (row) {
-            row.status = "CANCELLED";
-            row.updatedAt = new Date().toISOString();
-          }
-        });
+        await cancelDraft(draft.id);
         await ctx.answerCallbackQuery({ text: "Bekor qilindi" });
         await ctx.editMessageReplyMarkup().catch(() => undefined);
         await ctx.reply("Anketa bekor qilindi. Qaytadan boshlash uchun /start bosing.");
         return;
-      case "back": {
-        const back = previousStep(draft.step);
-        if (!back) return void (await ctx.answerCallbackQuery());
-        updated = await updateDb((next) => {
-          const row = next.registrations.find((r) => r.id === draft.id);
-          if (row) row.step = back;
-          return row ? { ...row } : undefined;
+      case "back":
+        updated = await moveTo(draft.id, (row, form) => {
+          const back = previousStep(form, row.step);
+          if (back) row.step = back;
+          row.confirming = false;
         });
         break;
-      }
+      case "skip":
+        updated = await moveTo(draft.id, (row, form) => {
+          const question = findQuestion(form, row.step);
+          if (!question || question.required) return;
+          setValue(question, row.data, undefined);
+          row.step = nextStep(form, row, question.id);
+          if (row.step === "summary") row.editing = false;
+        });
+        break;
       case "summary":
-      case "edit":
-        updated = await updateDb((next) => {
-          const row = next.registrations.find((r) => r.id === draft.id);
-          if (!row) return undefined;
-          if (action === "summary" && !isComplete(row.data)) return { ...row };
-          row.step = action === "edit" ? "editPick" : "summary";
+        updated = await moveTo(draft.id, (row, form) => {
           row.editing = false;
-          return { ...row };
+          row.confirming = false;
+          row.step = isComplete(form, row.data) ? "summary" : firstUnanswered(form, row.data);
         });
         break;
-      case "ef": {
-        const field = arg as keyof RegistrationData;
-        if (!(field in FIELD_LABELS)) return void (await ctx.answerCallbackQuery());
-        updated = await updateDb((next) => {
-          const row = next.registrations.find((r) => r.id === draft.id);
-          if (!row) return undefined;
-          row.step = field as RegistrationStep;
+      case "edit":
+        updated = await moveTo(draft.id, (row) => {
+          row.step = "editPick";
+          row.editing = false;
+        });
+        break;
+      case "ef":
+        updated = await moveTo(draft.id, (row, form) => {
+          if (!findQuestion(form, parts[0])) return;
+          row.step = parts[0];
           row.editing = true;
-          return { ...row };
+          row.confirming = false;
         });
         break;
-      }
-      case "pos":
-        if (draft.step !== "positionId" || !db.positions.some((p) => p.id === arg && p.companyId === tenant)) return void (await ctx.answerCallbackQuery());
-        updated = await setAnswer(draft.id, "positionId", { positionId: arg });
+      case "ok":
+        updated = await moveTo(draft.id, (row, form) => {
+          if (!row.confirming) return;
+          row.confirming = false;
+          row.step = nextStep(form, row, row.step);
+          if (row.step === "summary") row.editing = false;
+        });
         break;
-      case "br":
-        if (draft.step !== "branchId" || !db.branches.some((b) => b.id === arg && b.companyId === tenant)) return void (await ctx.answerCallbackQuery());
-        updated = await setAnswer(draft.id, "branchId", { branchId: arg });
+      case "redo":
+        updated = await moveTo(draft.id, (row, form) => {
+          const question = findQuestion(form, row.step);
+          if (question) setValue(question, row.data, undefined);
+          row.confirming = false;
+        });
         break;
-      case "sh":
-        if (draft.step !== "shift" || !(arg in SHIFTS)) return void (await ctx.answerCallbackQuery());
-        updated = await setAnswer(draft.id, "shift", { shift: arg as keyof typeof SHIFTS });
-        break;
-      case "wh": {
-        if (draft.step !== "workHours") return void (await ctx.answerCallbackQuery());
-        if (arg === "other") {
+      case "a": {
+        const [questionId, ...valueParts] = parts;
+        const value = valueParts.join(":");
+        const db = await readDb();
+        const form = companyForm(db.companies.find((c) => c.id === companyId));
+        const question = findQuestion(form, questionId);
+        if (!question || draft.step !== questionId) return void (await ctx.answerCallbackQuery({ text: "Bu savol yopilgan" }));
+        if (question.type === "workHours" && value === "__other") {
           await ctx.answerCallbackQuery();
           await ctx.reply("✍️ Ish vaqtingizni yozing. Misol: <b>09:00 - 18:00</b>", { parse_mode: "HTML" });
           return;
         }
-        const preset = SHIFTS[draft.data.shift || "DAY"].hours[Number(arg)];
-        if (!preset) return void (await ctx.answerCallbackQuery());
-        updated = await setAnswer(draft.id, "workHours", { workHours: preset });
-        break;
-      }
-      case "sc":
-        if (draft.step !== "salaryConfirm") return void (await ctx.answerCallbackQuery());
-        if (arg === "edit")
-          updated = await updateDb((next) => {
-            const row = next.registrations.find((r) => r.id === draft.id);
-            if (row) row.step = "salary";
-            return row ? { ...row } : undefined;
-          });
-        else updated = await setAnswer(draft.id, "salaryConfirm", {});
-        break;
-      case "rd": {
-        const day = Number(arg);
-        if (draft.step !== "restDay" || !(day === -1 || (day >= 0 && day <= 6))) return void (await ctx.answerCallbackQuery());
-        updated = await setAnswer(draft.id, "restDay", { restDay: day });
-        break;
-      }
-      case "ed": {
-        const option = EDUCATION_OPTIONS[Number(arg)];
-        if (draft.step !== "education" || !option) return void (await ctx.answerCallbackQuery());
-        updated = await setAnswer(draft.id, "education", { education: option });
+        const parsed = parseButton(question, value, db, companyId);
+        if (!parsed.ok) return void (await ctx.answerCallbackQuery({ text: parsed.error }));
+        updated = await answer(draft.id, questionId, parsed.value);
         break;
       }
       case "submit":
@@ -502,7 +495,7 @@ export function attachHandlers(bot: Bot, companyId: string) {
         return void (await ctx.answerCallbackQuery());
     }
     await ctx.answerCallbackQuery();
-    if (updated) await ask(ctx, companyId, updated.id, note);
+    if (updated) await ask(ctx, companyId, updated.id);
   });
 
   bot.on("message:text", async (ctx) => {
@@ -512,28 +505,23 @@ export function attachHandlers(bot: Bot, companyId: string) {
       await ctx.reply("Boshlash uchun /start bosing.", { reply_markup: webAppKeyboard("📲 Staffora'ni ochish") });
       return;
     }
-    const text = ctx.message.text;
-    const step = draft.step;
-    const handlers: Partial<Record<RegistrationStep, () => { ok: true; patch: Partial<RegistrationData> } | { ok: false; error: string }>> = {
-      fullName: () => wrap(checkFullName(text), (v) => ({ fullName: v })),
-      birthDate: () => wrap(checkBirthDate(text), (v) => ({ birthDate: v })),
-      phone: () => wrap(checkPhone(text), (v) => ({ phone: v })),
-      parentPhone: () => wrap(checkPhone(text), (v) => ({ parentPhone: v })),
-      address: () => wrap(checkAddress(text), (v) => ({ address: v })),
-      workHours: () => wrap(checkWorkHours(text), (v) => ({ workHours: v })),
-      salary: () => wrap(checkSalary(text), (v) => ({ salary: v })),
-    };
-    const handler = handlers[step];
-    if (!handler) {
+    const db = await readDb();
+    const form = companyForm(db.companies.find((c) => c.id === companyId));
+    const question = findQuestion(form, draft.step);
+    if (!question || draft.confirming) {
       await ctx.reply("👇 Iltimos, yuqoridagi tugmalardan birini tanlang.");
       return;
     }
-    const result = handler();
+    const result = validateText(question, ctx.message.text);
+    if (!result) {
+      await ctx.reply("👇 Iltimos, yuqoridagi tugmalardan birini tanlang.");
+      return;
+    }
     if (!result.ok) {
       await ctx.reply(`⚠️ ${result.error}`);
       return;
     }
-    const updated = await setAnswer(draft.id, step, result.patch);
+    const updated = await answer(draft.id, question.id, result.value, { confirm: question.type === "money" });
     if (updated) await ask(ctx, companyId, updated.id);
   });
 
@@ -543,16 +531,20 @@ export function attachHandlers(bot: Bot, companyId: string) {
   });
 }
 
-function wrap<T>(check: { ok: true; value: T } | { ok: false; error: string }, patch: (value: T) => Partial<RegistrationData>) {
-  return check.ok ? ({ ok: true, patch: patch(check.value) } as const) : ({ ok: false, error: check.error } as const);
+/** {company} kabi o‘rinbosarlar — xom matn (safeHtml keyin tozalaydi). */
+function fillTemplateRaw(text: string, vars: Record<string, string>) {
+  return text.replace(/\{(\w+)\}/g, (match, key: string) => (key in vars ? vars[key] : match));
 }
 
 /** Anketani HR ga yuboradi. */
 async function submit(ctx: Context, companyId: string, requestId: string) {
   const submitted = await updateDb((db) => {
     const row = db.registrations.find((r) => r.id === requestId && r.status === "DRAFT");
-    if (!row || !isComplete(row.data)) return undefined;
+    const company = db.companies.find((c) => c.id === companyId);
+    const form = companyForm(company);
+    if (!row || !isComplete(form, row.data)) return undefined;
     row.status = "PENDING";
+    row.questions = activeQuestions(form).map((q) => ({ ...q }));
     row.submittedAt = row.updatedAt = new Date().toISOString();
     const name = row.data.fullName || row.telegramName || "Nomsiz";
     db.notifications.unshift({
@@ -565,14 +557,14 @@ async function submit(ctx: Context, companyId: string, requestId: string) {
       createdAt: row.submittedAt,
     });
     db.auditLogs.unshift(audit(companyId, name, "Botda xodim anketasi yuborildi", "registration", row.id));
-    return { ...row };
+    return { row: { ...row }, text: form.submittedText };
   });
   if (!submitted) {
     await ctx.reply("Anketada to‘ldirilmagan savol bor. /start bosing va davom eting.");
     return;
   }
-  if (ctx.chat && submitted.lastPromptId) await ctx.api.editMessageReplyMarkup(ctx.chat.id, submitted.lastPromptId).catch(() => undefined);
-  await ctx.reply("✅ <b>Anketangiz HR bo‘limiga yuborildi.</b>\n\nTasdiqlanishi bilan shu yerga xabar keladi va profilingiz ochiladi.", { parse_mode: "HTML" });
+  if (ctx.chat && submitted.row.lastPromptId) await ctx.api.editMessageReplyMarkup(ctx.chat.id, submitted.row.lastPromptId).catch(() => undefined);
+  await ctx.reply(safeHtml(submitted.text || DEFAULT_TEXTS.submittedText), { parse_mode: "HTML" });
   await notifyApprovers(companyId, requestId);
 }
 
@@ -583,8 +575,9 @@ async function notifyApprovers(companyId: string, requestId: string) {
   const company = db.companies.find((c) => c.id === companyId);
   const request = db.registrations.find((r) => r.id === requestId);
   if (!current || !company || !request) return;
-  const who = request.telegramUsername ? `@${request.telegramUsername}` : `<a href="tg://user?id=${request.telegramId}">${escape(request.telegramName || "profil")}</a>`;
-  const text = `🆕 <b>Yangi xodim anketasi</b>\nTelegram: ${who}\n\n${summaryText(request, company.name, lookups(db, companyId, request.data))}`;
+  const form = companyForm(company);
+  const who = request.telegramUsername ? `@${escape(request.telegramUsername)}` : `<a href="tg://user?id=${request.telegramId}">${escape(request.telegramName || "profil")}</a>`;
+  const text = `🆕 <b>Yangi xodim anketasi</b>\nTelegram: ${who}\n\n${summaryText(form, request, company.name, lookupsFor(db, companyId))}`;
   const keyboard = new InlineKeyboard().text("✅ Tasdiqlash", `hr:a:${request.id}`).text("❌ Rad etish", `hr:r:${request.id}`);
   const messages: { chatId: string; messageId: number }[] = [];
   for (const chatId of company.bot?.approverTelegramIds || []) {
@@ -647,19 +640,20 @@ export async function decideRegistration(
   if (!current) return result;
   const db = await readDb();
   const company = db.companies.find((c) => c.id === companyId);
+  const form = companyForm(company);
   const { request, employee } = result;
   const api: Api = current.bot.api;
   try {
     if (employee)
       await api.sendMessage(
         request.telegramId,
-        `🎉 <b>Tabriklaymiz, ${escape(employee.firstName)}!</b>\n\nAnketangiz tasdiqlandi — endi siz <b>${escape(company?.name || "")}</b> xodimisiz.\n\nPastdagi tugmani bosing: keldi-ketdi, ish grafigi va ta’til — hammasi shu yerda. Birinchi kirishda Face ID sozlanadi.`,
+        safeHtml(fillTemplateRaw(form.approvedText || DEFAULT_TEXTS.approvedText, { name: employee.firstName, company: company?.name || "" })),
         { parse_mode: "HTML", reply_markup: webAppKeyboard() },
       );
     else
       await api.sendMessage(
         request.telegramId,
-        `❌ Afsuski, anketangiz rad etildi.${request.rejectReason ? `\n\nSabab: ${escape(request.rejectReason)}` : ""}\n\nSavollar bo‘lsa HR bo‘limi bilan bog‘laning. Qayta to‘ldirish uchun /start bosing.`,
+        `❌ Afsuski, <b>${escape(company?.name || "")}</b> anketangizni rad etdi.${request.rejectReason ? `\n\nSabab: ${escape(request.rejectReason)}` : ""}\n\nSavollar bo‘lsa HR bo‘limi bilan bog‘laning. Qayta to‘ldirish uchun /start bosing.`,
         { parse_mode: "HTML" },
       );
   } catch (error) {
@@ -667,7 +661,7 @@ export async function decideRegistration(
   }
   const stamp = employee ? `\n\n✅ <b>Tasdiqlandi</b> — ${escape(actor)}` : `\n\n❌ <b>Rad etildi</b> — ${escape(actor)}`;
   for (const message of request.hrMessages || []) {
-    const text = `🗂 <b>Xodim anketasi</b>\n\n${summaryText(request, company?.name || "", lookups(db, companyId, request.data))}${stamp}`;
+    const text = `🗂 <b>Xodim anketasi</b>\n\n${summaryText(form, request, company?.name || "", lookupsFor(db, companyId))}${stamp}`;
     await api.editMessageText(message.chatId, message.messageId, text, { parse_mode: "HTML" }).catch(() => undefined);
   }
   return result;
@@ -807,6 +801,81 @@ export function createCompanyBotRouter() {
     }),
   );
 
+  /* ---------------------------------------------- anketa savollari --- */
+  router.get(
+    "/company/registration-form",
+    permit("settings.manage"),
+    route(async (req, res) => {
+      const db = await readDb();
+      const company = db.companies.find((c) => c.id === tenantOf(req));
+      if (!company) throw httpError("Kompaniya topilmadi.", 404);
+      res.json({
+        form: companyForm(company),
+        defaults: DEFAULT_TEXTS,
+        builtins: Object.fromEntries(Object.entries(BUILTINS).map(([key, value]) => [key, { label: value.label, locked: value.locked, type: value.type }])),
+        customTypes: CUSTOM_TYPES,
+        companyName: company.name,
+        positions: db.positions.filter((p) => p.companyId === company.id).map((p) => p.name),
+        branches: db.branches.filter((b) => b.companyId === company.id && b.status === "ACTIVE").map((b) => b.name),
+      });
+    }),
+  );
+
+  router.put(
+    "/company/registration-form",
+    permit("settings.manage"),
+    route(async (req, res) => {
+      const tenant = tenantOf(req);
+      const question = z.object({
+        id: z.string().trim().min(1).max(40),
+        field: z.string().optional(),
+        type: z.string(),
+        title: z.string().trim().min(2, "Savol matni juda qisqa.").max(300),
+        hint: z.string().trim().max(200).optional(),
+        options: z.array(z.string().trim().min(1).max(60)).max(20).optional(),
+        required: z.boolean(),
+        enabled: z.boolean(),
+      });
+      const input = z
+        .object({
+          questions: z.array(question).min(1).max(40),
+          intro: z.string().max(1500).optional(),
+          submittedText: z.string().max(1000).optional(),
+          approvedText: z.string().max(1000).optional(),
+        })
+        .parse(req.body);
+      for (const q of input.questions)
+        if (q.type === "choice" && !q.field && (q.options?.length || 0) < 2) throw httpError(`«${q.title}» savoliga kamida 2 ta variant kiriting.`, 400);
+      const form = normalizeForm({ ...(input as RegistrationForm), updatedAt: new Date().toISOString(), updatedBy: req.session!.name });
+      await updateDb((db) => {
+        const company = db.companies.find((c) => c.id === tenant);
+        if (!company) throw httpError("Kompaniya topilmadi.", 404);
+        const before = company.registrationForm;
+        company.registrationForm = form;
+        db.auditLogs.unshift(
+          audit(tenant, req.session!.name, "Bot anketasi savollari o‘zgartirildi", "company", tenant, before ? { questions: before.questions.length } : undefined, {
+            questions: form.questions.filter((q) => q.enabled).length,
+          }),
+        );
+      });
+      res.json({ form });
+    }),
+  );
+
+  router.delete(
+    "/company/registration-form",
+    permit("settings.manage"),
+    route(async (req, res) => {
+      const tenant = tenantOf(req);
+      await updateDb((db) => {
+        const company = db.companies.find((c) => c.id === tenant);
+        if (company) company.registrationForm = undefined;
+        db.auditLogs.unshift(audit(tenant, req.session!.name, "Bot anketasi standart holatga qaytarildi", "company", tenant));
+      });
+      res.json({ form: normalizeForm() });
+    }),
+  );
+
   /* ---------------------------------------------------- arizalar --- */
   router.get(
     "/registrations",
@@ -815,16 +884,23 @@ export function createCompanyBotRouter() {
       const tenant = tenantOf(req);
       const status = typeof req.query.status === "string" ? req.query.status : "PENDING";
       const db = await readDb();
+      const form = companyForm(db.companies.find((c) => c.id === tenant));
       const rows = db.registrations
         .filter((r) => r.companyId === tenant && (status === "ALL" ? r.status !== "DRAFT" : r.status === status))
         .slice(0, 300)
-        .map((r) => ({
-          ...r,
-          lastPromptId: undefined,
-          hrMessages: undefined,
-          positionName: db.positions.find((p) => p.id === r.data.positionId)?.name,
-          branchName: db.branches.find((b) => b.id === r.data.branchId)?.name,
-        }));
+        .map((r) => {
+          const lookups = lookupsFor(db, tenant);
+          const questions = (r.questions?.length ? r.questions : activeQuestions(form)).filter((q) => q.enabled);
+          return {
+            ...r,
+            lastPromptId: undefined,
+            hrMessages: undefined,
+            questions: undefined,
+            positionName: db.positions.find((p) => p.id === r.data.positionId)?.name,
+            branchName: db.branches.find((b) => b.id === r.data.branchId)?.name,
+            answers: questions.map((q) => ({ id: q.id, label: shortLabel(q), value: describe(q, r.data, lookups), field: q.field })),
+          };
+        });
       const counts = {
         PENDING: db.registrations.filter((r) => r.companyId === tenant && r.status === "PENDING").length,
         DRAFT: db.registrations.filter((r) => r.companyId === tenant && r.status === "DRAFT").length,

@@ -130,17 +130,17 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     expect((await t.draft())?.step).toBe("positionId");
     await t.text(555, "Farmatsevt"); // tugma o‘rniga matn
     expect(t.lastText()).toContain("tugmalardan");
-    await t.press(555, "rg:pos:p1");
+    await t.press(555, "rg:a:positionId:p1");
     await t.text(555, "Chilonzor tumani, 12-kvartal");
-    await t.press(555, "rg:br:b1");
-    await t.press(555, "rg:sh:DAY");
-    await t.press(555, "rg:wh:0");
+    await t.press(555, "rg:a:branchId:b1");
+    await t.press(555, "rg:a:shift:DAY");
+    await t.press(555, "rg:a:workHours:09:00 - 18:00");
     await t.text(555, "4 000 000");
-    expect((await t.draft())?.step).toBe("salaryConfirm");
+    expect(await t.draft()).toMatchObject({ step: "salary", confirming: true });
     expect(t.lastText()).toContain("4 000 000 so‘m");
-    await t.press(555, "rg:sc:yes");
-    await t.press(555, "rg:rd:0");
-    await t.press(555, "rg:ed:0");
+    await t.press(555, "rg:ok");
+    await t.press(555, "rg:a:restDay:0");
+    await t.press(555, "rg:a:education:0");
     let draft = await t.draft();
     expect(draft?.step).toBe("summary");
     expect(t.lastText()).toContain("Ali Valiyev");
@@ -202,7 +202,7 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     await t.store.updateDb((db) => {
       db.registrations.push({
         id: "r1", companyId: "c1", telegramId: "555", status: "PENDING", step: "summary",
-        data: { fullName: "Ali Valiyev", birthDate: "1995-08-29", phone: "+998932303410", parentPhone: "+998901234567", positionId: "p1", address: "Asaka", branchId: "b1", shift: "DAY", workHours: "09:00 - 18:00", salary: 1_000_000, restDay: 0, education: "Oliy — farmatsevt" },
+        data: { fullName: "Ali Valiyev", birthDate: "1995-08-29", phone: "+998932303410", parentPhone: "+998901234567", positionId: "p1", address: "Asaka", branchId: "b1", shift: "DAY", workHours: "09:00 - 18:00", salary: 1_000_000, restDay: 0, education: "Oliy" },
         createdAt: "", updatedAt: "",
       });
     });
@@ -213,5 +213,62 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     await t.text(556, "/start");
     expect(t.lastText()).toContain("yopiq");
     expect((await t.store.readDb()).registrations.some((r) => r.telegramId === "556")).toBe(false);
+  });
+});
+
+describe("kompaniya o‘zi sozlagan anketa", () => {
+  it("qo‘shimcha savollar, o‘chirilgan savol va ixtiyoriy savol; javoblar profilga tushadi", async () => {
+    const t = await setup();
+    const { normalizeForm, defaultForm } = await import("../server/registration");
+    const base = defaultForm().questions.filter((q) => ["fullName", "phone", "positionId", "branchId"].includes(q.id));
+    await t.store.updateDb((db) => {
+      db.companies[0].name = "Qurilish Servis";
+      db.companies[0].registrationForm = normalizeForm({
+        questions: [
+          ...base,
+          { id: "exp1", type: "choice", title: "Ish tajribangiz qancha?", options: ["1 yilgacha", "1–3 yil", "3 yildan ko‘p"], required: true, enabled: true },
+          { id: "lic1", type: "yesno", title: "Haydovchilik guvohnomangiz bormi?", required: true, enabled: true },
+          { id: "note1", type: "text", title: "Qo‘shimcha izoh", required: false, enabled: true },
+          { id: "parentPhone", field: "parentPhone", type: "phone", title: "x", required: true, enabled: false },
+        ],
+        intro: "Salom! {company} jamoasiga xush kelibsiz <script>",
+      });
+    });
+    await t.text(555, "/start");
+    const intro = t.calls.filter((c) => c.method === "sendMessage").map((c) => String(c.payload.text));
+    expect(intro.some((x) => x.includes("Qurilish Servis jamoasiga xush kelibsiz &lt;script&gt;"))).toBe(true);
+    expect(intro.some((x) => x.toLowerCase().includes("gulnora"))).toBe(false);
+    await t.text(555, "Vali Aliyev");
+    await t.text(555, "+998901112233");
+    await t.press(555, "rg:a:positionId:p1");
+    await t.press(555, "rg:a:branchId:b1");
+    expect((await t.draft())?.step).toBe("exp1");
+    expect(JSON.stringify(t.calls.at(-1)?.payload.reply_markup)).toContain("3 yildan ko‘p");
+    await t.press(555, "rg:a:exp1:2");
+    await t.press(555, "rg:a:lic1:Ha");
+    // Ixtiyoriy savol — o‘tkazib yuboriladi
+    expect(JSON.stringify(t.calls.at(-1)?.payload.reply_markup)).toContain("rg:skip");
+    await t.press(555, "rg:skip");
+    const draft = await t.draft();
+    expect(draft?.step).toBe("summary");
+    await t.press(555, "rg:submit");
+    await t.press(900, `hr:a:${draft!.id}`);
+    const employee = (await t.store.readDb()).employees.find((e) => e.telegramId === "555")!;
+    expect(employee.customFields).toEqual({ "Ish tajribangiz qancha": "3 yildan ko‘p", "Haydovchilik guvohnomangiz bormi": "Ha" });
+    expect(employee.parentPhone).toBeUndefined();
+    // Grafik ko‘rsatilmagan — standart 09:00–18:00 yaratiladi
+    expect((await t.store.readDb()).schedules.find((s) => s.id === employee.scheduleId)?.days[1].start).toBe("09:00");
+  });
+
+  it("majburiy tizim maydonlarini o‘chirib bo‘lmaydi, variantsiz tanlov to‘ldiriladi", async () => {
+    const { normalizeForm } = await import("../server/registration");
+    const form = normalizeForm({ questions: [{ id: "fullName", field: "fullName", type: "name", title: "Ism", required: false, enabled: false }] });
+    const byId = Object.fromEntries(form.questions.map((q) => [q.id, q]));
+    expect(byId.fullName).toMatchObject({ enabled: true, required: true });
+    expect(byId.phone.enabled).toBe(true);
+    expect(byId.positionId.enabled).toBe(true);
+    expect(byId.branchId.enabled).toBe(true);
+    const custom = normalizeForm({ questions: [{ id: "abcd1", type: "choice", title: "Tanlang", options: [], required: true, enabled: true }] });
+    expect(custom.questions.find((q) => q.id === "abcd1")?.options).toEqual(["Ha", "Yo‘q"]);
   });
 });

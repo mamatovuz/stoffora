@@ -8,13 +8,13 @@ import type { Meta } from "../types";
 
 /* ================================================== arizalar sahifasi === */
 
-type Row = RegistrationRequest & { positionName?: string; branchName?: string };
+type Row = RegistrationRequest & {
+  positionName?: string;
+  branchName?: string;
+  answers?: { id: string; label: string; value: string; field?: string }[];
+};
 type Status = "PENDING" | "APPROVED" | "REJECTED" | "ALL";
 
-const WEEKDAYS = ["Yakshanba", "Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba"];
-const shiftLabel: Record<string, string> = { DAY: "Kunduzgi", NIGHT: "Kechki", BOTH: "Qo‘sh smena" };
-const money = (v?: number) => (v ? `${v.toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m` : "—");
-const dmy = (iso?: string) => (iso ? iso.split("-").reverse().join(".") : "—");
 const when = (iso?: string) =>
   iso ? new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
 
@@ -93,48 +93,12 @@ export function RegistrationsPage() {
                 </span>
               </header>
               <dl className="reg-grid">
-                <div>
-                  <dt>Lavozim</dt>
-                  <dd>{row.positionName || "—"}</dd>
-                </div>
-                <div>
-                  <dt>Filial</dt>
-                  <dd>{row.branchName || "—"}</dd>
-                </div>
-                <div>
-                  <dt>Telefon</dt>
-                  <dd>{row.data.phone || "—"}</dd>
-                </div>
-                <div>
-                  <dt>Ota-ona telefoni</dt>
-                  <dd>{row.data.parentPhone || "—"}</dd>
-                </div>
-                <div>
-                  <dt>Tug‘ilgan sana</dt>
-                  <dd>{dmy(row.data.birthDate)}</dd>
-                </div>
-                <div>
-                  <dt>Smena / vaqt</dt>
-                  <dd>
-                    {shiftLabel[row.data.shift || ""] || "—"} · {row.data.workHours || "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Dam olish</dt>
-                  <dd>{row.data.restDay === undefined ? "—" : row.data.restDay < 0 ? "Dam olishsiz" : WEEKDAYS[row.data.restDay]}</dd>
-                </div>
-                <div>
-                  <dt>Oylik</dt>
-                  <dd>{money(row.data.salary)}</dd>
-                </div>
-                <div className="wide">
-                  <dt>Manzil</dt>
-                  <dd>{row.data.address || "—"}</dd>
-                </div>
-                <div className="wide">
-                  <dt>Ma’lumoti</dt>
-                  <dd>{row.data.education || "—"}</dd>
-                </div>
+                {(row.answers || []).filter((a) => a.field !== "fullName").map((a) => (
+                  <div key={a.id} className={a.value.length > 28 || a.field === "address" ? "wide" : ""}>
+                    <dt>{a.label}</dt>
+                    <dd>{a.value}</dd>
+                  </div>
+                ))}
               </dl>
               {row.status === "PENDING" ? (
                 <footer className="reg-actions">
