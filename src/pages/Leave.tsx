@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Check, Plane, Plus, X } from "lucide-react";
-import { errorText, patch, post } from "../api";
+import { errorText, notifyChange, patch, post } from "../api";
 import { useApi } from "../hooks";
 import {
   Empty,
@@ -49,6 +49,7 @@ export function LeavePage() {
     try {
       await patch(`/leave/${id}`, { status });
       toast(status === "APPROVED" ? "So‘rov tasdiqlandi" : "So‘rov rad etildi");
+      notifyChange("leave");
       void reload(true);
     } catch (reason) {
       toast(errorText(reason), "error");

@@ -600,6 +600,12 @@ async function employeeCommand(
 }
 
 let sharedApi: Api | undefined;
+/** Bot API mijozini qaytaradi (token bo‘lmasa — undefined). */
+export function botApi() {
+  const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  if (!token) return undefined;
+  return activeBot?.api || (sharedApi ||= new Api(token));
+}
 export async function sendTelegramMessage(
   telegramId: string,
   text: string,

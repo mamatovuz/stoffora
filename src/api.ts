@@ -50,6 +50,7 @@ export async function api<T>(
       0,
     );
   }
+  if (response.status === 423) window.dispatchEvent(new Event("staffora:locked"));
   if (!response.ok) {
     let body: { message?: string; code?: string } & Record<string, unknown> = {};
     try {
@@ -76,3 +77,7 @@ export const patch = <T>(url: string, body: unknown = {}) =>
 export const del = <T>(url: string) => api<T>(url, { method: "DELETE" });
 export const errorText = (reason: unknown, fallback = "Xatolik yuz berdi.") =>
   reason instanceof Error ? reason.message : fallback;
+
+/** Boshqa komponentlarga (masalan, yuqoridagi qo‘ng‘iroqcha) ma’lumot yangilanganini bildiradi. */
+export const notifyChange = (name: "notifications" | "leave") =>
+  window.dispatchEvent(new Event(`staffora:${name}`));

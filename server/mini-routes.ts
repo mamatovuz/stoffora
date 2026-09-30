@@ -19,6 +19,7 @@ import {
 } from "../lib/face";
 import type { Attendance, Database, LeaveRequest } from "../lib/types";
 import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
+import { enqueueAttendancePhoto } from "./photo-channel";
 import {
   requireEmployee,
   signEmployeeSession,
@@ -586,6 +587,11 @@ export function createMiniRouter() {
           latitude: z.coerce.number().min(-90).max(90),
           longitude: z.coerce.number().min(-180).max(180),
           accuracy: z.coerce.number().min(0).max(100_000).optional(),
+          photoDataUrl: z
+            .string()
+            .max(600_000)
+            .regex(/^data:image\/(jpeg|jpg|webp);base64,/)
+            .optional(),
         })
         .parse(req.body);
       const auth = req.employeeSession!;
@@ -786,6 +792,13 @@ export function createMiniRouter() {
             attendance,
           ),
         );
+        enqueueAttendancePhoto(db, {
+          employee,
+          branch,
+          attendance,
+          action: session.action,
+          photoDataUrl: input.photoDataUrl,
+        });
         return { attendance: { ...attendance }, employee, branch };
       });
       const a = result.attendance;

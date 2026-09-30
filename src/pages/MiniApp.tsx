@@ -84,7 +84,7 @@ export function MiniAppPage() {
   const [tab, setTab] = useState<Tab>("home");
   const [loading, setLoading] = useState(true);
   const [faceAction, setFaceAction] = useState<Action | null>(null);
-  const [flow, setFlow] = useState<{ sessionId: string; action: Action; requiresQr: boolean } | null>(null);
+  const [flow, setFlow] = useState<{ sessionId: string; action: Action; requiresQr: boolean; photo?: string } | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
 
   const showToast = useCallback((text: string, tone: "ok" | "error" = "ok") => {
@@ -139,6 +139,15 @@ export function MiniAppPage() {
     const webApp = tg();
     webApp?.expand();
     webApp?.disableVerticalSwipes?.();
+    // Telegram 8.0+: telefonlarda to‘liq ekran rejimi.
+    const mobile = ["ios", "android", "android_x"].includes(webApp?.platform || "");
+    if (mobile && supports("8.0")) {
+      try {
+        webApp?.requestFullscreen?.();
+      } catch {
+        /* qo‘llab-quvvatlanmasa oddiy rejimda qoladi */
+      }
+    }
     if (supports("6.1")) {
       webApp?.setHeaderColor?.("secondary_bg_color");
       webApp?.setBackgroundColor?.("secondary_bg_color");
@@ -185,7 +194,7 @@ export function MiniAppPage() {
     );
   if (authError || !home) return <AuthErrorScreen error={authError} onRetry={authenticate} />;
 
-  const onVerified = async (faceProof: string) => {
+  const onVerified = async (faceProof: string, _score: number, photo?: string) => {
     const action = faceAction!;
     try {
       const session = await post<{ id: string; requiresQr: boolean }>("/mini/attendance/session", {
@@ -193,7 +202,7 @@ export function MiniAppPage() {
         faceProof,
       });
       setFaceAction(null);
-      setFlow({ sessionId: session.id, action, requiresQr: session.requiresQr });
+      setFlow({ sessionId: session.id, action, requiresQr: session.requiresQr, photo });
     } catch (reason) {
       setFaceAction(null);
       showToast(errorText(reason), "error");
@@ -559,7 +568,7 @@ function AttendanceFlow({
   onClose,
   onSuccess,
 }: {
-  flow: { sessionId: string; action: Action; requiresQr: boolean };
+  flow: { sessionId: string; action: Action; requiresQr: boolean; photo?: string };
   branch: Branch;
   onClose: () => void;
   onSuccess: (message: string) => void;
@@ -620,6 +629,7 @@ function AttendanceFlow({
           latitude: gps.lat,
           longitude: gps.lng,
           accuracy: gps.accuracy,
+          photoDataUrl: flow.photo,
         });
         onSuccess(
           flow.action === "CHECK_IN"

@@ -7,7 +7,7 @@ export type Role =
   | "IT_ADMIN"
   | "BRANCH_MANAGER"
   | "EMPLOYEE";
-export type EmployeeStatus = "ACTIVE" | "INACTIVE" | "ARCHIVED";
+export type EmployeeStatus = "ACTIVE" | "INACTIVE" | "ARCHIVED" | "DISMISSED";
 export type AttendanceStatus =
   "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "WORKING" | "CHECKED_OUT";
 export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
@@ -22,6 +22,15 @@ export interface Company {
   timezone: string;
   createdAt: string;
   payroll?: PayrollSettings;
+  photoChannel?: PhotoChannelSettings;
+}
+/** Keldi-ketdi rasmlari yuboriladigan maxfiy Telegram kanal. */
+export interface PhotoChannelSettings {
+  enabled: boolean;
+  chatId: string;
+  chatTitle?: string;
+  /** Necha kundan keyin kanaldagi rasmlar o‘chiriladi (0 — o‘chirilmaydi). */
+  retentionDays: number;
 }
 export interface PayrollSettings {
   /** NONE — ushlanmaydi; HOURLY — soatlik stavka bo‘yicha; PER_MINUTE — har daqiqa uchun belgilangan summa. */
@@ -103,6 +112,8 @@ export interface Employee {
   photoDataUrl?: string;
   faceEnrolledAt?: string;
   status: EmployeeStatus;
+  dismissedAt?: string;
+  dismissReason?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -182,6 +193,7 @@ export interface User {
   telegramId?: string;
   telegramUsername?: string;
   twoFactorEnabled?: boolean;
+  screenLock?: { enabled: boolean; minutes: number; passwordHash?: string };
 }
 export interface PanelSession {
   id: string;
@@ -191,6 +203,25 @@ export interface PanelSession {
   createdAt: string;
   lastSeenAt: string;
   revokedAt?: string;
+  /** Ekran qulflangan vaqt — qulf ochilmaguncha API so‘rovlari bloklanadi. */
+  lockedAt?: string;
+}
+export interface PhotoJob {
+  id: string;
+  companyId: string;
+  chatId: string;
+  photoDataUrl: string;
+  caption: string;
+  createdAt: string;
+  attempts: number;
+  lastError?: string;
+  lastAttemptAt?: string;
+}
+export interface ChannelPost {
+  companyId: string;
+  chatId: string;
+  messageId: number;
+  sentAt: string;
 }
 export interface TelegramInvite {
   id: string;
@@ -252,4 +283,6 @@ export interface Database {
   qrNonces: QrNonce[];
   faceProfiles: FaceProfile[];
   panelSessions: PanelSession[];
+  photoQueue: PhotoJob[];
+  channelPosts: ChannelPost[];
 }

@@ -223,6 +223,10 @@ xuddi production ma’lumoti kabi himoyalang.
 - **2 bosqichli kirish**: Sozlamalar → Xavfsizlik → Telegram’ni ulash → yoqish. Kod bot orqali keladi.
 - **Qurilmalar**: panelga kirgan qurilmalar ro‘yxati va chiqarib yuborish.
 - **Telegram bot**: telefon raqam orqali ulanish, kelmaganlarga va ketishni unutganlarga eslatma.
+- **Rasm kanali**: Sozlamalar → Rasm kanali. Har bir keldi-ketdida Face ID rasmi (vaqt, sana, filial, kechikish bilan) maxfiy Telegram kanalga tushadi. Bot vaqtincha ishlamasa rasm navbatda saqlanadi va keyin yuboriladi. Kanaldagi eski rasmlar belgilangan muddatdan keyin avtomatik o‘chiriladi. Bot kanalga «Xabar joylash» va «Xabarlarni o‘chirish» huquqli admin bo‘lishi kerak.
+- **Ishdan bo‘shaganlar**: xodim profilida «Ishdan bo‘shatish» (sana, sabab) → alohida ro‘yxat, «Qayta ishga olish». Bo‘shaganlar ish haqi va davomat hisobiga kirmaydi.
+- **Ekran qulfi**: Sozlamalar → Ekran qulfi. Belgilangan daqiqa harakatsizlikdan keyin panel xiralashib qulflanadi, alohida qulf paroli bilan ochiladi. Qulf serverda ham belgilanadi — sahifani yangilash uni ochmaydi.
+- **Mini App**: Telegram 8.0+ da telefonlarda to‘liq ekran rejimida ochiladi.
 
 ## Xavfsizlik eslatmalari
 

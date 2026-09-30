@@ -53,6 +53,7 @@ import {
 } from "./telegram";
 import { createMiniRouter } from "./mini-routes";
 import { startAttendanceReminders } from "./reminders";
+import { startPhotoChannelWorker, testPhotoChannel } from "./photo-channel";
 import { payrollRows, penaltyText, registerExcelReports } from "./reports";
 
 const fieldLabels: Record<string, string> = {
@@ -444,8 +445,27 @@ app.post("/api/auth/logout", async (req, res) => {
   res.clearCookie("staffora_session");
   res.json({ ok: true });
 });
-app.get("/api/auth/me", requireAuth, (req: AuthedRequest, res) =>
-  res.json({ user: req.session }),
+app.get(
+  "/api/auth/me",
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const db = await readDb();
+    const user = db.users.find((u) => u.id === req.session!.userId);
+    const device = db.panelSessions.find((s) => s.id === req.session!.sid);
+    const lock = user?.screenLock;
+    res.json({
+      user: {
+        ...req.session,
+        companyName: db.companies.find((c) => c.id === user?.companyId)?.name,
+        screenLock: {
+          enabled: Boolean(lock?.enabled && lock.passwordHash),
+          minutes: lock?.minutes || 5,
+          hasPassword: Boolean(lock?.passwordHash),
+        },
+        locked: Boolean(device?.lockedAt && lock?.enabled && lock.passwordHash),
+      },
+    });
+  }),
 );
 
 app.use("/api", createMiniRouter());
@@ -586,6 +606,76 @@ app.post(
       return n;
     });
     res.json({ ok: true, count });
+  }),
+);
+
+/* ---- ekran qulfi ---- */
+app.post(
+  "/api/auth/lock",
+  asyncRoute(async (req, res) => {
+    const locked = await updateDb((db) => {
+      const user = db.users.find((u) => u.id === req.session!.userId);
+      const device = db.panelSessions.find((s) => s.id === req.session!.sid);
+      if (!user?.screenLock?.enabled || !user.screenLock.passwordHash || !device) return false;
+      device.lockedAt = new Date().toISOString();
+      return true;
+    });
+    res.json({ locked });
+  }),
+);
+app.post(
+  "/api/auth/unlock",
+  rateLimit({
+    windowMs: 60_000,
+    limit: 8,
+    message: { message: "Juda ko‘p urinish. Bir daqiqa kuting." },
+  }),
+  asyncRoute(async (req, res) => {
+    const { password } = z.object({ password: z.string().min(1, "Parolni kiriting.") }).parse(req.body);
+    const db = await readDb();
+    const user = db.users.find((u) => u.id === req.session!.userId);
+    const hash = user?.screenLock?.passwordHash;
+    if (!user || !hash || !(await bcrypt.compare(password, hash)))
+      throw httpError("Parol noto‘g‘ri.", 400);
+    await updateDb((next) => {
+      const device = next.panelSessions.find((s) => s.id === req.session!.sid);
+      if (device) device.lockedAt = undefined;
+    });
+    res.json({ locked: false });
+  }),
+);
+app.put(
+  "/api/auth/screen-lock",
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({
+        enabled: z.boolean(),
+        minutes: z.coerce.number().int().min(1, "Kamida 1 daqiqa.").max(240),
+        lockPassword: z.string().min(4, "Qulf paroli kamida 4 belgi.").max(64).optional(),
+        accountPassword: z.string().min(1, "Hisob parolingizni kiriting."),
+      })
+      .parse(req.body);
+    const db = await readDb();
+    const current = db.users.find((u) => u.id === req.session!.userId);
+    if (!current || !(await bcrypt.compare(input.accountPassword, current.passwordHash)))
+      throw httpError("Hisob paroli noto‘g‘ri.", 400);
+    if (input.enabled && !input.lockPassword && !current.screenLock?.passwordHash)
+      throw httpError("Qulf uchun parol o‘rnating.", 400);
+    const hash = input.lockPassword ? await bcrypt.hash(input.lockPassword, 10) : undefined;
+    const lock = await updateDb((next) => {
+      const user = next.users.find((u) => u.id === current.id)!;
+      user.screenLock = {
+        enabled: input.enabled,
+        minutes: input.minutes,
+        passwordHash: hash || user.screenLock?.passwordHash,
+      };
+      if (user.companyId)
+        next.auditLogs.unshift(
+          audit(user.companyId, user.name, input.enabled ? "Ekran qulfi yoqildi" : "Ekran qulfi o‘chirildi", "user", user.id),
+        );
+      return user.screenLock;
+    });
+    res.json({ enabled: lock.enabled, minutes: lock.minutes, hasPassword: Boolean(lock.passwordHash) });
   }),
 );
 
@@ -973,16 +1063,19 @@ app.get(
       tenant = companyId(req);
     const today = tashkentIsoDate();
     const roster = dayRoster(db, tenant, today);
-    const weekly = Array.from({ length: 7 }, (_, index) => {
+    const days = [7, 14, 30].includes(Number(req.query.days)) ? Number(req.query.days) : 7;
+    const weekly = Array.from({ length: days }, (_, index) => {
       const date = tashkentIsoDate(
-        new Date(Date.now() - (6 - index) * 86_400_000),
+        new Date(Date.now() - (days - 1 - index) * 86_400_000),
       );
       const stats = rosterStats(dayRoster(db, tenant, date));
+      const expected = stats.present + stats.absent;
       return {
         date,
         present: stats.present - stats.late,
         late: stats.late,
         absent: stats.absent,
+        rate: expected ? Math.round((stats.present / expected) * 100) : null,
       };
     });
     const employees = db.employees.filter(
@@ -1108,9 +1201,11 @@ app.get(
       rows = rows.filter((e) => e.positionId === req.query.position);
     if (req.query.schedule)
       rows = rows.filter((e) => e.scheduleId === req.query.schedule);
-    if (req.query.status)
+    if (req.query.status === "DISMISSED")
+      rows = rows.filter((e) => e.status === "DISMISSED" || e.status === "ARCHIVED");
+    else if (req.query.status)
       rows = rows.filter((e) => e.status === req.query.status);
-    else rows = rows.filter((e) => e.status !== "ARCHIVED");
+    else rows = rows.filter((e) => e.status !== "ARCHIVED" && e.status !== "DISMISSED");
     const page = Math.max(1, Number(req.query.page || 1)),
       limit = Math.min(200, Math.max(1, Number(req.query.limit || 12))),
       total = rows.length;
@@ -1315,6 +1410,65 @@ app.delete(
       );
     });
     res.json({ ok: true });
+  }),
+);
+app.post(
+  "/api/employees/:id/dismiss",
+  requirePermission("employees.edit"),
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({
+        date: dateSchema,
+        reason: z.string().trim().max(300).optional(),
+      })
+      .parse(req.body);
+    const tenant = companyId(req);
+    const row = await updateDb((db) => {
+      const employee = db.employees.find(
+        (e) => e.id === req.params.id && e.companyId === tenant,
+      );
+      if (!employee) throw httpError("Xodim topilmadi.", 404);
+      if (employee.status === "DISMISSED") throw httpError("Xodim allaqachon ishdan bo‘shatilgan.", 409);
+      employee.status = "DISMISSED";
+      employee.dismissedAt = input.date;
+      employee.dismissReason = input.reason || undefined;
+      employee.updatedAt = new Date().toISOString();
+      db.auditLogs.unshift(
+        audit(tenant, req.session!.name, `Xodim ishdan bo‘shatildi (${input.date})`, "employee", employee.id, undefined, { reason: input.reason }),
+      );
+      return employee;
+    });
+    res.json(row);
+  }),
+);
+app.post(
+  "/api/employees/:id/rehire",
+  requirePermission("employees.edit"),
+  asyncRoute(async (req, res) => {
+    const input = z.object({ startDate: dateSchema.optional() }).parse(req.body);
+    const tenant = companyId(req);
+    const row = await updateDb((db) => {
+      const employee = db.employees.find(
+        (e) => e.id === req.params.id && e.companyId === tenant,
+      );
+      if (!employee) throw httpError("Xodim topilmadi.", 404);
+      assertEmployeeRefs(db, tenant, {
+        branchId: employee.branchId,
+        scheduleId: employee.scheduleId,
+        departmentId: employee.departmentId,
+        positionId: employee.positionId,
+      });
+      employee.status = "ACTIVE";
+      employee.dismissedAt = undefined;
+      employee.dismissReason = undefined;
+      if (input.startDate) employee.startDate = input.startDate;
+      employee.updatedAt = new Date().toISOString();
+      db.auditLogs.unshift(
+        audit(tenant, req.session!.name, "Xodim qayta ishga olindi", "employee", employee.id),
+      );
+      return employee;
+    });
+    res.json(row);
   }),
 );
 app.post(
@@ -2240,6 +2394,69 @@ app.put(
   }),
 );
 
+app.get(
+  "/api/company/photo-channel",
+  requirePermission("settings.manage"),
+  asyncRoute(async (req, res) => {
+    const db = await readDb();
+    const tenant = companyId(req);
+    const company = db.companies.find((c) => c.id === tenant);
+    const queue = db.photoQueue.filter((j) => j.companyId === tenant);
+    res.json({
+      settings: company?.photoChannel || { enabled: false, chatId: "", retentionDays: 30 },
+      pending: queue.length,
+      lastError: queue.find((j) => j.lastError)?.lastError,
+      sent: db.channelPosts.filter((p) => p.companyId === tenant).length,
+      botUsername: telegramBotUsername(),
+    });
+  }),
+);
+app.post(
+  "/api/company/photo-channel/test",
+  requirePermission("settings.manage"),
+  asyncRoute(async (req, res) => {
+    const { chatId } = z.object({ chatId: z.string().trim().min(2, "Kanal ID yoki @username kiriting.") }).parse(req.body);
+    res.json(await testPhotoChannel(chatId));
+  }),
+);
+app.put(
+  "/api/company/photo-channel",
+  requirePermission("settings.manage"),
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({
+        enabled: z.boolean(),
+        chatId: z.string().trim().max(100).default(""),
+        retentionDays: z.coerce.number().int().min(0).max(3650),
+      })
+      .parse(req.body);
+    const tenant = companyId(req);
+    let chatId = input.chatId;
+    let chatTitle: string | undefined;
+    if (input.enabled) {
+      if (!chatId) throw httpError("Kanal ID yoki @username kiriting.", 400);
+      const checked = await testPhotoChannel(chatId);
+      chatId = checked.chatId;
+      chatTitle = checked.title;
+    }
+    const settings = await updateDb((db) => {
+      const company = db.companies.find((c) => c.id === tenant);
+      if (!company) throw httpError("Kompaniya topilmadi.", 404);
+      company.photoChannel = {
+        enabled: input.enabled,
+        chatId,
+        chatTitle: chatTitle || company.photoChannel?.chatTitle,
+        retentionDays: input.retentionDays,
+      };
+      db.auditLogs.unshift(
+        audit(tenant, req.session!.name, "Rasm kanali sozlamasi o‘zgartirildi", "company", tenant),
+      );
+      return company.photoChannel;
+    });
+    res.json(settings);
+  }),
+);
+
 // ------------------------------------------------------------------ QR ---
 const QR_LIFETIME_SECONDS = 90;
 const QR_REFRESH_SECONDS = 30;
@@ -2536,6 +2753,7 @@ const server = app.listen(port, () =>
 );
 void startTelegramBot();
 startAttendanceReminders();
+startPhotoChannelWorker();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {

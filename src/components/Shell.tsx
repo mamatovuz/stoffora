@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -32,11 +32,14 @@ import {
   CircleUserRound,
   Plane,
   UserCog,
+  UserMinus,
+  Lock,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
 import { Avatar } from "./ui";
 import { roleLabels, useAuth } from "../auth";
+import { ScreenLock } from "./ScreenLock";
 import { api } from "../api";
 import { useApi, usePolling } from "../hooks";
 
@@ -50,6 +53,7 @@ const sections: { label: string; items: NavItem[] }[] = [
       ["/employees", "Xodimlar", Users],
       ["/calendar", "Kalendar", CalendarDays],
       ["/leave", "Ta’til va yo‘qlik", Plane, "leave"],
+      ["/dismissed", "Ishdan bo‘shaganlar", UserMinus],
     ],
   },
   {
@@ -88,7 +92,8 @@ const pageNames = Object.fromEntries(
 );
 
 export function Shell() {
-  const { user } = useAuth();
+  const { user, refresh } = useAuth();
+  const [pageKey, setPageKey] = useState(0);
   const navigate = useNavigate();
   const location = useLocation();
   const searchRef = useRef<HTMLInputElement>(null);
@@ -111,6 +116,17 @@ export function Shell() {
     void reloadNotifications(true);
     void reloadLeave(true);
   }, 60_000);
+  // Boshqa sahifada o‘qildi/tasdiqlandi bosilsa — hisoblagich darhol yangilanadi.
+  useEffect(() => {
+    const onNotifications = () => void reloadNotifications(true);
+    const onLeave = () => void reloadLeave(true);
+    window.addEventListener("staffora:notifications", onNotifications);
+    window.addEventListener("staffora:leave", onLeave);
+    return () => {
+      window.removeEventListener("staffora:notifications", onNotifications);
+      window.removeEventListener("staffora:leave", onLeave);
+    };
+  }, [reloadNotifications, reloadLeave]);
 
   const counts: Record<string, number> = {
     notifications: notifications?.filter((item) => !item.read).length || 0,
@@ -160,6 +176,12 @@ export function Shell() {
 
   return (
     <div className="app-shell">
+      <ScreenLock
+        onUnlock={() => {
+          void refresh();
+          setPageKey((key) => key + 1);
+        }}
+      />
       {mobile && (
         <button
           className="backdrop"
@@ -284,6 +306,16 @@ export function Shell() {
             <kbd>Ctrl K</kbd>
           </form>
           <div className="top-actions">
+            {user?.screenLock?.enabled && (
+              <button
+                className="icon-btn"
+                aria-label="Ekranni qulflash"
+                title="Ekranni qulflash"
+                onClick={() => window.dispatchEvent(new Event("staffora:lock-now"))}
+              >
+                <Lock size={18} />
+              </button>
+            )}
             <Link
               to="/notifications"
               className="icon-btn bell"
@@ -338,7 +370,9 @@ export function Shell() {
           </div>
         </header>
         <main id="main-content" tabIndex={-1}>
-          <Outlet />
+          <Fragment key={pageKey}>
+            <Outlet />
+          </Fragment>
         </main>
       </div>
     </div>

@@ -16,6 +16,7 @@ import {
   Tablet,
   UserRound,
   XCircle,
+  Lock,
 } from "lucide-react";
 import { api, del, errorText, post, put } from "../api";
 import { useApi } from "../hooks";
@@ -34,13 +35,15 @@ import { calculatePayroll, defaultPayrollSettings } from "@/lib/payroll";
 import { dateUz, money } from "@/lib/format";
 import { resizePhoto } from "./Employees";
 
-type Tab = "profile" | "security" | "devices" | "company" | "payroll" | "bot";
+type Tab = "profile" | "security" | "lock" | "devices" | "company" | "payroll" | "channel" | "bot";
 const tabs: [Tab, string, typeof UserRound][] = [
   ["profile", "Profil", UserRound],
   ["security", "Xavfsizlik", ShieldCheck],
+  ["lock", "Ekran qulfi", Lock],
   ["devices", "Qurilmalar", Laptop],
   ["company", "Kompaniya", Building2],
   ["payroll", "Ish haqi va jarima", Banknote],
+  ["channel", "Rasm kanali", Camera],
   ["bot", "Telegram bot", Send],
 ];
 
@@ -68,6 +71,8 @@ export function SettingsPage() {
           {tab === "devices" && <DevicesSection />}
           {tab === "company" && <CompanySection />}
           {tab === "payroll" && <PayrollSection />}
+          {tab === "lock" && <ScreenLockSection />}
+          {tab === "channel" && <PhotoChannelSection />}
           {tab === "bot" && <BotSection />}
         </div>
       </div>
@@ -711,5 +716,265 @@ function BotSection() {
         )}
       </div>
     </section>
+  );
+}
+
+/* ------------------------------------------------------------ ekran qulfi --- */
+function ScreenLockSection() {
+  const { user, refresh } = useAuth();
+  const toast = useToast();
+  const lock = user?.screenLock;
+  const [enabled, setEnabled] = useState(Boolean(lock?.enabled));
+  const [minutes, setMinutes] = useState(lock?.minutes || 5);
+  const [lockPassword, setLockPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [accountPassword, setAccountPassword] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const needsNewPassword = enabled && !lock?.hasPassword;
+  return (
+    <form
+      className="card"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError("");
+        if (lockPassword && lockPassword !== confirmPassword) {
+          setError("Qulf parollari bir xil emas.");
+          return;
+        }
+        setSaving(true);
+        try {
+          await put("/auth/screen-lock", {
+            enabled,
+            minutes,
+            lockPassword: lockPassword || undefined,
+            accountPassword,
+          });
+          setLockPassword("");
+          setConfirmPassword("");
+          setAccountPassword("");
+          await refresh();
+          toast(enabled ? `Ekran qulfi yoqildi · ${minutes} daqiqa` : "Ekran qulfi o‘chirildi");
+        } catch (reason) {
+          setError(errorText(reason));
+        } finally {
+          setSaving(false);
+        }
+      }}
+    >
+      <div className="card-head">
+        <div>
+          <h2>Ekran qulfi</h2>
+          <p>Kompyuterdan uzoqlashganingizda panel avtomatik qulflanadi — boshqa odam ma’lumotni ko‘ra olmaydi</p>
+        </div>
+        <span className={`badge ${lock?.enabled ? "green" : "gray"}`}>{lock?.enabled ? "Yoqilgan" : "O‘chirilgan"}</span>
+      </div>
+      <div className="card-body">
+        <label className="setting-row">
+          <span>
+            <b>Harakatsizlikda qulflash</b>
+            <small>Sichqoncha va klaviatura ishlatilmasa ekran xiralashadi va parol so‘raladi</small>
+          </span>
+          <span className="switch">
+            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+            <span />
+          </span>
+        </label>
+        <div className="form-grid" style={{ marginTop: 16 }}>
+          <Field label="Necha daqiqadan keyin qulflansin">
+            <select className="select" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} disabled={!enabled}>
+              {[1, 2, 3, 5, 10, 15, 30, 60].map((m) => (
+                <option key={m} value={m}>
+                  {m} daqiqa
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div />
+          <Field
+            label={lock?.hasPassword ? "Yangi qulf paroli (ixtiyoriy)" : "Qulf paroli"}
+            hint="Faqat shu panel uchun, kamida 4 belgi"
+          >
+            <input className="input" type="password" autoComplete="new-password" minLength={4} value={lockPassword} onChange={(e) => setLockPassword(e.target.value)} required={needsNewPassword} disabled={!enabled} />
+          </Field>
+          <Field label="Qulf parolini takrorlang">
+            <input className="input" type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required={Boolean(lockPassword)} disabled={!enabled} />
+          </Field>
+          <Field label="Hisob parolingiz" hint="O‘zgarishni tasdiqlash uchun" className="span-2">
+            <input className="input" type="password" autoComplete="current-password" value={accountPassword} onChange={(e) => setAccountPassword(e.target.value)} required />
+          </Field>
+        </div>
+        <ErrorBox message={error} />
+        <div className="form-actions">
+          <button className="btn btn-primary" disabled={saving}>
+            <Save size={15} /> {saving ? "Saqlanmoqda…" : "Saqlash"}
+          </button>
+        </div>
+        {lock?.enabled && (
+          <p className="hint" style={{ marginTop: 12 }}>
+            Yuqori paneldagi <Lock size={12} style={{ display: "inline", verticalAlign: -2 }} /> tugmasi bilan ekranni darhol
+            qulflashingiz mumkin. Qulf serverda ham belgilanadi — sahifani yangilash uni ochmaydi.
+          </p>
+        )}
+      </div>
+    </form>
+  );
+}
+
+/* ------------------------------------------------------------ rasm kanali --- */
+type ChannelInfo = {
+  settings: { enabled: boolean; chatId: string; chatTitle?: string; retentionDays: number };
+  pending: number;
+  lastError?: string;
+  sent: number;
+  botUsername?: string;
+};
+const retentionOptions: [number, string][] = [
+  [3, "3 kundan keyin"],
+  [7, "1 haftadan keyin"],
+  [14, "2 haftadan keyin"],
+  [30, "1 oydan keyin"],
+  [60, "2 oydan keyin"],
+  [90, "3 oydan keyin"],
+  [180, "6 oydan keyin"],
+  [0, "O‘chirilmasin"],
+];
+function PhotoChannelSection() {
+  const toast = useToast();
+  const { data, loading, reload } = useApi<ChannelInfo>("/company/photo-channel");
+  const [enabled, setEnabled] = useState(false);
+  const [chatId, setChatId] = useState("");
+  const [retention, setRetention] = useState(30);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<"save" | "test" | null>(null);
+  useEffect(() => {
+    if (!data) return;
+    setEnabled(data.settings.enabled);
+    setChatId(data.settings.chatId);
+    setRetention(data.settings.retentionDays);
+  }, [data]);
+  if (loading && !data) return <Loading />;
+  const bot = data?.botUsername ? `@${data.botUsername}` : "Staffora bot";
+  return (
+    <form
+      className="card"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setError("");
+        setBusy("save");
+        try {
+          await put("/company/photo-channel", { enabled, chatId, retentionDays: retention });
+          toast(enabled ? "Kanal ulandi — sinov xabari yuborildi" : "Saqlandi");
+          void reload(true);
+        } catch (reason) {
+          setError(errorText(reason));
+        } finally {
+          setBusy(null);
+        }
+      }}
+    >
+      <div className="card-head">
+        <div>
+          <h2>Keldi-ketdi rasmlari kanali</h2>
+          <p>Har bir keldi-ketdida Face ID rasmi vaqti bilan maxfiy Telegram kanalingizga tushadi</p>
+        </div>
+        <span className={`badge ${data?.settings.enabled ? "green" : "gray"}`}>
+          {data?.settings.enabled ? data.settings.chatTitle || "Ulangan" : "O‘chirilgan"}
+        </span>
+      </div>
+      <div className="card-body">
+        <ol className="steps-list">
+          <li>
+            Telegram’da <b>maxfiy (private) kanal</b> yarating.
+          </li>
+          <li>
+            {bot}’ni kanalga <b>administrator</b> qilib qo‘shing: «Xabar joylash» va «Xabarlarni o‘chirish» huquqlari bilan.
+          </li>
+          <li>
+            Kanal ID’sini kiriting (<code>-100…</code>). ID’ni bilish uchun kanaldagi istalgan xabarni{" "}
+            <a className="link" href="https://t.me/userinfobot" target="_blank" rel="noreferrer">
+              @userinfobot
+            </a>{" "}
+            ga forward qiling.
+          </li>
+        </ol>
+        <label className="setting-row" style={{ marginTop: 14 }}>
+          <span>
+            <b>Rasmlarni kanalga yuborish</b>
+            <small>Caption’da xodim, keldi/ketdi vaqti, sana, filial va kechikish yoziladi</small>
+          </span>
+          <span className="switch">
+            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+            <span />
+          </span>
+        </label>
+        <div className="form-grid" style={{ marginTop: 16 }}>
+          <Field label="Kanal ID yoki @username">
+            <input className="input" value={chatId} placeholder="-1001234567890" onChange={(e) => setChatId(e.target.value)} disabled={!enabled} />
+          </Field>
+          <Field label="Rasmlarni avtomatik o‘chirish" hint="Kanaldagi eski rasmlar shu muddatdan keyin o‘chiriladi">
+            <select className="select" value={retention} onChange={(e) => setRetention(Number(e.target.value))}>
+              {retentionOptions.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        {data && (data.pending > 0 || data.sent > 0) && (
+          <div className="kv" style={{ marginBottom: 12 }}>
+            <div>
+              <span>Kanaldagi rasmlar</span>
+              <b>{data.sent}</b>
+            </div>
+            <div>
+              <span>Navbatda kutayotgan</span>
+              <b>{data.pending}</b>
+            </div>
+          </div>
+        )}
+        {data?.lastError && (
+          <div className="alert warn" style={{ marginBottom: 12 }}>
+            <XCircle size={18} />
+            <div>
+              <b>Oxirgi yuborishda xato</b>
+              <p>{data.lastError}. Rasmlar navbatda saqlangan va avtomatik qayta yuboriladi.</p>
+            </div>
+          </div>
+        )}
+        <ErrorBox message={error} />
+        <div className="form-actions">
+          <button
+            type="button"
+            className="btn"
+            disabled={!chatId || busy !== null}
+            onClick={async () => {
+              setError("");
+              setBusy("test");
+              try {
+                const r = await post<{ title: string; canDelete: boolean }>("/company/photo-channel/test", { chatId });
+                toast(`«${r.title}» — sinov xabari yuborildi`);
+                if (!r.canDelete)
+                  setError("Bot xabarlarni o‘chira olmaydi — avtomatik o‘chirish uchun «Xabarlarni o‘chirish» huquqini bering.");
+              } catch (reason) {
+                setError(errorText(reason));
+              } finally {
+                setBusy(null);
+              }
+            }}
+          >
+            <Send size={15} /> {busy === "test" ? "Tekshirilmoqda…" : "Sinab ko‘rish"}
+          </button>
+          <button className="btn btn-primary" disabled={busy !== null}>
+            <Save size={15} /> {busy === "save" ? "Saqlanmoqda…" : "Saqlash"}
+          </button>
+        </div>
+        <p className="hint" style={{ marginTop: 12 }}>
+          Server yoki Telegram vaqtincha ishlamasa, rasm serverda navbatda saqlanadi va aloqa tiklanganda yuboriladi —
+          caption’dagi vaqt keldi-ketdi bo‘lgan aniq vaqt bo‘lib qoladi.
+        </p>
+      </div>
+    </form>
   );
 }

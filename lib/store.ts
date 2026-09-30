@@ -20,6 +20,8 @@ function normalizeDatabase(database: Database): Database {
   database.qrNonces ||= [];
   database.faceProfiles ||= [];
   database.panelSessions ||= [];
+  database.photoQueue ||= [];
+  database.channelPosts ||= [];
   return database;
 }
 

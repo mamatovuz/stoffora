@@ -17,13 +17,16 @@ import {
 } from "lucide-react";
 import {
   Bar,
-  BarChart,
   CartesianGrid,
+  ComposedChart,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
+  type TooltipProps,
 } from "recharts";
+import { useState } from "react";
 import { useApi, usePolling } from "../hooks";
 import { useAuth } from "../auth";
 import {
@@ -32,6 +35,7 @@ import {
   Loading,
   PageHeader,
   Person,
+  Segmented,
   Status,
 } from "../components/ui";
 import type { Notification } from "@/lib/types";
@@ -41,7 +45,7 @@ import type { RosterRow, RosterStats } from "../types";
 type Dashboard = {
   stats: RosterStats;
   roster: RosterRow[];
-  weekly: { date: string; present: number; late: number; absent: number }[];
+  weekly: { date: string; present: number; late: number; absent: number; rate: number | null }[];
   setup: {
     branches: number;
     departments: number;
@@ -73,7 +77,8 @@ function greeting() {
 export function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { data, loading, error, reload } = useApi<Dashboard>("/dashboard");
+  const [days, setDays] = useState<"7" | "14" | "30">("7");
+  const { data, loading, error, reload } = useApi<Dashboard>(`/dashboard?days=${days}`);
   usePolling(() => void reload(true), 30_000);
 
   if (loading && !data)
@@ -138,8 +143,14 @@ export function DashboardPage() {
   const setupDone = steps.filter((step) => step.done).length;
   const chart = data.weekly.map((item) => ({
     ...item,
-    day: weekdayShortUz(item.date),
+    day: days === "7" ? weekdayShortUz(item.date) : String(Number(item.date.slice(8))),
   }));
+  const rated = data.weekly.filter((d) => d.rate !== null);
+  const avgRate = rated.length
+    ? Math.round(rated.reduce((sum, d) => sum + (d.rate || 0), 0) / rated.length)
+    : 0;
+  const totalLate = data.weekly.reduce((sum, d) => sum + d.late, 0);
+  const totalAbsent = data.weekly.reduce((sum, d) => sum + d.absent, 0);
 
   return (
     <div className="page">
@@ -276,55 +287,70 @@ export function DashboardPage() {
         <section className="card">
           <div className="card-head">
             <div>
-              <h2>Haftalik dinamika</h2>
-              <p>So‘nggi 7 kun</p>
+              <h2>Davomat dinamikasi</h2>
+              <p>So‘nggi {days} kun</p>
             </div>
-            <div className="chart-legend">
+            <Segmented<"7" | "14" | "30">
+              value={days}
+              onChange={setDays}
+              options={[
+                { value: "7", label: "7 kun" },
+                { value: "14", label: "14 kun" },
+                { value: "30", label: "30 kun" },
+              ]}
+            />
+          </div>
+          <div className="chart-summary">
+            <div>
+              <small>O‘rtacha davomat</small>
+              <b>{avgRate}%</b>
+            </div>
+            <div>
+              <small>Kechikishlar</small>
+              <b className="warn">{totalLate}</b>
+            </div>
+            <div>
+              <small>Kelmaganlar</small>
+              <b className="bad">{totalAbsent}</b>
+            </div>
+            <div className="chart-legend" style={{ marginLeft: "auto" }}>
               <span>
                 <i style={{ background: "#22a05a" }} /> Vaqtida
               </span>
               <span>
-                <i style={{ background: "#e5962b" }} /> Kechikkan
+                <i style={{ background: "#e5962b" }} /> Kech
               </span>
               <span>
                 <i style={{ background: "#e5484d" }} /> Kelmagan
+              </span>
+              <span>
+                <i style={{ background: "#2563eb", height: 2, borderRadius: 1 }} /> Davomat %
               </span>
             </div>
           </div>
           <div className="chart-box">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chart} margin={{ left: -18, right: 6, top: 14 }} barGap={3}>
+              <ComposedChart data={chart} margin={{ left: -18, right: -10, top: 10 }} barCategoryGap={days === "30" ? "18%" : "32%"}>
                 <CartesianGrid stroke="#eef2f6" vertical={false} />
-                <XAxis
-                  dataKey="day"
-                  axisLine={false}
-                  tickLine={false}
-                  fontSize={11}
-                  tick={{ fill: "#64748b" }}
+                <XAxis dataKey="day" axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "#94a3b8" }} interval={days === "30" ? 2 : 0} />
+                <YAxis yAxisId="count" allowDecimals={false} axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "#94a3b8" }} />
+                <YAxis yAxisId="rate" orientation="right" domain={[0, 100]} hide />
+                <Tooltip cursor={{ fill: "rgba(37,99,235,0.04)" }} content={<ChartTooltip />} />
+                <Bar yAxisId="count" dataKey="present" name="Vaqtida" stackId="a" fill="#22a05a" maxBarSize={28} />
+                <Bar yAxisId="count" dataKey="late" name="Kechikkan" stackId="a" fill="#e5962b" maxBarSize={28} />
+                <Bar yAxisId="count" dataKey="absent" name="Kelmagan" stackId="a" fill="#e5484d" radius={[5, 5, 0, 0]} maxBarSize={28} />
+                <Line
+                  yAxisId="rate"
+                  dataKey="rate"
+                  name="Davomat"
+                  type="monotone"
+                  stroke="#2563eb"
+                  strokeWidth={2}
+                  dot={days === "30" ? false : { r: 3, strokeWidth: 2, fill: "#fff" }}
+                  activeDot={{ r: 4 }}
+                  connectNulls
                 />
-                <YAxis
-                  allowDecimals={false}
-                  axisLine={false}
-                  tickLine={false}
-                  fontSize={11}
-                  tick={{ fill: "#64748b" }}
-                />
-                <Tooltip
-                  cursor={{ fill: "rgba(37,99,235,0.05)" }}
-                  contentStyle={{
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 10,
-                    fontSize: 12,
-                    boxShadow: "0 8px 24px rgba(15,23,42,.08)",
-                  }}
-                  labelFormatter={(_, payload) =>
-                    payload?.[0] ? dateUz(payload[0].payload.date) : ""
-                  }
-                />
-                <Bar dataKey="present" name="Vaqtida" stackId="a" fill="#22a05a" radius={[0, 0, 0, 0]} maxBarSize={34} />
-                <Bar dataKey="late" name="Kechikkan" stackId="a" fill="#e5962b" maxBarSize={34} />
-                <Bar dataKey="absent" name="Kelmagan" stackId="a" fill="#e5484d" radius={[6, 6, 0, 0]} maxBarSize={34} />
-              </BarChart>
+              </ComposedChart>
             </ResponsiveContainer>
           </div>
         </section>
@@ -471,6 +497,28 @@ export function DashboardPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ChartTooltip({ active, payload }: TooltipProps<number, string>) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload as Dashboard["weekly"][number];
+  return (
+    <div className="chart-tooltip">
+      <b>{dateUz(row.date)}</b>
+      <span>
+        <i style={{ background: "#22a05a" }} /> Vaqtida <em>{row.present}</em>
+      </span>
+      <span>
+        <i style={{ background: "#e5962b" }} /> Kechikkan <em>{row.late}</em>
+      </span>
+      <span>
+        <i style={{ background: "#e5484d" }} /> Kelmagan <em>{row.absent}</em>
+      </span>
+      <span className="rate">
+        Davomat <em>{row.rate === null ? "—" : `${row.rate}%`}</em>
+      </span>
     </div>
   );
 }

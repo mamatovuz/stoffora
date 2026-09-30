@@ -20,6 +20,9 @@ const EmployeesPage = lazy(() =>
 const EmployeeFormPage = lazy(() =>
   import("./pages/Employees").then((m) => ({ default: m.EmployeeFormPage })),
 );
+const DismissedPage = lazy(() =>
+  import("./pages/Employees").then((m) => ({ default: m.DismissedPage })),
+);
 const EmployeeProfilePage = lazy(() =>
   import("./pages/Employees").then((m) => ({ default: m.EmployeeProfilePage })),
 );
@@ -116,6 +119,7 @@ export default function App() {
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/employees/new" element={<EmployeeFormPage />} />
           <Route path="/employees/:id" element={<EmployeeProfilePage />} />
+          <Route path="/dismissed" element={<DismissedPage />} />
           <Route path="/attendance" element={<AttendancePage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/branches" element={<BranchesPage />} />

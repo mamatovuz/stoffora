@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Bell, CheckCheck, Clock3, Megaphone, Plane, Plus, ScrollText, Send } from "lucide-react";
-import { api, errorText, patch, post } from "../api";
+import { api, errorText, notifyChange, patch, post } from "../api";
 import { useApi } from "../hooks";
 import {
   Empty,
@@ -9,9 +9,10 @@ import {
   Loading,
   Modal,
   PageHeader,
+  Segmented,
   useToast,
 } from "../components/ui";
-import { dateUz } from "@/lib/format";
+import { dateLongUz, dateUz, tashkentIsoDate } from "@/lib/format";
 import type { Announcement, AuditLog, Notification } from "@/lib/types";
 import type { Meta } from "../types";
 
@@ -153,13 +154,58 @@ function AnnouncementForm({
   );
 }
 
+type NotifFilter = "ALL" | "UNREAD" | "ATTENDANCE" | "LEAVE";
+const notifMeta: Record<string, { icon: typeof Bell; tone: string; label: string }> = {
+  ATTENDANCE: { icon: Clock3, tone: "amber", label: "Davomat" },
+  LEAVE: { icon: Plane, tone: "blue", label: "Ta’til" },
+  ANNOUNCEMENT: { icon: Megaphone, tone: "green", label: "E’lon" },
+};
+function dayLabel(iso: string) {
+  const day = tashkentIsoDate(new Date(iso));
+  const today = tashkentIsoDate();
+  const yesterday = tashkentIsoDate(new Date(Date.now() - 86_400_000));
+  return day === today ? "Bugun" : day === yesterday ? "Kecha" : dateLongUz(day);
+}
+
 export function NotificationsPage() {
-  const { data, loading, error, reload } = useApi<Notification[]>("/notifications");
+  const { data, loading, error, setData } = useApi<Notification[]>("/notifications");
+  const [filter, setFilter] = useState<NotifFilter>("ALL");
+  const toast = useToast();
+  const rows = (data || []).filter((n) =>
+    filter === "ALL" ? true : filter === "UNREAD" ? !n.read : n.type === filter,
+  );
   const unread = data?.filter((n) => !n.read).length || 0;
-  async function read(id: string) {
-    await api(`/notifications/${id}/read`, { method: "PATCH" });
-    void reload(true);
+  const groups = rows.reduce<[string, Notification[]][]>((acc, n) => {
+    const label = dayLabel(n.createdAt);
+    const group = acc.find(([key]) => key === label);
+    if (group) group[1].push(n);
+    else acc.push([label, [n]]);
+    return acc;
+  }, []);
+
+  async function markRead(id: string) {
+    // Optimistik yangilash — ro‘yxat va yuqoridagi hisoblagich darhol o‘zgaradi.
+    setData((list) => list?.map((n) => (n.id === id ? { ...n, read: true } : n)) || null);
+    try {
+      await api(`/notifications/${id}/read`, { method: "PATCH" });
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    } finally {
+      notifyChange("notifications");
+    }
   }
+  async function markAll() {
+    setData((list) => list?.map((n) => ({ ...n, read: true })) || null);
+    try {
+      await patch("/notifications/read-all");
+      toast("Hammasi o‘qilgan deb belgilandi");
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    } finally {
+      notifyChange("notifications");
+    }
+  }
+
   return (
     <div className="page narrow">
       <PageHeader
@@ -167,53 +213,66 @@ export function NotificationsPage() {
         subtitle={unread ? `${unread} ta o‘qilmagan` : "Hammasi o‘qilgan"}
         actions={
           unread > 0 && (
-            <button
-              className="btn"
-              onClick={async () => {
-                await patch("/notifications/read-all");
-                void reload(true);
-              }}
-            >
-              <CheckCheck size={16} /> Hammasini o‘qilgan deb belgilash
+            <button className="btn" onClick={() => void markAll()}>
+              <CheckCheck size={16} /> Hammasini o‘qilgan qilish
             </button>
           )
         }
       />
       <section className="card">
+        <div className="filters">
+          <Segmented<NotifFilter>
+            value={filter}
+            onChange={setFilter}
+            options={[
+              { value: "ALL", label: "Barchasi", count: data?.length },
+              { value: "UNREAD", label: "O‘qilmagan", count: unread },
+              { value: "ATTENDANCE", label: "Davomat" },
+              { value: "LEAVE", label: "Ta’til" },
+            ]}
+          />
+        </div>
         {loading && !data ? (
           <Loading />
         ) : error ? (
           <div className="card-body">
             <ErrorBox message={error} />
           </div>
-        ) : !data?.length ? (
-          <Empty icon={Bell} title="Bildirishnomalar yo‘q" text="Kechikishlar va ta’til so‘rovlari shu yerda paydo bo‘ladi." />
+        ) : !rows.length ? (
+          <Empty
+            icon={Bell}
+            title={filter === "UNREAD" ? "O‘qilmagan bildirishnoma yo‘q" : "Bildirishnomalar yo‘q"}
+            text="Kechikishlar va ta’til so‘rovlari shu yerda paydo bo‘ladi."
+          />
         ) : (
-          <div className="feed">
-            {data.map((n) => (
-              <article
-                className="feed-item"
-                key={n.id}
-                style={{ background: n.read ? undefined : "#f5fbf8" }}
-              >
-                <span
-                  className={`feed-icon ${n.type === "ATTENDANCE" ? "amber" : n.type === "LEAVE" ? "blue" : "green"}`}
-                >
-                  {n.type === "ATTENDANCE" ? <Clock3 size={15} /> : n.type === "LEAVE" ? <Plane size={15} /> : <Bell size={15} />}
-                </span>
-                <div style={{ flex: 1 }}>
-                  <b>{n.title}</b>
-                  <p>{n.body}</p>
-                  <small>
-                    {dateUz(n.createdAt)} {time(n.createdAt)}
-                  </small>
-                </div>
-                {!n.read && (
-                  <button className="btn btn-sm btn-ghost" onClick={() => void read(n.id)}>
-                    O‘qildi
-                  </button>
-                )}
-              </article>
+          <div className="notif-list">
+            {groups.map(([label, items]) => (
+              <div key={label}>
+                <div className="notif-day">{label}</div>
+                {items.map((n) => {
+                  const meta = notifMeta[n.type] || { icon: Bell, tone: "gray", label: "Tizim" };
+                  return (
+                    <button
+                      key={n.id}
+                      className={`notif-item ${n.read ? "" : "unread"}`}
+                      onClick={() => !n.read && void markRead(n.id)}
+                      title={n.read ? undefined : "O‘qilgan deb belgilash"}
+                    >
+                      <span className={`feed-icon ${meta.tone}`}>
+                        <meta.icon size={15} />
+                      </span>
+                      <span className="notif-text">
+                        <b>{n.title}</b>
+                        <small>{n.body}</small>
+                      </span>
+                      <span className="notif-side">
+                        <time>{time(n.createdAt)}</time>
+                        {!n.read && <i className="notif-dot" aria-label="O‘qilmagan" />}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             ))}
           </div>
         )}

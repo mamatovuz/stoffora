@@ -58,6 +58,17 @@ export async function requireAuth(
       return res.status(401).json({
         message: "Bu qurilmadan chiqarildingiz. Qayta kiring.",
       });
+    // Ekran qulflangan bo‘lsa — faqat holatni bilish va qulfni ochish mumkin.
+    const path = req.originalUrl.split("?")[0];
+    if (
+      device?.lockedAt &&
+      user.screenLock?.enabled &&
+      !["/api/auth/me", "/api/auth/unlock"].includes(path)
+    )
+      return res.status(423).json({
+        code: "LOCKED",
+        message: "Ekran qulflangan. Davom etish uchun parolni kiriting.",
+      });
     // Ism/rasm o‘zgargan bo‘lsa — yangi qiymat ishlatiladi.
     req.session = {
       ...session,

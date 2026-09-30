@@ -10,6 +10,9 @@ export interface CurrentUser {
   email: string;
   role: Role;
   photoDataUrl?: string;
+  companyName?: string;
+  screenLock?: { enabled: boolean; minutes: number; hasPassword: boolean };
+  locked?: boolean;
 }
 const AuthContext = createContext<{
   user: CurrentUser | null;

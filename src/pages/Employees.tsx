@@ -7,8 +7,6 @@ import {
 } from "react-router-dom";
 import {
   AlertTriangle,
-  Archive,
-  ArchiveRestore,
   Camera,
   ChevronLeft,
   ChevronRight,
@@ -23,6 +21,8 @@ import {
   Smartphone,
   Unlink,
   UserRoundPlus,
+  UserMinus,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { del, errorText, post, put } from "../api";
@@ -144,7 +144,6 @@ export function EmployeesPage() {
             <option value="">Faol va nofaol</option>
             <option value="ACTIVE">Faol</option>
             <option value="INACTIVE">Nofaol</option>
-            <option value="ARCHIVED">Arxiv</option>
           </select>
         </div>
         {loading && !data ? (
@@ -253,17 +252,17 @@ export function EmployeesPage() {
                         )}
                       </td>
                       <td className="actions">
-                        {e.status !== "ARCHIVED" && (
+                        {e.status !== "ARCHIVED" && e.status !== "DISMISSED" && (
                           <button
                             className="icon-btn danger"
-                            title="Arxivlash"
-                            aria-label="Arxivlash"
+                            title="Ishdan bo‘shatish"
+                            aria-label="Ishdan bo‘shatish"
                             onClick={(event) => {
                               event.stopPropagation();
                               setArchiveTarget(e);
                             }}
                           >
-                            <Archive size={16} />
+                            <UserMinus size={16} />
                           </button>
                         )}
                       </td>
@@ -299,15 +298,12 @@ export function EmployeesPage() {
         )}
       </section>
       {archiveTarget && (
-        <Confirm
-          title="Xodimni arxivlash"
-          text={`${archiveTarget.firstName} ${archiveTarget.lastName} arxivga o‘tkaziladi va Telegram orqali davomat belgilay olmaydi. Tarixiy ma’lumotlar saqlanadi.`}
-          confirmLabel="Arxivlash"
-          danger
+        <DismissModal
+          employee={archiveTarget}
           onClose={() => setArchiveTarget(null)}
-          onConfirm={async () => {
-            await del(`/employees/${archiveTarget.id}`);
-            toast("Xodim arxivlandi");
+          onDone={() => {
+            setArchiveTarget(null);
+            toast("Xodim ishdan bo‘shatildi");
             void reload(true);
           }}
         />
@@ -447,12 +443,11 @@ function EmployeeFields({
         <Field label="Rahbari">
           <input className="input" value={form.manager} onChange={(e) => set("manager", e.target.value)} />
         </Field>
-        {editing && (
+        {editing && (form.status === "ACTIVE" || form.status === "INACTIVE") && (
           <Field label="Holat">
             <select className="select" value={form.status} onChange={(e) => set("status", e.target.value)}>
               <option value="ACTIVE">Faol</option>
               <option value="INACTIVE">Nofaol (vaqtincha)</option>
-              <option value="ARCHIVED">Arxiv</option>
             </select>
           </Field>
         )}
@@ -622,7 +617,7 @@ export function EmployeeProfilePage() {
   const { data: meta } = useApi<Meta>("/meta");
   const [tab, setTab] = useState(params.get("welcome") ? "connect" : "overview");
   const [editing, setEditing] = useState(false);
-  const [confirm, setConfirm] = useState<"face" | "telegram" | "archive" | null>(null);
+  const [confirm, setConfirm] = useState<"face" | "telegram" | "archive" | "rehire" | null>(null);
 
   if (loading && !data)
     return (
@@ -644,6 +639,7 @@ export function EmployeeProfilePage() {
   const branch = lookup(meta?.branches, e.branchId);
   const schedule = meta?.schedules.find((x) => x.id === e.scheduleId);
   const today = data.attendance.find((a) => a.date === tashkentIsoDate());
+  const dismissed = e.status === "DISMISSED" || e.status === "ARCHIVED";
   const month = tashkentIsoDate().slice(0, 7);
   const monthRows = data.attendance.filter((a) => a.date.startsWith(month));
   const tabs = [
@@ -656,9 +652,23 @@ export function EmployeeProfilePage() {
 
   return (
     <div className="page">
-      <Link to="/employees" className="back-link">
-        <ChevronLeft size={16} /> Xodimlar
+      <Link to={dismissed ? "/dismissed" : "/employees"} className="back-link">
+        <ChevronLeft size={16} /> {dismissed ? "Ishdan bo‘shaganlar" : "Xodimlar"}
       </Link>
+      {dismissed && (
+        <div className="alert warn" style={{ marginBottom: 14 }}>
+          <UserMinus size={18} />
+          <div>
+            <b>
+              Ishdan bo‘shagan{e.dismissedAt ? ` · ${dateLongUz(e.dismissedAt)}` : ""}
+            </b>
+            <p>
+              {e.dismissReason ? `Sabab: ${e.dismissReason}. ` : ""}Davomat belgilay olmaydi va ish haqi
+              hisobiga kirmaydi. Tarixiy ma’lumotlar saqlangan.
+            </p>
+          </div>
+        </div>
+      )}
       <section className="card profile-hero">
         <Avatar first={e.firstName} last={e.lastName} photo={e.photoDataUrl} size="xl" />
         <div>
@@ -679,24 +689,13 @@ export function EmployeeProfilePage() {
           </div>
         </div>
         <div className="toolbar">
-          {e.status === "ARCHIVED" ? (
-            <button
-              className="btn"
-              onClick={async () => {
-                try {
-                  await put(`/employees/${e.id}`, { status: "ACTIVE" });
-                  toast("Xodim qayta faollashtirildi");
-                  void reload(true);
-                } catch (reason) {
-                  toast(errorText(reason), "error");
-                }
-              }}
-            >
-              <ArchiveRestore size={16} /> Faollashtirish
+          {dismissed ? (
+            <button className="btn btn-primary" onClick={() => setConfirm("rehire")}>
+              <UserPlus size={16} /> Qayta ishga olish
             </button>
           ) : (
             <button className="btn btn-danger" onClick={() => setConfirm("archive")}>
-              <Archive size={16} /> Arxivlash
+              <UserMinus size={16} /> Ishdan bo‘shatish
             </button>
           )}
           <button className="btn btn-primary" onClick={() => setEditing(true)} disabled={!meta}>
@@ -900,15 +899,23 @@ export function EmployeeProfilePage() {
         />
       )}
       {confirm === "archive" && (
-        <Confirm
-          title="Xodimni arxivlash"
-          text="Xodim davomat belgilay olmaydi, lekin tarixiy ma’lumotlar saqlanadi."
-          confirmLabel="Arxivlash"
-          danger
+        <DismissModal
+          employee={e}
           onClose={() => setConfirm(null)}
-          onConfirm={async () => {
-            await del(`/employees/${e.id}`);
-            toast("Xodim arxivlandi");
+          onDone={() => {
+            setConfirm(null);
+            toast("Xodim ishdan bo‘shatildi");
+            void reload(true);
+          }}
+        />
+      )}
+      {confirm === "rehire" && (
+        <RehireModal
+          employee={e}
+          onClose={() => setConfirm(null)}
+          onDone={() => {
+            setConfirm(null);
+            toast("Xodim qayta ishga olindi");
             void reload(true);
           }}
         />
@@ -1204,7 +1211,12 @@ function EditEmployee({
     setSaving(true);
     setError("");
     try {
-      await put(`/employees/${employee.id}`, form);
+      const { status, ...rest } = form;
+      // Ishdan bo‘shatish/qayta olish alohida amal orqali — bu yerda faqat faol/nofaol.
+      await put(
+        `/employees/${employee.id}`,
+        status === "ACTIVE" || status === "INACTIVE" ? form : rest,
+      );
       onSaved();
     } catch (reason) {
       setError(errorText(reason));
@@ -1325,4 +1337,192 @@ export async function resizePhoto(file: File, square = true) {
   } finally {
     URL.revokeObjectURL(url);
   }
+}
+
+export function DismissModal({
+  employee,
+  onClose,
+  onDone,
+}: {
+  employee: Employee;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [date, setDate] = useState(tashkentIsoDate());
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      title="Ishdan bo‘shatish"
+      subtitle={`${employee.firstName} ${employee.lastName} · ${employee.employeeNo}`}
+      onClose={onClose}
+      size="narrow"
+    >
+      <form
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError("");
+          try {
+            await post(`/employees/${employee.id}/dismiss`, { date, reason: reason || undefined });
+            onDone();
+          } catch (reason) {
+            setError(errorText(reason));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <p className="muted" style={{ marginBottom: 14, fontSize: 13.5 }}>
+          Xodim «Ishdan bo‘shaganlar» ro‘yxatiga o‘tadi, davomat belgilay olmaydi va ish haqi hisobiga
+          kirmaydi. Keyin qayta ishga olish mumkin.
+        </p>
+        <Field label="Bo‘shagan sana">
+          <input className="input" type="date" value={date} max={tashkentIsoDate()} onChange={(e) => setDate(e.target.value)} required />
+        </Field>
+        <Field label="Sabab (ixtiyoriy)">
+          <input className="input" value={reason} maxLength={300} placeholder="Masalan: o‘z xohishi bilan" onChange={(e) => setReason(e.target.value)} />
+        </Field>
+        <ErrorBox message={error} />
+        <div className="form-actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Bekor qilish
+          </button>
+          <button className="btn btn-danger-solid" disabled={busy}>
+            <UserMinus size={15} /> {busy ? "Saqlanmoqda…" : "Ishdan bo‘shatish"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+export function RehireModal({
+  employee,
+  onClose,
+  onDone,
+}: {
+  employee: Employee;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [startDate, setStartDate] = useState(tashkentIsoDate());
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      title="Qayta ishga olish"
+      subtitle={`${employee.firstName} ${employee.lastName} · ${employee.employeeNo}`}
+      onClose={onClose}
+      size="narrow"
+    >
+      <form
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setBusy(true);
+          setError("");
+          try {
+            await post(`/employees/${employee.id}/rehire`, { startDate });
+            onDone();
+          } catch (reason) {
+            setError(errorText(reason));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <p className="muted" style={{ marginBottom: 14, fontSize: 13.5 }}>
+          Xodim yana faol bo‘ladi: Telegram orqali davomat belgilaydi va ish haqi hisobiga kiradi. Filial,
+          lavozim va grafik avvalgidek qoladi — kerak bo‘lsa keyin tahrirlang.
+        </p>
+        <Field label="Yangi ish boshlash sanasi">
+          <input className="input" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+        </Field>
+        <ErrorBox message={error} />
+        <div className="form-actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Bekor qilish
+          </button>
+          <button className="btn btn-primary" disabled={busy}>
+            <UserPlus size={15} /> {busy ? "Saqlanmoqda…" : "Qayta ishga olish"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+export function DismissedPage() {
+  const [q, setQ] = useState("");
+  const debounced = useDebounced(q, 300);
+  const { data, loading, error } = useApi<List>(
+    `/employees?status=DISMISSED&limit=200&q=${encodeURIComponent(debounced)}`,
+  );
+  const { data: meta } = useApi<Meta>("/meta");
+  const navigate = useNavigate();
+  const rows = (data?.items || [])
+    .slice()
+    .sort((a, b) => (b.dismissedAt || b.updatedAt).localeCompare(a.dismissedAt || a.updatedAt));
+  return (
+    <div className="page">
+      <PageHeader title="Ishdan bo‘shaganlar" subtitle={`${data?.total ?? 0} ta xodim · ish haqi hisobiga kirmaydi`} />
+      <section className="card">
+        <div className="filters">
+          <span className="input-icon">
+            <Search size={16} />
+            <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Ism, ID, telefon…" />
+          </span>
+        </div>
+        {loading && !data ? (
+          <Loading />
+        ) : error ? (
+          <div className="card-body">
+            <ErrorBox message={error} />
+          </div>
+        ) : !rows.length ? (
+          <Empty
+            icon={UserMinus}
+            title="Ishdan bo‘shaganlar yo‘q"
+            text="Xodim profilida «Ishdan bo‘shatish» bosilganda u shu ro‘yxatga tushadi."
+          />
+        ) : (
+          <div className="table-wrap">
+            <table className="table table-cards">
+              <thead>
+                <tr>
+                  <th>Xodim</th>
+                  <th>Lavozim</th>
+                  <th>Ishlagan davr</th>
+                  <th>Sabab</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((e) => (
+                  <tr key={e.id} className="clickable" onClick={() => navigate(`/employees/${e.id}`)}>
+                    <td>
+                      <Person first={e.firstName} last={e.lastName} photo={e.photoDataUrl} sub={`${e.employeeNo} · ${e.phone}`} />
+                    </td>
+                    <td data-label="Lavozim">{meta?.positions.find((p) => p.id === e.positionId)?.name || "—"}</td>
+                    <td data-label="Davr" className="num">
+                      {dateUz(e.startDate)} — {e.dismissedAt ? dateUz(e.dismissedAt) : "—"}
+                    </td>
+                    <td data-label="Sabab" className="muted">
+                      {e.dismissReason || "—"}
+                    </td>
+                    <td className="actions">
+                      <span className="link">
+                        Ochish <ChevronRight size={14} />
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+    </div>
+  );
 }

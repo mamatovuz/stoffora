@@ -20,6 +20,8 @@ export function emptyDatabase(): Database {
     qrNonces: [],
     faceProfiles: [],
     panelSessions: [],
+    photoQueue: [],
+    channelPosts: [],
   };
 }
 

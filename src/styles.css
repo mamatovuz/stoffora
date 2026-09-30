@@ -4411,3 +4411,305 @@ button.mini-row {
     display: none;
   }
 }
+
+/* Forma maydonlari: yonma-yon maydonlar bir xil balandlikda turishi uchun
+   grid qatorlari cho‘zilmaydi (input tepa-past bo‘lib ketmaydi). */
+.field {
+  align-content: start;
+}
+.form-grid {
+  align-items: start;
+}
+
+/* Bildirishnomalar */
+.notif-list {
+  padding: 4px 0 8px;
+}
+.notif-day {
+  padding: 14px 18px 6px;
+  color: var(--faint);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 18px;
+  border: 0;
+  background: none;
+  text-align: left;
+  cursor: default;
+  transition: background-color 0.12s ease;
+}
+.notif-item.unread {
+  cursor: pointer;
+}
+.notif-item:hover {
+  background: var(--surface-2);
+}
+.notif-text {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.notif-text b {
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+}
+.notif-item.unread .notif-text b {
+  font-weight: 600;
+  color: var(--ink);
+}
+.notif-text small {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+.notif-side {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+  flex: none;
+}
+.notif-side time {
+  color: var(--faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.notif-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--brand);
+}
+
+/* Ekran qulfi */
+.lock-screen {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 28px;
+  padding: 24px;
+  background: rgba(241, 245, 249, 0.72);
+  backdrop-filter: blur(28px) saturate(1.2);
+  -webkit-backdrop-filter: blur(28px) saturate(1.2);
+  animation: fade 0.2s ease;
+}
+.lock-clock {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  color: var(--ink);
+}
+.lock-clock b {
+  font-size: clamp(56px, 9vw, 88px);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.lock-clock span {
+  color: var(--muted);
+  font-size: 15px;
+  text-transform: capitalize;
+}
+.lock-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: min(380px, 100%);
+  padding: 28px 24px 20px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.lock-card.shake {
+  animation: glyph-shake 0.4s ease;
+}
+.lock-mark {
+  width: 40px;
+  height: 40px;
+}
+.lock-card h1 {
+  font-size: 20px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.lock-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.lock-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.lock-input {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  margin-top: 4px;
+}
+.lock-input .input {
+  flex: 1;
+  min-width: 0;
+}
+.lock-logout {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.lock-logout:hover {
+  color: var(--red);
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.setting-row > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+.setting-row b {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.setting-row small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.steps-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+.steps-list code {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--gray-bg);
+  font-size: 12px;
+}
+
+/* Davomat dinamikasi */
+.chart-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 28px;
+  padding: 14px 18px 0;
+}
+.chart-summary > div:not(.chart-legend) {
+  display: grid;
+  gap: 1px;
+}
+.chart-summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.chart-summary b {
+  font-size: 20px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.chart-summary b.warn {
+  color: var(--amber);
+}
+.chart-summary b.bad {
+  color: var(--red);
+}
+.chart-tooltip {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  font-size: 12.5px;
+}
+.chart-tooltip b {
+  margin-bottom: 2px;
+  font-weight: 600;
+}
+.chart-tooltip span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+}
+.chart-tooltip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.chart-tooltip em {
+  margin-left: auto;
+  color: var(--ink);
+  font-style: normal;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.chart-tooltip .rate {
+  padding-top: 4px;
+  border-top: 1px solid var(--line-2);
+}
+
+/* Telegram to‘liq ekran: tizim paneli va Telegram tugmalari ostida qolmaslik */
+.mini {
+  --m-safe-top: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+  --m-safe-bottom: max(env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
+}
+.mini-top {
+  padding-top: calc(16px + var(--m-safe-top));
+}
+.mini-splash {
+  padding-top: calc(28px + var(--m-safe-top));
+}
+.mini-tabbar {
+  padding-bottom: calc(6px + var(--m-safe-bottom));
+}
+.mini-app {
+  padding-bottom: calc(84px + var(--m-safe-bottom));
+}
+.mini-toast {
+  top: calc(10px + var(--m-safe-top));
+}
+.faceid {
+  padding-top: calc(8px + var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px));
+}
+.sheet {
+  max-height: calc(94dvh - var(--m-safe-top));
+}

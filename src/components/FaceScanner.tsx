@@ -18,6 +18,25 @@ export function preloadFaceModels() {
           faceapi.nets.faceLandmark68TinyNet.loadFromUri("/face-models"),
           faceapi.nets.faceRecognitionNet.loadFromUri("/face-models"),
         ]);
+        // "Isitish": birinchi hisoblash WebGL shaderlarini tayyorlaydi — shu
+        // ishni oldindan qilsak, foydalanuvchi uchun skaner darhol ishlaydi.
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = 160;
+          canvas.height = 160;
+          const context = canvas.getContext("2d");
+          if (context) {
+            context.fillStyle = "#888";
+            context.fillRect(0, 0, 160, 160);
+          }
+          await faceapi
+            .detectSingleFace(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }))
+            .withFaceLandmarks(true)
+            .withFaceDescriptor();
+          await faceapi.computeFaceDescriptor(canvas);
+        } catch {
+          /* isitish ixtiyoriy */
+        }
         return faceapi;
       })
       .catch((reason) => {
@@ -126,7 +145,7 @@ export function FaceScanner({
 }: {
   enrolled: boolean;
   onClose: () => void;
-  onVerified: (proof: string, score: number) => Promise<void> | void;
+  onVerified: (proof: string, score: number, photo?: string) => Promise<void> | void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(document.createElement("canvas"));
@@ -206,7 +225,7 @@ export function FaceScanner({
 
       /** Bitta kadrni tekshiradi. Sifat yaxshi bo‘lsa geometriyani qaytaradi. */
       const inspect = async () => {
-        await sleep(90);
+        await sleep(enrolled ? 60 : 80);
         if (!active() || video.readyState < 2) return null;
         frames += 1;
         const faces = await faceapi.detectAllFaces(video, fast).withFaceLandmarks(true);
@@ -250,7 +269,7 @@ export function FaceScanner({
         samples.push(descriptor);
         return true;
       };
-      const waitFront = async (count: number) => {
+      const waitFront = async (count: number, need = 3) => {
         let stable = 0;
         let captured = 0;
         while (active() && captured < count) {
@@ -265,7 +284,7 @@ export function FaceScanner({
             continue;
           }
           setHint("Qimirlamang…");
-          if (++stable < 3) continue;
+          if (++stable < need) continue;
           if (await capture()) {
             captured += 1;
             baselinePitch = g.pitch;
@@ -326,12 +345,13 @@ export function FaceScanner({
         setHint("Oxirgi namuna");
         await waitFront(1);
       } else {
-        // Tasdiqlash: to‘g‘ri → bosh burish (jonlilik) → to‘g‘ri
+        // Tasdiqlash: to‘g‘ri qarash → bosh burish (jonlilik). Burilgan holatda ham
+        // yuz o‘sha odamniki ekani tekshiriladi — rasm/ekranni almashtirib bo‘lmaydi.
         setPhase("center");
         setTitle("Kameraga qarang");
-        await waitFront(1);
+        await waitFront(1, 2);
         if (!active()) return;
-        fillTo(0.34);
+        fillTo(0.5);
         tap();
         const direction = Math.random() < 0.5 ? "left" : "right";
         setPhase("turn");
@@ -339,20 +359,31 @@ export function FaceScanner({
         setTitle(direction === "left" ? "Boshingizni chapga buring" : "Boshingizni o‘ngga buring");
         setHint("Jonli odam ekanini tekshiramiz");
         let moved = 0;
+        const turnStarted = Date.now();
         while (active()) {
           const g = await inspect();
-          if (!g) continue;
+          if (!g) {
+            moved = 0;
+            continue;
+          }
           if (Math.abs(g.yaw) > 0.2) {
-            if (++moved >= 2) break;
-          } else moved = 0;
+            if (++moved < 2) continue;
+            const turned = await faceapi
+              .detectSingleFace(video, precise)
+              .withFaceLandmarks(true)
+              .withFaceDescriptor();
+            if (!active()) return;
+            if (!turned) continue;
+            if (distance(samples[0], Array.from(turned.descriptor)) > 0.68)
+              throw new Error("Tekshiruv davomida boshqa yuz aniqlandi. Qaytadan urinib ko‘ring.");
+            break;
+          }
+          moved = 0;
+          if (Date.now() - turnStarted > 12000) setHint("Boshingizni biroz ko‘proq buring");
         }
         if (!active()) return;
         setArrow(null);
-        fillTo(0.67);
         tap();
-        setPhase("final");
-        setTitle("Yana kameraga qarang");
-        await waitFront(1);
       }
       if (!active()) return;
       fillTo(1);
@@ -362,7 +393,7 @@ export function FaceScanner({
       const liveness = { challenge: enrolled ? "turn" : "circle", passed: true, frames };
       const result = enrolled
         ? await post<{ proof: string; score: number }>("/mini/face/verify", {
-            descriptor: mean(samples),
+            descriptor: samples[0],
             liveness,
           })
         : await post<{ proof: string; score: number }>("/mini/face/enroll", {
@@ -378,7 +409,7 @@ export function FaceScanner({
       haptic("success");
       await sleep(enrolled ? 900 : 1400);
       if (!active()) return;
-      await onVerified(result.proof, result.score);
+      await onVerified(result.proof, result.score, photo || undefined);
     } catch (reason) {
       if (!active()) return;
       const name = reason instanceof DOMException ? reason.name : "";
