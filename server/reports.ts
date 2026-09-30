@@ -4,6 +4,7 @@ import { dataIndexes, readDb } from "../lib/store";
 import { dateParts, tashkentIsoDate } from "../lib/format";
 import type { Attendance, Database, Employee } from "../lib/types";
 import { attendanceKpi, calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
+import { countedRecords, isPracticeDay } from "../lib/counting";
 import {
   addTableSheet,
   addTimesheetSheet,
@@ -32,7 +33,8 @@ export function payrollRows(db: Database, tenant: string, month: string) {
       const rows = (index.attendanceByEmployee.get(e.id) || []).filter((x) =>
         x.date.startsWith(month),
       );
-      const line = calculatePayroll(e.baseSalary, rows, settings);
+      // Hisoblash boshlanish sanasigacha bo‘lgan (mashq) kunlar oylikka ta’sir qilmaydi.
+      const line = calculatePayroll(e.baseSalary, countedRecords(rows, company, e), settings);
       const byDate = new Map(rows.map((r) => [r.date, r]));
       const statuses = days.map((d) => dayStatus(db, e, d, today, byDate.get(d)));
       const expectedDays = statuses.filter((s) => ["present", "late", "absent"].includes(s.kind)).length;
@@ -62,11 +64,16 @@ export function datesBetween(from: string, to: string) {
   return out;
 }
 
-type DayCode = { code: string; tone: Tone; note?: string; kind: "present" | "late" | "absent" | "leave" | "off" | "open" | "none" };
+type DayCode = { code: string; tone: Tone; note?: string; kind: "present" | "late" | "absent" | "leave" | "off" | "open" | "none" | "practice" };
 
 /** Bitta xodimning bitta kundagi holati (tabel uchun). */
 function dayStatus(db: Database, employee: Employee, date: string, today: string, record?: Attendance): DayCode {
   if (date < employee.startDate || date > today) return { code: "", tone: "gray", kind: "none" };
+  const company = db.companies.find((c) => c.id === employee.companyId);
+  if (isPracticeDay(date, company, employee))
+    return record?.checkIn
+      ? { code: "M", tone: "gray", note: `${record.checkIn} → ${record.checkOut || "…"} (mashq — hisoblanmaydi)`, kind: "practice" }
+      : { code: "", tone: "gray", note: "Mashq davri", kind: "practice" };
   if (record?.checkIn) {
     const note = `${record.checkIn} → ${record.checkOut || "…"}${record.lateMinutes ? ` · ${record.lateMinutes} daq kech` : ""}`;
     if (!record.checkOut && date < today) return { code: "•", tone: "blue", note: `${note} (ketish belgilanmagan)`, kind: record.lateMinutes ? "late" : "present" };
@@ -180,7 +187,11 @@ export function registerExcelReports(
       // Xulosa (har bir xodim bo‘yicha)
       const summary = employees.map((e) => {
         const statuses = days.map((d) => dayStatus(db, e, d, today, byKey.get(`${e.id}:${d}`)));
-        const own = records.filter((a) => a.employeeId === e.id);
+        const own = countedRecords(
+          records.filter((a) => a.employeeId === e.id),
+          db.companies.find((c) => c.id === e.companyId),
+          e,
+        );
         const expected = statuses.filter((s) => ["present", "late", "absent"].includes(s.kind)).length;
         const came = statuses.filter((s) => s.kind === "present" || s.kind === "late").length;
         return {

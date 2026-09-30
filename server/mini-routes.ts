@@ -19,6 +19,8 @@ import {
 } from "../lib/face";
 import type { Attendance, Database, LeaveRequest } from "../lib/types";
 import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
+import { onStafforaAttendance } from "./integrations/hooks";
+import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
 import { enqueueAttendancePhoto } from "./photo-channel";
 import {
   requireEmployee,
@@ -28,6 +30,7 @@ import {
 } from "./auth";
 import {
   linkEmployeeByInvite,
+  linkEmployeeByKnownTelegramId,
   sendTelegramMessage,
   telegramBotUsername,
   verifyTelegramInitData,
@@ -72,13 +75,16 @@ function monthSummary(db: Database, employeeId: string) {
   );
   const employee = db.employees.find((e) => e.id === employeeId);
   const company = db.companies.find((c) => c.id === employee?.companyId);
-  const pay = calculatePayroll(employee?.baseSalary || 0, rows, company?.payroll);
+  const counted = countedRecords(rows, company, employee);
+  const pay = calculatePayroll(employee?.baseSalary || 0, counted, company?.payroll);
+  const practiceUntil = countingStartDate(company, employee);
   return {
+    practiceUntil: practiceUntil && practiceUntil > tashkentIsoDate() ? practiceUntil : undefined,
     deduction: pay.deduction,
     penaltyMode: normalizePayrollSettings(company?.payroll).latePenaltyMode,
     days: rows.filter((item) => item.checkIn).length,
-    late: rows.filter((item) => item.lateMinutes > 0).length,
-    lateMinutes: rows.reduce((sum, item) => sum + item.lateMinutes, 0),
+    late: counted.filter((item) => item.lateMinutes > 0).length,
+    lateMinutes: counted.reduce((sum, item) => sum + item.lateMinutes, 0),
     workedMinutes: rows.reduce((sum, item) => sum + item.workedMinutes, 0),
     overtimeMinutes: rows.reduce((sum, item) => sum + item.overtimeMinutes, 0),
   };
@@ -140,8 +146,10 @@ export function createMiniRouter() {
         }
         telegramId = String(identity.id);
         // startapp=<taklif kodi> orqali ochilgan bo‘lsa — shu yerning o‘zida ulaymiz.
-        if (identity.startParam && /^[a-f0-9]{16,64}$/i.test(identity.startParam))
+        if (identity.startParam && /^[A-Za-z0-9_-]{16,64}$/.test(identity.startParam))
           await linkEmployeeByInvite(identity.startParam, identity);
+        // Xodimlar botidan import qilingan xodim — Telegram ID (imzolangan) bo‘yicha avtomatik ulash.
+        await linkEmployeeByKnownTelegramId(identity);
       }
       const db = await readDb();
       const employee = employeeId
@@ -769,7 +777,10 @@ export function createMiniRouter() {
           qrNonce.usedEmployeeIds.push(`${auth.employeeId}:${session.action}`);
         }
         const name = `${employee.firstName} ${employee.lastName}`;
-        if (session.action === "CHECK_IN" && attendance.lateMinutes > 0)
+        const company = db.companies.find((c) => c.id === auth.companyId);
+        const practice = isPracticeDay(date, company, employee);
+        // Mashq davrida rahbarlarga kechikish haqida xabar ketmaydi.
+        if (session.action === "CHECK_IN" && attendance.lateMinutes > 0 && !practice)
           db.notifications.unshift({
             id: id(),
             companyId: auth.companyId,
@@ -799,15 +810,26 @@ export function createMiniRouter() {
           action: session.action,
           photoDataUrl: input.photoDataUrl,
         });
-        return { attendance: { ...attendance }, employee, branch };
+        return {
+          attendance: { ...attendance },
+          employee,
+          branch,
+          practiceUntil: practice ? countingStartDate(company, employee) : undefined,
+          action: session.action,
+        };
       });
       const a = result.attendance;
+      // Integratsiya: keldi-ketdini xodimlar botiga ham yuborish (navbat orqali, xatoda qayta urinadi).
+      onStafforaAttendance(auth.companyId, a, result.action);
+      const practiceNote = result.practiceUntil
+        ? `\n\n🧪 Mashq davri: ${result.practiceUntil.split("-").reverse().join(".")} gacha kechikish va ushlanmalar hisoblanmaydi.`
+        : "";
       const message =
         a.checkOut && a.checkIn
           ? `🔴 Ishdan ketish qayd etildi\n🕔 ${a.checkOut}\n⏱ Ishlangan: ${Math.floor(a.workedMinutes / 60)} soat ${a.workedMinutes % 60} daqiqa\n📍 ${result.branch.name}`
           : `🟢 Ishga kelish qayd etildi\n🕘 ${a.checkIn}${a.lateMinutes ? `\n⚠️ Kechikish: ${a.lateMinutes} daqiqa` : ""}\n📍 ${result.branch.name} (${a.distanceMeters} m)`;
       if (result.employee.telegramId && !result.employee.telegramId.startsWith("dev"))
-        void sendTelegramMessage(result.employee.telegramId, message).catch(
+        void sendTelegramMessage(result.employee.telegramId, message + practiceNote).catch(
           console.error,
         );
       return res.json(a);

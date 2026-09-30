@@ -69,6 +69,10 @@ function normalizeDatabase(database: Database): Database {
   database.panelSessions ||= [];
   database.photoQueue ||= [];
   database.channelPosts ||= [];
+  database.integrations ||= [];
+  database.entityMappings ||= [];
+  database.syncJobs ||= [];
+  database.integrationConflicts ||= [];
   return database;
 }
 
@@ -327,6 +331,11 @@ function trimCollections(db: Database) {
   }
   if (db.photoQueue.length > PHOTO_QUEUE_LIMIT)
     db.photoQueue = db.photoQueue.slice(db.photoQueue.length - PHOTO_QUEUE_LIMIT);
+  if (db.syncJobs.length > 300) db.syncJobs = db.syncJobs.slice(0, 300);
+  if (db.integrationConflicts.length > 1000)
+    db.integrationConflicts = db.integrationConflicts.filter(
+      (c, index) => c.status === "OPEN" || index < 500,
+    );
   if (db.channelPosts.length > CHANNEL_POSTS_LIMIT)
     db.channelPosts = db.channelPosts.slice(db.channelPosts.length - CHANNEL_POSTS_LIMIT);
 }
@@ -579,6 +588,15 @@ export async function flushDb() {
     if (draining) await draining;
     else await new Promise((resolve) => setTimeout(resolve, 5));
   }
+}
+
+/**
+ * SQLite ulanishi — ko‘p yoziladigan yordamchi jadvallar (integratsiya jurnali,
+ * webhook hodisalari, navbat) uchun. Asosiy holat bundan tashqarida saqlanadi.
+ */
+export async function sqliteConnection() {
+  await ensureLoaded();
+  return connect();
 }
 
 export async function checkDatabaseHealth() {

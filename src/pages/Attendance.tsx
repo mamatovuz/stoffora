@@ -457,6 +457,7 @@ const stateOrder: Record<string, number> = {
   ON_LEAVE: 4,
   DAY_OFF: 5,
   UPCOMING: 6,
+  PRACTICE: 3,
 };
 const order = (row: RosterRow) => stateOrder[row.state] ?? 9;
 const truncate = (value: string) =>

@@ -31,7 +31,7 @@ export function AnnouncementsPage() {
     <div className="page narrow">
       <PageHeader
         title="E’lonlar"
-        subtitle="Xodimlarga Telegram va Mini App orqali xabar yuborish"
+        subtitle="Xodimlarga Staffora, Staffora boti va xodimlar boti orqali xabar yuborish"
         actions={
           <button className="btn btn-primary" onClick={() => setOpen(true)}>
             <Plus size={16} /> E’lon yuborish
@@ -62,8 +62,10 @@ export function AnnouncementsPage() {
                   <b>{a.title}</b>
                   <p style={{ whiteSpace: "pre-wrap" }}>{a.message}</p>
                   <small>
-                    {a.audience} · {a.channel.join(" + ")} · {dateUz(a.scheduledAt)} {time(a.scheduledAt)}
+                    {a.audience} · {[...new Set(a.channel.map((c) => channelNames[c] || c))].join(" + ")} · {dateUz(a.scheduledAt)} {time(a.scheduledAt)}
+                    {a.createdBy ? ` · ${a.createdBy}` : ""}
                   </small>
+                  <DeliveryReport a={a} />
                 </div>
               </article>
             ))}
@@ -88,6 +90,42 @@ export function AnnouncementsPage() {
   );
 }
 
+type AudienceType = "ALL" | "BRANCHES" | "DEPARTMENTS" | "POSITIONS" | "EMPLOYEES";
+const audienceLabels: Record<AudienceType, string> = {
+  ALL: "Barcha xodimlar",
+  BRANCHES: "Filiallar",
+  DEPARTMENTS: "Bo‘limlar",
+  POSITIONS: "Lavozimlar",
+  EMPLOYEES: "Aniq xodimlar",
+};
+const channelNames: Record<string, string> = { STAFFORA: "Staffora", WEB: "Staffora", TELEGRAM: "Staffora boti", BOT: "Xodimlar boti" };
+
+function DeliveryReport({ a }: { a: Announcement }) {
+  const r = a.report;
+  if (!r) return null;
+  return (
+    <div className="delivery-report">
+      {r.staffora && <span className="badge green">Staffora: {r.staffora.delivered} ta</span>}
+      {r.telegram && (
+        <span className={`badge ${r.telegram.failed ? "amber" : "green"}`}>
+          Staffora boti: {r.telegram.delivered}/{r.telegram.recipients}
+        </span>
+      )}
+      {r.bot && (
+        <span
+          className={`badge ${r.bot.status === "FAILED" ? "red" : r.bot.status === "PARTIAL" ? "amber" : r.bot.status === "SENT" ? "green" : "blue"}`}
+          title={r.bot.error || (r.bot.skipped ? `${r.bot.skipped} ta qabul qiluvchi botga bog‘lanmagan` : undefined)}
+        >
+          Xodimlar boti:{" "}
+          {r.bot.status === "FAILED"
+            ? `xato — ${r.bot.error || "yuborilmadi"}`
+            : `${r.bot.sent} yuborildi${r.bot.failed ? ` · ${r.bot.failed} xato` : ""}${r.bot.status === "QUEUED" ? " · navbatda" : ""}`}
+        </span>
+      )}
+    </div>
+  );
+}
+
 function AnnouncementForm({
   onClose,
   onSaved,
@@ -96,21 +134,44 @@ function AnnouncementForm({
   onSaved: (delivered?: number) => void;
 }) {
   const { data: meta } = useApi<Meta>("/meta");
-  const [form, setForm] = useState({ title: "", message: "", branchId: "", telegram: true });
+  const { data: integrations } = useApi<{ items: { status: string }[] }>("/integrations");
+  const botConnected = Boolean(integrations?.items.some((i) => i.status !== "DISCONNECTED"));
+  const [audience, setAudience] = useState<AudienceType>("ALL");
+  const { data: employees } = useApi<{ items: { id: string; firstName: string; lastName: string }[] } | { id: string; firstName: string; lastName: string }[]>(
+    audience === "EMPLOYEES" ? "/employees?limit=500" : null,
+  );
+  const [form, setForm] = useState({ title: "", message: "" });
+  const [channels, setChannels] = useState<string[]>(["STAFFORA", "TELEGRAM"]);
+  const [ids, setIds] = useState<string[]>([]);
+  const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const toggle = (list: string[], value: string) => (list.includes(value) ? list.filter((x) => x !== value) : [...list, value]);
+  const options: { id: string; name: string }[] =
+    audience === "BRANCHES"
+      ? meta?.branches.map((b) => ({ id: b.id, name: b.name })) || []
+      : audience === "DEPARTMENTS"
+        ? meta?.departments.map((d) => ({ id: d.id, name: d.name })) || []
+        : audience === "POSITIONS"
+          ? meta?.positions.map((p) => ({ id: p.id, name: p.name })) || []
+          : audience === "EMPLOYEES"
+            ? (Array.isArray(employees) ? employees : employees?.items || []).map((e) => ({ id: e.id, name: `${e.firstName} ${e.lastName}` }))
+            : [];
+  const visible = options.filter((o) => o.name.toLowerCase().includes(search.toLowerCase()));
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setError("");
     try {
+      if (!channels.length) throw new Error("Kamida bitta kanalni tanlang.");
+      if (audience !== "ALL" && !ids.length) throw new Error("Qabul qiluvchilarni tanlang.");
       const result = await post<{ delivered: number }>("/announcements", {
         title: form.title,
         message: form.message,
-        branchId: form.branchId || undefined,
-        channel: form.telegram ? ["WEB", "TELEGRAM"] : ["WEB"],
+        channel: channels,
+        target: { type: audience, ids: audience === "ALL" ? [] : ids },
       });
-      onSaved(form.telegram ? result.delivered : undefined);
+      onSaved(channels.includes("TELEGRAM") ? result.delivered : undefined);
     } catch (reason) {
       setError(errorText(reason));
     } finally {
@@ -118,28 +179,62 @@ function AnnouncementForm({
     }
   }
   return (
-    <Modal title="Yangi e’lon" onClose={onClose}>
+    <Modal title="Yangi e’lon" subtitle="Kanallar va qabul qiluvchilarni tanlang" onClose={onClose} size="wide">
       <form onSubmit={save}>
         <Field label="Sarlavha *">
-          <input className="input" value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} required minLength={3} />
+          <input className="input" value={form.title} maxLength={200} onChange={(e) => setForm({ ...form, title: e.target.value })} required minLength={3} />
         </Field>
-        <Field label="Xabar *">
-          <textarea className="textarea" rows={5} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} required minLength={5} />
+        <Field label="Xabar *" hint={`${form.message.length}/3500`}>
+          <textarea className="textarea" rows={5} maxLength={3500} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })} required minLength={5} />
+        </Field>
+        <Field label="Kanallar">
+          <div className="channel-picks">
+            {(["STAFFORA", "TELEGRAM", "BOT"] as const).map((channel) => (
+              <label key={channel} className={`ic-check ${channels.includes(channel) ? "on" : ""}`} title={channel === "BOT" && !botConnected ? "Xodimlar boti ulanmagan (Sozlamalar → Integratsiyalar)" : undefined}>
+                <input
+                  type="checkbox"
+                  disabled={channel === "BOT" && !botConnected}
+                  checked={channels.includes(channel)}
+                  onChange={() => setChannels((list) => toggle(list, channel))}
+                />
+                {channelNames[channel]}
+                {channel === "BOT" && !botConnected && <small className="muted">ulanmagan</small>}
+              </label>
+            ))}
+          </div>
         </Field>
         <Field label="Kimga">
-          <select className="select" value={form.branchId} onChange={(e) => setForm({ ...form, branchId: e.target.value })}>
-            <option value="">Barcha xodimlar</option>
-            {meta?.branches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {b.name} filiali
+          <select
+            className="select"
+            value={audience}
+            onChange={(e) => {
+              setAudience(e.target.value as AudienceType);
+              setIds([]);
+              setSearch("");
+            }}
+          >
+            {(Object.keys(audienceLabels) as AudienceType[]).map((key) => (
+              <option key={key} value={key}>
+                {audienceLabels[key]}
               </option>
             ))}
           </select>
         </Field>
-        <label className="checkbox-row" style={{ marginBottom: 14 }}>
-          <input type="checkbox" checked={form.telegram} onChange={(e) => setForm({ ...form, telegram: e.target.checked })} />
-          Telegram bot orqali ham yuborish
-        </label>
+        {audience !== "ALL" && (
+          <div className="stack" style={{ gap: 8, marginBottom: 14 }}>
+            {options.length > 8 && <input className="input" placeholder="Qidirish…" value={search} onChange={(e) => setSearch(e.target.value)} />}
+            <div className="ic-checks" style={{ maxHeight: 220, overflow: "auto" }}>
+              {visible.map((o) => (
+                <label key={o.id} className={`ic-check ${ids.includes(o.id) ? "on" : ""}`}>
+                  <input type="checkbox" checked={ids.includes(o.id)} onChange={() => setIds((list) => toggle(list, o.id))} />
+                  {o.name}
+                </label>
+              ))}
+              {!visible.length && <small className="muted">Topilmadi</small>}
+            </div>
+            <small className="muted">{ids.length} ta tanlandi</small>
+          </div>
+        )}
         <ErrorBox message={error} />
         <div className="form-actions">
           <button type="button" className="btn" onClick={onClose}>

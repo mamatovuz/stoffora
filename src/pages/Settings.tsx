@@ -17,7 +17,9 @@ import {
   UserRound,
   XCircle,
   Lock,
+  PlugZap,
 } from "lucide-react";
+import { CountingStartCard, IntegrationCenter } from "./Integrations";
 import { api, del, errorText, post, put } from "../api";
 import { useApi } from "../hooks";
 import {
@@ -35,7 +37,7 @@ import { calculatePayroll, defaultPayrollSettings } from "@/lib/payroll";
 import { dateUz, money } from "@/lib/format";
 import { resizePhoto } from "./Employees";
 
-type Tab = "profile" | "security" | "lock" | "devices" | "company" | "payroll" | "channel" | "bot";
+type Tab = "profile" | "security" | "lock" | "devices" | "company" | "payroll" | "channel" | "bot" | "integrations";
 const tabs: [Tab, string, typeof UserRound][] = [
   ["profile", "Profil", UserRound],
   ["security", "Xavfsizlik", ShieldCheck],
@@ -45,6 +47,7 @@ const tabs: [Tab, string, typeof UserRound][] = [
   ["payroll", "Ish haqi va jarima", Banknote],
   ["channel", "Rasm kanali", Camera],
   ["bot", "Telegram bot", Send],
+  ["integrations", "Integratsiyalar", PlugZap],
 ];
 
 export function SettingsPage() {
@@ -70,10 +73,20 @@ export function SettingsPage() {
           {tab === "security" && <SecuritySection />}
           {tab === "devices" && <DevicesSection />}
           {tab === "company" && <CompanySection />}
-          {tab === "payroll" && <PayrollSection />}
+          {tab === "payroll" && (
+            <>
+              <section className="card">
+                <div className="card-body">
+                  <CountingStartCard />
+                </div>
+              </section>
+              <PayrollSection />
+            </>
+          )}
           {tab === "lock" && <ScreenLockSection />}
           {tab === "channel" && <PhotoChannelSection />}
           {tab === "bot" && <BotSection />}
+          {tab === "integrations" && <IntegrationCenter />}
         </div>
       </div>
     </div>

@@ -63,6 +63,7 @@ const statusMap: Record<string, [string, string]> = {
   DAY_OFF: ["Dam olish", "gray"],
   NOT_YET: ["Kutilmoqda", "gray"],
   UPCOMING: ["Reja", "gray"],
+  PRACTICE: ["Mashq davri", "amber"],
 };
 
 export function Status({

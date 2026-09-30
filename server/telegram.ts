@@ -135,6 +135,7 @@ export async function linkEmployeeByInvite(
       (item) =>
         item.code === code &&
         !item.usedAt &&
+        !item.revokedAt &&
         new Date(item.expiresAt).getTime() > Date.now(),
     );
     if (!invite)
@@ -154,6 +155,39 @@ export async function linkEmployeeByInvite(
     linkEmployee(db, employee, telegram, "taklif havolasi");
     invite.usedAt = new Date().toISOString();
     return { ok: true, employee } as const;
+  });
+}
+
+/**
+ * Integratsiya orqali import qilingan xodim: Telegram ID si xodimlar botidan
+ * (server tomonida, ishonchli manbadan) kelgan. Xodim Staffora botida /start
+ * bosganda Telegram bergan from.id shu ID ga teng bo‘lsa — avtomatik ulanadi.
+ * Frontend yuborgan ID ga emas, faqat Telegram imzolagan ID ga ishoniladi.
+ */
+export async function linkEmployeeByKnownTelegramId(telegram: {
+  id: number | string;
+  username?: string;
+}): Promise<LinkResult> {
+  const telegramId = String(telegram.id);
+  return updateDb((db) => {
+    const matches = db.employees.filter(
+      (item) =>
+        item.status === "ACTIVE" &&
+        item.telegramId === telegramId &&
+        item.telegramIdSource === "INTEGRATION",
+    );
+    const connected = matches.find((item) => item.telegramConnected);
+    if (connected) return { ok: true, employee: connected } as const;
+    if (matches.length !== 1)
+      return {
+        ok: false,
+        reason:
+          matches.length > 1
+            ? "Bu Telegram hisobi bir nechta xodimga biriktirilgan. HR bilan bog‘laning."
+            : "Telegram hisobingiz xodim profiliga topilmadi.",
+      } as const;
+    linkEmployee(db, matches[0], telegram, "xodimlar boti orqali (Telegram ID)");
+    return { ok: true, employee: matches[0] } as const;
   });
 }
 
@@ -344,19 +378,28 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
     if (payload && payload !== "link") {
       const result = await linkEmployeeByInvite(payload, from);
       if (result.ok) return welcomeLinked(ctx, result.employee);
+      // Havola eskirgan bo‘lsa ham, bot bergan Telegram ID bo‘yicha tanib olamiz.
+      const known = await linkEmployeeByKnownTelegramId(from);
+      if (known.ok) return welcomeLinked(ctx, known.employee);
       await ctx.reply(
         `⚠️ ${result.reason}\n\nYoki telefon raqamingizni yuborib ulaning:`,
         { reply_markup: contactKeyboard() },
       );
       return;
     }
-    const db = await readDb();
-    const employee = db.employees.find(
+    let db = await readDb();
+    let employee = db.employees.find(
       (item) =>
         item.telegramId === String(from.id) &&
         item.telegramConnected &&
         item.status === "ACTIVE",
     );
+    if (!employee) {
+      const known = await linkEmployeeByKnownTelegramId(from);
+      if (known.ok) return welcomeLinked(ctx, known.employee);
+      db = await readDb();
+      employee = undefined;
+    }
     if (!employee) {
       await ctx.reply(
         "👋 Staffora’ga xush kelibsiz!\n\nTelegram hisobingiz hali xodim profiliga ulanmagan.\n\nUlash uchun pastdagi «📱 Telefon raqamni yuborish» tugmasini bosing — raqamingiz HR profilidagi raqam bilan solishtiriladi. Yoki HR bergan taklif havolasini oching.",

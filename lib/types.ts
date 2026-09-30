@@ -23,6 +23,18 @@ export interface Company {
   createdAt: string;
   payroll?: PayrollSettings;
   photoChannel?: PhotoChannelSettings;
+  attendanceCounting?: AttendanceCountingSettings;
+}
+/**
+ * Davomat hisoblash boshlanish sanasi. Shu sanagacha keldi-ketdi "mashq" hisoblanadi:
+ * kechikish, kelmaslik va oylikdan ushlanmalar hisobga olinmaydi.
+ */
+export interface AttendanceCountingSettings {
+  /** YYYY-MM-DD; bo‘sh bo‘lsa — hamma kun hisoblanadi. */
+  startDate?: string;
+  note?: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }
 /** Keldi-ketdi rasmlari yuboriladigan maxfiy Telegram kanal. */
 export interface PhotoChannelSettings {
@@ -114,6 +126,10 @@ export interface Employee {
   status: EmployeeStatus;
   dismissedAt?: string;
   dismissReason?: string;
+  /** Xodim uchun alohida hisoblash boshlanish sanasi (kompaniyanikidan keyin bo‘lsa ustun). */
+  countingStartDate?: string;
+  /** telegramId qayerdan kelgan: xodimning o‘zi ulagan yoki integratsiya (bot) bergan. */
+  telegramIdSource?: "LINK" | "INTEGRATION";
   createdAt: string;
   updatedAt: string;
 }
@@ -137,6 +153,10 @@ export interface Attendance {
   longitude?: number;
   distanceMeters?: number;
   note?: string;
+  /** Yozuv qayerdan kelgan: Staffora (Mini App/panel) yoki xodimlar boti. */
+  source?: "STAFFORA" | "BOT";
+  /** Tashqi tizimlardagi ID lar: { gulnora_hr_bot: "123" }. */
+  externalIds?: Record<string, string>;
   updatedAt: string;
 }
 export interface LeaveRequest {
@@ -171,6 +191,29 @@ export interface Announcement {
   channel: string[];
   scheduledAt: string;
   status: "DRAFT" | "SCHEDULED" | "SENT";
+  /** Yangi format: qabul qiluvchilar filtri va kanallar bo‘yicha yetkazish hisoboti. */
+  target?: AnnouncementTarget;
+  createdBy?: string;
+  report?: {
+    staffora?: { recipients: number; delivered: number };
+    telegram?: { recipients: number; delivered: number; failed: number };
+    bot?: {
+      integrationId: string;
+      externalId?: string;
+      status: "QUEUED" | "SENT" | "FAILED" | "PARTIAL";
+      recipients: number;
+      sent: number;
+      failed: number;
+      acknowledged: number;
+      skipped: number;
+      error?: string;
+      checkedAt?: string;
+    };
+  };
+}
+export interface AnnouncementTarget {
+  type: "ALL" | "BRANCHES" | "DEPARTMENTS" | "POSITIONS" | "EMPLOYEES";
+  ids: string[];
 }
 export interface Notification {
   id: string;
@@ -230,6 +273,13 @@ export interface TelegramInvite {
   code: string;
   expiresAt: string;
   usedAt?: string;
+  revokedAt?: string;
+  /** Bir martalik (standart) — ishlatilgach yaroqsiz. */
+  oneTime?: boolean;
+  createdBy?: string;
+  /** Qanday yuborilgan: qo‘lda nusxa, integratsiya boti orqali. */
+  channel?: "MANUAL" | "BOT";
+  sentAt?: string;
 }
 export interface AttendanceSession {
   id: string;
@@ -285,4 +335,131 @@ export interface Database {
   panelSessions: PanelSession[];
   photoQueue: PhotoJob[];
   channelPosts: ChannelPost[];
+  integrations: Integration[];
+  entityMappings: EntityMapping[];
+  syncJobs: SyncJob[];
+  integrationConflicts: IntegrationConflict[];
+}
+
+/* ------------------------------------------------------ integratsiya --- */
+export type IntegrationProvider = "gulnora_hr_bot";
+export type SyncEntity = "branch" | "department" | "position" | "employee" | "attendance";
+/** IMPORT — bot → Staffora; EXPORT — Staffora → bot; TWO_WAY — ikki tomonlama; OFF — o‘chiq. */
+export type SyncMode = "IMPORT" | "EXPORT" | "TWO_WAY" | "OFF";
+export type ConflictStrategy = "STAFFORA_WINS" | "BOT_WINS" | "LATEST" | "MANUAL";
+export type NotificationChannel = "staffora" | "telegram" | "bot";
+
+export interface IntegrationSettings {
+  syncModes: Record<SyncEntity, SyncMode>;
+  conflictStrategy: ConflictStrategy;
+  /** Bot'dagi o‘chirish Staffora'da ham ishdan bo‘shatish/nofaol qilishga olib keladi. */
+  applyRemoteDeletes: boolean;
+  /** Staffora'da yaratilgan (Telegram ID si bor) xodimlarni botga ham yaratish. */
+  createInBot: boolean;
+  /** Staffora keldi-ketdisini botga yuborish. */
+  pushAttendance: boolean;
+  /** O‘zgarishlar lentasini tekshirish oralig‘i (soniya). */
+  pollIntervalSeconds: number;
+  /** Taklif havolasi amal qilish muddati (soat). */
+  inviteTtlHours: number;
+  /** Bildirishnoma yo‘nalishlari: toifa → kanallar. */
+  routing: Record<"attendance" | "leave" | "announcements" | "system", NotificationChannel[]>;
+}
+
+export interface Integration {
+  id: string;
+  companyId: string;
+  provider: IntegrationProvider;
+  name: string;
+  baseUrl: string;
+  /** AES-256-GCM bilan shifrlangan API kalit (hech qachon frontendga qaytmaydi). */
+  apiKeyEnc: string;
+  /** Kalitning faqat ko‘rinadigan boshlanishi (gfk_abcd…). */
+  apiKeyHint: string;
+  webhookSecretEnc?: string;
+  /** Bot tomonidagi webhook obunasi ID si. */
+  remoteWebhookId?: number;
+  webhookUrl?: string;
+  status: "CONNECTED" | "DISCONNECTED" | "ERROR";
+  remote?: {
+    companyName?: string;
+    apiName?: string;
+    apiVersion?: string;
+    build?: string;
+    scopes?: string[];
+    source?: string;
+  };
+  settings: IntegrationSettings;
+  /** /integration/changes kursori. */
+  cursor: number;
+  /** Integratsiya o‘zi yaratgan yordamchi yozuvlar (masalan «Umumiy» bo‘lim) — botga eksport qilinmaydi. */
+  localOnlyIds?: string[];
+  lastSyncAt?: string;
+  lastPollAt?: string;
+  lastWebhookAt?: string;
+  lastError?: string;
+  lastErrorAt?: string;
+  initialSyncDoneAt?: string;
+  connectedAt: string;
+  connectedBy: string;
+  disconnectedAt?: string;
+  updatedAt: string;
+}
+
+export interface EntityMapping {
+  id: string;
+  companyId: string;
+  integrationId: string;
+  provider: IntegrationProvider;
+  entity: SyncEntity;
+  localId: string;
+  externalId: string;
+  /** Oxirgi sinxronlashdagi maydonlar izi — qaysi tomon o‘zgarganini aniqlash uchun. */
+  localHash?: string;
+  remoteHash?: string;
+  remoteUpdatedAt?: string;
+  syncedAt: string;
+  /** Bot'dagi asl ma’lumot (hamma maydonlar saqlanadi, maxfiylarsiz). */
+  snapshot?: Record<string, unknown>;
+}
+
+export interface SyncJobCounter {
+  total: number;
+  created: number;
+  updated: number;
+  linked: number;
+  skipped: number;
+  failed: number;
+}
+export interface SyncJob {
+  id: string;
+  companyId: string;
+  integrationId: string;
+  type: "INITIAL" | "MANUAL" | "ACCESS_SEND" | "ANNOUNCEMENT";
+  status: "QUEUED" | "RUNNING" | "DONE" | "FAILED" | "PARTIAL";
+  entities: string[];
+  phase?: string;
+  progress: number;
+  counters: Record<string, SyncJobCounter>;
+  errors: { entity: string; externalId?: string; message: string }[];
+  createdBy: string;
+  createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+export interface IntegrationConflict {
+  id: string;
+  companyId: string;
+  integrationId: string;
+  entity: SyncEntity;
+  localId: string;
+  externalId: string;
+  fields: { field: string; local: unknown; remote: unknown }[];
+  remote: Record<string, unknown>;
+  status: "OPEN" | "RESOLVED";
+  resolution?: "STAFFORA" | "BOT";
+  resolvedBy?: string;
+  createdAt: string;
+  resolvedAt?: string;
 }

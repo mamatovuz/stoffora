@@ -34,8 +34,11 @@ import {
   tashkentIsoDate,
 } from "../lib/format";
 import { can } from "../lib/permissions";
+import { isPracticeDay } from "../lib/counting";
 import { createCompany, createUser } from "../lib/seed";
 import type {
+  Announcement,
+  AnnouncementTarget,
   Attendance,
   Branch,
   Database,
@@ -67,6 +70,11 @@ import { startAttendanceReminders } from "./reminders";
 import { serveMedia, slimPhotos } from "./media";
 import { startPhotoChannelWorker, testPhotoChannel } from "./photo-channel";
 import { payrollRows, penaltyText, registerExcelReports } from "./reports";
+import { createIntegrationRouter, createIntegrationWebhookRouter } from "./integrations/routes";
+import { startIntegrationWorker } from "./integrations/worker";
+import { notifyEmployee } from "./integrations/hooks";
+import { activeIntegration } from "./integrations/model";
+import { enqueueAnnouncementToBot, targetEmployees, targetLabel } from "./integrations/announce";
 
 const fieldLabels: Record<string, string> = {
   firstName: "Ism",
@@ -160,7 +168,17 @@ app.use(
 app.use(cors({ origin: publicAppUrl, credentials: true }));
 // Javoblarni siqish (JSON 5–10 barobar kichrayadi). Rasmlar allaqachon siqilgan.
 app.use(compression({ threshold: 1024 }));
-app.use(express.json({ limit: "2mb" }));
+app.use(
+  express.json({
+    limit: "2mb",
+    // Integratsiya webhook imzosi xom tana ustida tekshiriladi.
+    verify: (req, _res, buf) => {
+      const url = (req as Request).url || "";
+      if (url.startsWith("/api/integrations/") && url.endsWith("/webhook"))
+        (req as Request & { rawBody?: string }).rawBody = buf.toString("utf8");
+    },
+  }),
+);
 // Imzolangan rasm URL’lari — auth va umumiy limitdan oldin, uzoq keshlanadi.
 app.get("/api/media/:kind/:file", (req, res, next) => {
   Promise.resolve(serveMedia(req, res)).catch(next);
@@ -512,7 +530,9 @@ app.get(
 );
 
 app.use("/api", createMiniRouter());
+app.use("/api", createIntegrationWebhookRouter());
 app.use("/api", requireAuth);
+app.use("/api", createIntegrationRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();
@@ -1020,6 +1040,7 @@ app.delete(
 
 // -------------------------------------------------------------- roster ---
 type RosterState =
+  | "PRACTICE"
   | "IN"
   | "LEFT"
   | "ABSENT"
@@ -1072,6 +1093,7 @@ function computeDayRoster(db: Database, tenant: string, date: string) {
   const branches = byId(db.branches.filter((b) => b.companyId === tenant));
   const departments = byId(db.departments.filter((d) => d.companyId === tenant));
   const positions = byId(db.positions.filter((p) => p.companyId === tenant));
+  const company = db.companies.find((c) => c.id === tenant);
   return db.employees
     .filter(
       (employee) =>
@@ -1087,6 +1109,7 @@ function computeDayRoster(db: Database, tenant: string, date: string) {
       const leave = index.approvedLeaveByEmployee
         .get(employee.id)
         ?.find((l) => l.startDate <= date && l.endDate >= date);
+      const practice = isPracticeDay(date, company, employee);
       let state: RosterState;
       if (record?.checkIn) state = record.checkOut ? "LEFT" : "IN";
       else if (leave) state = "ON_LEAVE";
@@ -1098,11 +1121,14 @@ function computeDayRoster(db: Database, tenant: string, date: string) {
         const [nh, nm] = nowClock.split(":").map(Number);
         state = nh * 60 + nm <= deadline ? "NOT_YET" : "ABSENT";
       } else state = "ABSENT";
+      // Mashq davrida kelmaslik "Kelmadi" deb sanalmaydi, kechikish ham hisoblanmaydi.
+      if (practice && state === "ABSENT") state = "PRACTICE";
       return {
         employee: rosterEmployee(employee),
         record: record || null,
         state,
-        late: (record?.lateMinutes || 0) > 0,
+        practice,
+        late: !practice && (record?.lateMinutes || 0) > 0,
         leaveType: leave?.type,
         scheduledStart: record?.scheduledStart || (day?.enabled ? day.start : undefined),
         scheduledEnd: record?.scheduledEnd || (day?.enabled ? day.end : undefined),
@@ -2126,10 +2152,13 @@ app.patch(
         });
       return { leave, employee };
     });
-    if (row.employee?.telegramId && status !== "CANCELLED") {
+    if (row.employee && status !== "CANCELLED") {
       const label = status === "APPROVED" ? "tasdiqlandi ✅" : "rad etildi ❌";
-      void sendTelegramMessage(
-        row.employee.telegramId,
+      // Sozlamadagi yo‘nalish bo‘yicha: Staffora boti va/yoki xodimlar boti.
+      void notifyEmployee(
+        await readDb(),
+        row.employee,
+        "leave",
         `Ta’til so‘rovingiz ${label}\n📅 ${row.leave.startDate} – ${row.leave.endDate}`,
       ).catch(console.error);
     }
@@ -2199,74 +2228,94 @@ app.post(
   asyncRoute(async (req, res) => {
     const input = z
         .object({
-          title: z.string().trim().min(3),
-          message: z.string().trim().min(5),
-          audience: z.string().default("Barcha xodimlar"),
+          title: z.string().trim().min(3).max(200),
+          message: z.string().trim().min(5).max(3500),
+          audience: z.string().optional(),
           branchId: z.string().optional(),
-          channel: z.array(z.enum(["WEB", "TELEGRAM"])).min(1),
+          // WEB/TELEGRAM — eski nomlar; STAFFORA = ichki bildirishnoma, BOT = xodimlar boti.
+          channel: z.array(z.enum(["WEB", "TELEGRAM", "STAFFORA", "BOT"])).min(1),
+          target: z
+            .object({
+              type: z.enum(["ALL", "BRANCHES", "DEPARTMENTS", "POSITIONS", "EMPLOYEES"]),
+              ids: z.array(z.string()).max(5000).default([]),
+            })
+            .optional(),
         })
         .parse(req.body),
       tenant = companyId(req);
+    const channels = [...new Set(input.channel.map((c) => (c === "WEB" ? "STAFFORA" : c)))];
+    const target: AnnouncementTarget =
+      input.target || (input.branchId ? { type: "BRANCHES", ids: [input.branchId] } : { type: "ALL", ids: [] });
+    if (target.type !== "ALL" && !target.ids.length)
+      throw httpError("Qabul qiluvchilarni tanlang.", 400);
     const row = await updateDb((db) => {
+      if (channels.includes("BOT") && !activeIntegration(db, tenant))
+        throw httpError("Xodimlar boti ulanmagan — «Xodimlar boti» kanalini tanlab bo‘lmaydi.", 400);
       const now = new Date().toISOString();
-      const branch = input.branchId
-        ? db.branches.find(
-            (b) => b.id === input.branchId && b.companyId === tenant,
-          )
-        : undefined;
-      const value = {
+      const recipients = targetEmployees(db, tenant, target);
+      const value: Announcement = {
         id: id(),
         companyId: tenant,
         title: input.title,
         message: input.message,
-        audience: branch ? `${branch.name} filiali` : input.audience,
-        channel: input.channel,
+        audience: targetLabel(db, tenant, target),
+        channel: channels,
+        target,
+        createdBy: req.session!.name,
         scheduledAt: now,
-        status: "SENT" as const,
+        status: "SENT",
+        report: {},
       };
+      if (channels.includes("STAFFORA")) {
+        for (const employee of recipients)
+          db.notifications.unshift({
+            id: id(),
+            companyId: tenant,
+            employeeId: employee.id,
+            title: `📢 ${input.title}`,
+            body: input.message,
+            type: "ANNOUNCEMENT",
+            read: false,
+            createdAt: now,
+          });
+        value.report!.staffora = { recipients: recipients.length, delivered: recipients.length };
+      }
       db.announcements.unshift(value);
-      const recipients = db.employees.filter(
-        (item) =>
-          item.companyId === tenant &&
-          item.status === "ACTIVE" &&
-          (!branch || item.branchId === branch.id),
-      );
-      for (const employee of recipients)
-        db.notifications.unshift({
-          id: id(),
-          companyId: tenant,
-          employeeId: employee.id,
-          title: `📢 ${input.title}`,
-          body: input.message,
-          type: "ANNOUNCEMENT",
-          read: false,
-          createdAt: now,
-        });
       db.auditLogs.unshift(
-        audit(tenant, req.session!.name, "E’lon yuborildi", "announcement", value.id),
+        audit(tenant, req.session!.name, `E’lon yuborildi (${channels.join(", ")})`, "announcement", value.id, undefined, { audience: value.audience, recipients: recipients.length }),
       );
       return {
         value,
         telegramIds: recipients
-          .filter((item) => item.telegramConnected && item.telegramId)
+          .filter((item) => item.telegramConnected && item.telegramId && !item.telegramId.startsWith("dev"))
           .map((item) => item.telegramId!),
       };
     });
     let delivered = 0;
-    if (row.value.channel.includes("TELEGRAM")) {
+    if (channels.includes("TELEGRAM")) {
       const results = await Promise.allSettled(
         row.telegramIds.map((telegramId) =>
-          sendTelegramMessage(
-            telegramId,
-            `📢 ${row.value.title}\n\n${row.value.message}`,
-          ),
+          sendTelegramMessage(telegramId, `📢 ${row.value.title}\n\n${row.value.message}`),
         ),
       );
-      delivered = results.filter(
-        (r) => r.status === "fulfilled" && r.value,
-      ).length;
+      delivered = results.filter((r) => r.status === "fulfilled" && r.value).length;
+      await updateDb((db) => {
+        const a = db.announcements.find((x) => x.id === row.value.id);
+        if (a) a.report = { ...(a.report || {}), telegram: { recipients: row.telegramIds.length, delivered, failed: row.telegramIds.length - delivered } };
+      });
     }
-    res.status(201).json({ ...row.value, delivered });
+    if (channels.includes("BOT")) await enqueueAnnouncementToBot(row.value.id);
+    const db = await readDb();
+    res.status(201).json({ ...db.announcements.find((a) => a.id === row.value.id), delivered });
+  }),
+);
+app.get(
+  "/api/announcements/:id",
+  asyncRoute(async (req, res) => {
+    const db = await readDb();
+    const row = db.announcements.find((a) => a.id === req.params.id && a.companyId === companyId(req));
+    if (!row) throw httpError("E’lon topilmadi.", 404);
+    res.json(row);
   }),
 );
 
@@ -2831,6 +2880,7 @@ void readDb().catch((error) => console.error("Bazani yuklashda xato", error));
 void startTelegramBot();
 startAttendanceReminders();
 startPhotoChannelWorker();
+startIntegrationWorker();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {

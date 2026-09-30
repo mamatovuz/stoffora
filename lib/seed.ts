@@ -22,6 +22,10 @@ export function emptyDatabase(): Database {
     panelSessions: [],
     photoQueue: [],
     channelPosts: [],
+    integrations: [],
+    entityMappings: [],
+    syncJobs: [],
+    integrationConflicts: [],
   };
 }
 

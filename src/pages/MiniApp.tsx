@@ -21,6 +21,7 @@ import {
   ShieldCheck,
   UserRound,
   X,
+  CalendarCheck,
 } from "lucide-react";
 import { ApiError, api, errorText, patch, post, restoreBearerToken, setBearerToken } from "../api";
 import { FaceScanner, preloadFaceModels } from "../components/FaceScanner";
@@ -59,6 +60,7 @@ type HomeData = {
   attendance?: Attendance;
   todayLeave: LeaveRequest | null;
   month: {
+    practiceUntil?: string;
     deduction?: number;
     penaltyMode?: string;
     days: number;
@@ -488,6 +490,15 @@ function MiniHome({
           <b>{Math.round(data.month.workedMinutes / 60)} soat</b>
         </div>
       </div>
+
+      {data.month.practiceUntil && (
+        <div className="mini-alert info">
+          <CalendarCheck size={18} />
+          <span>
+            Mashq davri: {data.month.practiceUntil.split("-").reverse().join(".")} gacha keldi-ketdini bemalol sinab ko‘ring — kechikish va ushlanmalar hisoblanmaydi.
+          </span>
+        </div>
+      )}
 
       {data.month.lateMinutes > 0 && (
         <div className="mini-alert warn">

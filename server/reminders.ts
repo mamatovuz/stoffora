@@ -1,6 +1,6 @@
 import { dataIndexes, readDb } from "../lib/store";
 import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
-import { sendTelegramMessage } from "./telegram";
+import { notifyEmployee } from "./integrations/hooks";
 
 const toMinutes = (value: string) => {
   const [hour, minute] = value.split(":").map(Number);
@@ -31,14 +31,19 @@ export function startAttendanceReminders() {
       const weekday = dateParts(date).weekday;
       const db = await readDb();
       const index = dataIndexes(db);
+      // Xodimlar botiga bog‘langan xodimlar (Staffora botiga hali ulanmagan bo‘lsa ham eslatma yetadi).
+      const linked = new Set(
+        db.entityMappings
+          .filter((m) => m.entity === "employee" && db.integrations.some((i) => i.id === m.integrationId && i.status !== "DISCONNECTED"))
+          .map((m) => `${m.companyId}|${m.localId}`),
+      );
+      const hasBotLink = (employeeId: string, companyId: string) => linked.has(`${companyId}|${employeeId}`);
       for (const employee of db.employees) {
-        if (
-          employee.status !== "ACTIVE" ||
-          !employee.telegramConnected ||
-          !employee.telegramId ||
-          employee.telegramId.startsWith("dev")
-        )
-          continue;
+        if (employee.status !== "ACTIVE") continue;
+        const reachable =
+          (employee.telegramConnected && employee.telegramId && !employee.telegramId.startsWith("dev")) ||
+          hasBotLink(employee.id, employee.companyId);
+        if (!reachable) continue;
         const onLeave = (index.approvedLeaveByEmployee.get(employee.id) || []).some(
           (item) => item.startDate <= date && item.endDate >= date,
         );
@@ -59,8 +64,10 @@ export function startAttendanceReminders() {
           !sent.has(inKey)
         ) {
           sent.add(inKey);
-          void sendTelegramMessage(
-            employee.telegramId,
+          void notifyEmployee(
+            db,
+            employee,
+            "attendance",
             `⏰ ${employee.firstName}, ish ${day.start} da boshlangan, lekin kelishingiz hali qayd etilmagan.\n\nFilialda bo‘lsangiz, Mini App orqali «Ishga keldim» tugmasini bosing.`,
             { openButton: true },
           ).catch(() => undefined);
@@ -73,8 +80,10 @@ export function startAttendanceReminders() {
           !sent.has(outKey)
         ) {
           sent.add(outKey);
-          void sendTelegramMessage(
-            employee.telegramId,
+          void notifyEmployee(
+            db,
+            employee,
+            "attendance",
             `🏁 ${employee.firstName}, ish vaqti ${day.end} da tugadi. Ketishni belgilashni unutmang.`,
             { openButton: true },
           ).catch(() => undefined);
