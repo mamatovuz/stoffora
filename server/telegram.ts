@@ -318,6 +318,18 @@ export function resolveWebAppUrl() {
   };
 }
 
+/** Bot tili: xodim Mini App’da tanlagani, bo‘lmasa Telegram tili. */
+type BotLang = "uz" | "ru";
+const botLang = (from?: { language_code?: string }, employee?: { language?: "uz" | "ru" }): BotLang =>
+  employee?.language || (from?.language_code?.startsWith("ru") ? "ru" : "uz");
+const statusLabelRu: Record<string, string> = {
+  WORKING: "🟢 На работе",
+  LATE: "🟠 Пришёл с опозданием",
+  CHECKED_OUT: "✅ Рабочий день завершён",
+  PRESENT: "🟢 Вовремя",
+  ABSENT: "🔴 Не пришёл",
+  ON_LEAVE: "🏖 В отпуске",
+};
 const statusLabel: Record<string, string> = {
   WORKING: "🟢 Ishda",
   LATE: "🟠 Kechikib keldi",
@@ -356,29 +368,31 @@ export async function startTelegramBot() {
   const noAppNote = canUseWebApp
     ? ""
     : "\n\n⚠️ Mini App hozircha ochilmaydi: serverda HTTPS manzil sozlanmagan. Administratorga xabar bering.";
-  const keyboard = () =>
+  const keyboard = (lang: BotLang = "uz") =>
     canUseWebApp
-      ? new InlineKeyboard().webApp("📲 Staffora’ni ochish", webAppUrl)
+      ? new InlineKeyboard().webApp(lang === "ru" ? "📲 Открыть Staffora" : "📲 Staffora’ni ochish", webAppUrl)
       : undefined;
-  const contactKeyboard = () =>
+  const contactKeyboard = (lang: BotLang = "uz") =>
     new Keyboard()
-      .requestContact("📱 Telefon raqamni yuborish")
+      .requestContact(lang === "ru" ? "📱 Отправить номер телефона" : "📱 Telefon raqamni yuborish")
       .resized()
       .oneTime();
 
   async function welcomeLinked(
     ctx: { reply: (text: string, other?: object) => Promise<unknown> },
     employee: Employee,
-    title = "✅ Hisob muvaffaqiyatli ulandi.",
+    lang: BotLang = "uz",
   ) {
     // Avval telefon klaviaturasini yopamiz, so‘ng tugmali xabar yuboramiz.
-    await ctx.reply(title, { reply_markup: { remove_keyboard: true } });
+    await ctx.reply(lang === "ru" ? "✅ Аккаунт успешно подключён." : "✅ Hisob muvaffaqiyatli ulandi.", { reply_markup: { remove_keyboard: true } });
     await ctx.reply(
       `👤 ${employee.firstName} ${employee.lastName}\n🆔 ${employee.employeeNo}\n\n` +
         (canUseWebApp
-          ? "Davomatni belgilash uchun pastdagi «📲 Staffora’ni ochish» tugmasini bosing. Xuddi shu tugma chat pastidagi «Staffora» menyusida ham bor."
+          ? lang === "ru"
+            ? "Чтобы отметиться, нажмите кнопку «📲 Открыть Staffora» ниже. Эта же кнопка есть в меню «Staffora» внизу чата."
+            : "Davomatni belgilash uchun pastdagi «📲 Staffora’ni ochish» tugmasini bosing. Xuddi shu tugma chat pastidagi «Staffora» menyusida ham bor."
           : noAppNote.trim()),
-      canUseWebApp ? { reply_markup: keyboard() } : undefined,
+      canUseWebApp ? { reply_markup: keyboard(lang) } : undefined,
     );
   }
 
@@ -386,6 +400,7 @@ export async function startTelegramBot() {
     const payload = ctx.match?.trim();
     const from = ctx.from;
     if (!from) return;
+    const ru = botLang(from) === "ru";
     if (payload?.startsWith("adm_")) {
       const user = await linkPanelUser(payload.slice(4), from);
       await ctx.reply(
@@ -399,13 +414,13 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
     }
     if (payload && payload !== "link") {
       const result = await linkEmployeeByInvite(payload, from);
-      if (result.ok) return welcomeLinked(ctx, result.employee);
+      if (result.ok) return welcomeLinked(ctx, result.employee, botLang(from, result.employee));
       // Havola eskirgan bo‘lsa ham, bot bergan Telegram ID bo‘yicha tanib olamiz.
       const known = await linkEmployeeByKnownTelegramId(from);
-      if (known.ok) return welcomeLinked(ctx, known.employee);
+      if (known.ok) return welcomeLinked(ctx, known.employee, botLang(from, known.employee));
       await ctx.reply(
-        `⚠️ ${result.reason}\n\nYoki telefon raqamingizni yuborib ulaning:`,
-        { reply_markup: contactKeyboard() },
+        `⚠️ ${result.reason}\n\n${ru ? "Или подключитесь, отправив номер телефона:" : "Yoki telefon raqamingizni yuborib ulaning:"}`,
+        { reply_markup: contactKeyboard(botLang(from)) },
       );
       return;
     }
@@ -418,17 +433,20 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
     );
     if (!employee) {
       const known = await linkEmployeeByKnownTelegramId(from);
-      if (known.ok) return welcomeLinked(ctx, known.employee);
+      if (known.ok) return welcomeLinked(ctx, known.employee, botLang(from, known.employee));
       db = await readDb();
       employee = undefined;
     }
     if (!employee) {
       await ctx.reply(
-        "👋 Staffora’ga xush kelibsiz!\n\nTelegram hisobingiz hali xodim profiliga ulanmagan.\n\nUlash uchun pastdagi «📱 Telefon raqamni yuborish» tugmasini bosing — raqamingiz HR profilidagi raqam bilan solishtiriladi. Yoki HR bergan taklif havolasini oching.",
-        { reply_markup: contactKeyboard() },
+        ru
+          ? "👋 Добро пожаловать в Staffora!\n\nВаш Telegram ещё не привязан к профилю сотрудника.\n\nНажмите кнопку «📱 Отправить номер телефона» ниже — номер сверится с профилем в HR. Или откройте ссылку-приглашение от HR."
+          : "👋 Staffora’ga xush kelibsiz!\n\nTelegram hisobingiz hali xodim profiliga ulanmagan.\n\nUlash uchun pastdagi «📱 Telefon raqamni yuborish» tugmasini bosing — raqamingiz HR profilidagi raqam bilan solishtiriladi. Yoki HR bergan taklif havolasini oching.",
+        { reply_markup: contactKeyboard(botLang(from)) },
       );
       return;
     }
+    const lang = botLang(from, employee);
     const branch = db.branches.find((item) => item.id === employee.branchId);
     const schedule = db.schedules.find(
       (item) => item.id === employee.scheduleId,
@@ -438,9 +456,12 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
       (item) =>
         item.employeeId === employee.id && item.date === tashkentIsoDate(),
     );
+    const companyName = db.companies.find((c) => c.id === employee.companyId)?.name || "—";
     await ctx.reply(
-      `Assalomu alaykum, ${employee.firstName}! 👋\n\n🏢 ${db.companies.find((c) => c.id === employee.companyId)?.name || "—"}\n📍 Filial: ${branch?.name || "—"}\n🕘 Bugungi grafik: ${day?.enabled ? `${day.start} – ${day.end}` : "Dam olish kuni"}\n📋 Holat: ${today ? statusLabel[today.status] || today.status : "Hali qayd etilmagan"}${noAppNote}`,
-      { reply_markup: keyboard() },
+      lang === "ru"
+        ? `Здравствуйте, ${employee.firstName}! 👋\n\n🏢 ${companyName}\n📍 Филиал: ${branch?.name || "—"}\n🕘 График на сегодня: ${day?.enabled ? `${day.start} – ${day.end}` : "Выходной"}\n📋 Статус: ${today ? statusLabelRu[today.status] || today.status : "Ещё не отмечено"}${noAppNote}`
+        : `Assalomu alaykum, ${employee.firstName}! 👋\n\n🏢 ${companyName}\n📍 Filial: ${branch?.name || "—"}\n🕘 Bugungi grafik: ${day?.enabled ? `${day.start} – ${day.end}` : "Dam olish kuni"}\n📋 Holat: ${today ? statusLabel[today.status] || today.status : "Hali qayd etilmagan"}${noAppNote}`,
+      { reply_markup: keyboard(lang) },
     );
   });
 
@@ -448,13 +469,13 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
     const contact = ctx.message.contact;
     if (!ctx.from || contact.user_id !== ctx.from.id) {
       await ctx.reply(
-        "Faqat o‘zingizning raqamingizni tugma orqali yuboring.",
-        { reply_markup: contactKeyboard() },
+        botLang(ctx.from) === "ru" ? "Отправьте только свой номер через кнопку." : "Faqat o‘zingizning raqamingizni tugma orqali yuboring.",
+        { reply_markup: contactKeyboard(botLang(ctx.from)) },
       );
       return;
     }
     const result = await linkEmployeeByPhone(contact.phone_number, ctx.from);
-    if (result.ok) return welcomeLinked(ctx, result.employee);
+    if (result.ok) return welcomeLinked(ctx, result.employee, botLang(ctx.from, result.employee));
     await ctx.reply(`⚠️ ${result.reason}`, {
       reply_markup: { remove_keyboard: true },
     });
@@ -469,21 +490,31 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
   bot.command("schedule", async (ctx) =>
     employeeCommand(ctx.from?.id, ctx, "schedule", keyboard()),
   );
-  bot.command("leave", async (ctx) =>
-    ctx.reply("Ta’til so‘rovini Mini App’dagi «Ta’til» bo‘limidan yuboring.", {
-      reply_markup: keyboard(),
-    }),
-  );
-  bot.command("help", async (ctx) =>
-    ctx.reply(
-      "ℹ️ Yordam\n\n/start — bosh sahifa va hisobni ulash\n/attendance — bugungi davomat\n/schedule — ish grafigi\n/profile — profil\n/leave — ta’til so‘rovi\n\nMuammo bo‘lsa kompaniyangiz HR bo‘limiga murojaat qiling.",
-      { reply_markup: keyboard() },
-    ),
-  );
-  bot.on("message:text", async (ctx) => {
+  const langOf = async (from?: { id: number; language_code?: string }) => {
+    if (!from) return "uz" as BotLang;
+    const db = await readDb();
+    return botLang(from, db.employees.find((e) => e.telegramId === String(from.id) && e.status === "ACTIVE"));
+  };
+  bot.command("leave", async (ctx) => {
+    const lang = await langOf(ctx.from);
+    await ctx.reply(lang === "ru" ? "Заявку на отпуск отправьте в разделе «Заявки» Mini App." : "Ta’til so‘rovini Mini App’dagi «So‘rovlar» bo‘limidan yuboring.", {
+      reply_markup: keyboard(lang),
+    });
+  });
+  bot.command("help", async (ctx) => {
+    const lang = await langOf(ctx.from);
     await ctx.reply(
-      "Kerakli bo‘limni Mini App orqali oching yoki /help buyrug‘idan foydalaning.",
-      { reply_markup: keyboard() },
+      lang === "ru"
+        ? "ℹ️ Помощь\n\n/start — главная и привязка аккаунта\n/attendance — посещаемость сегодня\n/schedule — график работы\n/profile — профиль\n/leave — заявка на отпуск\n\nЕсли возникла проблема, обратитесь в HR своей компании."
+        : "ℹ️ Yordam\n\n/start — bosh sahifa va hisobni ulash\n/attendance — bugungi davomat\n/schedule — ish grafigi\n/profile — profil\n/leave — ta’til so‘rovi\n\nMuammo bo‘lsa kompaniyangiz HR bo‘limiga murojaat qiling.",
+      { reply_markup: keyboard(lang) },
+    );
+  });
+  bot.on("message:text", async (ctx) => {
+    const lang = await langOf(ctx.from);
+    await ctx.reply(
+      lang === "ru" ? "Откройте нужный раздел в Mini App или воспользуйтесь командой /help." : "Kerakli bo‘limni Mini App orqali oching yoki /help buyrug‘idan foydalaning.",
+      { reply_markup: keyboard(lang) },
     );
   });
   bot.catch((error) => {
@@ -502,6 +533,19 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
       { command: "leave", description: "Ta’til so‘rovi" },
       { command: "help", description: "Yordam" },
     ]);
+    await bot.api
+      .setMyCommands(
+        [
+          { command: "start", description: "Главная / привязать аккаунт" },
+          { command: "attendance", description: "Посещаемость сегодня" },
+          { command: "schedule", description: "Мой график" },
+          { command: "profile", description: "Мой профиль" },
+          { command: "leave", description: "Заявка на отпуск" },
+          { command: "help", description: "Помощь" },
+        ],
+        { language_code: "ru" },
+      )
+      .catch(() => undefined);
     if (canUseWebApp)
       await bot.api.setChatMenuButton({
         menu_button: {

@@ -78,6 +78,7 @@ import { startIntegrationWorker } from "./integrations/worker";
 import { closedPeriod, createPayrollRouter } from "./payroll-routes";
 import { createDocumentRouter } from "./documents";
 import { createAnalyticsRouter } from "./analytics";
+import { createSwapRouter } from "./swaps";
 import { startHrWorker, upcomingCelebrations } from "./hr-worker";
 import {
   createCompanyBotRouter,
@@ -577,6 +578,7 @@ app.use("/api", createCompanyBotRouter());
 app.use("/api", createPayrollRouter());
 app.use("/api", createDocumentRouter());
 app.use("/api", createAnalyticsRouter());
+app.use("/api", createSwapRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();

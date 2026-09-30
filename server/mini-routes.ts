@@ -25,6 +25,8 @@ import { verifyViaEmployeeBot } from "./integrations/identity";
 import { dayPlan } from "../lib/schedule";
 import { FLAG_LABELS, gpsFlags } from "../lib/gps";
 import { createMiniDocumentRouter } from "./documents";
+import { createMiniSwapRouter } from "./swaps";
+import { createMiniPayrollRouter } from "./payroll-routes";
 import { companyBotTokens } from "./company-bots";
 import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
 import { enqueueAttendancePhoto } from "./photo-channel";
@@ -301,6 +303,8 @@ export function createMiniRouter() {
 
   router.use("/mini", requireEmployee);
   router.use(createMiniDocumentRouter());
+  router.use(createMiniSwapRouter());
+  router.use(createMiniPayrollRouter());
   router.get(
     "/mini/home",
     asyncRoute(async (req, res) => {
@@ -319,6 +323,18 @@ export function createMiniRouter() {
     }),
   );
   // Xodimning shaxsiy xabarnomalari (o‘qilgan/o‘qilmagan holati bilan).
+  router.post(
+    "/mini/language",
+    asyncRoute(async (req, res) => {
+      const { language } = z.object({ language: z.enum(["uz", "ru"]) }).parse(req.body || {});
+      const session = req.employeeSession!;
+      await updateDb((db) => {
+        const employee = db.employees.find((e) => e.id === session.employeeId && e.companyId === session.companyId);
+        if (employee) employee.language = language;
+      });
+      res.json({ ok: true, language });
+    }),
+  );
   router.get(
     "/mini/notifications",
     asyncRoute(async (req, res) => {

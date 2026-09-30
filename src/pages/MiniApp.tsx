@@ -51,6 +51,8 @@ import type {
 } from "@/lib/types";
 import { leaveTypeLabel, weekdayShort, weekOrder } from "../types";
 import stafforaMark from "../assets/staffora-mark.svg";
+import { MiniDocuments, MiniPayslips, MiniSwaps } from "./MiniExtras";
+import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
 
 type HomeData = {
   employee: Employee;
@@ -132,6 +134,23 @@ export function MiniAppPage() {
   const [faceAction, setFaceAction] = useState<Action | null>(null);
   const [flow, setFlow] = useState<{ sessionId: string; action: Action; requiresQr: boolean; photo?: string } | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
+  const [lang, setLangState] = useState<Lang>(
+    () => storedLang() || readCachedHome()?.employee.language || (tg()?.initDataUnsafe?.user?.language_code === "ru" ? "ru" : "uz"),
+  );
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    return startTranslator(document.body, lang);
+  }, [lang]);
+  useEffect(() => {
+    // Til boshqa qurilmada tanlangan bo‘lsa — profildagini olamiz.
+    if (!storedLang() && home?.employee.language) setLangState(home.employee.language);
+  }, [home?.employee.language]);
+  const changeLang = useCallback((next: Lang) => {
+    rememberLang(next);
+    setLangState(next);
+    tg()?.HapticFeedback?.selectionChanged?.();
+    void post("/mini/language", { language: next }).catch(() => undefined);
+  }, []);
 
   const showToast = useCallback((text: string, tone: "ok" | "error" = "ok") => {
     setToast({ text, tone });
@@ -300,14 +319,14 @@ export function MiniAppPage() {
         )}
         {tab === "history" && <MiniHistory home={home} />}
         {tab === "leave" && <MiniLeave onToast={showToast} />}
-        {tab === "profile" && <MiniProfile data={home} />}
+        {tab === "profile" && <MiniProfile data={home} onToast={showToast} lang={lang} onLang={changeLang} />}
       </main>
       <nav className="mini-tabbar">
         {(
           [
             ["home", Home, "Asosiy"],
             ["history", Clock3, "Tarix"],
-            ["leave", Plane, "Ta’til"],
+            ["leave", Plane, "So‘rovlar"],
             ["profile", UserRound, "Profil"],
           ] as const
         ).map(([key, Icon, label]) => (
@@ -1066,6 +1085,7 @@ function MiniHistory({ home }: { home: HomeData }) {
 function MiniLeave({ onToast }: { onToast: (text: string, tone?: "ok" | "error") => void }) {
   const [rows, setRows] = useState<LeaveRequest[] | null>(null);
   const [open, setOpen] = useState(false);
+  const [view, setView] = useState<"leave" | "swap">("leave");
   const load = useCallback(
     () =>
       api<LeaveRequest[]>("/mini/leave")
@@ -1085,9 +1105,21 @@ function MiniLeave({ onToast }: { onToast: (text: string, tone?: "ok" | "error")
   return (
     <div className="mini-body">
       <div className="mini-title">
-        <h1>Ta’til</h1>
-        <p>So‘rov yuboring va holatini kuzating</p>
+        <h1>So‘rovlar</h1>
+        <p>Ta’til va smena almashish</p>
       </div>
+      <div className="mini-seg" role="tablist">
+        <button role="tab" aria-selected={view === "leave"} className={view === "leave" ? "on" : ""} onClick={() => setView("leave")}>
+          Ta’til
+        </button>
+        <button role="tab" aria-selected={view === "swap"} className={view === "swap" ? "on" : ""} onClick={() => setView("swap")}>
+          Smena almashish
+        </button>
+      </div>
+      {view === "swap" ? (
+        <MiniSwaps onToast={onToast} />
+      ) : (
+      <>
       <button className="mini-btn" onClick={() => setOpen(true)}>
         <CalendarDays size={18} /> Yangi so‘rov
       </button>
@@ -1139,6 +1171,8 @@ function MiniLeave({ onToast }: { onToast: (text: string, tone?: "ok" | "error")
           </div>
         )}
       </section>
+      </>
+      )}
       {open && (
         <LeaveSheet
           onClose={() => setOpen(false)}
@@ -1238,7 +1272,17 @@ function LeaveSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
 }
 
 /* -------------------------------------------------------------- profile --- */
-function MiniProfile({ data }: { data: HomeData }) {
+function MiniProfile({
+  data,
+  onToast,
+  lang,
+  onLang,
+}: {
+  data: HomeData;
+  onToast: (text: string, tone?: "ok" | "error") => void;
+  lang: Lang;
+  onLang: (lang: Lang) => void;
+}) {
   const e = data.employee;
   const days = Math.max(0, Math.floor((Date.now() - new Date(`${e.startDate}T00:00:00+05:00`).getTime()) / 86_400_000));
   const tenure = days < 31 ? `${days} kun` : days < 365 ? `${Math.floor(days / 30.44)} oy` : `${Math.floor(days / 365.25)} yil ${Math.floor((days % 365.25) / 30.44)} oy`;
@@ -1332,6 +1376,9 @@ function MiniProfile({ data }: { data: HomeData }) {
         </>
       )}
 
+      <MiniPayslips />
+      <MiniDocuments onToast={onToast} />
+
       <div className="mp-group-title">Aloqa</div>
       <section className="mp-group">
         <div className="mp-row">
@@ -1341,6 +1388,17 @@ function MiniProfile({ data }: { data: HomeData }) {
         <div className="mp-row">
           <span>Telegram</span>
           <b>{e.telegramConnected ? "Ulangan ✓" : "Ulanmagan"}</b>
+        </div>
+      </section>
+      <div className="mp-group-title">Til</div>
+      <section className="mp-group">
+        <div className="mini-seg mp-lang" role="radiogroup" data-no-translate>
+          <button role="radio" aria-checked={lang === "uz"} className={lang === "uz" ? "on" : ""} onClick={() => onLang("uz")}>
+            🇺🇿 O‘zbekcha
+          </button>
+          <button role="radio" aria-checked={lang === "ru"} className={lang === "ru" ? "on" : ""} onClick={() => onLang("ru")}>
+            🇷🇺 Русский
+          </button>
         </div>
       </section>
       <p className="mp-note">Ma’lumotlarni o‘zgartirish uchun HR bo‘limiga murojaat qiling.</p>

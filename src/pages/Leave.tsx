@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { Check, Plane, Plus, X } from "lucide-react";
+import { ArrowLeftRight, Check, Plane, Plus, X } from "lucide-react";
 import { errorText, notifyChange, patch, post } from "../api";
+import type { ShiftSwapRequest } from "@/lib/types";
 import { useApi } from "../hooks";
 import {
   Empty,
@@ -19,7 +20,8 @@ import type { Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../types";
 
 type Row = LeaveRequest & { employee?: Employee };
-type Tab = "PENDING" | "APPROVED" | "ALL";
+type Tab = "PENDING" | "APPROVED" | "ALL" | "SWAPS";
+type SwapRow = ShiftSwapRequest & { requesterName: string; colleagueName: string; giveShift?: string; takeShift?: string };
 
 const days = (from: string, to: string) =>
   Math.round(
@@ -30,6 +32,7 @@ const days = (from: string, to: string) =>
 export function LeavePage() {
   const { data, loading, error, reload } = useApi<Row[]>("/leave");
   const [tab, setTab] = useState<Tab>("PENDING");
+  const swaps = useApi<SwapRow[]>("/shift-swaps");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const toast = useToast();
@@ -81,10 +84,17 @@ export function LeavePage() {
               },
               { value: "APPROVED", label: "Tasdiqlangan" },
               { value: "ALL", label: "Barchasi" },
+              {
+                value: "SWAPS",
+                label: "Smena almashish",
+                count: swaps.data?.filter((s) => s.status === "PENDING_MANAGER").length,
+              },
             ]}
           />
         </div>
-        {loading && !data ? (
+        {tab === "SWAPS" ? (
+          <SwapsPanel api={swaps} />
+        ) : loading && !data ? (
           <Loading />
         ) : error ? (
           <div className="card-body">
@@ -261,5 +271,96 @@ function LeaveForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
         </div>
       </form>
     </Modal>
+  );
+}
+
+const swapStatus: Record<ShiftSwapRequest["status"], [string, string]> = {
+  PENDING_COLLEAGUE: ["Hamkasb javobi kutilmoqda", "PENDING"],
+  PENDING_MANAGER: ["Tasdiq kutilmoqda", "PENDING"],
+  APPROVED: ["Tasdiqlangan", "APPROVED"],
+  REJECTED: ["Rad etilgan", "REJECTED"],
+  CANCELLED: ["Bekor qilingan", "CANCELLED"],
+};
+
+function SwapsPanel({ api }: { api: ReturnType<typeof useApi<SwapRow[]>> }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const toast = useToast();
+  async function decide(id: string, approve: boolean) {
+    setBusy(id);
+    try {
+      await post(`/shift-swaps/${id}/decide`, { approve });
+      toast(approve ? "Almashish tasdiqlandi — grafik yangilandi" : "Almashish rad etildi");
+      notifyChange("leave");
+      void api.reload(true);
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+  if (api.loading && !api.data) return <Loading />;
+  if (api.error)
+    return (
+      <div className="card-body">
+        <ErrorBox message={api.error} />
+      </div>
+    );
+  if (!api.data?.length)
+    return (
+      <Empty
+        icon={ArrowLeftRight}
+        title="Smena almashish so‘rovlari yo‘q"
+        text="Xodim Mini App orqali hamkasbiga ish kunini beradi, hamkasb rozi bo‘lgach so‘rov shu yerga tushadi."
+      />
+    );
+  return (
+    <div className="swap-list">
+      {api.data.map((s) => (
+        <article key={s.id} className={`swap-card ${s.status === "PENDING_MANAGER" ? "is-pending" : ""}`}>
+          <div className="swap-people">
+            <div>
+              <small>Beradi</small>
+              <b>{s.requesterName}</b>
+            </div>
+            <ArrowLeftRight size={18} className="swap-arrow" />
+            <div>
+              <small>Oladi</small>
+              <b>{s.colleagueName}</b>
+            </div>
+          </div>
+          <div className="swap-dates">
+            <span>
+              <b className="num">{dateUz(s.giveDate)}</b>
+              {s.giveShift && <small>{s.giveShift}</small>}
+              <em>{s.colleagueName.split(" ")[0]} ishlaydi</em>
+            </span>
+            {s.takeDate && (
+              <span>
+                <b className="num">{dateUz(s.takeDate)}</b>
+                {s.takeShift && <small>{s.takeShift}</small>}
+                <em>{s.requesterName.split(" ")[0]} ishlaydi</em>
+              </span>
+            )}
+          </div>
+          {s.reason && <p className="swap-reason">{s.reason}</p>}
+          <footer>
+            <span className="state-cell">
+              <Status value={swapStatus[s.status][1]} label={swapStatus[s.status][0]} />
+              {s.decidedBy && <small>{s.decidedBy}</small>}
+            </span>
+            {s.status === "PENDING_MANAGER" && (
+              <span className="toolbar">
+                <button className="btn btn-sm btn-primary" disabled={busy === s.id} onClick={() => void decide(s.id, true)}>
+                  <Check size={14} /> Tasdiqlash
+                </button>
+                <button className="btn btn-sm btn-danger" disabled={busy === s.id} onClick={() => void decide(s.id, false)} aria-label="Rad etish">
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+          </footer>
+        </article>
+      ))}
+    </div>
   );
 }

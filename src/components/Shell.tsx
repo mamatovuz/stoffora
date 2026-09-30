@@ -45,6 +45,7 @@ import { canOpenPage, homePage } from "@/lib/permissions";
 import { ScreenLock } from "./ScreenLock";
 import { api } from "../api";
 import { useApi, usePolling } from "../hooks";
+import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
 
 type NavItem = [string, string, typeof Users, string?];
 const sections: { label: string; items: NavItem[] }[] = [
@@ -102,6 +103,11 @@ export function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const searchRef = useRef<HTMLInputElement>(null);
+  const [lang, setLang] = useState<Lang>(() => storedLang() || "uz");
+  useEffect(() => {
+    document.documentElement.lang = lang;
+    return startTranslator(document.body, lang);
+  }, [lang]);
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem("staffora_sidebar") === "collapsed";
@@ -327,6 +333,18 @@ export function Shell() {
             <kbd>Ctrl K</kbd>
           </form>
           <div className="top-actions">
+            <button
+              className="lang-toggle"
+              data-no-translate
+              title={lang === "uz" ? "Русский язык" : "O‘zbek tili"}
+              onClick={() => {
+                const next = lang === "uz" ? "ru" : "uz";
+                rememberLang(next);
+                setLang(next);
+              }}
+            >
+              {lang === "uz" ? "RU" : "UZ"}
+            </button>
             {user?.screenLock?.enabled && (
               <button
                 className="icon-btn"

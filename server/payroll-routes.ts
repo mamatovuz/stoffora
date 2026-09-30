@@ -290,3 +290,24 @@ export async function sendPeriodPayslips(companyId: string, periodId: string) {
   }
   return sent;
 }
+
+/** Mini App: xodim faqat o‘zining yopilgan oylardagi hisob varaqalarini ko‘radi. */
+export function createMiniPayrollRouter() {
+  const router = Router();
+  router.get(
+    "/mini/payslips",
+    route(async (req, res) => {
+      const auth = (req as unknown as { employeeSession?: { employeeId: string; companyId: string } }).employeeSession!;
+      const db = await readDb();
+      res.json(
+        db.payrollPeriods
+          .filter((p) => p.companyId === auth.companyId)
+          .sort((a, b) => b.month.localeCompare(a.month))
+          .map((p) => ({ month: p.month, label: monthLabel(p.month), closedAt: p.closedAt, line: p.lines.find((l) => l.employeeId === auth.employeeId) }))
+          .filter((p) => p.line)
+          .slice(0, 12),
+      );
+    }),
+  );
+  return router;
+}
