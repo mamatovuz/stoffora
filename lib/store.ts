@@ -73,6 +73,7 @@ function normalizeDatabase(database: Database): Database {
   database.entityMappings ||= [];
   database.syncJobs ||= [];
   database.integrationConflicts ||= [];
+  database.registrations ||= [];
   return database;
 }
 
@@ -332,6 +333,11 @@ function trimCollections(db: Database) {
   if (db.photoQueue.length > PHOTO_QUEUE_LIMIT)
     db.photoQueue = db.photoQueue.slice(db.photoQueue.length - PHOTO_QUEUE_LIMIT);
   if (db.syncJobs.length > 300) db.syncJobs = db.syncJobs.slice(0, 300);
+  // Tugallanmagan anketalar 14 kundan keyin o‘chadi; ko‘rib chiqilganlar tarixda qoladi.
+  if (db.registrations.length > 200) {
+    const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString();
+    db.registrations = db.registrations.filter((r) => r.status !== "DRAFT" || r.updatedAt > cutoff);
+  }
   if (db.integrationConflicts.length > 1000)
     db.integrationConflicts = db.integrationConflicts.filter(
       (c, index) => c.status === "OPEN" || index < 500,

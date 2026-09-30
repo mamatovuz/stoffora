@@ -26,6 +26,7 @@ export function emptyDatabase(): Database {
     entityMappings: [],
     syncJobs: [],
     integrationConflicts: [],
+    registrations: [],
   };
 }
 

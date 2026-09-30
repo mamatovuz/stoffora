@@ -24,6 +24,24 @@ export interface Company {
   payroll?: PayrollSettings;
   photoChannel?: PhotoChannelSettings;
   attendanceCounting?: AttendanceCountingSettings;
+  /** Kompaniyaning o‘z Telegram boti (ro‘yxatdan o‘tish, xabarlar, Mini App). */
+  bot?: CompanyBotSettings;
+}
+export interface CompanyBotSettings {
+  /** AES-256-GCM bilan shifrlangan bot tokeni — frontendga qaytmaydi. */
+  tokenEnc?: string;
+  tokenHint?: string;
+  username?: string;
+  botId?: number;
+  enabled: boolean;
+  /** Xodimlar botda anketa to‘ldirib ro‘yxatdan o‘ta oladi. */
+  registrationEnabled: boolean;
+  /** Arizalarni tasdiqlovchi HR xodimlarning Telegram ID lari. */
+  approverTelegramIds: string[];
+  status?: "RUNNING" | "ERROR" | "STOPPED";
+  mode?: "webhook" | "polling";
+  lastError?: string;
+  updatedAt?: string;
 }
 /**
  * Davomat hisoblash boshlanish sanasi. Shu sanagacha keldi-ketdi "mashq" hisoblanadi:
@@ -130,6 +148,13 @@ export interface Employee {
   countingStartDate?: string;
   /** telegramId qayerdan kelgan: xodimning o‘zi ulagan yoki integratsiya (bot) bergan. */
   telegramIdSource?: "LINK" | "INTEGRATION";
+  /** Xabarlar qaysi bot orqali yetadi: Staffora boti, kompaniya boti yoki xodimlar boti. */
+  telegramChannel?: "STAFFORA_BOT" | "COMPANY_BOT" | "EMPLOYEE_BOT";
+  parentPhone?: string;
+  education?: string;
+  shift?: "DAY" | "NIGHT" | "BOTH";
+  /** Botdagi anketa orqali ro‘yxatdan o‘tgan bo‘lsa — ariza ID si. */
+  registrationId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -339,6 +364,61 @@ export interface Database {
   entityMappings: EntityMapping[];
   syncJobs: SyncJob[];
   integrationConflicts: IntegrationConflict[];
+  registrations: RegistrationRequest[];
+}
+
+/* ------------------------------------------ botdagi ro‘yxatdan o‘tish --- */
+export type RegistrationStep =
+  | "fullName"
+  | "birthDate"
+  | "phone"
+  | "parentPhone"
+  | "positionId"
+  | "address"
+  | "branchId"
+  | "shift"
+  | "workHours"
+  | "salary"
+  | "salaryConfirm"
+  | "restDay"
+  | "education"
+  | "summary"
+  | "editPick";
+export interface RegistrationData {
+  fullName?: string;
+  birthDate?: string;
+  phone?: string;
+  parentPhone?: string;
+  positionId?: string;
+  address?: string;
+  branchId?: string;
+  shift?: "DAY" | "NIGHT" | "BOTH";
+  workHours?: string;
+  salary?: number;
+  /** 0–6 (yakshanba=0) yoki -1 — dam olishsiz. */
+  restDay?: number;
+  education?: string;
+}
+export interface RegistrationRequest {
+  id: string;
+  companyId: string;
+  telegramId: string;
+  telegramUsername?: string;
+  telegramName?: string;
+  status: "DRAFT" | "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  step: RegistrationStep;
+  /** Bitta maydonni tahrirlayapti — javobdan keyin xulosaga qaytadi. */
+  editing?: boolean;
+  data: RegistrationData;
+  lastPromptId?: number;
+  hrMessages?: { chatId: string; messageId: number }[];
+  employeeId?: string;
+  decidedBy?: string;
+  rejectReason?: string;
+  createdAt: string;
+  updatedAt: string;
+  submittedAt?: string;
+  decidedAt?: string;
 }
 
 /* ------------------------------------------------------ integratsiya --- */

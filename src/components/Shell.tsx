@@ -34,11 +34,13 @@ import {
   UserCog,
   UserMinus,
   Lock,
+  ClipboardCheck,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
 import { Avatar } from "./ui";
 import { roleLabels, useAuth } from "../auth";
+import { canOpenPage, homePage } from "@/lib/permissions";
 import { ScreenLock } from "./ScreenLock";
 import { api } from "../api";
 import { useApi, usePolling } from "../hooks";
@@ -53,6 +55,7 @@ const sections: { label: string; items: NavItem[] }[] = [
       ["/employees", "Xodimlar", Users],
       ["/calendar", "Kalendar", CalendarDays],
       ["/leave", "Ta’til va yo‘qlik", Plane, "leave"],
+      ["/registrations", "Arizalar", ClipboardCheck, "registrations"],
       ["/dismissed", "Ishdan bo‘shaganlar", UserMinus],
     ],
   },
@@ -111,7 +114,18 @@ export function Shell() {
   const { data: notifications, reload: reloadNotifications } =
     useApi<Notification[]>("/notifications");
   const { data: leave, reload: reloadLeave } =
-    useApi<{ status: string }[]>("/leave");
+    useApi<{ status: string }[]>(user && canOpenPage(user.role, "/leave") ? "/leave" : null);
+  // Faqat rolga ruxsat etilgan bo‘limlar ko‘rinadi.
+  const visibleSections = useMemo(
+    () =>
+      sections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter(([path]) => (user ? canOpenPage(user.role, path) : false)),
+        }))
+        .filter((section) => section.items.length),
+    [user],
+  );
   usePolling(() => {
     void reloadNotifications(true);
     void reloadLeave(true);
@@ -128,7 +142,12 @@ export function Shell() {
     };
   }, [reloadNotifications, reloadLeave]);
 
+  const { data: registrations, reload: reloadRegistrations } = useApi<{ counts: { PENDING: number } }>(
+    user && canOpenPage(user.role, "/registrations") ? "/registrations?status=PENDING" : null,
+  );
+  usePolling(() => void reloadRegistrations(true), 60_000);
   const counts: Record<string, number> = {
+    registrations: registrations?.counts.PENDING || 0,
     notifications: notifications?.filter((item) => !item.read).length || 0,
     leave: leave?.filter((item) => item.status === "PENDING").length || 0,
   };
@@ -193,7 +212,7 @@ export function Shell() {
         className={`sidebar ${collapsed ? "collapsed" : ""} ${mobile ? "mobile-open" : ""}`}
       >
         <div className="sidebar-head">
-          <Link to="/dashboard">
+          <Link to={user ? homePage(user.role) : "/dashboard"}>
             <Logo compact={collapsed} />
           </Link>
           <button
@@ -232,7 +251,7 @@ export function Shell() {
         </div>
 
         <nav className="nav" aria-label="Asosiy navigatsiya">
-          {sections.map((section) => (
+          {visibleSections.map((section) => (
             <div key={section.label}>
               <div className="nav-label">{section.label}</div>
               {section.items.map(([to, label, Icon, countKey]) => (

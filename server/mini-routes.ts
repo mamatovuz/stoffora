@@ -22,6 +22,7 @@ import type { Attendance, Database, Employee, LeaveRequest } from "../lib/types"
 import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
 import { onStafforaAttendance } from "./integrations/hooks";
 import { verifyViaEmployeeBot } from "./integrations/identity";
+import { companyBotTokens } from "./company-bots";
 import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
 import { enqueueAttendancePhoto } from "./photo-channel";
 import {
@@ -189,6 +190,29 @@ export function createMiniRouter() {
           if (!token) throw new Error("Serverda Telegram bot tokeni sozlanmagan.");
           identity = verifyTelegramInitData(initData, token);
         } catch (reason) {
+          // Kompaniyaning o‘z boti ichida ochilgan bo‘lishi mumkin — shu bot tokeni bilan tekshiramiz.
+          for (const { companyId, token: companyToken } of companyBotTokens()) {
+            let companyIdentity: ReturnType<typeof verifyTelegramInitData>;
+            try {
+              companyIdentity = verifyTelegramInitData(initData, companyToken);
+            } catch {
+              continue;
+            }
+            const db = await readDb();
+            const employee = db.employees.find(
+              (item) => item.companyId === companyId && item.telegramId === String(companyIdentity.id) && item.status === "ACTIVE",
+            );
+            if (!employee)
+              return res.status(403).json({
+                code: "NOT_LINKED",
+                message: "Siz hali xodim sifatida ro‘yxatdan o‘tmagansiz. Botda /start bosib, anketani to‘ldiring.",
+              });
+            const session: EmployeeSession = { employeeId: employee.id, companyId, telegramId: String(companyIdentity.id), kind: "employee" };
+            const signed = signEmployeeSession(session);
+            const secure = process.env.COOKIE_SECURE === "true";
+            res.cookie("staffora_employee_session", signed, { httpOnly: true, sameSite: secure ? "none" : "lax", secure, maxAge: 24 * 3600_000 });
+            return res.json({ ok: true, employeeId: employee.id, token: signed, home: buildHome(db, employee) });
+          }
           // Mini App xodimlar botidan (Direct Link) ochilgan bo‘lishi mumkin — o‘sha bot orqali tekshiramiz.
           const viaBot = await verifyViaEmployeeBot(initData);
           if (viaBot) {

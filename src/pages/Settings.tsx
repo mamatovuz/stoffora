@@ -18,8 +18,21 @@ import {
   XCircle,
   Lock,
   PlugZap,
+  Bot,
 } from "lucide-react";
 import { CountingStartCard, IntegrationCenter } from "./Integrations";
+import { CompanyBotSection } from "./Registrations";
+import { canAny } from "@/lib/permissions";
+
+/** Har bir tab uchun kerakli ruxsat (bo‘sh — hamma panel foydalanuvchisi). */
+const tabPermissions: Partial<Record<Tab, string[]>> = {
+  company: ["settings.manage"],
+  payroll: ["settings.manage", "payroll.edit"],
+  channel: ["settings.manage"],
+  bot: ["settings.manage"],
+  regbot: ["settings.manage"],
+  integrations: ["settings.manage"],
+};
 import { api, del, errorText, post, put } from "../api";
 import { useApi } from "../hooks";
 import {
@@ -37,7 +50,7 @@ import { calculatePayroll, defaultPayrollSettings } from "@/lib/payroll";
 import { dateUz, money } from "@/lib/format";
 import { resizePhoto } from "./Employees";
 
-type Tab = "profile" | "security" | "lock" | "devices" | "company" | "payroll" | "channel" | "bot" | "integrations";
+type Tab = "profile" | "security" | "lock" | "devices" | "company" | "payroll" | "channel" | "bot" | "regbot" | "integrations";
 const tabs: [Tab, string, typeof UserRound][] = [
   ["profile", "Profil", UserRound],
   ["security", "Xavfsizlik", ShieldCheck],
@@ -47,18 +60,22 @@ const tabs: [Tab, string, typeof UserRound][] = [
   ["payroll", "Ish haqi va jarima", Banknote],
   ["channel", "Rasm kanali", Camera],
   ["bot", "Telegram bot", Send],
+  ["regbot", "Ro‘yxat boti", Bot],
   ["integrations", "Integratsiyalar", PlugZap],
 ];
 
 export function SettingsPage() {
   const [params, setParams] = useSearchParams();
-  const tab = (params.get("tab") as Tab) || "profile";
+  const { user } = useAuth();
+  const allowed = tabs.filter(([key]) => !tabPermissions[key] || (user ? canAny(user.role, tabPermissions[key]!) : false));
+  const requested = (params.get("tab") as Tab) || "profile";
+  const tab = allowed.some(([key]) => key === requested) ? requested : "profile";
   return (
     <div className={`page ${tab === "integrations" ? "wide-settings" : "narrow"}`}>
       <PageHeader title="Sozlamalar" subtitle="Profil, xavfsizlik, qurilmalar va kompaniya" />
       <div className="settings-layout">
         <nav className="settings-nav card">
-          {tabs.map(([key, label, Icon]) => (
+          {allowed.map(([key, label, Icon]) => (
             <button
               key={key}
               className={tab === key ? "active" : ""}
@@ -87,6 +104,7 @@ export function SettingsPage() {
           {tab === "channel" && <PhotoChannelSection />}
           {tab === "bot" && <BotSection />}
           {tab === "integrations" && <IntegrationCenter />}
+          {tab === "regbot" && <CompanyBotSection />}
         </div>
       </div>
     </div>

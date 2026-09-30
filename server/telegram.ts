@@ -1,3 +1,4 @@
+import { companyBotApi } from "./bot-registry";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import {
@@ -101,8 +102,10 @@ function linkEmployee(
   employee: Employee,
   telegram: { id: number | string; username?: string },
   via: string,
+  channel: NonNullable<Employee["telegramChannel"]> = "STAFFORA_BOT",
 ) {
   const telegramId = String(telegram.id);
+  employee.telegramChannel = channel;
   // Bitta Telegram hisob faqat bitta xodimga ulanadi.
   for (const other of db.employees)
     if (other.id !== employee.id && other.telegramId === telegramId) {
@@ -139,7 +142,8 @@ export async function linkEmployeeById(
     );
     if (!employee) return undefined;
     if (!(employee.telegramConnected && employee.telegramId === String(telegram.id)))
-      linkEmployee(db, employee, telegram, via);
+      linkEmployee(db, employee, telegram, via, "EMPLOYEE_BOT");
+    else employee.telegramChannel ||= "EMPLOYEE_BOT";
     return { ...employee };
   });
 }
@@ -292,7 +296,7 @@ async function linkPanelUser(
   });
 }
 
-function resolveWebAppUrl() {
+export function resolveWebAppUrl() {
   const railway = process.env.RAILWAY_PUBLIC_DOMAIN
     ? `https://${clean(process.env.RAILWAY_PUBLIC_DOMAIN).replace(/^https?:\/\//, "")}`
     : "";
@@ -697,9 +701,14 @@ export async function sendTelegramMessage(
   text: string,
   options: { openButton?: boolean } = {},
 ) {
+  const db = await readDb();
+  const employee = db.employees.find((item) => item.telegramId === telegramId && item.status === "ACTIVE");
+  // Xodimlar boti orqali kirgan — Staffora boti unga yoza olmaydi (START bosmagan).
+  if (employee?.telegramChannel === "EMPLOYEE_BOT") return false;
+  const companyApi = employee?.telegramChannel === "COMPANY_BOT" ? companyBotApi(employee.companyId) : undefined;
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  if (!token) return false;
-  const api = activeBot?.api || (sharedApi ||= new Api(token));
+  if (!companyApi && !token) return false;
+  const api = companyApi || activeBot?.api || (sharedApi ||= new Api(token!));
   const { webAppUrl, ok } = resolveWebAppUrl();
   const extra =
     options.openButton && ok

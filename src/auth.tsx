@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { api } from "./api";
 import type { Role } from "@/lib/types";
+import { canOpenPage, homePage } from "@/lib/permissions";
 
 export interface CurrentUser {
   userId: string;
@@ -68,6 +69,11 @@ export function Protected({
     return <Navigate to="/dashboard" replace />;
   if (!superAdmin && user.role === "SUPER_ADMIN")
     return <Navigate to="/super-admin" replace />;
+  // Rolga tegishli bo‘lmagan sahifa — o‘zining bosh sahifasiga yo‘naltiriladi.
+  if (!superAdmin && !canOpenPage(user.role, location.pathname)) {
+    const home = homePage(user.role);
+    if (home !== location.pathname) return <Navigate to={home} replace />;
+  }
   return children;
 }
 

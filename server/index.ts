@@ -33,7 +33,7 @@ import {
   tashkentClock,
   tashkentIsoDate,
 } from "../lib/format";
-import { can } from "../lib/permissions";
+import { can, canAny } from "../lib/permissions";
 import { isPracticeDay } from "../lib/counting";
 import { createCompany, createUser } from "../lib/seed";
 import type {
@@ -72,6 +72,12 @@ import { startPhotoChannelWorker, testPhotoChannel } from "./photo-channel";
 import { payrollRows, penaltyText, registerExcelReports } from "./reports";
 import { createIntegrationRouter, createIntegrationWebhookRouter } from "./integrations/routes";
 import { startIntegrationWorker } from "./integrations/worker";
+import {
+  createCompanyBotRouter,
+  createCompanyBotWebhookRouter,
+  startCompanyBots,
+  stopAllCompanyBots,
+} from "./company-bots";
 import { notifyEmployee } from "./integrations/hooks";
 import { activeIntegration } from "./integrations/model";
 import { enqueueAnnouncementToBot, targetEmployees, targetLabel } from "./integrations/announce";
@@ -197,6 +203,7 @@ app.use(
       req.path === "/telegram/webhook" ||
       req.path.startsWith("/mini/") ||
       req.path === "/telegram/auth" ||
+      req.path.startsWith("/telegram/company/") ||
       /^\/integrations\/[^/]+\/webhook$/.test(req.path),
     message: { message: "Juda ko‘p so‘rov. Birozdan keyin qayta urinib ko‘ring." },
   }),
@@ -247,6 +254,13 @@ const companyId = (req: AuthedRequest) => {
     throw httpError("Kompaniya tanlanmagan.", 403);
   return req.session.companyId;
 };
+/** Ruxsatlardan kamida bittasi bo‘lsa o‘tkazadi. */
+const requireAnyPermission =
+  (...permissions: string[]) =>
+  (req: AuthedRequest, res: Response, next: NextFunction) =>
+    canAny(req.session!.role, permissions)
+      ? next()
+      : res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
 const requirePermission =
   (permission: string) =>
   (req: AuthedRequest, res: Response, next: NextFunction) =>
@@ -536,8 +550,10 @@ app.get(
 
 app.use("/api", createMiniRouter());
 app.use("/api", createIntegrationWebhookRouter());
+app.use("/api", createCompanyBotWebhookRouter());
 app.use("/api", requireAuth);
 app.use("/api", createIntegrationRouter());
+app.use("/api", createCompanyBotRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();
@@ -1163,6 +1179,7 @@ function rosterStats(rows: ReturnType<typeof dayRoster>) {
 
 app.get(
   "/api/dashboard",
+  requirePermission("dashboard.view"),
   asyncRoute(async (req, res) => {
     const db = await readDb(),
       tenant = companyId(req);
@@ -1898,6 +1915,7 @@ const branchSchema = z.object({
 });
 app.get(
   "/api/branches",
+  requireAnyPermission("org.view", "employees.view", "attendance.view"),
   asyncRoute(async (req, res) => {
     const db = await readDb(),
       tenant = companyId(req);
@@ -2015,6 +2033,7 @@ const scheduleSchema = z.object({
 });
 app.get(
   "/api/schedules",
+  requireAnyPermission("org.view", "employees.view", "attendance.view"),
   asyncRoute(async (req, res) => {
     const db = await readDb(),
       tenant = companyId(req);
@@ -2480,7 +2499,7 @@ app.get(
 
 app.get(
   "/api/payroll",
-  requirePermission("employees.view"),
+  requirePermission("payroll.view"),
   asyncRoute(async (req, res) => {
     const db = await readDb(),
       tenant = companyId(req);
@@ -2543,7 +2562,7 @@ registerExcelReports(app, {
 
 app.put(
   "/api/company/payroll",
-  requirePermission("settings.manage"),
+  requireAnyPermission("settings.manage", "payroll.edit"),
   asyncRoute(async (req, res) => {
     const input = z
       .object({
@@ -2938,10 +2957,11 @@ void startTelegramBot();
 startAttendanceReminders();
 startPhotoChannelWorker();
 startIntegrationWorker();
+void startCompanyBots();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    void stopTelegramBot()
+    void Promise.all([stopTelegramBot(), stopAllCompanyBots()])
       .catch(() => undefined)
       .then(() => flushDb())
       .finally(() => {
