@@ -51,6 +51,16 @@ qilish mumkin: `BOOTSTRAP_COMPANY_NAME`, `BOOTSTRAP_OWNER_NAME`, `BOOTSTRAP_ADMI
 `BOOTSTRAP_ADMIN_PASSWORD` (va ixtiyoriy `BOOTSTRAP_SUPER_ADMIN_EMAIL/PASSWORD`).
 Ochiq serverda begona odam sozlab qo‘ymasligi uchun `SETUP_TOKEN` qo‘yish mumkin.
 
+**Super admin** (barcha kompaniyalarni boshqaradi) uchun standart login yo‘q. Railway
+Variables’ga qo‘shing va qayta deploy qiling — bazada super admin bo‘lmasa avtomatik yaratiladi:
+
+```env
+BOOTSTRAP_SUPER_ADMIN_EMAIL=super@sizning-domen.uz
+BOOTSTRAP_SUPER_ADMIN_PASSWORD=<kamida 10 belgilik kuchli parol>
+```
+
+So‘ng `/login` sahifasida shu email va parol bilan kiring (`/super-admin` ochiladi).
+
 ## Buyruqlar
 
 ```bash

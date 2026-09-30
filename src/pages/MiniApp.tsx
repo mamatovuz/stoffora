@@ -422,7 +422,7 @@ function MiniHome({
             <b>{a?.checkIn || "--:--"}</b>
             {a?.lateMinutes ? <em>{a.lateMinutes} daq kech</em> : a?.checkIn ? <em className="ok">vaqtida</em> : null}
           </div>
-          <div className={a?.checkOut ? "set" : ""}>
+          <div className={a?.checkOut || working ? "set" : ""}>
             <small>
               <LogOut size={13} /> {finished ? "Ketdi" : "Ishlayapti"}
             </small>
@@ -441,7 +441,7 @@ function MiniHome({
           </div>
         </div>
         {missingSetup ? (
-          <div className="mini-done" style={{ color: "#f7c37a", background: "rgba(247,195,122,.12)" }}>
+          <div className="mini-done warn">
             <AlertCircle size={18} /> HR filial va grafikni biriktirishi kerak
           </div>
         ) : finished ? (
@@ -472,16 +472,16 @@ function MiniHome({
         </div>
         <div className="mini-stat">
           <small>Kechikish</small>
-          <b style={{ color: data.month.late ? "#b36b06" : undefined }}>{data.month.late}</b>
+          <b className={data.month.late ? "warn" : undefined}>{data.month.late}</b>
         </div>
         <div className="mini-stat">
           <small>Ishlagan</small>
-          <b>{Math.round(data.month.workedMinutes / 60)}s</b>
+          <b>{Math.round(data.month.workedMinutes / 60)} soat</b>
         </div>
       </div>
 
       {data.month.lateMinutes > 0 && (
-        <div className="mini-alert" style={{ background: "rgba(230,150,30,.12)", color: "#a35d06" }}>
+        <div className="mini-alert warn">
           <AlertCircle size={18} />
           <span>
             Bu oy {data.month.late} marta, jami {data.month.lateMinutes} daqiqa kechikdingiz
@@ -520,7 +520,7 @@ function MiniHome({
 
       <section className="mini-card">
         <div className="mini-rows">
-          <button className="mini-row" style={{ border: 0, background: "none", width: "100%", textAlign: "left", color: "inherit", padding: "4px 0" }} onClick={() => onTab("history")}>
+          <button className="mini-row" onClick={() => onTab("history")}>
             <span className="mini-ico">
               <CalendarDays size={18} />
             </span>
@@ -912,10 +912,16 @@ function MiniHistory({ home }: { home: HomeData }) {
             );
           })}
         </div>
-        <div className="mini-note" style={{ color: "var(--m-muted)", gap: 12, flexWrap: "wrap" }}>
-          <span>🟩 Vaqtida</span>
-          <span>🟧 Kechikkan</span>
-          <span>🟥 Kelmagan</span>
+        <div className="mini-legend">
+          <span>
+            <i style={{ background: "var(--m-success)" }} /> Vaqtida
+          </span>
+          <span>
+            <i style={{ background: "var(--m-warn)" }} /> Kechikkan
+          </span>
+          <span>
+            <i style={{ background: "var(--m-danger)" }} /> Kelmagan
+          </span>
         </div>
       </section>
       {error && (

@@ -219,42 +219,42 @@ export function DashboardPage() {
             {s.present}
             <span> / {expected} keldi</span>
           </h2>
-          <p style={{ color: "#a9bdb6", fontSize: 13.5 }}>
-            Davomat darajasi <b style={{ color: "#fff" }}>{rate}%</b> · hozir
-            ishda <b style={{ color: "#fff" }}>{s.inNow}</b> nafar
+          <p className="hero-lead">
+            Davomat darajasi <b>{rate}%</b> · hozir
+            ishda <b>{s.inNow}</b> nafar
           </p>
           <div className="hero-bar">
-            <i style={{ width: bar(onTime), background: "#37d3a8" }} />
-            <i style={{ width: bar(s.late), background: "#f7c37a" }} />
-            <i style={{ width: bar(s.absent), background: "#ff8a80" }} />
-            <i style={{ width: bar(s.leave), background: "#a99bff" }} />
-            <i style={{ width: bar(s.notYet), background: "#5b6f69" }} />
+            <i style={{ width: bar(onTime), background: "#22a05a" }} />
+            <i style={{ width: bar(s.late), background: "#e5962b" }} />
+            <i style={{ width: bar(s.absent), background: "#e5484d" }} />
+            <i style={{ width: bar(s.leave), background: "#8b5cf6" }} />
+            <i style={{ width: bar(s.notYet), background: "#cbd5e1" }} />
           </div>
           <div className="hero-legend">
             <span>
-              <i style={{ background: "#37d3a8" }} /> Vaqtida {onTime}
+              <i style={{ background: "#22a05a" }} /> Vaqtida {onTime}
             </span>
             <span>
-              <i style={{ background: "#f7c37a" }} /> Kechikkan {s.late}
+              <i style={{ background: "#e5962b" }} /> Kechikkan {s.late}
             </span>
             <span>
-              <i style={{ background: "#ff8a80" }} /> Kelmagan {s.absent}
+              <i style={{ background: "#e5484d" }} /> Kelmagan {s.absent}
             </span>
             <span>
-              <i style={{ background: "#a99bff" }} /> Ta’tilda {s.leave}
+              <i style={{ background: "#8b5cf6" }} /> Ta’tilda {s.leave}
             </span>
             <span>
-              <i style={{ background: "#5b6f69" }} /> Kutilmoqda {s.notYet}
+              <i style={{ background: "#cbd5e1" }} /> Kutilmoqda {s.notYet}
             </span>
           </div>
         </div>
         <div className="hero-metrics">
           {(
             [
-              ["Ishda", s.inNow, "#37d3a8", "IN"],
-              ["Kechikkan", s.late, "#f7c37a", "LATE"],
-              ["Kelmagan", s.absent, "#ff8a80", "ABSENT"],
-              ["Ketgan", s.left, "#7cb3ff", "LEFT"],
+              ["Ishda", s.inNow, "#22a05a", "IN"],
+              ["Kechikkan", s.late, "#e5962b", "LATE"],
+              ["Kelmagan", s.absent, "#e5484d", "ABSENT"],
+              ["Ketgan", s.left, "#2563eb", "LEFT"],
             ] as const
           ).map(([label, value, color, state]) => (
             <button
@@ -281,49 +281,49 @@ export function DashboardPage() {
             </div>
             <div className="chart-legend">
               <span>
-                <i style={{ background: "var(--brand)" }} /> Vaqtida
+                <i style={{ background: "#22a05a" }} /> Vaqtida
               </span>
               <span>
-                <i style={{ background: "#f0a53a" }} /> Kechikkan
+                <i style={{ background: "#e5962b" }} /> Kechikkan
               </span>
               <span>
-                <i style={{ background: "#e5797b" }} /> Kelmagan
+                <i style={{ background: "#e5484d" }} /> Kelmagan
               </span>
             </div>
           </div>
           <div className="chart-box">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chart} margin={{ left: -18, right: 6, top: 14 }} barGap={3}>
-                <CartesianGrid stroke="#eef2f0" vertical={false} />
+                <CartesianGrid stroke="#eef2f6" vertical={false} />
                 <XAxis
                   dataKey="day"
                   axisLine={false}
                   tickLine={false}
                   fontSize={11}
-                  tick={{ fill: "#6a7873" }}
+                  tick={{ fill: "#64748b" }}
                 />
                 <YAxis
                   allowDecimals={false}
                   axisLine={false}
                   tickLine={false}
                   fontSize={11}
-                  tick={{ fill: "#6a7873" }}
+                  tick={{ fill: "#64748b" }}
                 />
                 <Tooltip
-                  cursor={{ fill: "rgba(11,122,100,0.05)" }}
+                  cursor={{ fill: "rgba(37,99,235,0.05)" }}
                   contentStyle={{
-                    border: "1px solid #e5eae8",
+                    border: "1px solid #e2e8f0",
                     borderRadius: 10,
                     fontSize: 12,
-                    boxShadow: "0 8px 24px rgba(15,28,24,.08)",
+                    boxShadow: "0 8px 24px rgba(15,23,42,.08)",
                   }}
                   labelFormatter={(_, payload) =>
                     payload?.[0] ? dateUz(payload[0].payload.date) : ""
                   }
                 />
-                <Bar dataKey="present" name="Vaqtida" stackId="a" fill="#0b7a64" radius={[0, 0, 0, 0]} maxBarSize={34} />
-                <Bar dataKey="late" name="Kechikkan" stackId="a" fill="#f0a53a" maxBarSize={34} />
-                <Bar dataKey="absent" name="Kelmagan" stackId="a" fill="#e5797b" radius={[6, 6, 0, 0]} maxBarSize={34} />
+                <Bar dataKey="present" name="Vaqtida" stackId="a" fill="#22a05a" radius={[0, 0, 0, 0]} maxBarSize={34} />
+                <Bar dataKey="late" name="Kechikkan" stackId="a" fill="#e5962b" maxBarSize={34} />
+                <Bar dataKey="absent" name="Kelmagan" stackId="a" fill="#e5484d" radius={[6, 6, 0, 0]} maxBarSize={34} />
               </BarChart>
             </ResponsiveContainer>
           </div>

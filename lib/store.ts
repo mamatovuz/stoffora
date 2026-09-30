@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import BetterSqlite3 from "better-sqlite3";
 import type { AuditLog, Database } from "./types";
-import { createSeed, purgeLegacyDemoData } from "./seed";
+import { createSeed, createUser, purgeLegacyDemoData } from "./seed";
 
 const localDataDirectory = path.join(process.cwd(), "data");
 const volumeDirectory =
@@ -78,6 +78,27 @@ async function openDatabase() {
             );
             bootstrapped = true;
           }
+        }
+        // Super admin: env’da berilgan va bazada hali yo‘q bo‘lsa — yaratiladi.
+        const superEmail = process.env.BOOTSTRAP_SUPER_ADMIN_EMAIL?.trim().toLowerCase();
+        const superPassword = process.env.BOOTSTRAP_SUPER_ADMIN_PASSWORD;
+        if (
+          superEmail &&
+          superPassword &&
+          superPassword.length >= 10 &&
+          !current.users.some((user) => user.role === "SUPER_ADMIN") &&
+          !current.users.some((user) => user.email === superEmail)
+        ) {
+          current.users.push(
+            await createUser({
+              name: "Staffora Super Admin",
+              email: superEmail,
+              password: superPassword,
+              role: "SUPER_ADMIN",
+            }),
+          );
+          bootstrapped = true;
+          console.log(`Super admin yaratildi: ${superEmail}`);
         }
         if (removed > 0 || bootstrapped) {
           database

@@ -2,12 +2,12 @@ import ExcelJS from "exceljs";
 import type { Response } from "express";
 
 /* Staffora Excel uslubi — barcha hisobotlar bir xil ko‘rinishda. */
-const BRAND = "FF0B7A64";
-const INK = "FF12231E";
-const MUTED = "FF6A7873";
-const LINE = "FFDDE4E1";
-const ZEBRA = "FFF6F9F8";
-const TOTAL_BG = "FFE6F4EE";
+const BRAND = "FF2563EB";
+const INK = "FF1E293B";
+const MUTED = "FF64748B";
+const LINE = "FFE2E8F0";
+const ZEBRA = "FFF8FAFC";
+const TOTAL_BG = "FFEFF4FF";
 const FONT = "Calibri";
 
 export const tones = {
@@ -299,7 +299,7 @@ export function addTimesheetSheet(
     const weekday = date ? new Date(`${date}T12:00:00Z`).getUTCDay() : -1;
     sub.value = date ? weekdays[weekday] : "";
     sub.font = { name: FONT, size: 8.5, color: { argb: weekday === 0 || weekday === 6 ? "FFB42E30" : MUTED } };
-    sub.fill = fill("FFEEF3F1");
+    sub.fill = fill("FFF1F5F9");
     sub.border = border;
     sub.alignment = { horizontal: "center" };
   });

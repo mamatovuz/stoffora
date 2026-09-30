@@ -143,7 +143,7 @@ export function QrScreen() {
       <footer className="qr-foot">
         QR kod vaqtinchalik va faqat shu filialga tegishli. Rasmga olib yuborish
         ishlamaydi — GPS va Face ID ham tekshiriladi.
-        {error && qr && <span style={{ color: "#ff9b9b" }}> · Aloqa uzildi, qayta ulanmoqda…</span>}
+        {error && qr && <span style={{ color: "var(--red)" }}> · Aloqa uzildi, qayta ulanmoqda…</span>}
       </footer>
     </main>
   );

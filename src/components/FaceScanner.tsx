@@ -506,7 +506,7 @@ export function FaceScanner({
         </div>
       )}
       <footer className="faceid-foot">
-        🔒 Yuz ma’lumoti shifrlangan vektor ko‘rinishida saqlanadi va faqat davomat uchun ishlatiladi.
+        Yuz ma’lumoti shifrlangan vektor ko‘rinishida saqlanadi va faqat davomat uchun ishlatiladi.
       </footer>
     </div>
   );

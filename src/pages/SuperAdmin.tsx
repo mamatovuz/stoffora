@@ -12,6 +12,7 @@ import {
   useToast,
 } from "../components/ui";
 import { Logo } from "../components/Logo";
+import { useAuth } from "../auth";
 import { dateUz } from "@/lib/format";
 import type { Company } from "@/lib/types";
 
@@ -24,21 +25,30 @@ type Overview = {
 export function SuperAdminPage() {
   const { data, loading, error, reload } = useApi<Overview>("/admin/overview");
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const toast = useToast();
+  const { user } = useAuth();
   async function logout() {
     await api("/auth/logout", { method: "POST" }).catch(() => undefined);
     location.href = "/login";
   }
   return (
     <div>
-      <header className="topbar scrolled" style={{ background: "var(--surface)" }}>
-        <Logo />
-        <span className="badge dark plain" style={{ background: "var(--ink)", color: "#fff" }}>
-          SUPER ADMIN
-        </span>
-        <button className="btn" style={{ marginLeft: "auto" }} onClick={logout}>
-          <LogOut size={15} /> Chiqish
-        </button>
+      <header className="admin-top">
+        <div className="admin-top-inner">
+          <Logo />
+          <span className="admin-divider" />
+          <span className="admin-label">Platforma boshqaruvi</span>
+          <div className="admin-user">
+            <span>
+              <b>{user?.name}</b>
+              <small>{user?.email}</small>
+            </span>
+            <button className="btn btn-sm" onClick={logout}>
+              <LogOut size={14} /> Chiqish
+            </button>
+          </div>
+        </div>
       </header>
       <div className="page">
         <PageHeader
@@ -63,13 +73,25 @@ export function SuperAdminPage() {
                 <StatCard label="Bugungi qaydlar" value={data.stats.eventsToday} icon={Activity} tone="blue" />
                 <StatCard
                   label="Telegram bot"
-                  value={data.telegram.state === "running" ? "Ishlayapti" : data.telegram.state}
+                  value={({ running: "Ishlayapti", disabled: "O‘chirilgan", starting: "Ishga tushmoqda", error: "Xato" } as Record<string, string>)[data.telegram.state] || data.telegram.state}
                   note={data.telegram.username ? `@${data.telegram.username} · ${data.telegram.mode || ""}` : data.telegram.error}
                   icon={Send}
                   tone={data.telegram.state === "running" ? "green" : "red"}
                 />
               </div>
               <section className="card">
+                <div className="filters">
+                  <input
+                    className="input"
+                    style={{ maxWidth: 320 }}
+                    placeholder="Kompaniya yoki egasi…"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                  />
+                  <span className="muted" style={{ marginLeft: "auto", fontSize: 13 }}>
+                    {data.companies.length} ta kompaniya
+                  </span>
+                </div>
                 <div className="table-wrap">
                   <table className="table table-cards">
                     <thead>
@@ -83,7 +105,9 @@ export function SuperAdminPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {data.companies.map((c) => (
+                      {data.companies
+                        .filter((c) => `${c.name} ${c.ownerName} ${c.owner || ""}`.toLowerCase().includes(query.toLowerCase()))
+                        .map((c) => (
                         <tr key={c.id}>
                           <td>
                             <span className="stack">
