@@ -237,6 +237,25 @@ export function createPayrollRouter() {
     }),
   );
 
+  /* --------------------------------------- shubhali joylashuvni ko‘rish --- */
+  router.post(
+    "/attendance/:id/review-flags",
+    permit("attendance.edit"),
+    route(async (req, res) => {
+      const tenant = tenantOf(req);
+      const { verdict } = z.object({ verdict: z.enum(["OK", "SUSPICIOUS"]) }).parse(req.body);
+      const row = await updateDb((db) => {
+        const record = db.attendance.find((a) => a.id === req.params.id && a.companyId === tenant);
+        if (!record) throw httpError("Davomat yozuvi topilmadi.", 404);
+        record.flagsReviewedBy = `${req.session!.name} · ${verdict === "OK" ? "joyida edi" : "shubhali"}`;
+        record.updatedAt = new Date().toISOString();
+        db.auditLogs.unshift(audit(tenant, req.session!.name, `Shubhali joylashuv ko‘rib chiqildi: ${verdict === "OK" ? "hammasi joyida" : "shubhali deb belgilandi"}`, "attendance", record.id));
+        return record;
+      });
+      res.json(row);
+    }),
+  );
+
   return router;
 }
 

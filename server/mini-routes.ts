@@ -23,6 +23,7 @@ import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
 import { onStafforaAttendance } from "./integrations/hooks";
 import { verifyViaEmployeeBot } from "./integrations/identity";
 import { dayPlan } from "../lib/schedule";
+import { FLAG_LABELS, gpsFlags } from "../lib/gps";
 import { companyBotTokens } from "./company-bots";
 import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
 import { enqueueAttendancePhoto } from "./photo-channel";
@@ -706,6 +707,7 @@ export function createMiniRouter() {
           latitude: z.coerce.number().min(-90).max(90),
           longitude: z.coerce.number().min(-180).max(180),
           accuracy: z.coerce.number().min(0).max(100_000).optional(),
+          positionAge: z.coerce.number().min(0).max(86_400_000).optional(),
           photoDataUrl: z
             .string()
             .max(600_000)
@@ -877,10 +879,38 @@ export function createMiniRouter() {
             ...(requiresQr ? (["QR"] as const) : []),
           ]),
         ];
+        // Soxta GPS belgilari: avvalgi koordinatalar (shu kun va oxirgi yozuvlar) bilan solishtiriladi.
+        const history = (dataIndexes(db).attendanceByEmployee.get(employee.id) || [])
+          .filter((item) => typeof item.latitude === "number" && typeof item.longitude === "number")
+          .slice(-30)
+          .map((item) => ({ latitude: item.latitude!, longitude: item.longitude!, at: new Date(item.updatedAt).getTime() }));
+        const flags = gpsFlags(
+          {
+            latitude: input.latitude,
+            longitude: input.longitude,
+            accuracy: input.accuracy,
+            positionAge: input.positionAge,
+            distance: distanceMeters,
+            radius: branch.radiusMeters,
+            at: Date.now(),
+          },
+          history,
+        );
+        if (flags.length) attendance.flags = [...new Set([...(attendance.flags || []), ...flags])];
         attendance.latitude = input.latitude;
         attendance.longitude = input.longitude;
         attendance.distanceMeters = distanceMeters;
         attendance.updatedAt = new Date().toISOString();
+        if (flags.length)
+          db.notifications.unshift({
+            id: id(),
+            companyId: auth.companyId,
+            title: "Shubhali joylashuv",
+            body: `${employee.firstName} ${employee.lastName}: ${flags.map((f) => FLAG_LABELS[f]).join(", ")} (${branch.name}). Davomat sahifasida tekshiring.`,
+            type: "ATTENDANCE",
+            read: false,
+            createdAt: attendance.updatedAt,
+          });
         session.usedAt = attendance.updatedAt;
         if (qrNonce) {
           qrNonce.usedEmployeeIds ||= [];

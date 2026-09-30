@@ -601,7 +601,7 @@ function MiniHome({
 }
 
 /* ------------------------------------------------------ attendance flow --- */
-type Gps = { lat: number; lng: number; accuracy: number; distance: number };
+type Gps = { lat: number; lng: number; accuracy: number; distance: number; takenAt: number };
 
 function getPosition(highAccuracy: boolean) {
   return new Promise<GeolocationPosition>((resolve, reject) => {
@@ -678,7 +678,7 @@ function AttendanceFlow({
       }
       const { latitude, longitude, accuracy } = position.coords;
       const distance = haversineDistance(latitude, longitude, branch.latitude, branch.longitude);
-      const value = { lat: latitude, lng: longitude, accuracy: Math.round(accuracy), distance };
+      const value = { lat: latitude, lng: longitude, accuracy: Math.round(accuracy), distance, takenAt: position.timestamp || Date.now() };
       setGps(value);
       setGpsState(distance - Math.min(35, accuracy) > branch.radiusMeters ? "far" : "ok");
     } catch (reason) {
@@ -711,6 +711,7 @@ function AttendanceFlow({
           latitude: gps.lat,
           longitude: gps.lng,
           accuracy: gps.accuracy,
+          positionAge: Math.max(0, Date.now() - gps.takenAt),
           photoDataUrl: flow.photo,
         });
         onSuccess(

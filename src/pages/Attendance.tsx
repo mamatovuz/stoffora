@@ -16,6 +16,7 @@ import {
   UserCheck,
   UserX,
   Users,
+  AlertTriangle,
 } from "lucide-react";
 import { del, errorText, post, put } from "../api";
 import { useApi, usePolling } from "../hooks";
@@ -34,6 +35,7 @@ import {
   useToast,
 } from "../components/ui";
 import { dateLongUz, duration, tashkentClock, tashkentIsoDate } from "@/lib/format";
+import { FLAG_LABELS } from "@/lib/gps";
 import {
   addDays,
   leaveTypeLabel,
@@ -62,6 +64,7 @@ export function AttendancePage() {
   const [query, setQuery] = useState("");
   const [branch, setBranch] = useState("");
   const [editing, setEditing] = useState<RosterRow | null>(null);
+  const [flagged, setFlagged] = useState<RosterRow | null>(null);
   const [removing, setRemoving] = useState<RosterRow | null>(null);
   const toast = useToast();
   const { data, loading, error, reload } = useApi<Day>(
@@ -367,6 +370,15 @@ export function AttendancePage() {
                               {verificationLabel[item] || item}
                             </span>
                           )) || <span className="faint">—</span>}
+                          {r?.flags?.length ? (
+                            <button
+                              className={`tag gps-flag ${r.flagsReviewedBy ? "reviewed" : ""}`}
+                              title={`${r.flags.map((f) => FLAG_LABELS[f]).join("\n")}${r.flagsReviewedBy ? `\nKo‘rib chiqildi: ${r.flagsReviewedBy}` : "\nBosing — ko‘rib chiqish"}`}
+                              onClick={() => setFlagged(row)}
+                            >
+                              <AlertTriangle size={10} /> {r.flagsReviewedBy ? "Tekshirilgan" : "Shubhali GPS"}
+                            </button>
+                          ) : null}
                         </span>
                       </td>
                       <td className="actions">
@@ -430,6 +442,64 @@ export function AttendancePage() {
             void reload(true);
           }}
         />
+      )}
+      {flagged?.record && (
+        <Modal title="Shubhali joylashuv" subtitle={`${flagged.employee.firstName} ${flagged.employee.lastName} · ${dateLongUz(date)}`} onClose={() => setFlagged(null)} size="narrow">
+          <div className="stack" style={{ gap: 10 }}>
+            <ul className="flag-list">
+              {(flagged.record.flags || []).map((flag) => (
+                <li key={flag}>
+                  <AlertTriangle size={14} /> {FLAG_LABELS[flag]}
+                </li>
+              ))}
+            </ul>
+            <div className="kv">
+              <div>
+                <span>Filialgacha masofa</span>
+                <b>{flagged.record.distanceMeters ?? "—"} m</b>
+              </div>
+              <div>
+                <span>Koordinata</span>
+                <b>
+                  {flagged.record.latitude?.toFixed(6)}, {flagged.record.longitude?.toFixed(6)}
+                </b>
+              </div>
+            </div>
+            {flagged.record.latitude && (
+              <a className="link" href={`https://maps.google.com/?q=${flagged.record.latitude},${flagged.record.longitude}`} target="_blank" rel="noreferrer">
+                Xaritada ko‘rish →
+              </a>
+            )}
+            <p className="muted" style={{ fontSize: 12.5 }}>
+              Bu faqat ogohlantirish — davomat bloklanmagan. Face ID rasmi (rasm kanali yoqilgan bo‘lsa) bilan solishtirib, qaror qiling.
+            </p>
+            {flagged.record.flagsReviewedBy && <p className="muted">Ko‘rib chiqilgan: {flagged.record.flagsReviewedBy}</p>}
+            <div className="form-actions">
+              <button
+                className="btn btn-danger"
+                onClick={async () => {
+                  await post(`/attendance/${flagged.record!.id}/review-flags`, { verdict: "SUSPICIOUS" });
+                  toast("Shubhali deb belgilandi");
+                  setFlagged(null);
+                  void reload(true);
+                }}
+              >
+                Shubhali
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={async () => {
+                  await post(`/attendance/${flagged.record!.id}/review-flags`, { verdict: "OK" });
+                  toast("Hammasi joyida deb belgilandi");
+                  setFlagged(null);
+                  void reload(true);
+                }}
+              >
+                Joyida edi
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
       {removing?.record && (
         <Confirm

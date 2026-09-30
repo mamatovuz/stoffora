@@ -7215,3 +7215,44 @@ button.ic-stat small {
     justify-content: center;
   }
 }
+
+.branch-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* ---- Shubhali GPS ---- */
+.tag.gps-flag {
+  border: 0;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tag.gps-flag.reviewed {
+  background: var(--gray-bg);
+  color: var(--muted);
+}
+.flag-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.flag-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--amber-bg);
+  color: var(--amber);
+  font-size: 13px;
+  font-weight: 500;
+}

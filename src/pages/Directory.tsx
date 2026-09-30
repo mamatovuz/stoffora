@@ -361,6 +361,7 @@ export function UsersPage() {
 
 function UserForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({ name: "", email: "", password: "", role: "HR_MANAGER" });
+  const [branchIds, setBranchIds] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function save(e: React.FormEvent) {
@@ -368,7 +369,7 @@ function UserForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
     setSaving(true);
     setError("");
     try {
-      await post("/users", form);
+      await post("/users", { ...form, branchIds: form.role === "BRANCH_MANAGER" ? branchIds : undefined });
       onSaved();
     } catch (reason) {
       setError(errorText(reason));
@@ -399,6 +400,7 @@ function UserForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => vo
             ))}
           </select>
         </Field>
+        {form.role === "BRANCH_MANAGER" && <BranchPicker value={branchIds} onChange={setBranchIds} />}
         <ErrorBox message={error} />
         <div className="form-actions">
           <button type="button" className="btn" onClick={onClose}>
@@ -426,6 +428,7 @@ function EditUserForm({
   const { refresh, user: me } = useAuth();
   const [name, setName] = useState(user.name);
   const [role, setRole] = useState<Role>(user.role);
+  const [branchIds, setBranchIds] = useState<string[]>(user.branchIds || []);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const owner = user.role === "COMPANY_OWNER";
@@ -437,7 +440,7 @@ function EditUserForm({
           setSaving(true);
           setError("");
           try {
-            await put(`/users/${user.id}`, owner ? { name } : { name, role });
+            await put(`/users/${user.id}`, owner ? { name } : { name, role, branchIds: role === "BRANCH_MANAGER" ? branchIds : undefined });
             if (me?.userId === user.id) await refresh();
             onSaved();
           } catch (reason) {
@@ -459,6 +462,7 @@ function EditUserForm({
             ))}
           </select>
         </Field>
+        {role === "BRANCH_MANAGER" && <BranchPicker value={branchIds} onChange={setBranchIds} />}
         <ErrorBox message={error} />
         <div className="form-actions">
           <button type="button" className="btn" onClick={onClose}>
@@ -470,5 +474,31 @@ function EditUserForm({
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** Filial rahbari qaysi filiallarni ko‘rishini tanlash. */
+function BranchPicker({ value, onChange }: { value: string[]; onChange: (value: string[]) => void }) {
+  const { data: meta } = useApi<Meta>("/meta");
+  const branches = meta?.branches || [];
+  return (
+    <div className="field">
+      <span className="label">Qaysi filiallarni ko‘radi?</span>
+      <div className="branch-picks">
+        {branches.map((b) => (
+          <label key={b.id} className={`ic-check ${value.includes(b.id) ? "on" : ""}`}>
+            <input
+              type="checkbox"
+              checked={value.includes(b.id)}
+              onChange={() => onChange(value.includes(b.id) ? value.filter((x) => x !== b.id) : [...value, b.id])}
+            />
+            {b.name}
+          </label>
+        ))}
+      </div>
+      <span className="hint">
+        {value.length ? `${value.length} ta filial — faqat shu filiallarning xodimlari, davomati va ta’tillari ko‘rinadi.` : "Filial tanlanmasa hech narsa ko‘rinmaydi."}
+      </span>
+    </div>
   );
 }

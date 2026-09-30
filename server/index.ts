@@ -258,6 +258,19 @@ const companyId = (req: AuthedRequest) => {
     throw httpError("Kompaniya tanlanmagan.", 403);
   return req.session.companyId;
 };
+/**
+ * Filial rahbari faqat o‘ziga biriktirilgan filiallarni ko‘radi.
+ * Boshqa rollar uchun null — cheklov yo‘q.
+ */
+const branchScope = (req: AuthedRequest, db: Database): Set<string> | null => {
+  if (req.session?.role !== "BRANCH_MANAGER") return null;
+  const user = db.users.find((u) => u.id === req.session!.userId);
+  return new Set(user?.branchIds || []);
+};
+const inScope = (scope: Set<string> | null, branchId?: string) => !scope || Boolean(branchId && scope.has(branchId));
+const scopeRoster = <T extends { employee: { branchId: string } }>(scope: Set<string> | null, rows: T[]) =>
+  scope ? rows.filter((row) => scope.has(row.employee.branchId)) : rows;
+
 /** Ruxsatlardan kamida bittasi bo‘lsa o‘tkazadi. */
 const requireAnyPermission =
   (...permissions: string[]) =>
@@ -855,8 +868,9 @@ app.get(
     const active = db.employees.filter(
       (e) => e.companyId === tenant && e.status === "ACTIVE",
     );
+    const scope = branchScope(req, db);
     res.json({
-      branches: db.branches.filter((x) => x.companyId === tenant),
+      branches: db.branches.filter((x) => x.companyId === tenant && inScope(scope, x.id)),
       departments: db.departments
         .filter((x) => x.companyId === tenant)
         .map((x) => ({
@@ -1197,13 +1211,14 @@ app.get(
     const db = await readDb(),
       tenant = companyId(req);
     const today = tashkentIsoDate();
-    const roster = dayRoster(db, tenant, today);
+    const scope = branchScope(req, db);
+    const roster = scopeRoster(scope, dayRoster(db, tenant, today));
     const days = [7, 14, 30].includes(Number(req.query.days)) ? Number(req.query.days) : 7;
     const weekly = Array.from({ length: days }, (_, index) => {
       const date = tashkentIsoDate(
         new Date(Date.now() - (days - 1 - index) * 86_400_000),
       );
-      const stats = rosterStats(dayRoster(db, tenant, date));
+      const stats = rosterStats(scopeRoster(scope, dayRoster(db, tenant, date)));
       const expected = stats.present + stats.absent;
       return {
         date,
@@ -1214,7 +1229,7 @@ app.get(
       };
     });
     const employees = db.employees.filter(
-      (e) => e.companyId === tenant && e.status === "ACTIVE",
+      (e) => e.companyId === tenant && e.status === "ACTIVE" && inScope(scope, e.branchId),
     );
     res.json({
       stats: rosterStats(roster),
@@ -1326,7 +1341,8 @@ app.get(
   asyncRoute(async (req, res) => {
     const db = await readDb(),
       tenant = companyId(req);
-    let rows = db.employees.filter((e) => e.companyId === tenant);
+    const scope = branchScope(req, db);
+    let rows = db.employees.filter((e) => e.companyId === tenant && inScope(scope, e.branchId));
     const q = String(req.query.q || "").toLowerCase().trim();
     if (q)
       rows = rows.filter((e) =>
@@ -1413,7 +1429,8 @@ app.get(
       employee = db.employees.find(
         (e) => e.id === req.params.id && e.companyId === tenant,
       );
-    if (!employee) return res.status(404).json({ message: "Xodim topilmadi." });
+    if (!employee || !inScope(branchScope(req, db), employee.branchId))
+      return res.status(404).json({ message: "Xodim topilmadi." });
     res.json({
       employee,
       attendance: db.attendance
@@ -1756,7 +1773,7 @@ app.get(
     const db = await readDb(),
       tenant = companyId(req);
     const date = dateSchema.parse(String(req.query.date || tashkentIsoDate()));
-    const rows = dayRoster(db, tenant, date);
+    const rows = scopeRoster(branchScope(req, db), dayRoster(db, tenant, date));
     res.json({ date, stats: rosterStats(rows), rows });
   }),
 );
@@ -1766,7 +1783,13 @@ app.get(
   asyncRoute(async (req, res) => {
     const db = await readDb(),
       tenant = companyId(req);
-    let rows = db.attendance.filter((a) => a.companyId === tenant);
+    const scope = branchScope(req, db);
+    const scopedEmployees = scope
+      ? new Set(db.employees.filter((e) => e.companyId === tenant && inScope(scope, e.branchId)).map((e) => e.id))
+      : null;
+    let rows = db.attendance.filter(
+      (a) => a.companyId === tenant && (!scopedEmployees || scopedEmployees.has(a.employeeId) || inScope(scope, a.branchId)),
+    );
     const from = req.query.from ? String(req.query.from) : undefined;
     const to = req.query.to ? String(req.query.to) : undefined;
     if (req.query.date) rows = rows.filter((a) => a.date === req.query.date);
@@ -1815,7 +1838,7 @@ app.post(
       const employee = db.employees.find(
         (e) => e.id === input.employeeId && e.companyId === tenant,
       );
-      if (!employee) throw httpError("Xodim topilmadi.", 404);
+      if (!employee || !inScope(branchScope(req, db), employee.branchId)) throw httpError("Xodim topilmadi.", 404);
       if (
         db.attendance.some(
           (a) => a.employeeId === employee.id && a.date === input.date,
@@ -1886,7 +1909,9 @@ app.put(
       const record = db.attendance.find(
         (a) => a.id === req.params.id && a.companyId === tenant,
       );
-      if (!record) throw httpError("Davomat yozuvi topilmadi.", 404);
+      const owner = record && db.employees.find((e) => e.id === record.employeeId);
+      if (!record || !inScope(branchScope(req, db), owner?.branchId || record.branchId))
+        throw httpError("Davomat yozuvi topilmadi.", 404);
       const before = { ...record },
         schedule = db.schedules.find(
           (s) =>
@@ -1938,7 +1963,9 @@ app.delete(
       const record = db.attendance.find(
         (a) => a.id === req.params.id && a.companyId === tenant,
       );
-      if (!record) throw httpError("Davomat yozuvi topilmadi.", 404);
+      const owner = record && db.employees.find((e) => e.id === record.employeeId);
+      if (!record || !inScope(branchScope(req, db), owner?.branchId || record.branchId))
+        throw httpError("Davomat yozuvi topilmadi.", 404);
       db.attendance = db.attendance.filter((a) => a.id !== record.id);
       db.auditLogs.unshift(
         audit(
@@ -1974,9 +2001,10 @@ app.get(
     const db = await readDb(),
       tenant = companyId(req);
     const today = tashkentIsoDate();
+    const scope = branchScope(req, db);
     res.json(
       db.branches
-        .filter((b) => b.companyId === tenant)
+        .filter((b) => b.companyId === tenant && inScope(scope, b.id))
         .map((b) => ({
           ...b,
           employees: db.employees.filter(
@@ -2183,9 +2211,11 @@ app.get(
   asyncRoute(async (req, res) => {
     const db = await readDb(),
       tenant = companyId(req);
+    const scope = branchScope(req, db);
+    const employeeBranch = new Map(db.employees.filter((e) => e.companyId === tenant).map((e) => [e.id, e.branchId]));
     res.json(
       db.leaveRequests
-        .filter((l) => l.companyId === tenant)
+        .filter((l) => l.companyId === tenant && inScope(scope, employeeBranch.get(l.employeeId)))
         .map((l) => ({
           ...l,
           employee: db.employees.find((e) => e.id === l.employeeId),
@@ -2722,7 +2752,7 @@ app.get(
       const branch = db.branches.find(
         (item) => item.id === req.params.branchId && item.companyId === tenant,
       );
-      if (!branch) throw httpError("Filial topilmadi.", 404);
+      if (!branch || !inScope(branchScope(req, db), branch.id)) throw httpError("Filial topilmadi.", 404);
       const nonce = id();
       const expiresAt = new Date(now + QR_LIFETIME_SECONDS * 1000).toISOString();
       db.qrNonces = db.qrNonces.filter(
@@ -2803,13 +2833,17 @@ app.post(
         email: z.string().trim().email(),
         password: z.string().min(10, "Parol kamida 10 belgi bo‘lsin."),
         role: z.enum(assignableRoles),
+        branchIds: z.array(z.string()).max(500).optional(),
       })
       .parse(req.body);
     const tenant = companyId(req);
-    const user = await createUser({ ...input, companyId: tenant });
+    const { branchIds, ...userInput } = input;
+    const user = await createUser({ ...userInput, companyId: tenant });
     await updateDb((db) => {
       if (db.users.some((u) => u.email === user.email))
         throw httpError("Bu email bilan foydalanuvchi mavjud.", 409);
+      if (input.role === "BRANCH_MANAGER")
+        user.branchIds = (branchIds || []).filter((id) => db.branches.some((b) => b.id === id && b.companyId === tenant));
       db.users.push(user);
       db.auditLogs.unshift(
         audit(tenant, req.session!.name, `Panel foydalanuvchisi qo‘shildi (${input.role})`, "user", user.id),
@@ -2827,6 +2861,7 @@ app.put(
       .object({
         name: z.string().trim().min(3, "Ism familiya kamida 3 harf.").max(80),
         role: z.enum(assignableRoles).optional(),
+        branchIds: z.array(z.string()).max(500).optional(),
       })
       .parse(req.body);
     const tenant = companyId(req);
@@ -2840,6 +2875,10 @@ app.put(
       const before = { name: row.name, role: row.role };
       row.name = input.name;
       if (input.role) row.role = input.role;
+      // Filial rahbariga biriktirilgan filiallar (boshqa rollarda kerak emas).
+      if (input.branchIds)
+        row.branchIds = input.branchIds.filter((id) => db.branches.some((b) => b.id === id && b.companyId === tenant));
+      if (row.role !== "BRANCH_MANAGER") row.branchIds = undefined;
       if (row.role === "COMPANY_OWNER") {
         const company = db.companies.find((c) => c.id === tenant);
         if (company) company.ownerName = input.name;
