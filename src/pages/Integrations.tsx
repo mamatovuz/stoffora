@@ -41,6 +41,7 @@ interface Settings {
   pushAttendance: boolean;
   pollIntervalSeconds: number;
   inviteTtlHours: number;
+  miniAppLink?: string;
   routing: Record<Category, Channel[]>;
 }
 interface Integration {
@@ -745,7 +746,16 @@ function IntegrationDashboard({ id, onChanged }: { id: string; onChanged: () => 
           />
         </div>
         <div className="card-body">
-          {tab === "access" && <AccessPanel integrationId={id} ttlHours={integration.settings.inviteTtlHours} botUsername={data.staffora.botUsername} />}
+          {tab === "access" && (
+            <AccessPanel
+              integrationId={id}
+              integration={integration}
+              ttlHours={integration.settings.inviteTtlHours}
+              botUsername={data.staffora.botUsername}
+              publicUrl={data.staffora.publicUrl}
+              onSaved={() => void reload(true)}
+            />
+          )}
           {tab === "settings" && <SettingsPanel integration={integration} onSaved={() => void reload(true)} />}
           {tab === "conflicts" && <ConflictsPanel integrationId={id} onResolved={() => void reload(true)} />}
           {tab === "logs" && <LogsPanel integrationId={id} />}
@@ -932,7 +942,21 @@ function accessState(row: AccessRow): { label: string; tone: string; note?: stri
   return { label: "Yuborilmagan", tone: "gray" };
 }
 
-function AccessPanel({ integrationId, ttlHours, botUsername }: { integrationId: string; ttlHours: number; botUsername?: string }) {
+function AccessPanel({
+  integrationId,
+  integration,
+  ttlHours,
+  botUsername,
+  publicUrl,
+  onSaved,
+}: {
+  integrationId: string;
+  integration: Integration;
+  ttlHours: number;
+  botUsername?: string;
+  publicUrl: string;
+  onSaved: () => void;
+}) {
   const toast = useToast();
   const { data, loading, error, reload } = useApi<{ botUsername?: string; summary: { total: number; connected: number; inBot: number; pending: number }; rows: AccessRow[] }>(
     `/integrations/${integrationId}/access`,
@@ -969,9 +993,23 @@ function AccessPanel({ integrationId, ttlHours, botUsername }: { integrationId: 
   };
   const selectable = rows.filter((row) => row.inBot && !row.connected);
   const allSelected = selectable.length > 0 && selectable.every((row) => selected.includes(row.employeeId));
-  const bot = botUsername || data?.botUsername;
+  const direct = integration.settings.miniAppLink;
+  const bot = direct || botUsername || data?.botUsername;
   return (
     <div className="stack">
+      <DirectLinkCard integration={integration} publicUrl={publicUrl} onSaved={onSaved} />
+      {direct ? (
+        <div className="ic-callout">
+          <CheckCircle2 size={20} />
+          <div>
+            <b>Bir bosishda kirish yoqilgan</b>
+            <p>
+              «Hammasiga yuborish» bosilsa, har bir xodimga xodimlar boti orqali <b>{direct}</b> havolasi boradi. Xodim bosadi → Staffora shu botning
+              ichida ochiladi → avtomatik kiradi. START ham, kod ham kerak emas.
+            </p>
+          </div>
+        </div>
+      ) : (
       <div className="ic-callout">
         <Link2 size={20} />
         <div>
@@ -982,6 +1020,7 @@ function AccessPanel({ integrationId, ttlHours, botUsername }: { integrationId: 
           </p>
         </div>
       </div>
+      )}
       {!bot && (
         <div className="alert warn">
           <AlertTriangle size={18} />
@@ -1639,6 +1678,97 @@ function HistoryPanel({ jobs }: { jobs: Job[] }) {
           <JobProgress job={job} />
         </details>
       ))}
+    </div>
+  );
+}
+
+/** Bir bosishda kirish: Staffora Mini App'ini xodimlar botiga ulash (BotFather). */
+function DirectLinkCard({ integration, publicUrl, onSaved }: { integration: Integration; publicUrl: string; onSaved: () => void }) {
+  const toast = useToast();
+  const [link, setLink] = useState(integration.settings.miniAppLink || "");
+  const [open, setOpen] = useState(!integration.settings.miniAppLink);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const appUrl = `${publicUrl.replace(/\/+$/, "")}/mini-app`;
+  const save = async (value: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await put(`/integrations/${integration.id}/settings`, { miniAppLink: value });
+      toast(value ? "Bir bosishda kirish yoqildi" : "O‘chirildi");
+      onSaved();
+      if (value) setOpen(false);
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="ic-direct">
+      <button className="ic-direct-head" onClick={() => setOpen((v) => !v)}>
+        <span className="ic-direct-icon">
+          <PlugZap size={18} />
+        </span>
+        <span>
+          <b>Bir bosishda kirish (tavsiya etiladi)</b>
+          <small>
+            {integration.settings.miniAppLink
+              ? `Yoqilgan · ${integration.settings.miniAppLink}`
+              : "Staffora xodimlar botining ichida ochiladi — ikkinchi botda START kerak emas"}
+          </small>
+        </span>
+        <span className={`badge ${integration.settings.miniAppLink ? "green" : "amber"}`}>{integration.settings.miniAppLink ? "Yoqilgan" : "Sozlanmagan"}</span>
+      </button>
+      {open && (
+        <div className="ic-direct-body">
+          <p className="muted">
+            Telegram bot START bosmagan odamga yoza olmaydi, shuning uchun Staffora'ni xodimlar allaqachon ishlatayotgan botga ulaymiz. Bir marta, 2 daqiqa:
+          </p>
+          <ol className="steps-list">
+            <li>
+              Telegram'da <b>@BotFather</b> ni oching va <code>/newapp</code> yuboring.
+            </li>
+            <li>Ro‘yxatdan <b>xodimlar botini</b> (Gulnora Farm HR bot) tanlang.</li>
+            <li>Nomi: <b>Staffora</b>, tavsif: «Keldi-ketdi», rasm: istalgan 640×360 rasm, GIF — <code>/empty</code>.</li>
+            <li>
+              Web App URL so‘ralganda:
+              <span className="code-box" style={{ marginTop: 6 }}>
+                <code>{appUrl}</code>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(appUrl).catch(() => undefined);
+                    toast("Nusxalandi");
+                  }}
+                >
+                  <Copy size={13} /> Nusxalash
+                </button>
+              </span>
+            </li>
+            <li>
+              Qisqa nom: <b>staffora</b>. BotFather havola beradi: <code>https://t.me/&lt;bot&gt;/staffora</code> — uni pastga qo‘ying.
+            </li>
+          </ol>
+          <div className="ic-counting-form">
+            <input className="input" style={{ flex: 1 }} value={link} placeholder="https://t.me/GulnoraFarmBot/staffora" onChange={(e) => setLink(e.target.value)} />
+            <button className="btn btn-primary" disabled={busy || !link.trim()} onClick={() => void save(link.trim())}>
+              {busy && <LoaderCircle size={15} className="spin" />} Saqlash
+            </button>
+            {integration.settings.miniAppLink && (
+              <button className="btn btn-ghost" disabled={busy} onClick={() => void save("")}>
+                O‘chirish
+              </button>
+            )}
+          </div>
+          <ErrorBox message={error} />
+          <p className="muted" style={{ fontSize: 12.5 }}>
+            Xavfsizlik: xodim kim ekanini xodimlar botining serveri Telegram imzosi orqali tasdiqlaydi; Staffora bot tokenini bilmaydi va telefon
+            yuborgan ID ga ishonmaydi.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

@@ -21,6 +21,7 @@ import {
 import type { Attendance, Database, Employee, LeaveRequest } from "../lib/types";
 import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
 import { onStafforaAttendance } from "./integrations/hooks";
+import { verifyViaEmployeeBot } from "./integrations/identity";
 import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
 import { enqueueAttendancePhoto } from "./photo-channel";
 import {
@@ -183,15 +184,39 @@ export function createMiniRouter() {
               "Telegram kirish ma’lumoti kelmadi. Mini App’ni bot ichidagi «Staffora» tugmasi orqali oching.",
           });
         const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
-        if (!token)
-          return res.status(503).json({
-            code: "BOT_NOT_CONFIGURED",
-            message: "Serverda Telegram bot tokeni sozlanmagan.",
-          });
         let identity: ReturnType<typeof verifyTelegramInitData>;
         try {
+          if (!token) throw new Error("Serverda Telegram bot tokeni sozlanmagan.");
           identity = verifyTelegramInitData(initData, token);
         } catch (reason) {
+          // Mini App xodimlar botidan (Direct Link) ochilgan bo‘lishi mumkin — o‘sha bot orqali tekshiramiz.
+          const viaBot = await verifyViaEmployeeBot(initData);
+          if (viaBot) {
+            const db = await readDb();
+            const employee = db.employees.find((item) => item.id === viaBot.employee.id);
+            if (!employee || employee.status !== "ACTIVE")
+              return res.status(403).json({ code: "NOT_LINKED", message: "Xodim profili faol emas. HR bilan bog‘laning." });
+            const session: EmployeeSession = {
+              employeeId: employee.id,
+              companyId: employee.companyId,
+              telegramId: String(viaBot.id),
+              kind: "employee",
+            };
+            const signed = signEmployeeSession(session);
+            const secure = process.env.COOKIE_SECURE === "true";
+            res.cookie("staffora_employee_session", signed, {
+              httpOnly: true,
+              sameSite: secure ? "none" : "lax",
+              secure,
+              maxAge: 24 * 3600_000,
+            });
+            return res.json({ ok: true, employeeId: employee.id, token: signed, home: buildHome(db, employee) });
+          }
+          if (!token)
+            return res.status(503).json({
+              code: "BOT_NOT_CONFIGURED",
+              message: "Serverda Telegram bot tokeni sozlanmagan.",
+            });
           return res.status(401).json({
             code: "BAD_SIGNATURE",
             message:

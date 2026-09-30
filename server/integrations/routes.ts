@@ -200,6 +200,12 @@ const settingsSchema = z
     pushAttendance: z.boolean(),
     pollIntervalSeconds: z.number().int().min(0).max(3600).refine((v) => v === 0 || v >= 15, "Kamida 15 soniya yoki 0 (qo‘lda)."),
     inviteTtlHours: z.number().int().min(1).max(720),
+    miniAppLink: z
+      .union([
+        z.literal(""),
+        z.string().trim().regex(/^(https:\/\/)?t\.me\/[A-Za-z0-9_]{5,32}\/[A-Za-z0-9_]{3,30}\/?$/i, "Havola https://t.me/<bot>/<nomi> ko‘rinishida bo‘lsin."),
+      ])
+      .optional(),
     routing: z
       .object(
         Object.fromEntries(
@@ -681,7 +687,8 @@ export function createIntegrationRouter() {
         .object({ employeeIds: z.array(z.string()).max(5000).optional(), all: z.boolean().optional(), onlyNotConnected: z.boolean().default(true) })
         .refine((v) => v.all || v.employeeIds?.length, "Xodimlarni tanlang.")
         .parse(req.body);
-      if (!telegramBotUsername()) throw httpError("Staffora Telegram boti ishga tushmagan — havola yaratib bo‘lmaydi.", 409);
+      if (!integration.settings.miniAppLink && !telegramBotUsername())
+        throw httpError("Staffora Telegram boti ishga tushmagan — havola yaratib bo‘lmaydi.", 409);
       const db = await readDb();
       const target = input.all ? ("ALL" as const) : input.employeeIds!;
       const candidates = accessCandidates(db, integration, target, input.onlyNotConnected);

@@ -45,10 +45,18 @@ export function normalizeSettings(value?: Partial<IntegrationSettings>): Integra
   const poll = Math.round(Number(merged.pollIntervalSeconds));
   merged.pollIntervalSeconds = poll === 0 ? 0 : Math.min(3600, Math.max(15, poll || 60));
   merged.inviteTtlHours = Math.min(24 * 30, Math.max(1, Math.round(Number(merged.inviteTtlHours) || 168)));
+  merged.miniAppLink = normalizeMiniAppLink(merged.miniAppLink);
   return merged;
 }
 
 export const newId = () => randomUUID();
+
+/** https://t.me/<bot>/<app> (yoki t.me/...) — to‘g‘ri bo‘lmasa undefined. */
+export function normalizeMiniAppLink(value?: string) {
+  const text = (value || "").trim().replace(/^http:\/\//i, "https://");
+  const match = /^(?:https:\/\/)?t\.me\/([A-Za-z0-9_]{5,32})\/([A-Za-z0-9_]{3,30})\/?$/i.exec(text);
+  return match ? `https://t.me/${match[1]}/${match[2]}` : undefined;
+}
 
 export function clientFor(integration: Integration, fetchImpl?: typeof fetch) {
   return new BotClient({

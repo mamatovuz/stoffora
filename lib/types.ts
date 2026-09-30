@@ -362,6 +362,11 @@ export interface IntegrationSettings {
   pollIntervalSeconds: number;
   /** Taklif havolasi amal qilish muddati (soat). */
   inviteTtlHours: number;
+  /**
+   * Xodimlar botiga ulangan Staffora Mini App havolasi (BotFather → /newapp):
+   * https://t.me/<bot>/<nomi>. Berilsa, xodim bir bosishda, START siz kiradi.
+   */
+  miniAppLink?: string;
   /** Bildirishnoma yo‘nalishlari: toifa → kanallar. */
   routing: Record<"attendance" | "leave" | "announcements" | "system", NotificationChannel[]>;
 }

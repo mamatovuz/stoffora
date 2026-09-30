@@ -89,6 +89,22 @@ export function accessMessage(companyName: string, employee: Employee, link: str
     .join("\n");
 }
 
+/** Bir bosishda kirish: havola xodimlar botining o‘zida Staffora'ni ochadi. */
+export function directAccessMessage(companyName: string, employee: Employee, link: string, practiceUntil?: string) {
+  return [
+    `Assalomu alaykum, ${employee.firstName}!`,
+    "",
+    `${companyName} keldi-ketdini endi Staffora orqali qayd etadi.`,
+    "",
+    `👉 Staffora'ni ochish: ${link}`,
+    "",
+    "Havolani bosing — ilova shu yerning o‘zida ochiladi va siz avtomatik kirasiz. Hech narsa kiritish shart emas.",
+    practiceUntil ? `\n🧪 ${ddmmyyyy(practiceUntil)} gacha mashq davri: bemalol sinab ko‘ring, kechikish va ushlanmalar hisoblanmaydi.` : "",
+  ]
+    .filter((line, index, all) => !(line === "" && all[index - 1] === ""))
+    .join("\n");
+}
+
 export type AccessCandidate = {
   employee: Employee;
   remoteId?: number;
@@ -117,7 +133,7 @@ export async function runAccessSendJob(jobId: string, employeeIds: string[] | "A
   const job = db0.syncJobs.find((j) => j.id === jobId);
   const integration = job ? db0.integrations.find((i) => i.id === job.integrationId && i.companyId === job.companyId) : undefined;
   if (!job || !integration) return;
-  if (!telegramBotUsername()) {
+  if (!integration.settings.miniAppLink && !telegramBotUsername()) {
     await updateDb((db) => {
       const j = db.syncJobs.find((x) => x.id === jobId);
       if (j) {
@@ -168,13 +184,16 @@ export async function runAccessSendJob(jobId: string, employeeIds: string[] | "A
         db.auditLogs.unshift(audit(integration.companyId, job.createdBy, "Staffora'ga kirish havolasi bot orqali yuborildi", "employee", employee.id));
         return value;
       });
-      const link = invite ? inviteLink(invite.code) : undefined;
+      const link = integration.settings.miniAppLink || (invite ? inviteLink(invite.code) : undefined);
       if (!invite || !link) {
         counter.failed += 1;
         continue;
       }
       const practice = countingStartDate(company, candidate.employee);
-      const message = accessMessage(company?.name || "Kompaniya", candidate.employee, link, integration.settings.inviteTtlHours, practice && practice > new Date().toISOString().slice(0, 10) ? practice : undefined);
+      const practiceUntil = practice && practice > new Date().toISOString().slice(0, 10) ? practice : undefined;
+      const message = integration.settings.miniAppLink
+        ? directAccessMessage(company?.name || "Kompaniya", candidate.employee, link, practiceUntil)
+        : accessMessage(company?.name || "Kompaniya", candidate.employee, link, integration.settings.inviteTtlHours, practiceUntil);
       await upsertDelivery({
         id: deliveryId,
         companyId: integration.companyId,

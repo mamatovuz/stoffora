@@ -566,6 +566,43 @@ describe("hayot sikli", () => {
   });
 });
 
+describe("bir bosishda kirish (xodimlar boti Mini App)", () => {
+  it("xodimlar boti imzolagan initData bilan xodim avtomatik ulanadi; soxtasi rad etiladi", async () => {
+    ctx = await boot();
+    const id = await ctx.connect();
+    await ctx.initialSync(id);
+    const identity = await import("../server/integrations/identity");
+    // Havola kiritilmaguncha bu yo‘l o‘chiq
+    expect(await identity.verifyViaEmployeeBot("signed:1001&hash=x")).toBeNull();
+    const saved = await ctx.call("PUT", `/integrations/${id}/settings`, { miniAppLink: "t.me/GulnoraFarmBot/staffora" });
+    expect(saved.body.settings.miniAppLink).toBe("https://t.me/GulnoraFarmBot/staffora");
+    expect((await ctx.call("PUT", `/integrations/${id}/settings`, { miniAppLink: "https://evil.example/x" })).status).toBe(400);
+    const bad = await identity.verifyViaEmployeeBot("tampered&hash=x");
+    expect(bad).toBeNull();
+    // Xodimlar boti tasdiqlagan initData — xodim topiladi va ulanadi
+    const result = await identity.verifyViaEmployeeBot("signed:1001&hash=abc");
+    expect(result?.employee.telegramId).toBe("1001");
+    const db = await ctx.store.readDb();
+    expect(db.employees.find((e) => e.telegramId === "1001")).toMatchObject({ telegramConnected: true, deviceStatus: "CONNECTED" });
+    // Botda xodim bo‘lmagan Telegram hisob — kirish yo‘q
+    expect(await identity.verifyViaEmployeeBot("signed:999999&hash=abc")).toBeNull();
+  });
+
+  it("havolalar yuborilganda Mini App havolasi boradi (kod va START kerak emas)", async () => {
+    ctx = await boot();
+    const id = await ctx.connect();
+    await ctx.initialSync(id);
+    await ctx.call("PUT", `/integrations/${id}/settings`, { miniAppLink: "https://t.me/GulnoraFarmBot/staffora" });
+    const res = await ctx.call("POST", `/integrations/${id}/access/send`, { all: true });
+    await ctx.waitJob(id, res.body.id);
+    await ctx.worker.processOutbox();
+    const messages = ctx.fake.state.notifications.filter((n) => n.type === "staffora_access");
+    expect(messages).toHaveLength(3);
+    expect(String(messages[0].message)).toContain("https://t.me/GulnoraFarmBot/staffora");
+    expect(String(messages[0].message)).not.toContain("?start=");
+  });
+});
+
 describe("maosh", () => {
   it("employees:salary ruxsati bo‘lsa maosh import qilinadi, Staffora'da kiritilgani ustidan yozilmaydi", async () => {
     const all = [

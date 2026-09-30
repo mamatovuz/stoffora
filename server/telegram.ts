@@ -126,6 +126,24 @@ function linkEmployee(
   );
 }
 
+/** Tasdiqlangan Telegram hisobni aniq xodimga ulaydi (xodimlar boti Mini App orqali). */
+export async function linkEmployeeById(
+  employeeId: string,
+  companyId: string,
+  telegram: { id: number | string; username?: string },
+  via: string,
+) {
+  return updateDb((db) => {
+    const employee = db.employees.find(
+      (item) => item.id === employeeId && item.companyId === companyId && item.status === "ACTIVE",
+    );
+    if (!employee) return undefined;
+    if (!(employee.telegramConnected && employee.telegramId === String(telegram.id)))
+      linkEmployee(db, employee, telegram, via);
+    return { ...employee };
+  });
+}
+
 export async function linkEmployeeByInvite(
   code: string,
   telegram: { id: number | string; username?: string },

@@ -139,6 +139,14 @@ export function createFakeBot(options: FakeBotOptions = {}) {
     if (path === "/integration/info")
       return ok({ name: "Gulnora Farm HR Bot API", api_version: "v1", build: "1.0.0", source: "employee_bot", your_key: { name: "staffora", scopes } });
     if (path === "/company") return ok({ name: "Gulnora Farm" });
+    if (path === "/integration/telegram/verify" && method === "POST") {
+      // Soxta: "signed:<telegram_id>" — bot serveri imzoni tasdiqlagan deb hisoblaymiz.
+      const match = /^signed:(\d+)&hash=/.exec(String(body?.init_data || ""));
+      if (!match) return fail(401, "invalid_init_data", "Telegram initData noto'g'ri yoki eskirgan.");
+      const tg = Number(match[1]);
+      const employee = state.employees.find((e) => e.telegram_id === tg) || null;
+      return ok({ verified: true, telegram_user: { id: tg, username: "user", first_name: "Ism" }, auth_date: 1, is_employee: Boolean(employee), employee });
+    }
     if (path === "/integration/changes") {
       const since = Number(url.searchParams.get("since_id") || 0);
       const limit = Number(url.searchParams.get("limit") || 100);

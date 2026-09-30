@@ -6151,3 +6151,55 @@ button.ic-stat small {
     transition: none;
   }
 }
+
+/* ---- Bir bosishda kirish kartasi ---- */
+.ic-direct {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+.ic-direct-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ic-direct-head > span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+.ic-direct-head small {
+  color: var(--muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ic-direct-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--brand-50);
+  color: var(--brand);
+}
+.ic-direct-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 16px 16px;
+  font-size: 13px;
+}
+.ic-direct-body .steps-list li {
+  line-height: 1.55;
+}
