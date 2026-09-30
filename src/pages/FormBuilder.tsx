@@ -407,7 +407,7 @@ function TextSetting({ label, value, fallback, hint, onChange }: { label: string
 }
 
 function Preview({ question, index, total, data }: { question: RegistrationQuestion; index: number; total: number; data: FormResponse }) {
-  const filled = Math.round(((index + 1) / Math.max(1, total)) * 10);
+  void total;
   let buttons: string[][] = [];
   switch (question.type) {
     case "position":
@@ -439,14 +439,6 @@ function Preview({ question, index, total, data }: { question: RegistrationQuest
   return (
     <>
       <div className="tg-bubble">
-        <p>
-          🏢 <b>{data.companyName}</b> · anketa
-          <br />
-          <span className="tg-progress">
-            {"▰".repeat(filled)}
-            {"▱".repeat(10 - filled)} {index + 1}/{total}
-          </span>
-        </p>
         <p>
           <b>{question.title || "…"}</b>
           {question.hint && (

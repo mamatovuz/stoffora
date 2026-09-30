@@ -6637,3 +6637,457 @@ button.ic-stat small {
     flex-wrap: wrap;
   }
 }
+
+/* ---- Xodim profili (qayta dizayn) ---- */
+.profile-hero {
+  flex-wrap: wrap;
+}
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.hero-stats > div {
+  display: grid;
+  gap: 2px;
+  min-width: 96px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.hero-stats small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.hero-stats b {
+  font-size: 14px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.hero-stats b.warn {
+  color: var(--amber);
+}
+.pv {
+  display: grid;
+  gap: 14px;
+}
+.pv-section {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.pv-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line-2);
+  font-size: 13px;
+  font-weight: 650;
+}
+.pv-section h3 span {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--brand-50);
+  color: var(--brand);
+}
+.pv-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px 18px;
+  padding: 14px;
+}
+.pv-field {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.pv-field.wide {
+  grid-column: span 2;
+}
+.pv-field small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.pv-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.pv-value b,
+.pv-value a {
+  font-size: 13.5px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.pv-value a {
+  color: var(--brand);
+  text-decoration: none;
+}
+.pv-value a:hover {
+  text-decoration: underline;
+}
+.pv-copy {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--faint);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.pv-field:hover .pv-copy {
+  opacity: 1;
+}
+.pv-copy:hover {
+  background: var(--gray-bg);
+  color: var(--ink);
+}
+.pv-empty {
+  color: var(--faint);
+  font-size: 13px;
+}
+.pv-salary {
+  display: grid;
+  gap: 2px;
+  grid-column: span 3;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--green-bg);
+}
+.pv-salary small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.pv-salary b {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--green);
+  font-variant-numeric: tabular-nums;
+}
+.pv-salary.empty {
+  background: var(--amber-bg);
+}
+.pv-salary.empty b {
+  color: var(--amber);
+  font-size: 16px;
+}
+.pv-salary .link {
+  justify-self: start;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.pv-danger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid #f6cdcd;
+  border-radius: var(--radius-sm);
+  background: #fff8f8;
+}
+.pv-danger > div {
+  display: grid;
+  gap: 3px;
+}
+.pv-danger small {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.danger-card {
+  border-color: #f6cdcd;
+}
+.danger-card .card-head h2 {
+  color: var(--red);
+}
+.danger-confirm {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+}
+.danger-confirm .form-actions {
+  width: 100%;
+}
+.danger-text {
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  font-size: 13.5px;
+  line-height: 1.5;
+  text-align: left;
+}
+.danger-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--red-bg);
+  color: var(--red);
+}
+.countdown-btn {
+  min-width: 170px;
+  justify-content: center;
+}
+.countdown-num {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  animation: pop 0.3s var(--ease);
+}
+.icon-btn.danger-hover:hover {
+  color: var(--red);
+  background: var(--red-bg);
+}
+/* Super admin: chegara */
+.limit-chip {
+  display: grid;
+  gap: 4px;
+  min-width: 110px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+.limit-chip:hover {
+  border-color: var(--brand);
+}
+.limit-chip small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.limit-bar {
+  height: 5px;
+  border-radius: 99px;
+  background: var(--gray-bg);
+  overflow: hidden;
+}
+.limit-bar i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+}
+.limit-bar i.warn {
+  background: var(--amber);
+}
+.limit-bar i.full {
+  background: var(--red);
+}
+@media (max-width: 900px) {
+  .pv-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pv-salary {
+    grid-column: span 2;
+  }
+  .hero-stats {
+    margin-left: 0;
+    width: 100%;
+  }
+  .hero-stats > div {
+    flex: 1;
+  }
+}
+@media (max-width: 560px) {
+  .pv-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .pv-field.wide,
+  .pv-salary {
+    grid-column: auto;
+  }
+  .pv-danger {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+/* ---- Mini App: profil (iOS uslubidagi guruhlar) ---- */
+.mp {
+  gap: 8px;
+  padding: 6px 14px 16px;
+}
+.mp-head {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px 0 10px;
+  text-align: center;
+}
+.mp-head .mp-avatar {
+  width: 88px;
+  height: 88px;
+  font-size: 28px;
+  margin-bottom: 6px;
+  box-shadow: 0 0 0 4px var(--m-card);
+}
+.mp-head h1 {
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.mp-head p {
+  color: var(--m-muted);
+  font-size: 14px;
+}
+.mp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.mp-chips span {
+  padding: 4px 10px;
+  border-radius: 99px;
+  background: var(--m-card);
+  color: var(--m-ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+.mp-chips span.ok {
+  color: var(--m-success);
+}
+.mp-group-title {
+  margin: 10px 4px 0;
+  color: var(--m-muted);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mp-group {
+  display: grid;
+  padding: 2px 16px;
+  border-radius: 16px;
+  background: var(--m-card);
+}
+.mp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  border-bottom: 0.5px solid var(--m-line);
+  color: inherit;
+  text-decoration: none;
+  font-size: 15px;
+}
+.mp-row:last-child {
+  border-bottom: 0;
+}
+.mp-row span {
+  color: var(--m-ink);
+}
+.mp-row b {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--m-muted);
+  font-weight: 400;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+.mp-row.link b {
+  color: var(--m-link);
+}
+.mp-row b.warn {
+  color: var(--m-warn);
+  font-weight: 500;
+}
+.mp-month {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 14px 4px;
+}
+.mp-month > div {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+}
+.mp-month > div + div {
+  border-left: 0.5px solid var(--m-line);
+}
+.mp-month b {
+  font-size: 22px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.mp-month b.warn {
+  color: var(--m-warn);
+}
+.mp-month small {
+  color: var(--m-muted);
+  font-size: 11.5px;
+}
+.mp-week {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+  padding: 10px 8px;
+}
+.mp-week > div {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 8px 2px;
+  border-radius: 10px;
+}
+.mp-week span {
+  color: var(--m-muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+.mp-week b {
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.mp-week .off b {
+  color: var(--m-muted);
+}
+.mp-week .today {
+  background: color-mix(in srgb, var(--m-accent) 12%, transparent);
+}
+.mp-week .today span,
+.mp-week .today b {
+  color: var(--m-accent);
+}
+.mp-note {
+  margin-top: 8px;
+  color: var(--m-muted);
+  font-size: 12px;
+  text-align: center;
+}

@@ -28,6 +28,10 @@ export interface Company {
   bot?: CompanyBotSettings;
   /** Botdagi xodim anketasi (savollar kompaniyaga moslab sozlanadi). */
   registrationForm?: RegistrationForm;
+  /** Tarif: maksimal faol xodimlar soni (super admin belgilaydi; bo‘sh — cheklovsiz). */
+  employeeLimit?: number;
+  /** Chegaradan oshganda murojaat uchun aloqa (standart: @mamatov_ads). */
+  limitContact?: string;
 }
 export interface CompanyBotSettings {
   /** AES-256-GCM bilan shifrlangan bot tokeni — frontendga qaytmaydi. */
@@ -281,6 +285,7 @@ export interface PanelSession {
 export interface PhotoJob {
   id: string;
   companyId: string;
+  employeeId?: string;
   chatId: string;
   photoDataUrl: string;
   caption: string;

@@ -25,6 +25,7 @@ import {
   flushDb,
   queryAuditLogs,
   readDb,
+  scrubAuditForEntities,
   updateDb,
 } from "../lib/store";
 import { calculateAttendance, isValidClockTime } from "../lib/attendance";
@@ -35,6 +36,7 @@ import {
 } from "../lib/format";
 import { can, canAny } from "../lib/permissions";
 import { isPracticeDay } from "../lib/counting";
+import { alignDepartment, assertEmployeeCapacity, limitInfo, purgeEmployees } from "../lib/limits";
 import { createCompany, createUser } from "../lib/seed";
 import type {
   Announcement,
@@ -872,7 +874,10 @@ app.get(
   "/api/company",
   asyncRoute(async (req, res) => {
     const db = await readDb();
-    res.json(db.companies.find((c) => c.id === companyId(req)));
+    const company = db.companies.find((c) => c.id === companyId(req));
+    if (!company) throw httpError("Kompaniya topilmadi.", 404);
+    // Maxfiy qismlar (bot tokeni) qaytmaydi.
+    res.json({ ...company, bot: undefined, limits: limitInfo(db, company) });
   }),
 );
 app.put(
@@ -1029,6 +1034,9 @@ app.put(
       )
         throw httpError("Bo‘lim topilmadi.", 404);
       Object.assign(value, input);
+      // Lavozim boshqa bo‘limga o‘tsa — shu lavozimdagi xodimlar ham o‘sha bo‘limga.
+      for (const employee of db.employees)
+        if (employee.companyId === tenant && employee.positionId === value.id) alignDepartment(db, employee);
       return value;
     });
     res.json(row);
@@ -1359,6 +1367,7 @@ app.post(
       tenant = companyId(req);
     const created = await updateDb((db) => {
       assertEmployeeRefs(db, tenant, input);
+      if ((input.status || "ACTIVE") === "ACTIVE") assertEmployeeCapacity(db, tenant);
       const employeeNo = input.employeeNo || nextEmployeeNo(db, tenant);
       if (
         db.employees.some(
@@ -1380,6 +1389,7 @@ app.post(
         createdAt: now,
         updatedAt: now,
       };
+      alignDepartment(db, row);
       db.employees.push(row);
       db.auditLogs.unshift(
         audit(tenant, req.session!.name, "Xodim yaratildi", "employee", row.id),
@@ -1486,6 +1496,9 @@ app.put(
       } as Employee;
       if (input.photoDataUrl === "") next.photoDataUrl = undefined;
       if (!next.employeeNo) next.employeeNo = before.employeeNo;
+      alignDepartment(db, next);
+      // Faol bo‘lmagan xodimni qayta faollashtirish ham tarif chegarasiga kiradi.
+      if (next.status === "ACTIVE" && before.status !== "ACTIVE") assertEmployeeCapacity(db, tenant);
       db.employees[index] = next;
       const { photoDataUrl: _p1, ...beforeLog } = before;
       const { photoDataUrl: _p2, ...afterLog } = next;
@@ -1560,6 +1573,21 @@ app.delete(
   requirePermission("employees.delete"),
   asyncRoute(async (req, res) => {
     const tenant = companyId(req);
+    // ?permanent=1 — butunlay o‘chirish (faqat kompaniya egasi): hech qayerda qolmaydi.
+    if (req.query.permanent === "1") {
+      if (req.session!.role !== "COMPANY_OWNER" && req.session!.role !== "SUPER_ADMIN")
+        throw httpError("Xodimni butunlay o‘chirish faqat kompaniya egasiga ruxsat etilgan.", 403);
+      await updateDb((db) => {
+        const row = db.employees.find((e) => e.id === req.params.id && e.companyId === tenant);
+        if (!row) throw httpError("Xodim topilmadi.", 404);
+        purgeEmployees(db, tenant, new Set([row.id]));
+        db.auditLogs.unshift(
+          audit(tenant, req.session!.name, `Xodim butunlay o‘chirildi: ${row.firstName} ${row.lastName} (${row.employeeNo})`, "employee", row.id),
+        );
+      });
+      void scrubAuditForEntities(tenant, [String(req.params.id)]).catch(() => undefined);
+      return res.json({ ok: true, deleted: 1 });
+    }
     await updateDb((db) => {
       const row = db.employees.find(
         (e) => e.id === req.params.id && e.companyId === tenant,
@@ -1573,6 +1601,27 @@ app.delete(
       );
     });
     res.json({ ok: true });
+  }),
+);
+// Xavfli: kompaniyadagi BARCHA xodimlarni butunlay o‘chirish (faqat egasi, tasdiq so‘zi bilan).
+app.post(
+  "/api/employees/delete-all",
+  asyncRoute(async (req, res) => {
+    if (req.session!.role !== "COMPANY_OWNER")
+      return res.status(403).json({ message: "Bu amal faqat kompaniya egasiga ruxsat etilgan." });
+    const { confirm } = z.object({ confirm: z.literal("O‘CHIRISH", { errorMap: () => ({ message: "Tasdiqlash so‘zi noto‘g‘ri." }) }) }).parse(req.body);
+    void confirm;
+    const tenant = companyId(req);
+    const removedIds: string[] = [];
+    const deleted = await updateDb((db) => {
+      const ids = new Set(db.employees.filter((e) => e.companyId === tenant).map((e) => e.id));
+      removedIds.push(...ids);
+      const count = purgeEmployees(db, tenant, ids);
+      db.auditLogs.unshift(audit(tenant, req.session!.name, `Barcha xodimlar butunlay o‘chirildi (${count} ta)`, "company", tenant));
+      return count;
+    });
+    await scrubAuditForEntities(tenant, removedIds).catch(() => undefined);
+    res.json({ ok: true, deleted });
   }),
 );
 app.post(
@@ -1624,8 +1673,10 @@ app.post(
         (e) => e.id === req.params.id && e.companyId === tenant,
       );
       if (!employee) throw httpError("Xodim topilmadi.", 404);
+      if (employee.status !== "ACTIVE") assertEmployeeCapacity(db, tenant);
       for (const key of ["branchId", "departmentId", "positionId", "scheduleId"] as const)
         if (input[key]) employee[key] = input[key]!;
+      alignDepartment(db, employee);
       assertEmployeeRefs(db, tenant, {
         branchId: employee.branchId,
         scheduleId: employee.scheduleId,
@@ -2837,6 +2888,8 @@ app.get(
         employees: db.employees.filter(
           (e) => e.companyId === c.id && e.status === "ACTIVE",
         ).length,
+        bot: undefined,
+        registrationForm: undefined,
         branches: db.branches.filter((b) => b.companyId === c.id).length,
         owner: db.users.find(
           (u) => u.companyId === c.id && u.role === "COMPANY_OWNER",
@@ -2857,9 +2910,13 @@ app.post(
         ownerPassword: z.string().min(10, "Parol kamida 10 belgi bo‘lsin."),
         plan: z.string().min(2),
         status: z.enum(["ACTIVE", "TRIAL", "SUSPENDED"]),
+        employeeLimit: z.coerce.number().int().min(1).max(1_000_000).optional(),
+        limitContact: z.string().trim().max(80).optional(),
       })
       .parse(req.body);
     const company = createCompany(input);
+    if (input.employeeLimit) company.employeeLimit = input.employeeLimit;
+    if (input.limitContact) company.limitContact = input.limitContact;
     const owner = await createUser({
       companyId: company.id,
       name: input.ownerName,
@@ -2886,13 +2943,21 @@ app.patch(
       .object({
         status: z.enum(["ACTIVE", "TRIAL", "SUSPENDED"]).optional(),
         plan: z.string().min(2).optional(),
+        // null — cheklovsiz
+        employeeLimit: z.union([z.coerce.number().int().min(1).max(1_000_000), z.null()]).optional(),
+        limitContact: z.string().trim().max(80).optional(),
       })
       .parse(req.body);
     const row = await updateDb((db) => {
       const company = db.companies.find((c) => c.id === req.params.id);
       if (!company) throw httpError("Kompaniya topilmadi.", 404);
-      Object.assign(company, input);
-      return company;
+      const before = { plan: company.plan, status: company.status, employeeLimit: company.employeeLimit };
+      const { employeeLimit, limitContact, ...rest } = input;
+      Object.assign(company, rest);
+      if (employeeLimit !== undefined) company.employeeLimit = employeeLimit ?? undefined;
+      if (limitContact !== undefined) company.limitContact = limitContact || undefined;
+      db.auditLogs.unshift(audit(company.id, req.session!.name, "Super admin tarifni o‘zgartirdi", "company", company.id, before, { plan: company.plan, status: company.status, employeeLimit: company.employeeLimit }));
+      return { ...company, bot: undefined, registrationForm: undefined };
     });
     res.json(row);
   }),
@@ -2958,6 +3023,13 @@ startAttendanceReminders();
 startPhotoChannelWorker();
 startIntegrationWorker();
 void startCompanyBots();
+void updateDb((db) => {
+  const fixed = new Map<string, number>();
+  for (const employee of db.employees)
+    if (alignDepartment(db, employee)) fixed.set(employee.companyId, (fixed.get(employee.companyId) || 0) + 1);
+  for (const [tenant, count] of fixed)
+    db.auditLogs.unshift(audit(tenant, "Tizim", `Xodimlar bo‘limi lavozimiga moslandi (${count} ta)`, "company", tenant));
+}).catch((error) => console.error("Bo‘limlarni moslashda xato", error));
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {

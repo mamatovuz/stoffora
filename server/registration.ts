@@ -14,6 +14,7 @@ import type {
   Schedule,
 } from "../lib/types";
 import { parseSalary } from "./integrations/transform";
+import { assertEmployeeCapacity } from "../lib/limits";
 
 /*
  * Botdagi xodim anketasi — sozlanadigan dvigatel.
@@ -450,7 +451,9 @@ export function progressBar(form: RegistrationForm, step: string) {
 /* ---------------------------------------------------------- matnlar --- */
 
 export function questionText(form: RegistrationForm, question: RegistrationQuestion, companyName: string, data: RegistrationData, confirming = false) {
-  const head = `🏢 <b>${escape(companyName)}</b> · anketa\n${progressBar(form, question.id)}\n\n`;
+  // Sarlavhasiz, progress chizig‘isiz — faqat savolning o‘zi.
+  void companyName;
+  const head = "";
   if (confirming) return `${head}${escape(question.title)}\n\nSiz yozdingiz: <b>${escape(describe(question, data, { positions: new Map(), branches: new Map() }))}</b>\nTo‘g‘rimi?`;
   const optional = question.required ? "" : "\n<i>Ixtiyoriy — o‘tkazib yuborish mumkin.</i>";
   return `${head}<b>${escape(question.title)}</b>${question.hint ? `\n${escape(question.hint)}` : ""}${optional}`;
@@ -459,7 +462,10 @@ export function questionText(form: RegistrationForm, question: RegistrationQuest
 export function summaryText(form: RegistrationForm, request: RegistrationRequest, companyName: string, lookups: Lookups, footer?: string) {
   const questions = (request.questions?.length ? request.questions : activeQuestions(form)).filter((q) => q.enabled);
   const rows = questions.map((q) => `• ${escape(shortLabel(q))}: <b>${escape(describe(q, request.data, lookups))}</b>`).join("\n");
-  return `🏢 <b>${escape(companyName)}</b> · anketa\n\n${rows}${footer ? `\n\n${footer}` : ""}`;
+  void companyName;
+  return `📋 <b>Anketangiz</b>
+
+${rows}${footer ? `\n\n${footer}` : ""}`;
 }
 
 /* ------------------------------------------------ tasdiqlash (xodim) --- */
@@ -559,6 +565,7 @@ export function approveRegistration(db: Database, request: RegistrationRequest, 
     employee = existing;
     db.auditLogs.unshift(audit(tenant, actor, "Ariza tasdiqlandi — mavjud xodim yangilandi", "employee", existing.id, before, { ...existing }));
   } else {
+    assertEmployeeCapacity(db, tenant);
     employee = {
       id: randomUUID(),
       companyId: tenant,

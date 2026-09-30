@@ -99,6 +99,7 @@ export function SuperAdminPage() {
                         <th>Kompaniya</th>
                         <th>Egasi</th>
                         <th>Xodim / filial</th>
+                        <th>Xodim chegarasi</th>
                         <th>Tarif</th>
                         <th>Holat</th>
                         <th>Yaratilgan</th>
@@ -123,6 +124,9 @@ export function SuperAdminPage() {
                           </td>
                           <td data-label="Xodim / filial" className="num">
                             {c.employees} / {c.branches}
+                          </td>
+                          <td data-label="Chegara">
+                            <LimitEditor company={c} onSaved={() => void reload(true)} />
                           </td>
                           <td data-label="Tarif">{c.plan}</td>
                           <td data-label="Holat">
@@ -178,6 +182,7 @@ function CompanyForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
     ownerPassword: "",
     plan: "Standard",
     status: "TRIAL",
+    employeeLimit: "",
   });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -188,7 +193,7 @@ function CompanyForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
     setSaving(true);
     setError("");
     try {
-      await post("/admin/companies", form);
+      await post("/admin/companies", { ...form, employeeLimit: form.employeeLimit ? Number(form.employeeLimit) : undefined });
       onSaved();
     } catch (reason) {
       setError(errorText(reason));
@@ -219,6 +224,9 @@ function CompanyForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
               <option>Enterprise</option>
             </select>
           </Field>
+          <Field label="Maksimal xodim" hint="Bo‘sh — cheklovsiz">
+            <input className="input" type="number" min={1} value={form.employeeLimit} onChange={set("employeeLimit")} placeholder="Masalan 500" />
+          </Field>
           <Field label="Holat">
             <select className="select" value={form.status} onChange={set("status")}>
               <option value="TRIAL">Sinov</option>
@@ -237,5 +245,83 @@ function CompanyForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
         </div>
       </form>
     </Modal>
+  );
+}
+
+/** Kompaniya uchun maksimal faol xodim soni va chegaradan oshganda aloqa. */
+function LimitEditor({ company, onSaved }: { company: Company & { employees: number }; onSaved: () => void }) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [limit, setLimit] = useState(company.employeeLimit ? String(company.employeeLimit) : "");
+  const [contact, setContact] = useState(company.limitContact || "@mamatov_ads");
+  const [busy, setBusy] = useState(false);
+  const used = company.employees;
+  const max = company.employeeLimit;
+  const percent = max ? Math.min(100, Math.round((used / max) * 100)) : 0;
+  return (
+    <>
+      <button className="limit-chip" onClick={() => setOpen(true)} title="Chegarani o‘zgartirish">
+        <span>
+          <b>{used}</b> / {max || "∞"}
+        </span>
+        {max ? (
+          <span className="limit-bar">
+            <i style={{ width: `${percent}%` }} className={percent >= 100 ? "full" : percent >= 90 ? "warn" : ""} />
+          </span>
+        ) : (
+          <small>cheklovsiz</small>
+        )}
+      </button>
+      {open && (
+        <Modal title="Xodim chegarasi" subtitle={company.name} onClose={() => setOpen(false)} size="narrow">
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              try {
+                await patch(`/admin/companies/${company.id}`, { employeeLimit: limit ? Number(limit) : null, limitContact: contact });
+                toast("Chegara saqlandi");
+                setOpen(false);
+                onSaved();
+              } catch (reason) {
+                toast(errorText(reason), "error");
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <Field label="Maksimal faol xodim" hint={`Hozir ${used} ta faol xodim. Bo‘sh qoldirilsa — cheklovsiz.`}>
+              <input className="input" type="number" min={1} value={limit} onChange={(e) => setLimit(e.target.value)} placeholder="Masalan 500" />
+            </Field>
+            <Field label="Chegaradan oshganda aloqa" hint="Kompaniya ko‘proq xodim qo‘shmoqchi bo‘lsa shu manzilga yozadi">
+              <input className="input" value={contact} onChange={(e) => setContact(e.target.value)} placeholder="@mamatov_ads" />
+            </Field>
+            <div className="toolbar" style={{ marginBottom: 12 }}>
+              {[50, 100, 200, 500, 1000].map((n) => (
+                <button type="button" key={n} className={`btn btn-sm ${limit === String(n) ? "btn-primary" : ""}`} onClick={() => setLimit(String(n))}>
+                  {n}
+                </button>
+              ))}
+              <button type="button" className={`btn btn-sm ${!limit ? "btn-primary" : ""}`} onClick={() => setLimit("")}>
+                ∞
+              </button>
+            </div>
+            {limit && Number(limit) < used && (
+              <p className="late-text" style={{ fontSize: 12.5, marginBottom: 10 }}>
+                Chegara hozirgi xodimlar sonidan kam — mavjudlar o‘chmaydi, faqat yangi qo‘shish to‘xtaydi.
+              </p>
+            )}
+            <div className="form-actions">
+              <button type="button" className="btn" onClick={() => setOpen(false)}>
+                Bekor qilish
+              </button>
+              <button className="btn btn-primary" disabled={busy}>
+                Saqlash
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </>
   );
 }

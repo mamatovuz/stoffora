@@ -1239,69 +1239,110 @@ function LeaveSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
 /* -------------------------------------------------------------- profile --- */
 function MiniProfile({ data }: { data: HomeData }) {
   const e = data.employee;
+  const days = Math.max(0, Math.floor((Date.now() - new Date(`${e.startDate}T00:00:00+05:00`).getTime()) / 86_400_000));
+  const tenure = days < 31 ? `${days} kun` : days < 365 ? `${Math.floor(days / 30.44)} oy` : `${Math.floor(days / 365.25)} yil ${Math.floor((days % 365.25) / 30.44)} oy`;
+  const today = tashkentWeekday();
+  const salary = e.baseSalary ? `${e.baseSalary.toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m` : "—";
+  const deduction = data.month.deduction ? `−${data.month.deduction.toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m` : "0";
+  const mapUrl =
+    data.branch && data.branch.latitude
+      ? `https://maps.google.com/?q=${data.branch.latitude},${data.branch.longitude}`
+      : undefined;
   return (
-    <div className="mini-body">
-      <div className="mini-profile">
-        <PhotoAvatar employee={e} />
+    <div className="mini-body mp">
+      <div className="mp-head">
+        <PhotoAvatar employee={e} className="mp-avatar" />
         <h1>
           {e.firstName} {e.lastName}
         </h1>
-        <p>
-          {data.position?.name || "—"} · {e.employeeNo}
-        </p>
+        <p>{data.position?.name || "Lavozim belgilanmagan"}</p>
+        <div className="mp-chips">
+          <span>🆔 {e.employeeNo}</span>
+          <span>⏳ {tenure}</span>
+          <span className={e.faceEnrolledAt ? "ok" : ""}>{e.faceEnrolledAt ? "✓ Face ID" : "Face ID yo‘q"}</span>
+        </div>
       </div>
-      <section className="mini-card mini-kv">
+
+      <div className="mp-group-title">Bu oy</div>
+      <section className="mp-group mp-month">
         <div>
+          <b>{data.month.days}</b>
+          <small>kun keldi</small>
+        </div>
+        <div>
+          <b className={data.month.lateMinutes ? "warn" : ""}>{data.month.lateMinutes}</b>
+          <small>daq kechikish</small>
+        </div>
+        <div>
+          <b>{Math.round(data.month.workedMinutes / 60)}</b>
+          <small>soat ishladi</small>
+        </div>
+      </section>
+      <section className="mp-group">
+        <div className="mp-row">
+          <span>Oylik</span>
+          <b>{salary}</b>
+        </div>
+        <div className="mp-row">
+          <span>Kechikish ushlanmasi</span>
+          <b className={data.month.deduction ? "warn" : ""}>{deduction}</b>
+        </div>
+      </section>
+
+      <div className="mp-group-title">Ish joyi</div>
+      <section className="mp-group">
+        <div className="mp-row">
           <span>Kompaniya</span>
           <b>{data.company?.name || "—"}</b>
         </div>
-        <div>
+        <div className="mp-row">
           <span>Bo‘lim</span>
           <b>{data.department?.name || "—"}</b>
         </div>
-        <div>
-          <span>Filial</span>
-          <b>{data.branch?.name || "—"}</b>
-        </div>
-        <div>
-          <span>Grafik</span>
-          <b>{data.schedule?.name || "—"}</b>
-        </div>
-        <div>
+        {data.branch && (
+          <a className="mp-row link" href={mapUrl} target="_blank" rel="noreferrer" onClick={(event) => !mapUrl && event.preventDefault()}>
+            <span>Filial</span>
+            <b>
+              {data.branch.name}
+              {mapUrl && <MapPin size={14} />}
+            </b>
+          </a>
+        )}
+        <div className="mp-row">
           <span>Ish boshlagan</span>
           <b>{dateUz(e.startDate)}</b>
         </div>
       </section>
-      <section className="mini-card mini-kv">
-        <div>
+
+      {data.schedule && (
+        <>
+          <div className="mp-group-title">Ish grafigi · {data.schedule.name}</div>
+          <section className="mp-group mp-week">
+            {weekOrder.map((day) => {
+              const d = data.schedule!.days.find((x) => x.day === day);
+              return (
+                <div key={day} className={`${day === today ? "today" : ""} ${d?.enabled ? "" : "off"}`}>
+                  <span>{weekdayShort[day]}</span>
+                  <b>{d?.enabled ? `${d.start}–${d.end}` : "Dam"}</b>
+                </div>
+              );
+            })}
+          </section>
+        </>
+      )}
+
+      <div className="mp-group-title">Aloqa</div>
+      <section className="mp-group">
+        <div className="mp-row">
           <span>Telefon</span>
-          <b>{e.phone}</b>
+          <b>{e.phone || "—"}</b>
         </div>
-        <div>
+        <div className="mp-row">
           <span>Telegram</span>
           <b>{e.telegramConnected ? "Ulangan ✓" : "Ulanmagan"}</b>
         </div>
-        <div>
-          <span>Face ID</span>
-          <b>{e.faceEnrolledAt ? `Faol · ${dateUz(e.faceEnrolledAt)}` : "Sozlanmagan"}</b>
-        </div>
       </section>
-      {data.branch && (
-        <section className="mini-card">
-          <div className="mini-row" style={{ border: 0, padding: 0 }}>
-            <span className="mini-ico">
-              <Building2 size={18} />
-            </span>
-            <span>
-              <b>{data.branch.name}</b>
-              <small>{data.branch.address}</small>
-            </span>
-          </div>
-        </section>
-      )}
-      <p style={{ textAlign: "center", color: "var(--m-muted)", fontSize: 12 }}>
-        Ma’lumotlarni o‘zgartirish uchun HR bo‘limiga murojaat qiling.
-      </p>
+      <p className="mp-note">Ma’lumotlarni o‘zgartirish uchun HR bo‘limiga murojaat qiling.</p>
     </div>
   );
 }

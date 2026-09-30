@@ -44,6 +44,7 @@ export function enqueueAttendancePhoto(
   db.photoQueue.push({
     id: crypto.randomUUID(),
     companyId: input.employee.companyId,
+    employeeId: input.employee.id,
     chatId: channel.chatId,
     photoDataUrl: input.photoDataUrl,
     caption: lines.join("\n"),

@@ -23,6 +23,7 @@ import {
 import { CountingStartCard, IntegrationCenter } from "./Integrations";
 import { CompanyBotSection } from "./Registrations";
 import { FormBuilder } from "./FormBuilder";
+import { CountdownConfirm } from "../components/CountdownConfirm";
 import { canAny } from "@/lib/permissions";
 
 /** Har bir tab uchun kerakli ruxsat (bo‘sh — hamma panel foydalanuvchisi). */
@@ -90,7 +91,12 @@ export function SettingsPage() {
           {tab === "profile" && <ProfileSection />}
           {tab === "security" && <SecuritySection />}
           {tab === "devices" && <DevicesSection />}
-          {tab === "company" && <CompanySection />}
+          {tab === "company" && (
+            <>
+              <CompanySection />
+              {user?.role === "COMPANY_OWNER" && <DangerZone />}
+            </>
+          )}
           {tab === "payroll" && (
             <>
               <section className="card">
@@ -1013,5 +1019,64 @@ function PhotoChannelSection() {
         </p>
       </div>
     </form>
+  );
+}
+
+/* ------------------------------------------------------ xavfli zona --- */
+function DangerZone() {
+  const toast = useToast();
+  const { data } = useApi<{ limits?: { used: number } }>("/company");
+  const { data: dismissed } = useApi<{ total: number }>("/employees?status=DISMISSED&limit=1");
+  const [open, setOpen] = useState(false);
+  const [word, setWord] = useState("");
+  const total = (data?.limits?.used || 0) + (dismissed?.total || 0);
+  return (
+    <section className="card danger-card">
+      <div className="card-head">
+        <div>
+          <h2>Xavfli zona</h2>
+          <p>Bu amallarni qaytarib bo‘lmaydi</p>
+        </div>
+      </div>
+      <div className="card-body">
+        <div className="pv-danger">
+          <div>
+            <b>Barcha xodimlarni o‘chirish</b>
+            <small>
+              {total} ta xodim (ishdan bo‘shaganlar bilan) — profillari, davomati, ta’tillari, Face ID va rasmlari butunlay o‘chadi. Filial, bo‘lim, lavozim
+              va grafiklar qoladi.
+            </small>
+          </div>
+          <button className="btn btn-danger-solid" disabled={!total} onClick={() => setOpen(true)}>
+            Barcha xodimlarni o‘chirish
+          </button>
+        </div>
+      </div>
+      {open && (
+        <CountdownConfirm
+          title="Barcha xodimlar o‘chirilsinmi?"
+          confirmLabel={`Ha, ${total} ta xodimni o‘chirish`}
+          onConfirm={async () => {
+            if (word.trim().toUpperCase() !== "O‘CHIRISH") throw new Error("Tasdiqlash uchun O‘CHIRISH so‘zini yozing.");
+            const result = await post<{ deleted: number }>("/employees/delete-all", { confirm: "O‘CHIRISH" });
+            toast(`${result.deleted} ta xodim butunlay o‘chirildi`);
+            setWord("");
+          }}
+          onClose={() => {
+            setOpen(false);
+            setWord("");
+          }}
+        >
+          <p>
+            <b>{total} ta xodim</b> va ularning barcha ma’lumotlari (davomat, ta’til, Face ID, rasmlar) butunlay o‘chadi.
+          </p>
+          <p className="muted">Xodimlar boti ulangan bo‘lsa, keyingi sinxronlashda xodimlar botdan qayta import qilinishi mumkin.</p>
+          <label className="field" style={{ marginTop: 10 }}>
+            <span className="label">Tasdiqlash uchun <b>O‘CHIRISH</b> deb yozing</span>
+            <input className="input" value={word} onChange={(e) => setWord(e.target.value)} placeholder="O‘CHIRISH" autoComplete="off" />
+          </label>
+        </CountdownConfirm>
+      )}
+    </section>
   );
 }

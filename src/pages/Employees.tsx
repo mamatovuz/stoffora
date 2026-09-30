@@ -7,7 +7,12 @@ import {
 } from "react-router-dom";
 import {
   AlertTriangle,
+  Building2,
   Camera,
+  ClipboardList,
+  Phone,
+  Trash2,
+  Wallet,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -26,6 +31,8 @@ import {
   Users,
 } from "lucide-react";
 import { del, errorText, post, put } from "../api";
+import { useAuth } from "../auth";
+import { CountdownConfirm } from "../components/CountdownConfirm";
 import { useApi, useDebounced } from "../hooks";
 import {
   Avatar,
@@ -67,6 +74,9 @@ export function EmployeesPage() {
   });
   const { data, loading, error, reload } = useApi<List>(`/employees?${query}`);
   const { data: meta } = useApi<Meta>("/meta");
+  const { data: company } = useApi<{ limits?: { limit?: number; contact: string; used: number } }>("/company");
+  const limits = company?.limits;
+  const full = Boolean(limits?.limit && limits.used >= limits.limit);
   const navigate = useNavigate();
   const toast = useToast();
   const [archiveTarget, setArchiveTarget] = useState<Employee | null>(null);
@@ -86,18 +96,38 @@ export function EmployeesPage() {
     <div className="page">
       <PageHeader
         title="Xodimlar"
-        subtitle={`${data?.total ?? 0} ta xodim`}
+        subtitle={limits?.limit ? `${limits.used} / ${limits.limit} ta faol xodim (tarif chegarasi)` : `${data?.total ?? 0} ta xodim`}
         actions={
           <>
             <a className="btn" href="/api/reports/employees.xlsx" download>
               <Download size={16} /> Excel
             </a>
-            <Link className="btn btn-primary" to="/employees/new">
-              <Plus size={16} /> Xodim qo‘shish
-            </Link>
+            {full ? (
+              <button className="btn btn-primary" disabled title="Tarif chegarasiga yetildi">
+                <Plus size={16} /> Xodim qo‘shish
+              </button>
+            ) : (
+              <Link className="btn btn-primary" to="/employees/new">
+                <Plus size={16} /> Xodim qo‘shish
+              </Link>
+            )}
           </>
         }
       />
+      {limits?.limit && limits.used >= limits.limit * 0.9 && (
+        <div className={`alert ${full ? "danger" : "warn"}`} style={{ marginBottom: 14 }}>
+          <AlertTriangle size={18} />
+          <div>
+            <b>{full ? "Tarif chegarasiga yetildi" : "Tarif chegarasiga oz qoldi"}</b>
+            <p>
+              Tarifingizda ko‘pi bilan {limits.limit} ta faol xodim ({limits.used} ta band). Ko‘proq xodim qo‘shish uchun Telegram:{" "}
+              <a className="link" href={`https://t.me/${limits.contact.replace(/^@/, "")}`} target="_blank" rel="noreferrer">
+                {limits.contact}
+              </a>
+            </p>
+          </div>
+        </div>
+      )}
       <section className="card">
         <div className="filters">
           <span className="input-icon">
@@ -618,6 +648,10 @@ export function EmployeeProfilePage() {
   const [tab, setTab] = useState(params.get("welcome") ? "connect" : "overview");
   const [editing, setEditing] = useState(false);
   const [confirm, setConfirm] = useState<"face" | "telegram" | "archive" | "rehire" | null>(null);
+  const [purge, setPurge] = useState(false);
+  const { user } = useAuth();
+  const isOwner = user?.role === "COMPANY_OWNER";
+  const navigate = useNavigate();
 
   if (loading && !data)
     return (
@@ -686,6 +720,24 @@ export function EmployeeProfilePage() {
             <span className={`badge plain ${e.faceEnrolledAt ? "green" : "gray"}`}>
               <ScanFace size={12} /> {e.faceEnrolledAt ? "Face ID faol" : "Face ID yo‘q"}
             </span>
+          </div>
+        </div>
+        <div className="hero-stats">
+          <div>
+            <small>Ishda</small>
+            <b>{tenure(e.startDate)}</b>
+          </div>
+          <div>
+            <small>Bu oy kelgan</small>
+            <b>{monthRows.filter((a) => a.checkIn).length} kun</b>
+          </div>
+          <div>
+            <small>Kechikish</small>
+            <b className={monthRows.some((a) => a.lateMinutes > 0) ? "warn" : ""}>{monthRows.reduce((sum, a) => sum + a.lateMinutes, 0)} daq</b>
+          </div>
+          <div>
+            <small>Oylik</small>
+            <b className={e.baseSalary ? "" : "warn"}>{e.baseSalary ? money(e.baseSalary, e.currency) : "—"}</b>
           </div>
         </div>
         <div className="toolbar">
@@ -769,41 +821,57 @@ export function EmployeeProfilePage() {
           </div>
           <div className="card-body">
             {tab === "overview" && (
-              <div className="info-grid">
-                <Info label="Telefon" value={e.phone} />
-                <Info label="Email" value={e.email} />
-                <Info label="Manzil" value={e.address} />
-                <Info label="Bo‘lim" value={department} />
-                <Info label="Lavozim" value={position} />
-                <Info label="Filial" value={branch} />
-                <Info label="Rahbari" value={e.manager} />
-                <Info label="Ish boshlagan" value={dateLongUz(e.startDate)} />
-                <Info
-                  label="Bandlik"
-                  value={
-                    { FULL_TIME: "To‘liq stavka", PART_TIME: "Yarim stavka", CONTRACT: "Shartnoma" }[
-                      e.employmentType
-                    ]
-                  }
-                />
-                <Info label="Oylik maosh" value={money(e.baseSalary, e.currency)} />
-                <Info
-                  label="Ish grafigi"
-                  value={
-                    schedule
-                      ? `${schedule.name} · ${schedule.graceMinutes} daq imtiyoz`
-                      : undefined
-                  }
-                />
-                <Info label="Xodim ID" value={e.employeeNo} />
-                {e.birthDate && <Info label="Tug‘ilgan sana" value={e.birthDate.split("-").reverse().join(".")} />}
-                {e.parentPhone && <Info label="Ota-ona telefoni" value={e.parentPhone} />}
-                {e.shift && <Info label="Smena" value={{ DAY: "Kunduzgi", NIGHT: "Kechki", BOTH: "Qo‘sh smena" }[e.shift]} />}
-                {e.education && <Info label="Ma’lumoti" value={e.education} />}
-                {Object.entries(e.customFields || {}).map(([label, value]) => (
-                  <Info key={label} label={label} value={value} />
-                ))}
-                {e.registrationId && <Info label="Qo‘shilgan" value="Botdagi anketa orqali" />}
+              <div className="pv">
+                <ProfileSection icon={Phone} title="Aloqa">
+                  <Field2 label="Telefon" value={e.phone} href={e.phone ? `tel:${e.phone.replace(/\s/g, "")}` : undefined} copy />
+                  <Field2 label="Ota-ona telefoni" value={e.parentPhone} href={e.parentPhone ? `tel:${e.parentPhone}` : undefined} />
+                  <Field2 label="Telegram" value={e.telegramUsername ? `@${e.telegramUsername}` : e.telegramConnected ? "Ulangan" : undefined} href={e.telegramUsername ? `https://t.me/${e.telegramUsername}` : undefined} />
+                  <Field2 label="Email" value={e.email} href={e.email ? `mailto:${e.email}` : undefined} />
+                  <Field2 label="Tug‘ilgan sana" value={e.birthDate ? `${e.birthDate.split("-").reverse().join(".")} · ${ageOf(e.birthDate)} yosh` : undefined} />
+                  <Field2 label="Manzil" value={e.address} wide />
+                </ProfileSection>
+                <ProfileSection icon={Building2} title="Ish joyi">
+                  <Field2 label="Filial" value={branch} />
+                  <Field2 label="Bo‘lim" value={department} />
+                  <Field2 label="Lavozim" value={position} />
+                  <Field2 label="Rahbari" value={e.manager} />
+                  <Field2 label="Ish grafigi" value={schedule ? `${schedule.name} · ${schedule.graceMinutes} daq imtiyoz` : undefined} wide />
+                  {e.shift && <Field2 label="Smena" value={{ DAY: "Kunduzgi", NIGHT: "Kechki", BOTH: "Qo‘sh smena" }[e.shift]} />}
+                </ProfileSection>
+                <ProfileSection icon={Wallet} title="Shartnoma va maosh">
+                  <div className={`pv-salary ${e.baseSalary ? "" : "empty"}`}>
+                    <small>Oylik maosh</small>
+                    <b>{e.baseSalary ? money(e.baseSalary, e.currency) : "Kiritilmagan"}</b>
+                    {!e.baseSalary && (
+                      <button className="link" onClick={() => setEditing(true)}>
+                        Maoshni kiritish →
+                      </button>
+                    )}
+                  </div>
+                  <Field2 label="Ish boshlagan" value={`${dateLongUz(e.startDate)} · ${tenure(e.startDate)}`} />
+                  <Field2 label="Bandlik" value={{ FULL_TIME: "To‘liq stavka", PART_TIME: "Yarim stavka", CONTRACT: "Shartnoma" }[e.employmentType]} />
+                  <Field2 label="Xodim ID" value={e.employeeNo} copy />
+                </ProfileSection>
+                {(e.education || Object.keys(e.customFields || {}).length > 0 || e.registrationId) && (
+                  <ProfileSection icon={ClipboardList} title="Qo‘shimcha ma’lumotlar">
+                    {e.education && <Field2 label="Ma’lumoti" value={e.education} />}
+                    {Object.entries(e.customFields || {}).map(([label, value]) => (
+                      <Field2 key={label} label={label} value={value} />
+                    ))}
+                    {e.registrationId && <Field2 label="Qo‘shilgan" value="Botdagi anketa orqali" />}
+                  </ProfileSection>
+                )}
+                {isOwner && (
+                  <div className="pv-danger">
+                    <div>
+                      <b>Xodimni butunlay o‘chirish</b>
+                      <small>Profil, davomat, ta’til va Face ID butunlay o‘chadi — ishdan bo‘shaganlar ro‘yxatida ham qolmaydi. Qaytarib bo‘lmaydi.</small>
+                    </div>
+                    <button className="btn btn-danger" onClick={() => setPurge(true)}>
+                      <Trash2 size={15} /> Butunlay o‘chirish
+                    </button>
+                  </div>
+                )}
               </div>
             )}
             {tab === "attendance" && <AttendanceTable rows={data.attendance} />}
@@ -877,6 +945,26 @@ export function EmployeeProfilePage() {
             void reload(true);
           }}
         />
+      )}
+      {purge && (
+        <CountdownConfirm
+          title="Xodim butunlay o‘chirilsinmi?"
+          confirmLabel="Ha, butunlay o‘chirish"
+          onConfirm={async () => {
+            await del(`/employees/${e.id}?permanent=1`);
+            toast(`${e.firstName} ${e.lastName} butunlay o‘chirildi`);
+            navigate(dismissed ? "/dismissed" : "/employees", { replace: true });
+          }}
+          onClose={() => setPurge(false)}
+        >
+          <p>
+            <b>
+              {e.firstName} {e.lastName}
+            </b>{" "}
+            ({e.employeeNo}) — profil, {data.attendance.length} ta davomat yozuvi, ta’til so‘rovlari va Face ID butunlay o‘chiriladi.
+          </p>
+          <p className="muted">Ishdan bo‘shaganlar ro‘yxatida ham qolmaydi va ish haqi hisobiga kirmaydi. Bu amalni qaytarib bo‘lmaydi.</p>
+        </CountdownConfirm>
       )}
       {confirm === "face" && (
         <Confirm
@@ -1250,6 +1338,73 @@ function EditEmployee({
   );
 }
 
+function ProfileSection({ icon: Icon, title, children }: { icon: typeof Phone; title: string; children: React.ReactNode }) {
+  return (
+    <section className="pv-section">
+      <h3>
+        <span>
+          <Icon size={15} />
+        </span>
+        {title}
+      </h3>
+      <div className="pv-grid">{children}</div>
+    </section>
+  );
+}
+
+function Field2({ label, value, href, copy, wide }: { label: string; value?: string; href?: string; copy?: boolean; wide?: boolean }) {
+  const toast = useToast();
+  return (
+    <div className={`pv-field ${wide ? "wide" : ""}`}>
+      <small>{label}</small>
+      {value ? (
+        <span className="pv-value">
+          {href ? (
+            <a href={href} target={href.startsWith("http") ? "_blank" : undefined} rel="noreferrer">
+              {value}
+            </a>
+          ) : (
+            <b>{value}</b>
+          )}
+          {copy && (
+            <button
+              className="pv-copy"
+              aria-label="Nusxalash"
+              onClick={async () => {
+                await navigator.clipboard.writeText(value).catch(() => undefined);
+                toast("Nusxalandi");
+              }}
+            >
+              <Copy size={12} />
+            </button>
+          )}
+        </span>
+      ) : (
+        <span className="pv-empty">Kiritilmagan</span>
+      )}
+    </div>
+  );
+}
+
+function ageOf(birthDate: string) {
+  const [y, m, d] = birthDate.split("-").map(Number);
+  const now = new Date();
+  let age = now.getFullYear() - y;
+  if (now.getMonth() + 1 < m || (now.getMonth() + 1 === m && now.getDate() < d)) age -= 1;
+  return age;
+}
+
+/** Ish staji: «2 yil 3 oy», «5 oy», «12 kun». */
+function tenure(startDate: string) {
+  const start = new Date(`${startDate}T00:00:00+05:00`);
+  const days = Math.max(0, Math.floor((Date.now() - start.getTime()) / 86_400_000));
+  if (days < 31) return `${days} kun`;
+  const months = Math.floor(days / 30.44);
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  return years ? `${years} yil${rest ? ` ${rest} oy` : ""}` : `${months} oy`;
+}
+
 function Info({ label, value }: { label: string; value?: string }) {
   return (
     <div className="info-item">
@@ -1510,9 +1665,12 @@ export function RehireModal({
 export function DismissedPage() {
   const [q, setQ] = useState("");
   const debounced = useDebounced(q, 300);
-  const { data, loading, error } = useApi<List>(
+  const { data, loading, error, reload } = useApi<List>(
     `/employees?status=DISMISSED&limit=200&q=${encodeURIComponent(debounced)}`,
   );
+  const { user } = useAuth();
+  const toast = useToast();
+  const [purge, setPurge] = useState<Employee | null>(null);
   const { data: meta } = useApi<Meta>("/meta");
   const navigate = useNavigate();
   const rows = (data?.items || [])
@@ -1566,6 +1724,19 @@ export function DismissedPage() {
                       {e.dismissReason || "—"}
                     </td>
                     <td className="actions">
+                      {user?.role === "COMPANY_OWNER" && (
+                        <button
+                          className="icon-btn danger-hover"
+                          title="Butunlay o‘chirish"
+                          aria-label="Butunlay o‘chirish"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setPurge(e);
+                          }}
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      )}
                       <span className="link">
                         Ochish <ChevronRight size={14} />
                       </span>
@@ -1577,6 +1748,26 @@ export function DismissedPage() {
           </div>
         )}
       </section>
+      {purge && (
+        <CountdownConfirm
+          title="Butunlay o‘chirilsinmi?"
+          confirmLabel="Ha, o‘chirish"
+          onConfirm={async () => {
+            await del(`/employees/${purge.id}?permanent=1`);
+            toast(`${purge.firstName} ${purge.lastName} butunlay o‘chirildi`);
+            void reload(true);
+          }}
+          onClose={() => setPurge(null)}
+        >
+          <p>
+            <b>
+              {purge.firstName} {purge.lastName}
+            </b>{" "}
+            ({purge.employeeNo}) — profil, davomat, ta’til, yuz ma’lumoti (Face ID) va rasmlari butunlay o‘chadi.
+          </p>
+          <p className="muted">Qaytarib bo‘lmaydi.</p>
+        </CountdownConfirm>
+      )}
     </div>
   );
 }

@@ -667,6 +667,42 @@ export function dataIndexes(db: Database): DataIndexes {
   return value;
 }
 
+/** Audit yozuvida biometrik ma’lumot va rasm saqlanmaydi (yuz vektori, Face ID namunalari, foto). */
+const SENSITIVE_KEYS = new Set(["photoDataUrl", "descriptor", "samples", "lastDescriptor", "passwordHash"]);
+export function scrubSensitive(value: unknown, depth = 0): unknown {
+  if (!value || typeof value !== "object" || depth > 4) return value;
+  if (Array.isArray(value)) return value.map((item) => scrubSensitive(item, depth + 1));
+  const out: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>))
+    if (!SENSITIVE_KEYS.has(key)) out[key] = scrubSensitive(item, depth + 1);
+  return out;
+}
+
+/**
+ * Xodim butunlay o‘chirilganda uning eski audit yozuvlaridan ham rasm va yuz
+ * ma’lumotlari tozalanadi (voqealar tarixi qoladi, biometrika qolmaydi).
+ */
+export async function scrubAuditForEntities(companyId: string, entityIds: string[]) {
+  if (!entityIds.length) return 0;
+  await ensureLoaded();
+  await flushDb();
+  const conn = connect();
+  const select = conn.prepare("SELECT id, payload FROM audit_logs WHERE company_id = ? AND entity_id = ?");
+  const update = conn.prepare("UPDATE audit_logs SET payload = ? WHERE id = ?");
+  let changed = 0;
+  conn.transaction(() => {
+    for (const entityId of entityIds)
+      for (const row of select.all(companyId, entityId) as { id: string; payload: string }[]) {
+        const clean = JSON.stringify(scrubSensitive(JSON.parse(row.payload)));
+        if (clean !== row.payload) {
+          update.run(clean, row.id);
+          changed += 1;
+        }
+      }
+  })();
+  return changed;
+}
+
 export function audit(
   companyId: string,
   actor: string,
@@ -683,8 +719,8 @@ export function audit(
     action,
     entity,
     entityId,
-    before,
-    after,
+    before: scrubSensitive(before),
+    after: scrubSensitive(after),
     createdAt: new Date().toISOString(),
   };
 }

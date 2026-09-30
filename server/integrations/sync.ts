@@ -26,6 +26,7 @@ import {
   upsertMapping,
 } from "./model";
 import { enqueueOutbox, logIntegration } from "./sqlstore";
+import { employeeLimitError } from "../../lib/limits";
 import * as T from "./transform";
 
 /*
@@ -311,7 +312,11 @@ function createLocal(
   const hours =
     T.parseWorkHours(r.schedule?.work_hours) ||
     T.parseWorkHours((branchSchedule as { working_hours?: string } | undefined)?.working_hours);
-  const departmentId = (fields.departmentId as string) || defaultDepartment(db, integration);
+  // Bo‘lim: lavozimniki (bo‘lsa) → botdagi bo‘lim → «Umumiy».
+  const positionDepartment = fields.positionId
+    ? db.positions.find((p) => p.id === fields.positionId && p.companyId === tenant)?.departmentId
+    : undefined;
+  const departmentId = positionDepartment || (fields.departmentId as string) || defaultDepartment(db, integration);
   const hired = T.isoToTashkent(r.hired_at)?.date || T.isoToTashkent(r.created_at)?.date || tashkentIsoDate();
   const employee: Employee = {
     id: newId(),
@@ -413,6 +418,10 @@ export function applyRemoteEntity(db: Database, integration: Integration, entity
 
   if (!existing.local) {
     if (mode === "EXPORT") return { action: "skipped", reason: "faqat Staffora → bot rejimi" };
+    if (entity === "employee" && fields.status !== "INACTIVE") {
+      const limit = employeeLimitError(db, tenant);
+      if (limit) return { action: "skipped", reason: limit };
+    }
     const created = createLocal(db, integration, entity, remote, fields);
     upsertMapping(db, integration, entity, created.id, remote.id, {
       remoteUpdatedAt: remote.updated_at || undefined,
@@ -1057,7 +1066,18 @@ export async function queueOutboundChanges(integrationId: string) {
       if (hasOpenConflict(db, integration.id, entity, local.id)) continue;
       const base = (mapping.snapshot?.fields || {}) as Record<string, unknown>;
       const current = T.pick(record, KEYS[entity]);
-      const differs = KEYS[entity].some((key) => !same(key, current[key], base[key]) && !(REF_KEYS.has(key) && current[key] === undefined));
+      const refExternal = (key: string, value: unknown) => {
+        const refEntity = key === "branchId" ? "branch" : key === "departmentId" ? "department" : "position";
+        return value ? mappingByLocal(db, integration.id, refEntity, String(value))?.externalId : undefined;
+      };
+      const differs = KEYS[entity].some((key) => {
+        if (REF_KEYS.has(key)) {
+          if (current[key] === undefined) return false;
+          // Botga faqat botda bor bog‘lanish yuboriladi — mahalliy bo‘lim almashsa botni bezovta qilmaymiz.
+          return refExternal(key, current[key]) !== refExternal(key, base[key]);
+        }
+        return !same(key, current[key], base[key]);
+      });
       if (!differs) continue;
       const payload = outboundPayload(db, integration, entity, record);
       if (!payload) continue;
