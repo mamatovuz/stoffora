@@ -106,6 +106,14 @@ export function signEmployeeSession(session: EmployeeSession) {
     issuer: "staffora-mini-app",
   });
 }
+/** Xodim (Mini App) tokenini tekshiradi; yaroqsiz bo‘lsa — undefined. */
+export function verifyEmployeeToken(token: string): EmployeeSession | undefined {
+  try {
+    return jwt.verify(token, employeeSecret, { issuer: "staffora-mini-app" }) as EmployeeSession;
+  } catch {
+    return undefined;
+  }
+}
 export function requireEmployee(
   req: AuthedRequest & { employeeSession?: EmployeeSession },
   res: Response,

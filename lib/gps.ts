@@ -26,6 +26,8 @@ export const FLAG_LABELS: Record<AttendanceFlag, string> = {
   GPS_EDGE: "Hudud chegarasida (faqat aniqlik hisobiga ichkarida)",
   GPS_STALE: "Eski (keshlangan) joylashuv",
   OFFLINE: "Internetsiz belgilangan — keyin yuborilgan",
+  DEVICE_STILL: "Telefon umuman qimirlamagan (emulyator bo‘lishi mumkin)",
+  DESKTOP: "Kompyuterdagi Telegram’dan belgilangan",
 };
 
 const same = (a: number, b: number) => Math.abs(a - b) < 1e-7;

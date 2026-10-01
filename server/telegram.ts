@@ -740,10 +740,31 @@ async function sendSlot() {
  * 429 qaytarsa ko‘rsatilgan vaqt kutib qayta uriniladi. Xodim botni bloklagan
  * bo‘lsa (403) — xato otilmaydi, false qaytadi.
  */
+/** Mini App havolasi; `go` berilsa kerakli bo‘limda ochiladi (lib/mini.ts → parseDeepLink). */
+export function miniAppUrl(go?: string) {
+  const { webAppUrl, ok } = resolveWebAppUrl();
+  if (!ok) return undefined;
+  if (!go || !/^[A-Za-z0-9_-]{1,80}$/.test(go)) return webAppUrl;
+  return `${webAppUrl}${webAppUrl.includes("?") ? "&" : "?"}go=${encodeURIComponent(go)}`;
+}
+
+const buttonLabels: Record<string, string> = {
+  leave: "📋 So‘rovni ochish",
+  swap: "🔄 Almashishni ochish",
+  salary: "💰 Oyligimni ochish",
+  payslip: "🧾 Hisob varaqasi",
+  checkin: "✅ Ishga keldim",
+  checkout: "🏁 Ishdan ketdim",
+  docs: "📄 Hujjatlarim",
+  notifs: "🔔 Xabarni ochish",
+  manager: "📊 Rahbar paneli",
+  overtime: "⏱ Qo‘shimcha ish",
+};
+
 export async function sendTelegramMessage(
   telegramId: string,
   text: string,
-  options: { openButton?: boolean } = {},
+  options: { openButton?: boolean; go?: string; buttonText?: string } = {},
 ) {
   const db = await readDb();
   const employee = db.employees.find((item) => item.telegramId === telegramId && item.status === "ACTIVE");
@@ -753,21 +774,26 @@ export async function sendTelegramMessage(
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!companyApi && !token) return false;
   const api = companyApi || activeBot?.api || (sharedApi ||= new Api(token!));
-  const { webAppUrl, ok } = resolveWebAppUrl();
-  const extra =
-    options.openButton && ok
-      ? { reply_markup: new InlineKeyboard().webApp("📲 Staffora’ni ochish", webAppUrl) }
-      : undefined;
+  const url = options.openButton || options.go ? miniAppUrl(options.go) : undefined;
+  const label = options.buttonText || buttonLabels[(options.go || "").split("_")[0]] || "📲 Staffora’ni ochish";
+  const markup = url ? { reply_markup: new InlineKeyboard().webApp(label, url) } : {};
+  // Matnda <b>/<i> bo‘lsa — HTML rejimi. Telegram uni o‘qiy olmasa (foydalanuvchi matnida «<» bo‘lsa),
+  // teglarsiz oddiy matn bilan qayta yuboriladi — xabar yo‘qolmaydi.
+  let html = /<\/?(b|i|u|code)>/.test(text);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     await sendSlot();
     try {
-      await api.sendMessage(telegramId, text, extra);
+      await api.sendMessage(telegramId, html ? text : text.replace(/<\/?(b|i|u|code)>/g, ""), html ? { ...markup, parse_mode: "HTML" } : markup);
       return true;
     } catch (reason) {
       if (reason instanceof GrammyError) {
         if (reason.error_code === 429) {
           const wait = Number(reason.parameters?.retry_after || 1) * 1000;
           nextSendAt = Math.max(nextSendAt, Date.now() + wait);
+          continue;
+        }
+        if (html && reason.error_code === 400 && /parse entities/i.test(reason.description)) {
+          html = false;
           continue;
         }
         // Bloklagan, o‘chirilgan yoki botni boshlamagan foydalanuvchi — qayta urinish befoyda.

@@ -82,6 +82,7 @@ import { createSwapRouter } from "./swaps";
 import { registerAccountingReports } from "./tabel";
 import { createAdvanceRouter } from "./advances";
 import { createManagerAuthRouter } from "./manager";
+import { createManagerExtraRouter, createMiniPublicRouter } from "./mini-extra";
 import { startHrWorker, upcomingCelebrations } from "./hr-worker";
 import {
   createCompanyBotRouter,
@@ -573,6 +574,7 @@ app.get(
 );
 
 app.use("/api", createMiniRouter());
+app.use("/api", createMiniPublicRouter());
 app.use("/api", createManagerAuthRouter());
 app.use("/api", createIntegrationWebhookRouter());
 app.use("/api", createCompanyBotWebhookRouter());
@@ -584,6 +586,7 @@ app.use("/api", createDocumentRouter());
 app.use("/api", createAnalyticsRouter());
 app.use("/api", createSwapRouter());
 app.use("/api", createAdvanceRouter());
+app.use("/api", createManagerExtraRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();
@@ -2330,6 +2333,7 @@ app.patch(
           type: "LEAVE",
           read: false,
           createdAt: new Date().toISOString(),
+          go: `leave_${leave.id}`,
         });
       return { leave, employee };
     });
@@ -2341,6 +2345,7 @@ app.patch(
         row.employee,
         "leave",
         `Ta’til so‘rovingiz ${label}\n📅 ${row.leave.startDate} – ${row.leave.endDate}`,
+        { go: `leave_${row.leave.id}` },
       ).catch(console.error);
     }
     res.json(row.leave);
@@ -2421,6 +2426,8 @@ app.post(
               ids: z.array(z.string()).max(5000).default([]),
             })
             .optional(),
+          ackRequired: z.boolean().optional(),
+          options: z.array(z.string().trim().min(1).max(60)).max(6).optional(),
         })
         .parse(req.body),
       tenant = companyId(req);
@@ -2445,6 +2452,8 @@ app.post(
         createdBy: req.session!.name,
         scheduledAt: now,
         status: "SENT",
+        ackRequired: input.ackRequired || undefined,
+        options: input.options && new Set(input.options).size >= 2 ? [...new Set(input.options)] : undefined,
         report: {},
       };
       if (channels.includes("STAFFORA")) {
@@ -2458,8 +2467,17 @@ app.post(
             type: "ANNOUNCEMENT",
             read: false,
             createdAt: now,
+            announcementId: value.id,
+            ackRequired: value.ackRequired,
+            options: value.options,
+            go: "notifs",
           });
-        value.report!.staffora = { recipients: recipients.length, delivered: recipients.length };
+        value.report!.staffora = {
+          recipients: recipients.length,
+          delivered: recipients.length,
+          ...(value.ackRequired ? { acknowledged: 0 } : {}),
+          ...(value.options ? { answers: Object.fromEntries(value.options.map((o) => [o, 0])) } : {}),
+        };
       }
       db.announcements.unshift(value);
       db.auditLogs.unshift(
@@ -2476,7 +2494,11 @@ app.post(
     if (channels.includes("TELEGRAM")) {
       const results = await Promise.allSettled(
         row.telegramIds.map((telegramId) =>
-          sendTelegramMessage(telegramId, `📢 ${row.value.title}\n\n${row.value.message}`),
+          sendTelegramMessage(
+            telegramId,
+            `📢 ${row.value.title}\n\n${row.value.message}${row.value.options ? "\n\n🗳 Ilovada javob bering." : row.value.ackRequired ? "\n\n✅ Ilovada «Tanishdim» tugmasini bosing." : ""}`,
+            { go: "notifs", buttonText: row.value.options ? "🗳 Javob berish" : row.value.ackRequired ? "✅ Tanishdim" : undefined },
+          ),
         ),
       );
       delivered = results.filter((r) => r.status === "fulfilled" && r.value).length;

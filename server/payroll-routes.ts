@@ -191,7 +191,9 @@ export function createPayrollRouter() {
       const tenant = tenantOf(req);
       const month = monthSchema.parse(String(req.query.month || new Date().toISOString().slice(0, 7)));
       const db = await readDb();
-      const employees = new Map(db.employees.filter((e) => e.companyId === tenant).map((e) => [e.id, e]));
+      // Filial rahbari faqat o‘z filiallaridagi xodimlarni ko‘radi.
+      const scope = req.session!.role === "BRANCH_MANAGER" ? new Set(db.users.find((u) => u.id === req.session!.userId)?.branchIds || []) : null;
+      const employees = new Map(db.employees.filter((e) => e.companyId === tenant && (!scope || scope.has(e.branchId))).map((e) => [e.id, e]));
       const rows = db.attendance
         .filter((a) => a.companyId === tenant && a.date.startsWith(month) && a.overtimeMinutes > 0 && employees.has(a.employeeId))
         .sort((a, b) => b.date.localeCompare(a.date))
@@ -209,6 +211,8 @@ export function createPayrollRouter() {
             overtimeMinutes: a.overtimeMinutes,
             approved: a.overtimeApproved,
             decidedBy: a.overtimeDecidedBy,
+            note: a.overtimeNote,
+            branchId: a.branchId,
           };
         });
       res.json({ month, closed: Boolean(closedPeriod(db, tenant, month)), rows });
@@ -224,6 +228,8 @@ export function createPayrollRouter() {
       const row = await updateDb((db) => {
         const record = db.attendance.find((a) => a.id === req.params.id && a.companyId === tenant);
         if (!record) throw httpError("Davomat yozuvi topilmadi.", 404);
+        if (req.session!.role === "BRANCH_MANAGER" && !(db.users.find((u) => u.id === req.session!.userId)?.branchIds || []).includes(record.branchId))
+          throw httpError("Davomat yozuvi topilmadi.", 404);
         assertOpen(db, tenant, record.date.slice(0, 7));
         record.overtimeApproved = approved;
         record.overtimeDecidedBy = req.session!.name;
@@ -285,7 +291,7 @@ export async function sendPeriodPayslips(companyId: string, periodId: string) {
   for (const line of period.lines) {
     const employee = db.employees.find((e) => e.id === line.employeeId && e.status === "ACTIVE");
     if (!employee) continue;
-    const channels = await notifyEmployee(db, employee, "payroll", payslipText(line, period.month, company.name)).catch(() => []);
+    const channels = await notifyEmployee(db, employee, "payroll", payslipText(line, period.month, company.name), { go: `payslip_${period.month}` }).catch(() => []);
     if (channels.length) sent += 1;
   }
   return sent;

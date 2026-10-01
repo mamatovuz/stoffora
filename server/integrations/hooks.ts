@@ -61,14 +61,14 @@ export async function notifyEmployee(
   employee: Employee,
   category: RoutingCategory,
   text: string,
-  options: { title?: string; openButton?: boolean } = {},
+  options: { title?: string; openButton?: boolean; go?: string } = {},
 ) {
   const integration = activeIntegration(db, employee.companyId);
   const channels = integration?.settings.routing[category] || ["staffora", "telegram"];
   const used: string[] = [];
   const connected = Boolean(employee.telegramConnected && employee.telegramId && !employee.telegramId.startsWith("dev"));
   if (channels.includes("telegram") && connected) {
-    const ok = await sendTelegramMessage(employee.telegramId!, text, { openButton: options.openButton }).catch(() => false);
+    const ok = await sendTelegramMessage(employee.telegramId!, text, { openButton: options.openButton, go: options.go }).catch(() => false);
     if (ok) used.push("telegram");
   }
   const wantBot = channels.includes("bot") || (channels.includes("telegram") && !used.includes("telegram"));

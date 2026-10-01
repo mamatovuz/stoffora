@@ -1,4 +1,5 @@
 import { ApiError, post } from "../api";
+import { kvGet, kvSet } from "./mini/tg";
 import type { Attendance } from "@/lib/types";
 
 /*
@@ -43,7 +44,31 @@ export function readQueue(): OfflineItem[] {
     return [];
   }
 }
+/*
+ * Zaxira: iOS WebView ba’zan localStorage’ni tozalaydi. Navbat Telegram’ning
+ * qurilma xotirasiga (DeviceStorage, Bot API 9.0) ham yoziladi — rasmsiz (hajm cheklangan).
+ */
+const BACKUP_KEY = "staffora_offline";
+function backup(list: OfflineItem[]) {
+  const slim = list.slice(-6).map((item) => ({ ...item, photoDataUrl: undefined }));
+  void kvSet("device", BACKUP_KEY, slim.length ? JSON.stringify(slim) : null);
+}
+/** Ochilishda: localStorage bo‘sh, zaxirada belgi bo‘lsa — tiklaymiz. */
+export async function restoreQueueBackup() {
+  if (readQueue().length) return;
+  const raw = await kvGet("device", BACKUP_KEY);
+  if (!raw) return;
+  try {
+    const list = (JSON.parse(raw) as OfflineItem[]).filter((item) => Date.now() - item.capturedAt < MAX_AGE);
+    // perfAt boshqa sessiyaniki — ishonchsiz, capturedAt bo‘yicha hisoblanadi.
+    if (list.length) localStorage.setItem(key(), JSON.stringify(list.map((item) => ({ ...item, perfAt: Number.MAX_SAFE_INTEGER }))));
+    window.dispatchEvent(new Event("staffora:offline-queue"));
+  } catch {
+    /* buzilgan zaxira */
+  }
+}
 function writeQueue(list: OfflineItem[]) {
+  backup(list);
   try {
     if (list.length) localStorage.setItem(key(), JSON.stringify(list.slice(-6)));
     else localStorage.removeItem(key());

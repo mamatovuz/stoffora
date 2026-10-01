@@ -259,10 +259,11 @@ export function createAdvanceRouter() {
             type: "PAYROLL",
             read: false,
             createdAt: new Date().toISOString(),
+            go: "salary",
           }),
       );
       const fresh = db.employees.find((e) => e.id === employee.id);
-      if (fresh) await notifyEmployee(db, fresh, "payroll", text, { title: "Avans", openButton: true }).catch(() => undefined);
+      if (fresh) await notifyEmployee(db, fresh, "payroll", text, { title: "Avans", openButton: true, go: "salary" }).catch(() => undefined);
       res.json(row);
     }),
   );

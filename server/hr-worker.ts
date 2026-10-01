@@ -108,7 +108,7 @@ export async function runDocumentReminders(today = tashkentIsoDate()) {
     if (!employee) continue;
     const label = doc.title || DOCUMENT_TYPES[doc.type];
     const when = days <= 0 ? "muddati tugadi" : `muddati ${days} kundan keyin tugaydi (${doc.expiresAt.split("-").reverse().join(".")})`;
-    await notifyEmployee(db, employee, "hr", `📄 <b>${label}</b> — ${when}.\n\nIltimos, yangilangan hujjatni HR bo‘limiga topshiring yoki Staffora ilovasida yuklang.`).catch(() => undefined);
+    await notifyEmployee(db, employee, "hr", `📄 <b>${label}</b> — ${when}.\n\nIltimos, yangilangan hujjatni HR bo‘limiga topshiring yoki Staffora ilovasida yuklang.`, { go: "docs" }).catch(() => undefined);
     notes.push({ companyId: doc.companyId, title: days <= 0 ? "Hujjat muddati tugadi" : "Hujjat muddati yaqin", body: `${employee.firstName} ${employee.lastName}: ${label} ${when}.` });
     keys.push(key);
   }

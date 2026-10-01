@@ -49,14 +49,14 @@ function parseDataUrl(dataUrl: string) {
   return { mime: match[1], buffer };
 }
 
-const inputSchema = z.object({
+export const documentInputSchema = z.object({
   type: z.enum(["PASSPORT", "DIPLOMA", "MEDICAL", "SANITARY", "CONTRACT", "OTHER"]),
   title: z.string().trim().max(120).optional(),
   expiresAt: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
   dataUrl: z.string().min(30).max(2_000_000),
 });
 
-async function saveDocument(companyId: string, employeeId: string, input: z.infer<typeof inputSchema>, uploadedBy: string) {
+export async function saveDocument(companyId: string, employeeId: string, input: z.infer<typeof documentInputSchema>, uploadedBy: string) {
   const { mime, buffer } = parseDataUrl(input.dataUrl);
   const doc: EmployeeDocument = {
     id: randomUUID(),
@@ -135,7 +135,7 @@ export function createDocumentRouter() {
     permit("employees.edit"),
     route(async (req, res) => {
       const tenant = tenantOf(req);
-      const input = inputSchema.parse(req.body);
+      const input = documentInputSchema.parse(req.body);
       const db = await readDb();
       if (!db.employees.some((e) => e.id === req.params.id && e.companyId === tenant)) throw httpError("Xodim topilmadi.", 404);
       res.status(201).json(await saveDocument(tenant, String(req.params.id), input, req.session!.name));
@@ -200,7 +200,7 @@ export function createMiniDocumentRouter() {
     rateLimit({ windowMs: 60_000, limit: 10, keyGenerator: (req) => `doc:${session(req)?.employeeId || req.ip}` }),
     route(async (req, res) => {
       const auth = session(req);
-      const input = inputSchema.parse(req.body);
+      const input = documentInputSchema.parse(req.body);
       const db = await readDb();
       const employee = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId && e.status === "ACTIVE");
       if (!employee) throw httpError("Xodim topilmadi.", 404);
@@ -220,4 +220,9 @@ export function createMiniDocumentRouter() {
     }),
   );
   return router;
+}
+
+/** Hujjat fayli (Mini App’dan yuklab olish uchun). */
+export async function readDocumentFile(id: string) {
+  return (await files()).prepare("SELECT mime, data FROM document_files WHERE id = ?").get(id) as { mime: string; data: Buffer } | undefined;
 }

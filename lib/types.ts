@@ -32,6 +32,24 @@ export interface Company {
   employeeLimit?: number;
   /** Chegaradan oshganda murojaat uchun aloqa (standart: @mamatov_ads). */
   limitContact?: string;
+  /** Mini App imkoniyatlari (panel → Sozlamalar → Mini App). */
+  miniApp?: MiniAppSettings;
+}
+export interface MiniAppSettings {
+  /** Telefon biometriyasi (barmoq izi / Face ID) bilan tez tasdiqlash. */
+  biometricEnabled?: boolean;
+  /** Biometriya bilan har N-belgida bir marta baribir yuz tekshiriladi. */
+  faceEvery?: number;
+  /** Xodimlar ma’lumotnomasi (hamkasblar ro‘yxati) Mini App’da ko‘rinadi. */
+  directoryEnabled?: boolean;
+  /** Ma’lumotnomada hamkasblar telefoni ko‘rinadi. */
+  directoryPhones?: boolean;
+  /** Tanaffus (tushlik) belgilash. */
+  breaksEnabled?: boolean;
+  /** Filial ichidagi «vaqtida kelish» reytingi. */
+  leaderboardEnabled?: boolean;
+  /** Rahbarlarga «hali kelmaganlar» xulosasi (ish boshlanib 20 daqiqa o‘tgach). */
+  managerDigest?: boolean;
 }
 export interface CompanyBotSettings {
   /** AES-256-GCM bilan shifrlangan bot tokeni — frontendga qaytmaydi. */
@@ -208,9 +226,21 @@ export interface Attendance {
   /** Internetsiz belgilanib keyin yuborilgan yozuvlar (takror yuborilsa ikki marta yozilmasligi uchun). */
   offlineIds?: string[];
   flagsReviewedBy?: string;
+  /** Tanaffuslar (tushlik) — ma’lumot uchun, ish vaqtidan ayrilmaydi. */
+  breaks?: { start: string; end?: string }[];
+  /** Xodimning qo‘shimcha ish haqidagi izohi (rahbar tasdiqlashi uchun). */
+  overtimeNote?: string;
   updatedAt: string;
 }
-export type AttendanceFlag = "GPS_ACCURACY" | "GPS_EXACT_REPEAT" | "GPS_TELEPORT" | "GPS_EDGE" | "GPS_STALE" | "OFFLINE";
+export type AttendanceFlag =
+  | "GPS_ACCURACY"
+  | "GPS_EXACT_REPEAT"
+  | "GPS_TELEPORT"
+  | "GPS_EDGE"
+  | "GPS_STALE"
+  | "OFFLINE"
+  | "DEVICE_STILL"
+  | "DESKTOP";
 export interface LeaveRequest {
   id: string;
   companyId: string;
@@ -221,6 +251,8 @@ export interface LeaveRequest {
   reason: string;
   status: LeaveStatus;
   decidedBy?: string;
+  /** Biriktirilgan hujjat (masalan kasallik varaqasi rasmi). */
+  documentId?: string;
   createdAt: string;
 }
 export interface AuditLog {
@@ -246,8 +278,12 @@ export interface Announcement {
   /** Yangi format: qabul qiluvchilar filtri va kanallar bo‘yicha yetkazish hisoboti. */
   target?: AnnouncementTarget;
   createdBy?: string;
+  /** Xodimdan «Tanishdim» tasdig‘i so‘raladi. */
+  ackRequired?: boolean;
+  /** So‘rovnoma: javob variantlari (bo‘sh — oddiy e’lon). */
+  options?: string[];
   report?: {
-    staffora?: { recipients: number; delivered: number };
+    staffora?: { recipients: number; delivered: number; acknowledged?: number; answers?: Record<string, number> };
     telegram?: { recipients: number; delivered: number; failed: number };
     bot?: {
       integrationId: string;
@@ -276,6 +312,14 @@ export interface Notification {
   employeeId?: string;
   read: boolean;
   createdAt: string;
+  /** E’lon bilan bog‘liq bo‘lsa — tasdiq va so‘rovnoma uchun. */
+  announcementId?: string;
+  ackRequired?: boolean;
+  ackAt?: string;
+  options?: string[];
+  answer?: string;
+  /** Mini App ichidagi bo‘lim (chuqur havola): leave, swaps, salary, payslip_2026-09… */
+  go?: string;
 }
 export interface User {
   id: string;
@@ -349,6 +393,8 @@ export interface AttendanceSession {
   expiresAt: string;
   usedAt?: string;
   faceVerifiedAt?: string;
+  /** Qanday tasdiqlandi: yuz (Face ID) yoki telefon biometriyasi. */
+  method?: "FACE" | "BIOMETRIC";
 }
 export interface FaceProfile {
   companyId: string;
@@ -405,6 +451,47 @@ export interface Database {
   documents: EmployeeDocument[];
   /** Tug‘ilgan kun tabriklari va hujjat eslatmalari takror yuborilmasligi uchun. */
   sentGreetings: { key: string; at: string }[];
+  biometricDevices: BiometricDevice[];
+  lateNotices: LateNotice[];
+  clientLogs: ClientLog[];
+}
+
+/* ----------------------------------------------------------- Mini App --- */
+/** Telefon biometriyasi bilan bog‘langan qurilma (token faqat xesh ko‘rinishida saqlanadi). */
+export interface BiometricDevice {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  tokenHash: string;
+  label: string;
+  uses: number;
+  createdAt: string;
+  lastUsedAt?: string;
+  /** Oxirgi marta haqiqiy yuz tekshiruvi o‘tgan vaqt. */
+  lastFaceAt: string;
+  revokedAt?: string;
+}
+/** «Kechikaman» — xodim oldindan ogohlantiradi. */
+export interface LateNotice {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  date: string;
+  minutes: number;
+  reason: string;
+  createdAt: string;
+}
+/** Mini App xatolari (kamera, GPS, kirish) — tahlil uchun. */
+export interface ClientLog {
+  id: string;
+  companyId?: string;
+  employeeId?: string;
+  kind: string;
+  message: string;
+  detail?: string;
+  platform?: string;
+  version?: string;
+  at: string;
 }
 
 /* ---------------------------------------------------------- ish haqi --- */

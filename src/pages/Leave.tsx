@@ -141,6 +141,11 @@ export function LeavePage() {
                     </td>
                     <td data-label="Sabab" style={{ maxWidth: 280 }}>
                       {l.reason}
+                      {l.documentId && (
+                        <a className="leave-attachment" href={`/api/documents/${l.documentId}/file`} target="_blank" rel="noreferrer">
+                          📎 Biriktirilgan hujjat
+                        </a>
+                      )}
                     </td>
                     <td data-label="Holat">
                       <span className="state-cell">

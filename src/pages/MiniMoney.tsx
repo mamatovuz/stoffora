@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, ChevronRight, Eye, EyeOff, HandCoins, LoaderCircle, Send, Wallet, X } from "lucide-react";
+import { AlertCircle, ChevronRight, Eye, EyeOff, HandCoins, LoaderCircle, Wallet } from "lucide-react";
 import { api, errorText, post } from "../api";
+import { Sheet } from "./mini/shared";
+import { confirmNative, haptic } from "./mini/tg";
 import { dateUz } from "@/lib/format";
 
 /*
@@ -130,14 +132,15 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
     void reload();
   }, [reload]);
   const digits = Number(amount.replace(/\D/g, "")) || 0;
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
+  async function submit(event?: React.FormEvent) {
+    event?.preventDefault();
+    if (!data || digits < 10_000 || digits > data.limit.available) return setFormError(`Summa 10 000 dan ${data ? som(data.limit.available) : "—"} gacha bo‘lsin.`);
     setBusy(true);
     setFormError("");
     try {
       await post("/mini/advances", { amount: digits, reason: reason.trim() || undefined });
       onToast("Avans so‘rovi yuborildi — javob Telegram’ga keladi");
-      window.Telegram?.WebApp?.HapticFeedback?.notificationOccurred("success");
+      haptic.success();
       setAsking(false);
       setAmount("");
       setReason("");
@@ -149,6 +152,7 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
     }
   }
   async function cancel(id: string) {
+    if (!(await confirmNative("Avans so‘rovini bekor qilasizmi?", { ok: "Bekor qilish", destructive: true }))) return;
     try {
       await post(`/mini/advances/${id}/cancel`, {});
       onToast("So‘rov bekor qilindi");
@@ -158,19 +162,22 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
     }
   }
   const pending = data?.requests.some((r) => r.status === "PENDING");
+  const canAsk = Boolean(data?.limit.enabled && !pending && data.limit.available >= 10_000);
   return (
-    <div className="sheet-layer">
-      <button className="sheet-backdrop" onClick={onClose} aria-label="Yopish" />
-      <section className="sheet ms-sheet">
-        <div className="sheet-head">
-          <div>
-            <b>Mening oyligim</b>
-            <small>{data ? (data.closed ? `${data.label} — oy yopilgan` : `${data.label} · bugungi holat`) : "Yuklanmoqda…"}</small>
-          </div>
-          <button className="sheet-close" onClick={onClose} aria-label="Yopish">
-            <X size={18} />
-          </button>
-        </div>
+    <Sheet
+      title="Mening oyligim"
+      subtitle={data ? (data.closed ? `${data.label} — oy yopilgan` : `${data.label} · bugungi holat`) : "Yuklanmoqda…"}
+      onClose={onClose}
+      className="ms-sheet"
+      primary={
+        asking
+          ? { text: digits ? `Avans so‘rash · ${som(digits)}` : "Summani kiriting", onClick: () => void submit(), busy, disabled: !data || digits < 10_000 || digits > data.limit.available }
+          : canAsk
+            ? { text: "Avans so‘rash", onClick: () => setAsking(true) }
+            : null
+      }
+      secondary={asking ? { text: "Bekor qilish", onClick: () => setAsking(false) } : null}
+    >
         {!data ? (
           error ? (
             <div className="mini-alert">
@@ -203,10 +210,11 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
             </div>
             <p className="ms-note">Oy oxirigacha davomatga qarab o‘zgaradi. Yakuniy summa oy yopilgach hisob varaqasida keladi.</p>
 
-            {data.limit.enabled && !asking && (
-              <button className="mini-btn" onClick={() => setAsking(true)} disabled={pending || data.limit.available < 10_000}>
-                <HandCoins size={18} /> {pending ? "Avans so‘rovi ko‘rib chiqilmoqda" : data.limit.available < 10_000 ? "Bu oy avans chegarasi tugagan" : "Avans so‘rash"}
-              </button>
+            {data.limit.enabled && !asking && !canAsk && (
+              <div className="mh-hint info">
+                <HandCoins size={16} />
+                <span>{pending ? "Avans so‘rovingiz ko‘rib chiqilmoqda" : "Bu oy avans chegarasi tugagan"}</span>
+              </div>
             )}
             {asking && (
               <form className="ms-form" onSubmit={submit}>
@@ -244,14 +252,6 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
                     <span>{formError}</span>
                   </div>
                 )}
-                <div className="ms-form-actions">
-                  <button type="button" className="mini-btn sm ghost-neutral" onClick={() => setAsking(false)}>
-                    Bekor qilish
-                  </button>
-                  <button className="mini-btn sm" disabled={busy || digits < 10_000 || digits > data.limit.available}>
-                    {busy ? <LoaderCircle size={16} className="spin" /> : <Send size={16} />} Yuborish
-                  </button>
-                </div>
               </form>
             )}
             {data.requests.length > 0 && (
@@ -288,8 +288,7 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
             )}
           </>
         )}
-      </section>
-    </div>
+    </Sheet>
   );
 }
 

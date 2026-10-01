@@ -2,6 +2,8 @@ import { dataIndexes, readDb } from "../lib/store";
 import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { notifyEmployee } from "./integrations/hooks";
 import { dayPlan } from "../lib/schedule";
+import { isPracticeDay } from "../lib/counting";
+import { notifyManagers } from "./mini-extra";
 
 const toMinutes = (value: string) => {
   const [hour, minute] = value.split(":").map(Number);
@@ -39,12 +41,10 @@ export function startAttendanceReminders() {
           .map((m) => `${m.companyId}|${m.localId}`),
       );
       const hasBotLink = (employeeId: string, companyId: string) => linked.has(`${companyId}|${employeeId}`);
+      // Rahbar xulosasi: filial bo‘yicha, ish boshlanib 20 daqiqa o‘tgach hali kelmaganlar.
+      const missing = new Map<string, { companyId: string; branchId: string; start: string; names: string[]; noticed: number }>();
       for (const employee of db.employees) {
         if (employee.status !== "ACTIVE") continue;
-        const reachable =
-          (employee.telegramConnected && employee.telegramId && !employee.telegramId.startsWith("dev")) ||
-          hasBotLink(employee.id, employee.companyId);
-        if (!reachable) continue;
         const onLeave = (index.approvedLeaveByEmployee.get(employee.id) || []).some(
           (item) => item.startDate <= date && item.endDate >= date,
         );
@@ -54,6 +54,26 @@ export function startAttendanceReminders() {
         const day = dayPlan(db, employee, date);
         if (!day.enabled) continue;
         const record = index.attendanceByKey.get(`${employee.id}|${date}`);
+        const company = db.companies.find((c) => c.id === employee.companyId);
+        const digestKey = `digest:${employee.companyId}|${employee.branchId}|${day.start}`;
+        if (
+          !record?.checkIn &&
+          company?.miniApp?.managerDigest !== false &&
+          !isPracticeDay(date, company, employee) &&
+          now >= toMinutes(day.start) + 20 &&
+          now < toMinutes(day.start) + 60 &&
+          !sent.has(digestKey)
+        ) {
+          const group = missing.get(digestKey) || { companyId: employee.companyId, branchId: employee.branchId, start: day.start, names: [], noticed: 0 };
+          const notice = db.lateNotices.find((n) => n.employeeId === employee.id && n.date === date);
+          group.names.push(`${employee.firstName} ${employee.lastName}`.trim() + (notice ? ` (⏳ ~${notice.minutes} daq, ogohlantirgan)` : ""));
+          if (notice) group.noticed += 1;
+          missing.set(digestKey, group);
+        }
+        const reachable =
+          (employee.telegramConnected && employee.telegramId && !employee.telegramId.startsWith("dev")) ||
+          hasBotLink(employee.id, employee.companyId);
+        if (!reachable) continue;
         const start = toMinutes(day.start);
         const end = toMinutes(day.end);
         const inKey = `${employee.id}:in`;
@@ -70,7 +90,7 @@ export function startAttendanceReminders() {
             employee,
             "attendance",
             `⏰ ${employee.firstName}, ish ${day.start} da boshlangan, lekin kelishingiz hali qayd etilmagan.\n\nFilialda bo‘lsangiz, Mini App orqali «Ishga keldim» tugmasini bosing.`,
-            { openButton: true },
+            { openButton: true, go: "checkin" },
           ).catch(() => undefined);
         }
         if (
@@ -86,9 +106,22 @@ export function startAttendanceReminders() {
             employee,
             "attendance",
             `🏁 ${employee.firstName}, ish vaqti ${day.end} da tugadi. Ketishni belgilashni unutmang.`,
-            { openButton: true },
+            { openButton: true, go: "checkout" },
           ).catch(() => undefined);
         }
+      }
+      for (const [key, group] of missing) {
+        sent.add(key);
+        const branch = db.branches.find((b) => b.id === group.branchId);
+        const list = group.names.slice(0, 15).map((name) => `• ${name}`).join("\n");
+        const more = group.names.length > 15 ? `\n… yana ${group.names.length - 15} kishi` : "";
+        void notifyManagers(
+          db,
+          group.companyId,
+          group.branchId,
+          `🕘 <b>${branch?.name || "Filial"}</b> — ish ${group.start} da boshlangan\n${group.names.length} kishi hali kelmadi${group.noticed ? ` (${group.noticed} tasi ogohlantirgan)` : ""}:\n\n${list}${more}`,
+          "manager",
+        ).catch(() => undefined);
       }
     } catch (error) {
       console.error("Davomat eslatmalari xatosi", error);

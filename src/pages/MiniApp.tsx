@@ -1,97 +1,53 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  AlertCircle,
-  Bell,
-  Building2,
-  CalendarDays,
-  CheckCircle2,
-  ChevronRight,
-  Clock3,
-  Home,
-  LoaderCircle,
-  LogIn,
-  LogOut,
-  MapPin,
-  Navigation,
-  Plane,
-  QrCode,
-  RotateCcw,
-  ScanFace,
-  Send,
-  ShieldCheck,
-  UserRound,
-  X,
-  CalendarCheck,
-  CheckCheck,
-  Megaphone,
-  BriefcaseBusiness,
-  RefreshCw,
-  WifiOff,
-} from "lucide-react";
-import { ApiError, api, errorText, patch, post, restoreBearerToken, setBearerToken } from "../api";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { AlertCircle, Bell, BriefcaseBusiness, CheckCircle2, Clock3, Home, LoaderCircle, Plane, RefreshCw, RotateCcw, Send, UserRound, WifiOff } from "lucide-react";
+import { ApiError, api, errorText, post, restoreBearerToken, setBearerToken } from "../api";
 import { FaceScanner, preloadFaceModels, type FaceCapture } from "../components/FaceScanner";
-import { enqueueOffline, isNetworkError, readQueue, syncOfflineQueue } from "./miniOffline";
-import {
-  dateLongUz,
-  dateParts,
-  dateUz,
-  duration,
-  monthShortUz,
-  tashkentClock,
-  tashkentIsoDate,
-  tashkentWeekday,
-} from "@/lib/format";
+import { enqueueOffline, isNetworkError, readQueue, restoreQueueBackup, syncOfflineQueue } from "./miniOffline";
+import { tashkentClock } from "@/lib/format";
 import { haversineDistance } from "@/lib/attendance";
-import type {
-  Attendance,
-  Branch,
-  Company,
-  Department,
-  Employee,
-  LeaveRequest,
-  Notification,
-  Position,
-  Schedule,
-} from "@/lib/types";
-import { leaveTypeLabel, weekdayShort, weekOrder } from "../types";
+import { parseDeepLink, type DeepLink } from "@/lib/mini";
+import type { Attendance } from "@/lib/types";
 import stafforaMark from "../assets/staffora-mark.svg";
-import { MiniDocuments, MiniPayslips, MiniSwaps } from "./MiniExtras";
-import { SalaryCard, SalarySheet } from "./MiniMoney";
-import { ManagerHome, requestManagerAuth, SkeletonList, type ManagerAuth } from "./MiniManager";
-import { getCached, setCached } from "./miniCache";
+import { requestManagerAuth, type ManagerAuth, type ManagerView } from "./mini/managerAuth";
+import { SalarySheet } from "./MiniMoney";
+import { NotificationsSheet } from "./mini/Notifications";
+import { clearCached } from "./miniCache";
 import { applyPrefs, DEFAULT_PREFS, loadCloudPrefs, readPrefs, savePrefs, type MiniPrefs } from "./miniPrefs";
 import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
+import { MiniHome } from "./mini/Home";
+import { AttendanceFlow, getPosition, prefetchPosition, takePrefetchedPosition, type Flow } from "./mini/AttendanceFlow";
+import { biometricInfo, disableBiometric, enableBiometric, quickProof, type BioInfo } from "./mini/biometric";
+import { PhotoAvatar, toMinutes, type Action, type HomeData, type Tab } from "./mini/shared";
+import {
+  askWriteAccessOnce,
+  bindErrorReporting,
+  bindViewport,
+  confirmNative,
+  haptic,
+  isMobile,
+  kvGet,
+  kvSet,
+  reportError,
+  setWorkEmojiStatus,
+  supports,
+  tg,
+  useBackButton,
+  useSettingsButton,
+} from "./mini/tg";
+import type { ProfileSection } from "./mini/Profile";
 
-type HomeData = {
-  employee: Employee;
-  company?: Company;
-  branch: Branch | null;
-  department: Department | null;
-  position: Position | null;
-  schedule: Schedule | null;
-  attendance?: Attendance;
-  todayLeave: LeaveRequest | null;
-  month: {
-    practiceUntil?: string;
-    deduction?: number;
-    penaltyMode?: string;
-    days: number;
-    late: number;
-    lateMinutes: number;
-    workedMinutes: number;
-    overtimeMinutes: number;
-  };
-  notifications: Notification[];
-  unreadNotifications?: number;
-};
-type Tab = "home" | "history" | "leave" | "profile" | "manager";
-type Action = "CHECK_IN" | "CHECK_OUT";
+// Bo‘limlar kerak bo‘lganda yuklanadi — birinchi ochilish tezroq.
+const MiniHistory = lazy(() => import("./mini/History").then((m) => ({ default: m.MiniHistory })));
+const MiniRequests = lazy(() => import("./mini/Requests").then((m) => ({ default: m.MiniRequests })));
+const MiniProfile = lazy(() => import("./mini/Profile").then((m) => ({ default: m.MiniProfile })));
+const ManagerHome = lazy(() => import("./MiniManager").then((m) => ({ default: m.ManagerHome })));
+const DirectorySheet = lazy(() => import("./mini/Directory").then((m) => ({ default: m.DirectorySheet })));
+
 type AuthError = { message: string; code?: string; botUsername?: string };
+type Nav = { tab: Tab; key: number; view?: string; id?: string; section?: ProfileSection };
 
-const tg = () => window.Telegram?.WebApp;
-const haptic = (type: "success" | "error" | "warning") =>
-  tg()?.HapticFeedback?.notificationOccurred(type);
-const supports = (version: string) => Boolean(tg()?.isVersionAtLeast?.(version));
+const EMOJI_KEY = "staffora_work_emoji";
+const BIO_OFFER_KEY = "staffora_bio_offer";
 
 /*
  * Tezkor ochilish: oxirgi bosh sahifa ma’lumoti qurilmada saqlanadi va Mini App
@@ -126,12 +82,24 @@ function writeCachedHome(home: HomeData) {
   }
 }
 
+/** Bot xabaridagi tugma (?go=) yoki t.me havolasi (startapp=go_…) — qaysi bo‘limni ochish. */
+function initialLink(): DeepLink | null {
+  try {
+    const fromQuery = new URLSearchParams(window.location.search).get("go");
+    return parseDeepLink(fromQuery || tg()?.initDataUnsafe?.start_param);
+  } catch {
+    return null;
+  }
+}
+
 export function MiniAppPage() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [salaryOpen, setSalaryOpen] = useState(false);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [prefs, setPrefsState] = useState<MiniPrefs>(() => readPrefs() || DEFAULT_PREFS);
   useEffect(() => {
     applyPrefs(prefs);
+    window.dispatchEvent(new Event("staffora:mini-theme"));
   }, [prefs]);
   useEffect(() => {
     // Boshqa qurilmada tanlangan ko‘rinish (faqat bu qurilmada hali tanlanmagan bo‘lsa).
@@ -140,7 +108,7 @@ export function MiniAppPage() {
   const changePrefs = useCallback((next: MiniPrefs) => {
     setPrefsState(next);
     savePrefs(next);
-    tg()?.HapticFeedback?.selectionChanged?.();
+    haptic.select();
   }, []);
   // Rahbar rejimi: panel hisobi Telegram’ga ulangan bo‘lsa — «Rahbar» bo‘limi.
   const [manager, setManager] = useState<ManagerAuth | null>(null);
@@ -156,21 +124,27 @@ export function MiniAppPage() {
   const [authError, setAuthError] = useState<AuthError | null>(null);
   const [home, setHomeState] = useState<HomeData | null>(() => readCachedHome());
   // Keshdan ko‘rsatilgan (hali serverdan tasdiqlanmagan) holat — amallar vaqtincha kutadi.
-  const [stale, setStale] = useState(() => home === null ? false : true);
+  const [stale, setStale] = useState(() => home !== null);
   const setHome = useCallback((next: HomeData) => {
     setHomeState(next);
     setStale(false);
     writeCachedHome(next);
   }, []);
-  const [tab, setTab] = useState<Tab>("home");
+  const [nav, setNav] = useState<Nav>({ tab: "home", key: 0 });
+  const setTab = useCallback((tab: Tab) => setNav((current) => ({ tab, key: current.key + 1 })), []);
   const [loading, setLoading] = useState(() => !readCachedHome());
   const [faceAction, setFaceAction] = useState<Action | null>(null);
-  const [flow, setFlow] = useState<{ sessionId: string; action: Action; requiresQr: boolean; photo?: string } | null>(null);
+  /** Biometriyani ulash uchun yuz tekshiruvi (davomatsiz). */
+  const [bioEnroll, setBioEnroll] = useState(false);
+  const [flow, setFlow] = useState<Flow | null>(null);
   const [toast, setToast] = useState<{ text: string; tone: "ok" | "error" } | null>(null);
   // Internetsiz rejim: keshdagi ma’lumot ko‘rsatiladi, belgilar telefonda saqlanadi.
   const [offline, setOffline] = useState(() => typeof navigator !== "undefined" && navigator.onLine === false);
   const [queued, setQueued] = useState(() => readQueue().length);
+  const [bio, setBio] = useState<BioInfo | null>(null);
+  const [emojiStatus, setEmojiStatusPref] = useState(false);
   const captureRef = useRef<FaceCapture | null>(null);
+  const lastFaceProof = useRef<{ proof: string; at: number } | null>(null);
   const homeRef = useRef<HomeData | null>(home);
   homeRef.current = home;
   const [lang, setLangState] = useState<Lang>(
@@ -187,17 +161,19 @@ export function MiniAppPage() {
   const changeLang = useCallback((next: Lang) => {
     rememberLang(next);
     setLangState(next);
-    tg()?.HapticFeedback?.selectionChanged?.();
+    haptic.select();
     void post("/mini/language", { language: next }).catch(() => undefined);
   }, []);
 
   const showToast = useCallback((text: string, tone: "ok" | "error" = "ok") => {
     setToast({ text, tone });
+    if (tone === "error") haptic.error();
     window.setTimeout(() => setToast((t) => (t?.text === text ? null : t)), 4500);
   }, []);
   const loadHome = useCallback(async () => {
     setHome(await api<HomeData>("/mini/home"));
   }, [setHome]);
+  const refreshBio = useCallback(() => void biometricInfo().then(setBio), []);
 
   /** Saqlangan internetsiz belgilarni yuboradi va natijani ko‘rsatadi. */
   const flushQueue = useCallback(async () => {
@@ -209,12 +185,9 @@ export function MiniAppPage() {
     const failed = results.filter((r) => !r.ok);
     if (ok.length) {
       showToast(`Internetsiz belgilar yuborildi: ${ok.map((r) => r.message).join(" ")}`);
-      haptic("success");
+      haptic.success();
     }
-    if (failed.length) {
-      showToast(failed.map((r) => r.message).join(" "), "error");
-      haptic("error");
-    }
+    if (failed.length) showToast(failed.map((r) => r.message).join(" "), "error");
     await loadHome().catch(() => undefined);
   }, [loadHome, showToast]);
 
@@ -247,36 +220,28 @@ export function MiniAppPage() {
           await loadHome();
           return;
         }
-        throw Object.assign(
-          new Error(
-            "Mini App Telegram tashqarisida ochildi. Uni botdagi «Staffora» tugmasi orqali oching.",
-          ),
-          { code: "NO_INIT_DATA" },
-        );
+        throw Object.assign(new Error("Mini App Telegram tashqarisida ochildi. Uni botdagi «Staffora» tugmasi orqali oching."), { code: "NO_INIT_DATA" });
       }
-      const result = await post<{ token: string; home?: HomeData }>("/telegram/auth", {
-        initData: webApp?.initData || "",
-      });
+      const result = await post<{ token: string; home?: HomeData }>("/telegram/auth", { initData: webApp?.initData || "" });
       setBearerToken(result.token);
       setOffline(false);
       // Server bosh sahifani auth javobida qaytaradi — alohida so‘rov kerak emas.
       if (result.home) setHome(result.home);
       else await loadHome();
       void flushQueue();
+      askWriteAccessOnce();
     } catch (reason) {
       if (isNetworkError(reason) && readCachedHome()) {
         // Aloqa yo‘q, lekin bugungi ma’lumot bor — ilova ishlashda davom etadi.
         setOffline(true);
         return;
       }
+      const code = reason instanceof ApiError ? reason.code : (reason as { code?: string })?.code;
+      if (code !== "NOT_LINKED" && code !== "NO_INIT_DATA") reportError("auth", errorText(reason), code);
       setAuthError({
         message: errorText(reason, "Kirish amalga oshmadi."),
-        code:
-          reason instanceof ApiError
-            ? reason.code
-            : (reason as { code?: string })?.code,
-        botUsername:
-          reason instanceof ApiError ? (reason.data?.botUsername as string | undefined) : undefined,
+        code,
+        botUsername: reason instanceof ApiError ? (reason.data?.botUsername as string | undefined) : undefined,
       });
     } finally {
       setLoading(false);
@@ -288,31 +253,35 @@ export function MiniAppPage() {
 
   useEffect(() => {
     const webApp = tg();
+    bindErrorReporting();
     // Keshdan ko‘rsatilayotgan bo‘lsa, Telegram yuklanish belgisini darhol olib tashlaymiz.
     if (home) webApp?.ready();
     webApp?.expand();
     webApp?.disableVerticalSwipes?.();
     // Telegram 8.0+: telefonlarda to‘liq ekran rejimi.
-    const mobile = ["ios", "android", "android_x"].includes(webApp?.platform || "");
-    if (mobile && supports("8.0")) {
+    if (isMobile() && supports("8.0")) {
       try {
         webApp?.requestFullscreen?.();
       } catch {
         /* qo‘llab-quvvatlanmasa oddiy rejimda qoladi */
       }
     }
-    if (supports("6.1")) {
-      webApp?.setHeaderColor?.("secondary_bg_color");
-      webApp?.setBackgroundColor?.("secondary_bg_color");
-    }
+    const unbind = bindViewport();
     document.title = "Staffora";
     // Internetsiz ochilish uchun ilova qobig‘i va Face ID modellarini keshlaymiz.
     if ("serviceWorker" in navigator && (window.isSecureContext || location.hostname === "localhost"))
       navigator.serviceWorker.register("/mini-sw.js").catch(() => undefined);
+    void restoreQueueBackup().then(() => setQueued(readQueue().length));
     void authenticate();
+    refreshBio();
+    void kvGet("cloud", EMOJI_KEY).then((value) => setEmojiStatusPref(value === "1"));
     // Face modellarini oldindan yuklab qo‘yamiz — tugma bosilganda tezroq ochiladi.
     const idle = window.setTimeout(() => void preloadFaceModels().catch(() => undefined), 300);
-    return () => window.clearTimeout(idle);
+    return () => {
+      window.clearTimeout(idle);
+      unbind();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticate]);
 
   // Ilova qayta ochilganda (fon rejimidan) ma’lumotni yangilaymiz.
@@ -328,56 +297,106 @@ export function MiniAppPage() {
   useEffect(() => {
     const webApp = tg();
     if (!supports("6.2")) return;
-    if (faceAction || flow) webApp?.enableClosingConfirmation?.();
+    if (faceAction || flow || bioEnroll) webApp?.enableClosingConfirmation?.();
     else webApp?.disableClosingConfirmation?.();
-  }, [faceAction, flow]);
+  }, [faceAction, flow, bioEnroll]);
 
-  // Telegram "Orqaga" tugmasi
+  /* ------------------------------------------------------- navigatsiya --- */
+  const navigate = useCallback(
+    (link: DeepLink) => {
+      haptic.select();
+      setNotifOpen(false);
+      setSalaryOpen(false);
+      if (link.tab === "home") {
+        setTab("home");
+        if (link.action === "salary") setSalaryOpen(true);
+        if (link.action === "notifs") setNotifOpen(true);
+        return;
+      }
+      if (link.tab === "profile" && link.section === "directory") {
+        setDirectoryOpen(true);
+        return;
+      }
+      setNav((current) => ({
+        tab: link.tab,
+        key: current.key + 1,
+        view: "view" in link ? link.view : undefined,
+        id: "id" in link ? link.id : undefined,
+        section: link.tab === "profile" ? link.section : undefined,
+      }));
+    },
+    [setTab],
+  );
+  // Bot xabaridagi havola bilan ochilgan bo‘lsa — kerakli bo‘limga (bir marta, kirgandan keyin).
+  const pendingLink = useRef<DeepLink | null>(initialLink());
   useEffect(() => {
-    const back = tg()?.BackButton;
-    if (!back || !supports("6.1")) return;
-    const handler = () => {
-      if (notifOpen) setNotifOpen(false);
-      else if (salaryOpen) setSalaryOpen(false);
-      else if (flow) setFlow(null);
-      else if (faceAction) setFaceAction(null);
-      else setTab("home");
-    };
-    if (notifOpen || salaryOpen || flow || faceAction || tab !== "home") back.show();
-    else back.hide();
-    back.onClick(handler);
-    return () => back.offClick(handler);
-  }, [flow, faceAction, tab, notifOpen, salaryOpen]);
+    const link = pendingLink.current;
+    if (!link || (!home && !manager)) return;
+    if (link.tab === "manager" && !manager) {
+      if (!managerChecked) return;
+      pendingLink.current = null;
+      return;
+    }
+    pendingLink.current = null;
+    if (link.tab === "home" && (link.action === "checkin" || link.action === "checkout")) {
+      const a = home?.attendance;
+      const wanted = link.action === "checkin" ? !a?.checkIn : Boolean(a?.checkIn && !a.checkOut);
+      if (wanted && home?.branch) window.setTimeout(() => void startAction(link.action === "checkin" ? "CHECK_IN" : "CHECK_OUT"), 400);
+      return;
+    }
+    navigate(link);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [home, manager, managerChecked, navigate]);
 
-  if (loading || (!home && !managerChecked))
-    return (
-      <div className="mini">
-        <div className="mini-splash">
-          <img src={stafforaMark} alt="Staffora" />
-          <LoaderCircle className="spin" size={24} />
-        </div>
-      </div>
-    );
-  if (authError || !home) {
-    // Xodim emas, lekin rahbar — faqat rahbar paneli.
-    if (manager)
-      return (
-        <div className="mini">
-          <main className="mini-app">
-            <ManagerHome auth={manager} onToast={showToast} onExpired={() => void checkManager()} />
-          </main>
-          {toast && (
-            <button className={`mini-toast ${toast.tone === "error" ? "error" : ""}`} onClick={() => setToast(null)}>
-              {toast.tone === "error" ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
-              <span>
-                <b>{toast.tone === "error" ? "Xatolik" : "Muvaffaqiyatli"}</b>
-                <small>{toast.text}</small>
-              </span>
-            </button>
-          )}
-        </div>
-      );
-    return <AuthErrorScreen error={authError} onRetry={authenticate} />;
+  // «⋯» → «Sozlamalar»
+  useSettingsButton(() => navigate({ tab: "profile", section: "settings" }));
+
+  // Telegram «Orqaga» tugmasi
+  const anyOpen = notifOpen || salaryOpen || directoryOpen || Boolean(flow) || Boolean(faceAction) || bioEnroll;
+  useBackButton(
+    anyOpen || nav.tab !== "home"
+      ? () => {
+          if (notifOpen) setNotifOpen(false);
+          else if (salaryOpen) setSalaryOpen(false);
+          else if (directoryOpen) setDirectoryOpen(false);
+          else if (flow) setFlow(null);
+          else if (faceAction) setFaceAction(null);
+          else if (bioEnroll) setBioEnroll(false);
+          else setTab("home");
+        }
+      : null,
+  );
+
+  /* ---------------------------------------------------------- davomat --- */
+  const startSession = useCallback(
+    async (action: Action, faceProof: string, method: Flow["method"], photo?: string) => {
+      const session = await post<{ id: string; requiresQr: boolean }>("/mini/attendance/session", { action, faceProof });
+      setFaceAction(null);
+      setFlow({ sessionId: session.id, action, requiresQr: session.requiresQr, photo, method });
+    },
+    [],
+  );
+
+  /** «Ishga keldim / ketdim»: biometriya ulangan bo‘lsa — barmoq izi, bo‘lmasa Face ID. */
+  async function startAction(action: Action) {
+    const current = homeRef.current;
+    if (!current) return;
+    haptic.tap("medium");
+    prefetchPosition();
+    const canQuick = Boolean(current.features?.biometric && current.features.biometricRegistered && bio?.tokenSaved && current.employee.faceEnrolledAt && !offline);
+    if (canQuick) {
+      try {
+        const result = await quickProof(action === "CHECK_IN" ? "Ishga kelishni tasdiqlang" : "Ishdan ketishni tasdiqlang");
+        if (result.kind === "cancel") return;
+        if (result.kind === "proof") return await startSession(action, result.proof, "BIOMETRIC");
+        showToast("Xavfsizlik uchun bu safar yuzingizni tekshiramiz");
+        refreshBio();
+      } catch (reason) {
+        if (isNetworkError(reason)) setOffline(true);
+        else return showToast(errorText(reason), "error");
+      }
+    }
+    setFaceAction(action);
   }
 
   /** Aloqa yo‘q: belgini (yuz + GPS + vaqt) telefonda saqlaydi, ekranni darhol yangilaydi. */
@@ -423,31 +442,115 @@ export function MiniAppPage() {
       setHomeState(optimistic);
       writeCachedHome(optimistic);
       showToast(`Internet yo‘q — ${action === "CHECK_IN" ? "kelish" : "ketish"} ${time} da telefonda saqlandi. Aloqa tiklanishi bilan avtomatik yuboriladi.`);
-      haptic("success");
+      haptic.success();
     } catch (reason) {
       const code = (reason as GeolocationPositionError)?.code;
       showToast(code === 1 ? "Joylashuvga ruxsat berilmagan." : errorText(reason, "Belgini saqlab bo‘lmadi."), "error");
-      haptic("error");
     }
   };
 
   const onVerified = async (faceProof: string, _score: number, photo?: string) => {
+    lastFaceProof.current = { proof: faceProof, at: Date.now() };
+    if (bioEnroll) {
+      setBioEnroll(false);
+      try {
+        const ok = await enableBiometric(faceProof);
+        showToast(ok ? "Biometriya ulandi — endi bir tegishda tasdiqlaysiz" : "Biometriyaga ruxsat berilmadi", ok ? "ok" : "error");
+        if (ok) haptic.success();
+      } catch (reason) {
+        showToast(errorText(reason), "error");
+      }
+      refreshBio();
+      void loadHome().catch(() => undefined);
+      return;
+    }
     const action = faceAction!;
     try {
-      const session = await post<{ id: string; requiresQr: boolean }>("/mini/attendance/session", {
-        action,
-        faceProof,
-      });
-      setFaceAction(null);
-      setFlow({ sessionId: session.id, action, requiresQr: session.requiresQr, photo });
+      await startSession(action, faceProof, "FACE", photo);
     } catch (reason) {
-      if (isNetworkError(reason) && home.employee.faceEnrolledAt) return void (await saveOffline(action));
+      if (isNetworkError(reason) && home?.employee.faceEnrolledAt) return void (await saveOffline(action));
       setFaceAction(null);
       showToast(errorText(reason), "error");
-      haptic("error");
     }
-    if (!home.employee.faceEnrolledAt) void loadHome();
+    if (!home?.employee.faceEnrolledAt) void loadHome();
   };
+
+  /** Davomat muvaffaqiyatli: emoji-status, biometriya taklifi, ma’lumotni yangilash. */
+  const onAttendanceSuccess = async (row: Attendance, message: string, method: Flow["method"]) => {
+    setFlow(null);
+    showToast(message);
+    haptic.success();
+    clearCached("stats");
+    await loadHome().catch(() => undefined);
+    const current = homeRef.current;
+    if (row.checkIn && !row.checkOut && emojiStatus && current?.features?.workEmojiId) {
+      const end = current.schedule?.days.find((d) => d.enabled && d.end)?.end;
+      const minutes = end ? toMinutes(row.scheduledEnd || end) - toMinutes(row.checkIn) : 480;
+      void setWorkEmojiStatus(current.features.workEmojiId, Math.max(30, minutes));
+    }
+    // Birinchi marta Face ID bilan belgilaganlarga biometriyani taklif qilamiz (ko‘pi bilan 2 marta).
+    const info = await biometricInfo();
+    const proof = lastFaceProof.current;
+    if (method === "FACE" && current?.features?.biometric && info.available && !info.tokenSaved && proof && Date.now() - proof.at < 150_000) {
+      const offered = Number((await kvGet("cloud", BIO_OFFER_KEY)) || 0);
+      if (offered >= 2) return;
+      void kvSet("cloud", BIO_OFFER_KEY, String(offered + 1));
+      const label = info.type === "face" ? "telefon yuz tanishi (Face ID)" : "barmoq izi";
+      if (await confirmNative(`Keyingi safar ${label} bilan 1 soniyada tasdiqlaysizmi? Kamerani ochish shart bo‘lmaydi.`, { title: "Tezroq belgilash", ok: "Yoqish" })) {
+        try {
+          const ok = await enableBiometric(proof.proof);
+          showToast(ok ? "Biometriya ulandi" : "Biometriyaga ruxsat berilmadi", ok ? "ok" : "error");
+        } catch (reason) {
+          showToast(errorText(reason), "error");
+        }
+        refreshBio();
+        void loadHome().catch(() => undefined);
+      }
+    }
+  };
+
+  if (loading || (!home && !managerChecked))
+    return (
+      <div className="mini">
+        <div className="mini-splash">
+          <img src={stafforaMark} alt="Staffora" />
+          <LoaderCircle className="spin" size={24} />
+        </div>
+      </div>
+    );
+
+  const toastView = toast && (
+    <button className={`mini-toast ${toast.tone === "error" ? "error" : ""}`} onClick={() => setToast(null)}>
+      {toast.tone === "error" ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
+      <span>
+        <b>{toast.tone === "error" ? "Xatolik" : "Muvaffaqiyatli"}</b>
+        <small>{toast.text}</small>
+      </span>
+    </button>
+  );
+  const fallback = (
+    <div className="mini-loader">
+      <LoaderCircle className="spin" />
+    </div>
+  );
+
+  if (authError || !home) {
+    // Xodim emas, lekin rahbar — faqat rahbar paneli.
+    if (manager)
+      return (
+        <div className="mini">
+          <main className="mini-app">
+            <Suspense fallback={fallback}>
+              <ManagerHome auth={manager} onToast={showToast} onExpired={() => void checkManager()} initialView={nav.tab === "manager" ? (nav.view as ManagerView) : undefined} key={nav.key} />
+            </Suspense>
+          </main>
+          {toastView}
+        </div>
+      );
+    return <AuthErrorScreen error={authError} onRetry={authenticate} />;
+  }
+
+  const quick = home.features?.biometric && home.features.biometricRegistered && bio?.tokenSaved ? (bio.type === "face" ? "face" : "finger") : null;
 
   return (
     <div className="mini">
@@ -462,14 +565,12 @@ export function MiniAppPage() {
             className="mini-bell"
             aria-label="Xabarnomalar"
             onClick={() => {
-              tg()?.HapticFeedback?.impactOccurred("light");
+              haptic.tap();
               setNotifOpen(true);
             }}
           >
             <Bell size={21} />
-            {(home.unreadNotifications || 0) > 0 && (
-              <span className="mini-badge">{Math.min(99, home.unreadNotifications || 0)}</span>
-            )}
+            {(home.unreadNotifications || 0) > 0 && <span className="mini-badge">{Math.min(99, home.unreadNotifications || 0)}</span>}
           </button>
         </header>
         {(offline || queued > 0) && (
@@ -477,11 +578,7 @@ export function MiniAppPage() {
             {offline ? <WifiOff size={16} /> : <RefreshCw size={16} className="spin" />}
             <span>
               <b>{offline ? "Internet yo‘q" : "Yuborilmoqda…"}</b>
-              <small>
-                {queued > 0
-                  ? `${queued} ta belgi telefonda saqlangan — aloqa tiklanishi bilan yuboriladi`
-                  : "Davomatni belgilashingiz mumkin — telefonda saqlanadi"}
-              </small>
+              <small>{queued > 0 ? `${queued} ta belgi telefonda saqlangan — aloqa tiklanishi bilan yuboriladi` : "Davomatni belgilashingiz mumkin — telefonda saqlanadi"}</small>
             </span>
             {!offline && queued > 0 && (
               <button onClick={() => void flushQueue()} aria-label="Hozir yuborish">
@@ -490,27 +587,60 @@ export function MiniAppPage() {
             )}
           </div>
         )}
-        {tab === "home" && (
-          <MiniHome
-            data={home}
-            onAction={(action) => {
-              tg()?.HapticFeedback?.impactOccurred("medium");
-              prefetchPosition();
-              setFaceAction(action);
-            }}
-            stale={stale && !offline}
-            offline={offline}
-            onSalary={() => setSalaryOpen(true)}
-            onTab={setTab}
-            onNotifications={() => setNotifOpen(true)}
-          />
-        )}
-        {tab === "history" && <MiniHistory home={home} />}
-        {tab === "leave" && <MiniLeave onToast={showToast} />}
-        {tab === "manager" && manager && <ManagerHome auth={manager} onToast={showToast} onExpired={() => void checkManager()} />}
-        {tab === "profile" && (
-          <MiniProfile data={home} onToast={showToast} lang={lang} onLang={changeLang} prefs={prefs} onPrefs={changePrefs} />
-        )}
+        <Suspense fallback={fallback}>
+          {nav.tab === "home" && (
+            <MiniHome
+              data={home}
+              quick={quick}
+              onAction={(action) => void startAction(action)}
+              stale={stale && !offline}
+              offline={offline}
+              onSalary={() => setSalaryOpen(true)}
+              onNotifications={() => setNotifOpen(true)}
+              onNavigate={navigate}
+              onRefresh={() => loadHome().catch(() => undefined)}
+              onToast={showToast}
+            />
+          )}
+          {nav.tab === "history" && <MiniHistory key={nav.key} home={home} initialView={nav.view as "calendar" | "schedule" | "stats" | undefined} />}
+          {nav.tab === "leave" && <MiniRequests key={nav.key} onToast={showToast} initialView={nav.view as "leave" | "swap" | "overtime" | undefined} focusId={nav.id} />}
+          {nav.tab === "manager" && manager && (
+            <ManagerHome key={nav.key} auth={manager} onToast={showToast} onExpired={() => void checkManager()} initialView={nav.view as ManagerView | undefined} />
+          )}
+          {nav.tab === "profile" && (
+            <MiniProfile
+              data={home}
+              onToast={showToast}
+              lang={lang}
+              onLang={changeLang}
+              prefs={prefs}
+              onPrefs={changePrefs}
+              section={nav.section}
+              focusId={nav.id}
+              bio={bio}
+              onBiometric={(enable) => {
+                if (enable) {
+                  if (!home.employee.faceEnrolledAt) return showToast("Avval Face ID’ni sozlang (birinchi davomatda)", "error");
+                  showToast("Yuzingizni bir marta tekshiramiz — keyin biometriya ulanadi");
+                  setBioEnroll(true);
+                } else
+                  void disableBiometric().then(() => {
+                    showToast("Biometriya o‘chirildi");
+                    refreshBio();
+                    void loadHome().catch(() => undefined);
+                  });
+              }}
+              emojiStatus={emojiStatus}
+              onEmojiStatus={(enable) => {
+                setEmojiStatusPref(enable);
+                void kvSet("cloud", EMOJI_KEY, enable ? "1" : "0");
+                const webApp = tg();
+                if (enable && webApp?.requestEmojiStatusAccess && supports("8.0")) webApp.requestEmojiStatusAccess(() => undefined);
+              }}
+              onDirectory={() => setDirectoryOpen(true)}
+            />
+          )}
+        </Suspense>
       </main>
       <nav className="mini-tabbar">
         {(
@@ -524,27 +654,35 @@ export function MiniAppPage() {
         ).map(([key, Icon, label]) => (
           <button
             key={key}
-            className={tab === key ? "active" : ""}
+            className={nav.tab === key ? "active" : ""}
             onClick={() => {
-              tg()?.HapticFeedback?.selectionChanged?.();
+              haptic.select();
               setTab(key);
             }}
           >
-            <Icon size={21} strokeWidth={tab === key ? 2.3 : 1.9} />
+            <Icon size={21} strokeWidth={nav.tab === key ? 2.3 : 1.9} />
             <span>{label}</span>
           </button>
         ))}
       </nav>
-      {faceAction && (
+      {(faceAction || bioEnroll) && (
         <FaceScanner
           enrolled={Boolean(home.employee.faceEnrolledAt)}
-          onClose={() => setFaceAction(null)}
+          onClose={() => {
+            setFaceAction(null);
+            setBioEnroll(false);
+          }}
           onVerified={onVerified}
           onCapture={(capture) => {
             captureRef.current = capture;
           }}
           onOffline={(capture) => {
             captureRef.current = capture;
+            if (bioEnroll) {
+              setBioEnroll(false);
+              showToast("Biometriyani ulash uchun internet kerak", "error");
+              return Promise.resolve();
+            }
             return saveOffline(faceAction!);
           }}
         />
@@ -555,33 +693,24 @@ export function MiniAppPage() {
           branch={home.branch}
           onClose={() => setFlow(null)}
           onOffline={(gps) => void saveOffline(flow.action, gps)}
-          onSuccess={async (message) => {
-            setFlow(null);
-            showToast(message);
-            haptic("success");
-            await loadHome();
-          }}
+          onSuccess={(row, message) => void onAttendanceSuccess(row, message, flow.method)}
         />
       )}
-      {salaryOpen && <SalarySheet onClose={() => setSalaryOpen(false)} onToast={showToast} />}
-      {notifOpen && (
-        <NotificationsSheet
-          onClose={() => {
-            setNotifOpen(false);
-            void loadHome().catch(() => undefined);
-          }}
-          onChanged={() => void loadHome().catch(() => undefined)}
-        />
-      )}
-      {toast && (
-        <button className={`mini-toast ${toast.tone === "error" ? "error" : ""}`} onClick={() => setToast(null)}>
-          {toast.tone === "error" ? <AlertCircle size={20} /> : <CheckCircle2 size={20} />}
-          <span>
-            <b>{toast.tone === "error" ? "Xatolik" : "Muvaffaqiyatli"}</b>
-            <small>{toast.text}</small>
-          </span>
-        </button>
-      )}
+      <Suspense fallback={null}>
+        {salaryOpen && <SalarySheet onClose={() => setSalaryOpen(false)} onToast={showToast} />}
+        {directoryOpen && <DirectorySheet onClose={() => setDirectoryOpen(false)} />}
+        {notifOpen && (
+          <NotificationsSheet
+            onClose={() => {
+              setNotifOpen(false);
+              void loadHome().catch(() => undefined);
+            }}
+            onChanged={() => void loadHome().catch(() => undefined)}
+            onNavigate={navigate}
+          />
+        )}
+      </Suspense>
+      {toastView}
     </div>
   );
 }
@@ -599,7 +728,9 @@ function AuthErrorScreen({ error, onRetry }: { error: AuthError | null; onRetry:
           <div className="mini-steps">
             <div>
               <i>1</i>
-              <span>Botga qayting va <b>/start</b> bosing</span>
+              <span>
+                Botga qayting va <b>/start</b> bosing
+              </span>
             </div>
             <div>
               <i>2</i>
@@ -635,1254 +766,6 @@ function AuthErrorScreen({ error, onRetry }: { error: AuthError | null; onRetry:
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function useClock() {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-  return now;
-}
-
-const clockDuration = (minutes: number) =>
-  `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
-
-function PhotoAvatar({ employee, className }: { employee: Employee; className?: string }) {
-  const [broken, setBroken] = useState(false);
-  return (
-    <span className={`mini-avatar ${className || ""}`}>
-      {employee.photoDataUrl && !broken ? (
-        <img src={employee.photoDataUrl} alt="" onError={() => setBroken(true)} />
-      ) : (
-        `${employee.firstName[0] || ""}${employee.lastName[0] || ""}`
-      )}
-    </span>
-  );
-}
-
-function minutesSince(checkIn: string) {
-  const [h, m] = checkIn.split(":").map(Number);
-  const [nh, nm] = tashkentClock().split(":").map(Number);
-  return Math.max(0, nh * 60 + nm - (h * 60 + m));
-}
-
-function MiniHome({
-  data,
-  stale,
-  offline,
-  onAction,
-  onNotifications,
-  onSalary,
-}: {
-  data: HomeData;
-  stale: boolean;
-  offline?: boolean;
-  onSalary: () => void;
-  onAction: (action: Action) => void;
-  onTab: (tab: Tab) => void;
-  onNotifications: () => void;
-}) {
-  const now = useClock();
-  const a = data.attendance;
-  const working = Boolean(a?.checkIn && !a.checkOut);
-  const finished = Boolean(a?.checkOut);
-  const day = data.schedule?.days.find((d) => d.day === tashkentWeekday());
-  const clock = now.toLocaleTimeString("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Tashkent",
-  });
-  const missingSetup = !data.branch || !data.schedule;
-  const status = finished
-    ? { text: "Ish kuni yakunlandi", tone: "done" }
-    : working
-      ? { text: a?.lateMinutes ? `Ishdasiz · ${a.lateMinutes} daq kech` : "Ishdasiz", tone: a?.lateMinutes ? "late" : "on" }
-      : data.todayLeave
-        ? { text: "Bugun ta’tildasiz", tone: "off" }
-        : !day?.enabled
-          ? { text: "Dam olish kuni", tone: "off" }
-          : { text: "Hali kelmagansiz", tone: "idle" };
-  const qr = (data.branch?.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE";
-
-  return (
-    <div className="mini-body mh">
-      <section className={`mh-hero ${status.tone}`}>
-        <div className="mh-status">
-          <span>
-            <i />
-            {status.text}
-          </span>
-          <time>{dateLongUz(now)}</time>
-        </div>
-        <div className="mh-clock">{clock}</div>
-        <div className="mh-meta">
-          <MapPin size={13} /> {data.branch?.name || "Filial biriktirilmagan"}
-          <span>·</span>
-          {day?.enabled ? `${day.start}–${day.end}` : "Dam olish"}
-        </div>
-
-        <div className="mh-times">
-          <div>
-            <small>Keldi</small>
-            <b className={a?.checkIn ? "" : "empty"}>{a?.checkIn || "--:--"}</b>
-            {a?.checkIn && <em className={a.lateMinutes ? "late" : "ok"}>{a.lateMinutes ? `${a.lateMinutes} daq kech` : "vaqtida"}</em>}
-          </div>
-          <div>
-            <small>{finished ? "Ketdi" : "Ishlangan"}</small>
-            <b className={finished || working ? "" : "empty"}>
-              {finished ? a?.checkOut : working && a?.checkIn ? clockDuration(minutesSince(a.checkIn)) : "--:--"}
-            </b>
-            {finished && <em className="ok">{clockDuration(a?.workedMinutes || 0)} soat</em>}
-          </div>
-        </div>
-
-        {working && day?.enabled && a?.checkIn && <ShiftProgress start={a.checkIn} end={day.end} now={now} />}
-
-        {missingSetup ? (
-          <div className="mh-done warn">
-            <AlertCircle size={17} /> HR filial va grafikni biriktirishi kerak
-          </div>
-        ) : finished ? (
-          <div className="mh-done">
-            <CheckCircle2 size={17} /> {a?.checkIn} – {a?.checkOut} · {duration(a?.workedMinutes || 0)}
-          </div>
-        ) : (
-          <button
-            className={`mh-action ${working ? "out" : ""}`}
-            disabled={stale}
-            onClick={() => onAction(working ? "CHECK_OUT" : "CHECK_IN")}
-          >
-            {stale ? <LoaderCircle size={19} className="spin" /> : working ? <LogOut size={19} /> : <ScanFace size={19} />}
-            {stale ? "Yangilanmoqda…" : working ? "Ishdan ketdim" : "Ishga keldim"}
-          </button>
-        )}
-        <div className="mh-note">
-          <ShieldCheck size={12} /> Face ID · GPS{qr ? " · QR" : ""}
-        </div>
-      </section>
-
-      <section className="mh-stats">
-        <div>
-          <b>{data.month.days}</b>
-          <small>kun keldi</small>
-        </div>
-        <div>
-          <b className={data.month.late ? "warn" : ""}>{data.month.late}</b>
-          <small>kechikish</small>
-        </div>
-        <div>
-          <b>{Math.round(data.month.workedMinutes / 60)}</b>
-          <small>soat</small>
-        </div>
-      </section>
-
-      <SalaryCard onOpen={onSalary} offline={offline} />
-
-      {data.month.practiceUntil && (
-        <div className="mh-hint info">
-          <CalendarCheck size={16} />
-          <span>
-            {data.month.practiceUntil.split("-").reverse().join(".")} gacha mashq davri — kechikish va ushlanmalar hisoblanmaydi.
-          </span>
-        </div>
-      )}
-      {!data.month.practiceUntil && data.month.lateMinutes > 0 && (
-        <div className="mh-hint warn">
-          <AlertCircle size={16} />
-          <span>
-            Bu oy {data.month.lateMinutes} daqiqa kechikdingiz
-            {data.month.deduction ? ` · ${data.month.deduction.toLocaleString("ru-RU")} so‘m ushlanadi` : ""}
-          </span>
-        </div>
-      )}
-      {!data.employee.faceEnrolledAt && !finished && !missingSetup && (
-        <div className="mh-hint info">
-          <ScanFace size={16} />
-          <span>Birinchi marta Face ID sozlanadi (~15 soniya). Yorug‘ joyda turing.</span>
-        </div>
-      )}
-
-      {data.notifications.length > 0 && (
-        <section className="mh-notifs">
-          <button className="mh-notifs-head" onClick={onNotifications}>
-            <span>
-              Xabarlar
-              {(data.unreadNotifications || 0) > 0 && <span className="mini-badge inline">{data.unreadNotifications}</span>}
-            </span>
-            <ChevronRight size={16} />
-          </button>
-          <div className="mn-list">
-            {data.notifications.slice(0, 2).map((item) => (
-              <NotifItem key={item.id} item={item} onOpen={onNotifications} />
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
-  );
-}
-
-/* ------------------------------------------------------ attendance flow --- */
-type Gps = { lat: number; lng: number; accuracy: number; distance: number; takenAt: number };
-
-function browserPosition(highAccuracy: boolean) {
-  return new Promise<GeolocationPosition>((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error("Qurilma joylashuvni aniqlay olmaydi."));
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: highAccuracy,
-      timeout: highAccuracy ? 15_000 : 10_000,
-      maximumAge: highAccuracy ? 0 : 30_000,
-    });
-  });
-}
-
-/**
- * Telegram 8.0+ ning o‘z joylashuv xizmati. Ba’zi telefonlarda brauzer (WebView)
- * joylashuvi bloklangan bo‘ladi, lekin Telegram’ga ruxsat bor — shunda shu ishlaydi.
- */
-function telegramPosition() {
-  return new Promise<GeolocationPosition>((resolve, reject) => {
-    const manager = tg()?.LocationManager;
-    if (!manager || !supports("8.0")) return reject(new Error("Telegram joylashuvi mavjud emas."));
-    const ask = () => {
-      if (!manager.isLocationAvailable) return reject(new Error("Qurilma joylashuvni aniqlay olmaydi."));
-      manager.getLocation((data) => {
-        if (!data) return reject(Object.assign(new Error("Joylashuvga ruxsat berilmagan."), { code: 1 }));
-        resolve({
-          coords: {
-            latitude: data.latitude,
-            longitude: data.longitude,
-            accuracy: data.horizontal_accuracy ?? 30,
-            altitude: null,
-            altitudeAccuracy: null,
-            heading: null,
-            speed: null,
-          },
-          timestamp: Date.now(),
-        } as unknown as GeolocationPosition);
-      });
-    };
-    if (manager.isInited) ask();
-    else manager.init(ask);
-  });
-}
-
-function getPosition(highAccuracy: boolean) {
-  return browserPosition(highAccuracy).catch((reason) =>
-    // Brauzer joylashuvi ishlamasa — Telegram orqali urinamiz; u ham bo‘lmasa asl xato.
-    telegramPosition().catch(() => Promise.reject(reason)),
-  );
-}
-
-/**
- * GPS'ni Face ID bilan parallel boshlash: tugma bosilganda joylashuv so‘raladi,
- * Face ID tugaguncha u tayyor bo‘ladi. Natija 60 soniya ichida qayta ishlatiladi.
- */
-let gpsPrefetch: { at: number; promise: Promise<GeolocationPosition> } | null = null;
-export function prefetchPosition() {
-  if (gpsPrefetch && Date.now() - gpsPrefetch.at < 20_000) return;
-  const promise = getPosition(true).catch((reason) => {
-    if ((reason as GeolocationPositionError)?.code === 1) throw reason;
-    return getPosition(false);
-  });
-  promise.catch(() => undefined);
-  gpsPrefetch = { at: Date.now(), promise };
-}
-async function takePrefetchedPosition() {
-  const current = gpsPrefetch;
-  gpsPrefetch = null;
-  if (!current || Date.now() - current.at > 60_000) return null;
-  try {
-    return await current.promise;
-  } catch {
-    return null;
-  }
-}
-
-function AttendanceFlow({
-  flow,
-  branch,
-  onClose,
-  onSuccess,
-  onOffline,
-}: {
-  flow: { sessionId: string; action: Action; requiresQr: boolean; photo?: string };
-  branch: Branch;
-  onClose: () => void;
-  onSuccess: (message: string) => void;
-  onOffline?: (gps: { lat: number; lng: number; accuracy: number }) => void;
-}) {
-  const [gps, setGps] = useState<Gps | null>(null);
-  const [gpsState, setGpsState] = useState<"loading" | "ok" | "far" | "error">("loading");
-  const [gpsError, setGpsError] = useState("");
-  const [qrToken, setQrToken] = useState<string | null>(null);
-  const [cameraOpen, setCameraOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const committed = useRef(false);
-  const nativeQr = supports("6.4") && Boolean(tg()?.showScanQrPopup);
-
-  const locate = useCallback(async () => {
-    setGpsState("loading");
-    setGpsError("");
-    try {
-      let position: GeolocationPosition | null = await takePrefetchedPosition();
-      if (!position) {
-        try {
-          position = await getPosition(true);
-        } catch (reason) {
-          if ((reason as GeolocationPositionError)?.code === 1) throw reason;
-          position = await getPosition(false);
-        }
-      }
-      const { latitude, longitude, accuracy } = position.coords;
-      const distance = haversineDistance(latitude, longitude, branch.latitude, branch.longitude);
-      const value = { lat: latitude, lng: longitude, accuracy: Math.round(accuracy), distance, takenAt: position.timestamp || Date.now() };
-      setGps(value);
-      setGpsState(distance - Math.min(35, accuracy) > branch.radiusMeters ? "far" : "ok");
-    } catch (reason) {
-      const code = (reason as GeolocationPositionError)?.code;
-      setGpsError(
-        code === 1
-          ? "Joylashuvga ruxsat berilmagan. Telefon sozlamalarida Telegram uchun joylashuvni yoqing."
-          : code === 3
-            ? "GPS signal topilmadi. Ochiq joyga chiqib qayta urinib ko‘ring."
-            : errorText(reason, "Joylashuv aniqlanmadi."),
-      );
-      setGpsState("error");
-    }
-  }, [branch]);
-
-  useEffect(() => {
-    void locate();
-  }, [locate]);
-
-  const commit = useCallback(
-    async (token: string | null) => {
-      if (committed.current || !gps) return;
-      committed.current = true;
-      setBusy(true);
-      setError("");
-      try {
-        const row = await post<Attendance>("/mini/attendance/commit", {
-          sessionId: flow.sessionId,
-          qrToken: token || undefined,
-          latitude: gps.lat,
-          longitude: gps.lng,
-          accuracy: gps.accuracy,
-          positionAge: Math.max(0, Date.now() - gps.takenAt),
-          photoDataUrl: flow.photo,
-        });
-        onSuccess(
-          flow.action === "CHECK_IN"
-            ? `Ishga kelish ${row.checkIn} da qayd etildi${row.lateMinutes ? ` (${row.lateMinutes} daq kechikish)` : ""}.`
-            : `Ketish ${row.checkOut} da qayd etildi. Ishlagan vaqt: ${duration(row.workedMinutes)}.`,
-        );
-      } catch (reason) {
-        committed.current = false;
-        if (isNetworkError(reason) && onOffline) return onOffline({ lat: gps.lat, lng: gps.lng, accuracy: gps.accuracy });
-        setQrToken(null);
-        setError(errorText(reason, "Tekshiruv amalga oshmadi."));
-        haptic("error");
-      } finally {
-        setBusy(false);
-      }
-    },
-    [flow, gps, onSuccess, onOffline],
-  );
-
-  // GPS tayyor va QR kerak bo‘lmasa — darhol yuboramiz.
-  useEffect(() => {
-    if (gpsState === "ok" && !flow.requiresQr && !committed.current && !error) void commit(null);
-  }, [gpsState, flow.requiresQr, commit, error]);
-  useEffect(() => {
-    if (qrToken && gpsState === "ok") void commit(qrToken);
-  }, [qrToken, gpsState, commit]);
-
-  const onQr = (text: string) => {
-    const value = text.trim();
-    if (value.split(".").length !== 3) {
-      setError("Bu Staffora davomat QR kodi emas. Filial ekranidagi QR’ni skanerlang.");
-      haptic("warning");
-      return false;
-    }
-    setError("");
-    setQrToken(value);
-    return true;
-  };
-
-  function scanNative() {
-    setError("");
-    tg()?.showScanQrPopup?.({ text: `${branch.name} ekranidagi QR kodni skanerlang` }, (text) => {
-      const accepted = onQr(text);
-      if (accepted) tg()?.closeScanQrPopup?.();
-      return accepted;
-    });
-  }
-
-  const steps = [
-    { label: "Face ID", state: "done" },
-    { label: "GPS", state: gpsState === "ok" ? "done" : gpsState === "loading" ? "active" : "" },
-    ...(flow.requiresQr
-      ? [{ label: "QR", state: qrToken ? "done" : gpsState === "ok" ? "active" : "" }]
-      : []),
-    { label: "Tasdiq", state: busy ? "active" : "" },
-  ];
-
-  return (
-    <div className="sheet-layer">
-      <button className="sheet-backdrop" onClick={onClose} aria-label="Yopish" />
-      <section className="sheet" role="dialog" aria-modal="true">
-        <div className="sheet-head">
-          <div>
-            <b>{flow.action === "CHECK_IN" ? "Ishga kelish" : "Ishdan ketish"}</b>
-            <small>Face ID tasdiqlandi ✓ · {branch.name}</small>
-          </div>
-          <button className="sheet-close" onClick={onClose} aria-label="Yopish">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="flow-steps" style={{ ["--steps" as string]: steps.length }}>
-          {steps.map((step) => (
-            <div key={step.label} className={step.state}>
-              <i />
-              {step.label}
-            </div>
-          ))}
-        </div>
-
-        <div className="gps-card">
-          <span className="mini-ico">
-            {gpsState === "loading" ? <LoaderCircle size={18} className="spin" /> : <Navigation size={18} />}
-          </span>
-          <span>
-            <b>
-              {gpsState === "loading"
-                ? "Joylashuv aniqlanmoqda…"
-                : gpsState === "ok"
-                  ? "Siz filial hududidasiz"
-                  : gpsState === "far"
-                    ? "Filialdan uzoqdasiz"
-                    : "Joylashuv aniqlanmadi"}
-            </b>
-            <small>
-              {gps
-                ? `Masofa: ${gps.distance} m · ruxsat: ${branch.radiusMeters} m · aniqlik ±${gps.accuracy} m`
-                : gpsError || "GPS yoqilgan bo‘lsin"}
-            </small>
-          </span>
-          {(gpsState === "far" || gpsState === "error") && (
-            <button className="sheet-close" onClick={() => void locate()} aria-label="Qayta aniqlash">
-              <RotateCcw size={16} />
-            </button>
-          )}
-        </div>
-
-        {flow.requiresQr && gpsState === "ok" && !busy && (
-          <>
-            {cameraOpen ? (
-              <QrCamera onResult={(text) => onQr(text) && setCameraOpen(false)} />
-            ) : null}
-            <div style={{ display: "grid", gap: 8 }}>
-              {nativeQr ? (
-                <button className="mini-btn" onClick={scanNative}>
-                  <QrCode size={18} /> QR kodni skanerlash
-                </button>
-              ) : (
-                !cameraOpen && (
-                  <button className="mini-btn" onClick={() => setCameraOpen(true)}>
-                    <QrCode size={18} /> Kamerani ochish
-                  </button>
-                )
-              )}
-              {nativeQr && !cameraOpen && (
-                <button className="mini-btn ghost" onClick={() => setCameraOpen(true)}>
-                  Ichki kamera orqali skanerlash
-                </button>
-              )}
-            </div>
-          </>
-        )}
-
-        {busy && (
-          <div className="mini-empty">
-            <LoaderCircle className="spin" size={28} />
-            Server tekshirmoqda…
-          </div>
-        )}
-        {error && (
-          <div className="mini-alert" style={{ marginTop: 12 }}>
-            <AlertCircle size={18} />
-            <span>{error}</span>
-          </div>
-        )}
-        {error && !flow.requiresQr && gpsState === "ok" && !busy && (
-          <button className="mini-btn" style={{ marginTop: 10 }} onClick={() => void commit(null)}>
-            <RotateCcw size={17} /> Qayta yuborish
-          </button>
-        )}
-        {gpsState === "far" && (
-          <div className="mini-alert" style={{ marginTop: 12 }}>
-            <MapPin size={18} />
-            <span>
-              Davomatni faqat filial hududida belgilash mumkin. Filialga yaqinroq kelib, ↻
-              tugmasini bosing.
-            </span>
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-function QrCamera({ onResult }: { onResult: (text: string) => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [error, setError] = useState("");
-  const done = useRef(false);
-  const resultRef = useRef(onResult);
-  resultRef.current = onResult;
-  useEffect(() => {
-    let stream: MediaStream | undefined;
-    let timer: number | undefined;
-    let alive = true;
-    void (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 } },
-          audio: false,
-        });
-        if (!alive || !videoRef.current) return;
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        const detector = window.BarcodeDetector
-          ? new window.BarcodeDetector({ formats: ["qr_code"] })
-          : null;
-        const jsQR = detector ? null : (await import("jsqr")).default;
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d", { willReadFrequently: true });
-        timer = window.setInterval(async () => {
-          const video = videoRef.current;
-          if (!video || done.current || video.readyState < 2) return;
-          try {
-            let text: string | undefined;
-            if (detector) text = (await detector.detect(video))[0]?.rawValue;
-            else if (jsQR && context) {
-              const size = Math.min(video.videoWidth, video.videoHeight, 720);
-              const scale = size / Math.min(video.videoWidth, video.videoHeight);
-              canvas.width = Math.round(video.videoWidth * scale);
-              canvas.height = Math.round(video.videoHeight * scale);
-              context.drawImage(video, 0, 0, canvas.width, canvas.height);
-              const image = context.getImageData(0, 0, canvas.width, canvas.height);
-              text = jsQR(image.data, image.width, image.height, { inversionAttempts: "dontInvert" })?.data;
-            }
-            if (text) {
-              done.current = true;
-              resultRef.current(text);
-              window.setTimeout(() => (done.current = false), 1500);
-            }
-          } catch {
-            /* keyingi kadr */
-          }
-        }, 300);
-      } catch {
-        setError("Kamerani ochib bo‘lmadi. Telegram’ga kamera ruxsatini bering.");
-      }
-    })();
-    return () => {
-      alive = false;
-      if (timer) window.clearInterval(timer);
-      stream?.getTracks().forEach((track) => track.stop());
-    };
-  }, []);
-  return (
-    <>
-      <div className="scan-view">
-        <video ref={videoRef} muted playsInline />
-        <div className="scan-frame">
-          <i />
-          <i />
-          <i />
-          <i />
-        </div>
-      </div>
-      {error && (
-        <div className="mini-alert" style={{ marginBottom: 10 }}>
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
-    </>
-  );
-}
-
-/* -------------------------------------------------------------- history --- */
-function MiniHistory({ home }: { home: HomeData }) {
-  const [rows, setRows] = useState<Attendance[] | null>(() => getCached<Attendance[]>("history"));
-  const [error, setError] = useState("");
-  useEffect(() => {
-    void api<Attendance[]>("/mini/attendance")
-      .then((value) => {
-        setCached("history", value);
-        setRows(value);
-      })
-      .catch((e) => setError(errorText(e)));
-  }, []);
-  const today = tashkentIsoDate();
-  const month = today.slice(0, 7);
-  const [year, m] = month.split("-").map(Number);
-  const days = new Date(Date.UTC(year, m, 0)).getUTCDate();
-  const offset = (new Date(Date.UTC(year, m - 1, 1)).getUTCDay() + 6) % 7;
-  const byDate = useMemo(() => new Map((rows || []).map((r) => [r.date, r])), [rows]);
-  return (
-    <div className="mini-body">
-      <div className="mini-title">
-        <h1>Davomat tarixi</h1>
-        <p>{dateLongUz(today).split(" ").slice(1).join(" ")}</p>
-      </div>
-      <section className="mini-card">
-        <div className="mini-cal">
-          {weekOrder.map((d) => (
-            <span key={d}>{weekdayShort[d]}</span>
-          ))}
-          {Array.from({ length: offset }, (_, i) => (
-            <i key={`b${i}`} />
-          ))}
-          {Array.from({ length: days }, (_, i) => {
-            const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-            const row = byDate.get(date);
-            const weekday = dateParts(date).weekday;
-            const workday = home.schedule?.days.find((d) => d.day === weekday)?.enabled ?? true;
-            const tone = row?.checkIn
-              ? row.lateMinutes
-                ? "late"
-                : "present"
-              : date < today && workday && date >= home.employee.startDate
-                ? "absent"
-                : !workday
-                  ? "off"
-                  : "";
-            return (
-              <span key={date} className={`mini-cal-day ${tone} ${date === today ? "today" : ""}`}>
-                {i + 1}
-              </span>
-            );
-          })}
-        </div>
-        <div className="mini-legend">
-          <span>
-            <i style={{ background: "var(--m-success)" }} /> Vaqtida
-          </span>
-          <span>
-            <i style={{ background: "var(--m-warn)" }} /> Kechikkan
-          </span>
-          <span>
-            <i style={{ background: "var(--m-danger)" }} /> Kelmagan
-          </span>
-        </div>
-      </section>
-      {error && (
-        <div className="mini-alert">
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
-      <section className="mini-card">
-        {rows === null ? (
-          <SkeletonList rows={4} />
-        ) : rows.length === 0 ? (
-          <div className="mini-empty">
-            <Clock3 size={28} />
-            Hali davomat qaydlari yo‘q
-          </div>
-        ) : (
-          <div className="mini-rows">
-            {rows.map((item) => (
-              <div className="mini-row" key={item.id}>
-                <span className="mini-date">
-                  <b>{dateParts(item.date).day}</b>
-                  <small>{monthShortUz(item.date)}</small>
-                </span>
-                <span>
-                  <b>
-                    {item.checkIn || "—"} → {item.checkOut || "…"}
-                  </b>
-                  <small>
-                    {item.workedMinutes ? duration(item.workedMinutes) : "Ish davom etmoqda"}
-                    {item.lateMinutes ? ` · ${item.lateMinutes} daq kech` : ""}
-                  </small>
-                </span>
-                <span className={`mini-chip ${item.lateMinutes ? "warn" : item.checkOut ? "ok" : "info"}`}>
-                  {item.lateMinutes ? "Kechikdi" : item.checkOut ? "Vaqtida" : "Ishda"}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------------- leave --- */
-function MiniLeave({ onToast }: { onToast: (text: string, tone?: "ok" | "error") => void }) {
-  const [rows, setRows] = useState<LeaveRequest[] | null>(() => getCached<LeaveRequest[]>("leave"));
-  const [open, setOpen] = useState(false);
-  const [view, setView] = useState<"leave" | "swap">("leave");
-  const load = useCallback(
-    () =>
-      api<LeaveRequest[]>("/mini/leave")
-        .then((value) => {
-          setCached("leave", value);
-          setRows(value);
-        })
-        .catch((e) => onToast(errorText(e), "error")),
-    [onToast],
-  );
-  useEffect(() => {
-    void load();
-  }, [load]);
-  const statusChip: Record<string, [string, string]> = {
-    PENDING: ["Kutilmoqda", "warn"],
-    APPROVED: ["Tasdiqlandi", "ok"],
-    REJECTED: ["Rad etildi", "bad"],
-    CANCELLED: ["Bekor qilindi", ""],
-  };
-  return (
-    <div className="mini-body">
-      <div className="mini-title">
-        <h1>So‘rovlar</h1>
-        <p>Ta’til va smena almashish</p>
-      </div>
-      <div className="mini-seg" role="tablist">
-        <button role="tab" aria-selected={view === "leave"} className={view === "leave" ? "on" : ""} onClick={() => setView("leave")}>
-          Ta’til
-        </button>
-        <button role="tab" aria-selected={view === "swap"} className={view === "swap" ? "on" : ""} onClick={() => setView("swap")}>
-          Smena almashish
-        </button>
-      </div>
-      {view === "swap" ? (
-        <MiniSwaps onToast={onToast} />
-      ) : (
-      <>
-      <button className="mini-btn" onClick={() => setOpen(true)}>
-        <CalendarDays size={18} /> Yangi so‘rov
-      </button>
-      <section className="mini-card">
-        {rows === null ? (
-          <SkeletonList rows={4} />
-        ) : rows.length === 0 ? (
-          <div className="mini-empty">
-            <Plane size={28} />
-            Hali so‘rov yubormagansiz
-          </div>
-        ) : (
-          <div className="mini-rows">
-            {rows.map((item) => {
-              const [label, tone] = statusChip[item.status] || [item.status, ""];
-              return (
-                <div className="mini-row" key={item.id}>
-                  <span className="mini-ico">
-                    <Plane size={18} />
-                  </span>
-                  <span>
-                    <b>{leaveTypeLabel[item.type] || item.type}</b>
-                    <small>
-                      {dateUz(item.startDate)} – {dateUz(item.endDate)}
-                    </small>
-                    {item.status === "PENDING" && (
-                      <button
-                        style={{ border: 0, background: "none", padding: "4px 0 0", color: "var(--m-danger)", fontSize: 12.5, textAlign: "left", fontWeight: 600 }}
-                        onClick={async () => {
-                          try {
-                            await patch(`/mini/leave/${item.id}/cancel`);
-                            onToast("So‘rov bekor qilindi");
-                            void load();
-                          } catch (reason) {
-                            onToast(errorText(reason), "error");
-                          }
-                        }}
-                      >
-                        Bekor qilish
-                      </button>
-                    )}
-                  </span>
-                  <span className={`mini-chip ${tone}`}>{label}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-      </>
-      )}
-      {open && (
-        <LeaveSheet
-          onClose={() => setOpen(false)}
-          onSaved={() => {
-            setOpen(false);
-            onToast("So‘rov HR’ga yuborildi");
-            haptic("success");
-            void load();
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function LeaveSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const today = tashkentIsoDate();
-  const [form, setForm] = useState({ type: "VACATION", startDate: today, endDate: today, reason: "" });
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  async function save(event: React.FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      await post("/mini/leave", form);
-      onSaved();
-    } catch (reason) {
-      setError(errorText(reason, "So‘rov yuborilmadi."));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <div className="sheet-layer">
-      <button className="sheet-backdrop" onClick={onClose} aria-label="Yopish" />
-      <section className="sheet">
-        <div className="sheet-head">
-          <div>
-            <b>Ta’til so‘rovi</b>
-            <small>HR ko‘rib chiqadi, javob Telegram’ga keladi</small>
-          </div>
-          <button className="sheet-close" onClick={onClose} aria-label="Yopish">
-            <X size={18} />
-          </button>
-        </div>
-        <form onSubmit={save}>
-          <label>
-            Turi
-            <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
-              {Object.entries(leaveTypeLabel).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="grid-2">
-            <label>
-              Boshlanish
-              <input
-                type="date"
-                value={form.startDate}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    startDate: e.target.value,
-                    endDate: form.endDate < e.target.value ? e.target.value : form.endDate,
-                  })
-                }
-                required
-              />
-            </label>
-            <label>
-              Tugash
-              <input type="date" min={form.startDate} value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} required />
-            </label>
-          </div>
-          <label>
-            Sabab
-            <textarea value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} required minLength={3} placeholder="Qisqacha yozing" />
-          </label>
-          {error && (
-            <div className="mini-alert">
-              <AlertCircle size={18} />
-              <span>{error}</span>
-            </div>
-          )}
-          <button className="mini-btn" disabled={busy}>
-            {busy ? <LoaderCircle size={17} className="spin" /> : <Send size={17} />}
-            {busy ? "Yuborilmoqda…" : "Yuborish"}
-          </button>
-        </form>
-      </section>
-    </div>
-  );
-}
-
-/* -------------------------------------------------------------- profile --- */
-function MiniProfile({
-  data,
-  onToast,
-  lang,
-  onLang,
-  prefs,
-  onPrefs,
-}: {
-  data: HomeData;
-  onToast: (text: string, tone?: "ok" | "error") => void;
-  lang: Lang;
-  onLang: (lang: Lang) => void;
-  prefs: MiniPrefs;
-  onPrefs: (prefs: MiniPrefs) => void;
-}) {
-  const [homeScreen, setHomeScreen] = useState<"unsupported" | "unknown" | "added" | "missed">("unsupported");
-  useEffect(() => {
-    const webApp = tg();
-    if (!supports("8.0") || !webApp?.checkHomeScreenStatus) return;
-    try {
-      webApp.checkHomeScreenStatus((status) => setHomeScreen(status));
-    } catch {
-      /* qo‘llab-quvvatlanmaydi */
-    }
-    const onAdded = () => setHomeScreen("added");
-    webApp.onEvent?.("homeScreenAdded", onAdded);
-    return () => webApp.offEvent?.("homeScreenAdded", onAdded);
-  }, []);
-  const e = data.employee;
-  const days = Math.max(0, Math.floor((Date.now() - new Date(`${e.startDate}T00:00:00+05:00`).getTime()) / 86_400_000));
-  const tenure = days < 31 ? `${days} kun` : days < 365 ? `${Math.floor(days / 30.44)} oy` : `${Math.floor(days / 365.25)} yil ${Math.floor((days % 365.25) / 30.44)} oy`;
-  const today = tashkentWeekday();
-  const salary = e.baseSalary ? `${e.baseSalary.toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m` : "—";
-  const deduction = data.month.deduction ? `−${data.month.deduction.toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m` : "0";
-  const mapUrl =
-    data.branch && data.branch.latitude
-      ? `https://maps.google.com/?q=${data.branch.latitude},${data.branch.longitude}`
-      : undefined;
-  return (
-    <div className="mini-body mp">
-      <div className="mp-head">
-        <PhotoAvatar employee={e} className="mp-avatar" />
-        <h1>
-          {e.firstName} {e.lastName}
-        </h1>
-        <p>{data.position?.name || "Lavozim belgilanmagan"}</p>
-        <div className="mp-chips">
-          <span>🆔 {e.employeeNo}</span>
-          <span>⏳ {tenure}</span>
-          <span className={e.faceEnrolledAt ? "ok" : ""}>{e.faceEnrolledAt ? "✓ Face ID" : "Face ID yo‘q"}</span>
-        </div>
-      </div>
-
-      <div className="mp-group-title">Bu oy</div>
-      <section className="mp-group mp-month">
-        <div>
-          <b>{data.month.days}</b>
-          <small>kun keldi</small>
-        </div>
-        <div>
-          <b className={data.month.lateMinutes ? "warn" : ""}>{data.month.lateMinutes}</b>
-          <small>daq kechikish</small>
-        </div>
-        <div>
-          <b>{Math.round(data.month.workedMinutes / 60)}</b>
-          <small>soat ishladi</small>
-        </div>
-      </section>
-      <section className="mp-group">
-        <div className="mp-row">
-          <span>Oylik</span>
-          <b>{salary}</b>
-        </div>
-        <div className="mp-row">
-          <span>Kechikish ushlanmasi</span>
-          <b className={data.month.deduction ? "warn" : ""}>{deduction}</b>
-        </div>
-      </section>
-
-      <div className="mp-group-title">Ish joyi</div>
-      <section className="mp-group">
-        <div className="mp-row">
-          <span>Kompaniya</span>
-          <b>{data.company?.name || "—"}</b>
-        </div>
-        <div className="mp-row">
-          <span>Bo‘lim</span>
-          <b>{data.department?.name || "—"}</b>
-        </div>
-        {data.branch && (
-          <a className="mp-row link" href={mapUrl} target="_blank" rel="noreferrer" onClick={(event) => !mapUrl && event.preventDefault()}>
-            <span>Filial</span>
-            <b>
-              {data.branch.name}
-              {mapUrl && <MapPin size={14} />}
-            </b>
-          </a>
-        )}
-        <div className="mp-row">
-          <span>Ish boshlagan</span>
-          <b>{dateUz(e.startDate)}</b>
-        </div>
-      </section>
-
-      {data.schedule && (
-        <>
-          <div className="mp-group-title">Ish grafigi · {data.schedule.name}</div>
-          <section className="mp-group mp-week">
-            {weekOrder.map((day) => {
-              const d = data.schedule!.days.find((x) => x.day === day);
-              return (
-                <div key={day} className={`${day === today ? "today" : ""} ${d?.enabled ? "" : "off"}`}>
-                  <span>{weekdayShort[day]}</span>
-                  <b>{d?.enabled ? `${d.start}–${d.end}` : "Dam"}</b>
-                </div>
-              );
-            })}
-          </section>
-        </>
-      )}
-
-      <MiniPayslips />
-      <MiniDocuments onToast={onToast} />
-
-      <div className="mp-group-title">Aloqa</div>
-      <section className="mp-group">
-        <div className="mp-row">
-          <span>Telefon</span>
-          <b>{e.phone || "—"}</b>
-        </div>
-        <div className="mp-row">
-          <span>Telegram</span>
-          <b>{e.telegramConnected ? "Ulangan ✓" : "Ulanmagan"}</b>
-        </div>
-      </section>
-      <div className="mp-group-title">Ko‘rinish</div>
-      <section className="mp-group mp-prefs">
-        <div className="mp-pref">
-          <span>Mavzu</span>
-          <div className="mini-seg three" role="radiogroup">
-            {(
-              [
-                ["auto", "Avto"],
-                ["light", "Yorug‘"],
-                ["dark", "Tungi"],
-              ] as const
-            ).map(([value, label]) => (
-              <button key={value} role="radio" aria-checked={prefs.theme === value} className={prefs.theme === value ? "on" : ""} onClick={() => onPrefs({ ...prefs, theme: value })}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="mp-pref">
-          <span>Shrift</span>
-          <div className="mini-seg" role="radiogroup">
-            {(
-              [
-                ["normal", "Oddiy"],
-                ["large", "Katta"],
-              ] as const
-            ).map(([value, label]) => (
-              <button key={value} role="radio" aria-checked={prefs.font === value} className={prefs.font === value ? "on" : ""} onClick={() => onPrefs({ ...prefs, font: value })}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <label className="mp-row mp-switch">
-          <span>Yuqori kontrast</span>
-          <input type="checkbox" checked={prefs.contrast} onChange={(e) => onPrefs({ ...prefs, contrast: e.target.checked })} />
-        </label>
-        {(homeScreen === "missed" || homeScreen === "unknown") && (
-          <button className="mp-row link mp-homescreen" onClick={() => tg()?.addToHomeScreen?.()}>
-            <span>📲 Telefon ekraniga Staffora yorlig‘ini qo‘shish</span>
-            <ChevronRight size={16} />
-          </button>
-        )}
-        {homeScreen === "added" && (
-          <div className="mp-row">
-            <span>Telefon ekranida yorliq</span>
-            <b>Qo‘shilgan ✓</b>
-          </div>
-        )}
-      </section>
-
-      <div className="mp-group-title">Til</div>
-      <section className="mp-group">
-        <div className="mini-seg mp-lang" role="radiogroup" data-no-translate>
-          <button role="radio" aria-checked={lang === "uz"} className={lang === "uz" ? "on" : ""} onClick={() => onLang("uz")}>
-            🇺🇿 O‘zbekcha
-          </button>
-          <button role="radio" aria-checked={lang === "ru"} className={lang === "ru" ? "on" : ""} onClick={() => onLang("ru")}>
-            🇷🇺 Русский
-          </button>
-        </div>
-      </section>
-      <p className="mp-note">Ma’lumotlarni o‘zgartirish uchun HR bo‘limiga murojaat qiling.</p>
-    </div>
-  );
-}
-
-function ShiftProgress({ start, end, now }: { start: string; end: string; now: Date }) {
-  const toMin = (v: string) => Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5));
-  const current = toMin(tashkentClock(now));
-  const total = Math.max(1, toMin(end) - toMin(start));
-  const done = Math.min(total, Math.max(0, current - toMin(start)));
-  const left = Math.max(0, toMin(end) - current);
-  const percent = Math.round((done / total) * 100);
-  return (
-    <div className="mini-shift" aria-label={`Ish kuni ${percent}%`}>
-      <div className="mini-shift-bar">
-        <i style={{ width: `${percent}%` }} />
-      </div>
-      <div className="mini-shift-text">
-        <span>{percent}% bajarildi</span>
-        <span>{left ? `${Math.floor(left / 60)} soat ${left % 60} daq qoldi` : "Ish vaqti tugadi"}</span>
-      </div>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------- xabarnomalar --- */
-
-const notifKinds: Record<string, { icon: typeof Bell; tone: string; label: string }> = {
-  ATTENDANCE: { icon: Clock3, tone: "warn", label: "Davomat" },
-  LEAVE: { icon: Plane, tone: "blue", label: "Ta’til" },
-  ANNOUNCEMENT: { icon: Megaphone, tone: "green", label: "E’lon" },
-};
-const kindOf = (type: string) => notifKinds[type] || { icon: Bell, tone: "gray", label: "Xabar" };
-
-function relativeTime(iso: string) {
-  const diff = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
-  if (diff < 1) return "hozir";
-  if (diff < 60) return `${diff} daq oldin`;
-  const day = tashkentIsoDate(new Date(iso));
-  if (day === tashkentIsoDate()) return tashkentClock(new Date(iso));
-  return `${dateUz(day)}, ${tashkentClock(new Date(iso))}`;
-}
-function dayGroup(iso: string) {
-  const day = tashkentIsoDate(new Date(iso));
-  if (day === tashkentIsoDate()) return "Bugun";
-  if (day === tashkentIsoDate(new Date(Date.now() - 86_400_000))) return "Kecha";
-  return dateLongUz(day);
-}
-
-function NotifItem({ item, onOpen }: { item: Notification; onOpen?: () => void }) {
-  const kind = kindOf(item.type);
-  const Icon = kind.icon;
-  return (
-    <button className={`mn-item ${item.read ? "" : "unread"}`} onClick={onOpen}>
-      <span className={`mn-icon ${kind.tone}`}>
-        <Icon size={17} />
-      </span>
-      <span className="mn-text">
-        <span className="mn-head">
-          <b>{item.title.replace(/^📢\s*/, "")}</b>
-          <time>{relativeTime(item.createdAt)}</time>
-        </span>
-        <small>{item.body}</small>
-      </span>
-      {!item.read && <i className="mn-dot" aria-label="O‘qilmagan" />}
-    </button>
-  );
-}
-
-function NotificationsSheet({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
-  const [items, setItems] = useState<Notification[] | null>(null);
-  const [error, setError] = useState("");
-  const [open, setOpen] = useState<Notification | null>(null);
-  useEffect(() => {
-    api<{ items: Notification[] }>("/mini/notifications")
-      .then((r) => setItems(r.items))
-      .catch((reason) => setError(errorText(reason)));
-  }, []);
-  const markRead = async (ids?: string[]) => {
-    setItems((list) => list?.map((n) => (!ids || ids.includes(n.id) ? { ...n, read: true } : n)) || null);
-    await post("/mini/notifications/read", ids ? { ids } : { all: true }).catch(() => undefined);
-    onChanged();
-  };
-  const unread = items?.filter((n) => !n.read).length || 0;
-  const groups = (items || []).reduce<[string, Notification[]][]>((acc, n) => {
-    const label = dayGroup(n.createdAt);
-    const group = acc.find(([key]) => key === label);
-    if (group) group[1].push(n);
-    else acc.push([label, [n]]);
-    return acc;
-  }, []);
-  return (
-    <div className="sheet-layer">
-      <button className="sheet-backdrop" onClick={onClose} aria-label="Yopish" />
-      <section className="sheet mn-sheet">
-        <div className="sheet-head">
-          <div>
-            <b>Xabarnomalar</b>
-            <small>{unread ? `${unread} ta o‘qilmagan` : "Hammasi o‘qilgan"}</small>
-          </div>
-          {unread > 0 && (
-            <button className="mn-readall" onClick={() => void markRead()}>
-              <CheckCheck size={15} /> O‘qildi
-            </button>
-          )}
-          <button className="sheet-close" onClick={onClose} aria-label="Yopish">
-            <X size={18} />
-          </button>
-        </div>
-        {error ? (
-          <div className="mini-alert warn">
-            <AlertCircle size={18} />
-            <span>{error}</span>
-          </div>
-        ) : !items ? (
-          <div className="mn-loading">
-            <LoaderCircle className="spin" size={22} />
-          </div>
-        ) : !items.length ? (
-          <div className="mini-empty">
-            <Bell size={26} />
-            <b>Xabarlar yo‘q</b>
-            <small>E’lonlar, ta’til javoblari va eslatmalar shu yerda ko‘rinadi.</small>
-          </div>
-        ) : (
-          <div className="mn-scroll">
-            {groups.map(([label, rows]) => (
-              <div key={label} className="mn-group">
-                <div className="mn-day">{label}</div>
-                <div className="mn-list">
-                  {rows.map((item) => (
-                    <NotifItem
-                      key={item.id}
-                      item={item}
-                      onOpen={() => {
-                        setOpen(item);
-                        if (!item.read) void markRead([item.id]);
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        {open && (
-          <div className="mn-detail" role="dialog" aria-label={open.title}>
-            <button className="mn-back" onClick={() => setOpen(null)}>
-              <ChevronRight size={16} style={{ transform: "rotate(180deg)" }} /> Orqaga
-            </button>
-            <span className={`mn-icon lg ${kindOf(open.type).tone}`}>
-              {(() => {
-                const Icon = kindOf(open.type).icon;
-                return <Icon size={22} />;
-              })()}
-            </span>
-            <small className="mn-kind">
-              {kindOf(open.type).label} · {relativeTime(open.createdAt)}
-            </small>
-            <h2>{open.title.replace(/^📢\s*/, "")}</h2>
-            <p>{open.body}</p>
-          </div>
-        )}
-      </section>
     </div>
   );
 }

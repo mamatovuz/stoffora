@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, ArrowLeftRight, Check, ChevronDown, FileText, LoaderCircle, Send, Upload, Wallet, X } from "lucide-react";
+import { AlertCircle, ArrowLeftRight, Check, ChevronDown, Download, FileText, LoaderCircle, Share2, Upload, Wallet, X } from "lucide-react";
+import { confirmNative, downloadMiniFile, haptic, shareText } from "./mini/tg";
+import { Sheet } from "./mini/shared";
 import { api, errorText, post } from "../api";
-import { SkeletonList } from "./MiniManager";
+import { SkeletonList } from "./mini/shared";
 import { getCached, setCached } from "./miniCache";
 import { fileToDataUrl, DOCUMENT_LABELS } from "../components/Documents";
 import { dateUz, tashkentIsoDate } from "@/lib/format";
@@ -40,11 +42,13 @@ export function MiniSwaps({ onToast }: { onToast: Toast }) {
   useEffect(() => {
     void load();
   }, [load]);
-  async function act(id: string, path: string, body: object, message: string) {
+  async function act(id: string, path: string, body: object, message: string, confirm?: string) {
+    if (confirm && !(await confirmNative(confirm, { ok: "Ha", destructive: true }))) return;
     setBusy(id);
     try {
       await post(`/mini/swaps/${id}/${path}`, body);
       onToast(message);
+      haptic.success();
       void load();
     } catch (reason) {
       onToast(errorText(reason), "error");
@@ -75,7 +79,7 @@ export function MiniSwaps({ onToast }: { onToast: Toast }) {
                 <button className="mini-btn sm" disabled={busy === s.id} onClick={() => void act(s.id, "respond", { accept: true }, "Rozilik yuborildi — rahbar tasdig‘i kutilmoqda")}>
                   <Check size={16} /> Roziman
                 </button>
-                <button className="mini-btn sm ghost" disabled={busy === s.id} onClick={() => void act(s.id, "respond", { accept: false }, "Rad etildi")}>
+                <button className="mini-btn sm ghost" disabled={busy === s.id} onClick={() => void act(s.id, "respond", { accept: false }, "Rad etildi", `${s.requesterName} so‘rovini rad etasizmi?`)}>
                   <X size={16} /> Yo‘q
                 </button>
               </div>
@@ -111,7 +115,7 @@ export function MiniSwaps({ onToast }: { onToast: Toast }) {
                       </small>
                     )}
                     {!s.incoming && ["PENDING_COLLEAGUE", "PENDING_MANAGER"].includes(s.status) && (
-                      <button className="mini-link-danger" disabled={busy === s.id} onClick={() => void act(s.id, "cancel", {}, "So‘rov bekor qilindi")}>
+                      <button className="mini-link-danger" disabled={busy === s.id} onClick={() => void act(s.id, "cancel", {}, "So‘rov bekor qilindi", "Smena almashish so‘rovini bekor qilasizmi?")}>
                         Bekor qilish
                       </button>
                     )}
@@ -144,8 +148,10 @@ function SwapSheet({ colleagues, onClose, onSaved }: { colleagues: { id: string;
   const [exchange, setExchange] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  async function save(event: React.FormEvent) {
-    event.preventDefault();
+  const valid = Boolean(form.colleagueId && form.giveDate && (!exchange || form.takeDate));
+  async function save(event?: React.FormEvent) {
+    event?.preventDefault();
+    if (!valid) return setError("Hamkasb va sanani tanlang.");
     setBusy(true);
     setError("");
     try {
@@ -157,19 +163,26 @@ function SwapSheet({ colleagues, onClose, onSaved }: { colleagues: { id: string;
       setBusy(false);
     }
   }
+  const colleague = colleagues.find((c) => c.id === form.colleagueId);
   return (
-    <div className="sheet-layer">
-      <button className="sheet-backdrop" onClick={onClose} aria-label="Yopish" />
-      <section className="sheet">
-        <div className="sheet-head">
-          <div>
-            <b>Smena almashish</b>
-            <small>Hamkasb rozi bo‘lgach, rahbar tasdiqlaydi</small>
-          </div>
-          <button className="sheet-close" onClick={onClose} aria-label="Yopish">
-            <X size={18} />
-          </button>
-        </div>
+    <Sheet
+      title="Smena almashish"
+      subtitle="Hamkasb rozi bo‘lgach, rahbar tasdiqlaydi"
+      onClose={onClose}
+      primary={{ text: "So‘rov yuborish", onClick: () => void save(), busy, disabled: !valid }}
+      secondary={
+        colleague
+          ? {
+              text: "Chatda so‘rash",
+              onClick: () =>
+                void shareText(
+                  "Smena almashish",
+                  `🔄 ${colleague.name.split(" ")[0]}, ${form.giveDate.split("-").reverse().join(".")} kungi smenamni olib bera olasizmi?${exchange && form.takeDate ? ` Evaziga ${form.takeDate.split("-").reverse().join(".")} kuni sizning o‘rningizga chiqaman.` : ""} Rozi bo‘lsangiz, Staffora’da tasdiqlang.`,
+                ),
+            }
+          : null
+      }
+    >
         <form onSubmit={save}>
           <label>
             Hamkasb
@@ -206,13 +219,8 @@ function SwapSheet({ colleagues, onClose, onSaved }: { colleagues: { id: string;
               <span>{error}</span>
             </div>
           )}
-          <button className="mini-btn" disabled={busy}>
-            {busy ? <LoaderCircle size={17} className="spin" /> : <Send size={17} />}
-            {busy ? "Yuborilmoqda…" : "Yuborish"}
-          </button>
         </form>
-      </section>
-    </div>
+    </Sheet>
   );
 }
 
@@ -225,6 +233,17 @@ export function MiniDocuments({ onToast }: { onToast: Toast }) {
   const [expiresAt, setExpiresAt] = useState("");
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const [downloading, setDownloading] = useState<string | null>(null);
+  async function download(id: string) {
+    setDownloading(id);
+    try {
+      await downloadMiniFile({ kind: "document", id });
+    } catch (reason) {
+      onToast(errorText(reason, "Yuklab bo‘lmadi."), "error");
+    } finally {
+      setDownloading(null);
+    }
+  }
   const load = useCallback(
     () =>
       api<MiniDoc[]>("/mini/documents")
@@ -262,14 +281,15 @@ export function MiniDocuments({ onToast }: { onToast: Toast }) {
           <SkeletonList rows={3} />
         ) : (
           docs.map((d) => (
-            <div className="mp-row" key={d.id}>
+            <button className="mp-row link" key={d.id} onClick={() => void download(d.id)} disabled={downloading === d.id}>
               <span className="md-title">
                 <FileText size={15} /> {d.title}
               </span>
               <b className={d.status === "EXPIRED" ? "bad" : d.status === "SOON" ? "warn" : ""}>
                 {d.expiresAt ? (d.status === "EXPIRED" ? "Muddati o‘tgan" : `${dateUz(d.expiresAt)} gacha`) : "✓"}
+                {downloading === d.id ? <LoaderCircle size={14} className="spin" /> : <Download size={14} />}
               </b>
-            </div>
+            </button>
           ))
         )}
         <div className="md-upload">
@@ -294,12 +314,26 @@ export function MiniDocuments({ onToast }: { onToast: Toast }) {
 /* --------------------------------------------------- hisob varaqalari --- */
 type Payslip = { month: string; label: string; closedAt: string; line: PayslipLine };
 
-export function MiniPayslips() {
+export function MiniPayslips({ onToast, focusMonth }: { onToast?: Toast; focusMonth?: string }) {
   const [rows, setRows] = useState<Payslip[] | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(focusMonth || null);
+  const [busy, setBusy] = useState<string | null>(null);
   useEffect(() => {
-    void api<Payslip[]>("/mini/payslips").then(setRows).catch(() => setRows([]));
-  }, []);
+    void api<Payslip[]>("/mini/payslips")
+      .then(setRows)
+      .catch(() => setRows([]));
+  }, [focusMonth]);
+  async function download(month: string) {
+    setBusy(month);
+    try {
+      await downloadMiniFile({ kind: "payslip", month });
+      haptic.success();
+    } catch (reason) {
+      onToast?.(errorText(reason, "Yuklab bo‘lmadi."), "error");
+    } finally {
+      setBusy(null);
+    }
+  }
   if (!rows?.length) return null;
   return (
     <>
@@ -326,6 +360,18 @@ export function MiniPayslips() {
                 {line.advance > 0 && <Line label="Avans" value={`−${som(line.advance)}`} />}
                 <Line label="Ish kunlari" value={`${line.days} / ${line.expectedDays}`} />
                 <Line label="Qo‘lga" value={som(line.net)} strong />
+                <div className="ps-actions">
+                  <button className="mini-btn sm ghost" disabled={busy === month} onClick={() => void download(month)}>
+                    {busy === month ? <LoaderCircle size={15} className="spin" /> : <Download size={15} />} Excel’da yuklab olish
+                  </button>
+                  <button
+                    className="mini-btn sm ghost-neutral"
+                    aria-label="Ulashish"
+                    onClick={() => void shareText("Hisob varaqasi", `🧾 ${label}: qo‘lga ${som(line.net)} (${line.days}/${line.expectedDays} kun)`)}
+                  >
+                    <Share2 size={15} />
+                  </button>
+                </div>
               </div>
             )}
           </div>

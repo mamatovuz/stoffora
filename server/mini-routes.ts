@@ -32,6 +32,10 @@ import { createMiniAdvanceRouter } from "./advances";
 import { companyBotTokens } from "./company-bots";
 import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
 import { enqueueAttendancePhoto } from "./photo-channel";
+import { signFaceProof, verifyFaceProof } from "./face-proof";
+import { createMiniExtraRouter, miniFeatures } from "./mini-extra";
+import { deviceFlags, isDeepLinkParam } from "../lib/mini";
+import { documentInputSchema, saveDocument } from "./documents";
 import {
   requireEmployee,
   signEmployeeSession,
@@ -54,8 +58,6 @@ const asyncRoute =
 const id = () => crypto.randomUUID();
 const httpError = (message: string, status: number) =>
   Object.assign(new Error(message), { status });
-const faceSecret = () =>
-  process.env.JWT_SECRET || "staffora-local-face-secret-change-me";
 const qrSecret = () =>
   process.env.QR_SIGNING_SECRET || "staffora-local-qr-secret-change-me";
 /** GPS aniqligi past bo‘lsa ham adolatli bo‘lishi uchun maksimal qo‘shimcha tolerantlik. */
@@ -69,14 +71,6 @@ const livenessSchema = z
     frames: z.number().int().min(0).max(500).optional(),
   })
   .optional();
-
-function signFaceProof(employeeId: string, companyId: string) {
-  return jwt.sign(
-    { type: "FACE_VERIFICATION", employeeId, companyId },
-    faceSecret(),
-    { expiresIn: 180, issuer: "staffora-face" },
-  );
-}
 
 function monthSummary(db: Database, employeeId: string) {
   const month = tashkentIsoDate().slice(0, 7);
@@ -124,6 +118,8 @@ function buildHome(db: Database, employee: Employee) {
     attendance: dataIndexes(db).attendanceByKey.get(`${employee.id}|${date}`),
     todayLeave: todayLeave || null,
     month: monthSummary(db, employee.id),
+    features: miniFeatures(db, employee),
+    lateNotice: db.lateNotices.find((n) => n.employeeId === employee.id && n.date === date) || null,
     serverTime: new Date().toISOString(),
     notifications: notifications.slice(0, 5),
     unreadNotifications: notifications.filter((n) => !n.read).length,
@@ -258,7 +254,7 @@ export function createMiniRouter() {
         }
         telegramId = String(identity.id);
         // startapp=<taklif kodi> orqali ochilgan bo‘lsa — shu yerning o‘zida ulaymiz.
-        if (identity.startParam && /^[A-Za-z0-9_-]{16,64}$/.test(identity.startParam))
+        if (identity.startParam && !isDeepLinkParam(identity.startParam) && /^[A-Za-z0-9_-]{16,64}$/.test(identity.startParam))
           await linkEmployeeByInvite(identity.startParam, identity);
         // Xodimlar botidan import qilingan xodim — Telegram ID (imzolangan) bo‘yicha avtomatik ulash.
         await linkEmployeeByKnownTelegramId(identity);
@@ -309,6 +305,7 @@ export function createMiniRouter() {
   router.use(createMiniPayrollRouter());
   router.use(createMiniOfflineRouter());
   router.use(createMiniAdvanceRouter());
+  router.use(createMiniExtraRouter());
   router.get(
     "/mini/home",
     asyncRoute(async (req, res) => {
@@ -416,6 +413,8 @@ export function createMiniRouter() {
           startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           reason: z.string().trim().min(3).max(1000),
+          /** Ixtiyoriy: kasallik varaqasi yoki boshqa tasdiqlovchi hujjat rasmi. */
+          attachment: documentInputSchema.shape.dataUrl.optional(),
         })
         .refine((value) => value.endDate >= value.startDate, {
           message:
@@ -423,6 +422,24 @@ export function createMiniRouter() {
         })
         .parse(req.body);
       const session = req.employeeSession!;
+      const { attachment, ...leaveInput } = input;
+      let documentId: string | undefined;
+      if (attachment) {
+        const current = await readDb();
+        const owner = current.employees.find((item) => item.id === session.employeeId && item.companyId === session.companyId);
+        if (!owner) throw httpError("Xodim topilmadi.", 404);
+        const doc = await saveDocument(
+          session.companyId,
+          owner.id,
+          {
+            type: input.type === "SICK" ? "MEDICAL" : "OTHER",
+            title: `${input.type === "SICK" ? "Kasallik varaqasi" : "Ta’til hujjati"} ${input.startDate.split("-").reverse().join(".")}`,
+            dataUrl: attachment,
+          },
+          `${owner.firstName} ${owner.lastName} (Mini App)`,
+        );
+        documentId = doc.id;
+      }
       const row = await updateDb((db) => {
         const employee = db.employees.find(
           (item) =>
@@ -446,7 +463,8 @@ export function createMiniRouter() {
           id: id(),
           companyId: session.companyId,
           employeeId: session.employeeId,
-          ...input,
+          ...leaveInput,
+          documentId,
           status: "PENDING",
           createdAt: new Date().toISOString(),
         };
@@ -455,7 +473,7 @@ export function createMiniRouter() {
           id: id(),
           companyId: session.companyId,
           title: "Yangi ta’til so‘rovi",
-          body: `${employee.firstName} ${employee.lastName}: ${input.startDate} – ${input.endDate}`,
+          body: `${employee.firstName} ${employee.lastName}: ${input.startDate} – ${input.endDate}${documentId ? " · 📎 hujjat biriktirilgan" : ""}`,
           type: "LEAVE",
           read: false,
           createdAt: value.createdAt,
@@ -608,6 +626,12 @@ export function createMiniRouter() {
         if (match.matched) {
           profile.lastDescriptor = descriptor;
           profile.lastVerifiedAt = new Date().toISOString();
+          // Haqiqiy yuz tekshiruvi — biometriya hisoblagichi boshidan.
+          for (const device of db.biometricDevices)
+            if (device.employeeId === auth.employeeId && !device.revokedAt) {
+              device.uses = 0;
+              device.lastFaceAt = profile.lastVerifiedAt;
+            }
         }
         db.auditLogs.unshift(
           audit(
@@ -652,22 +676,12 @@ export function createMiniRouter() {
         })
         .parse(req.body);
       const auth = req.employeeSession!;
-      let facePayload: {
-        type: string;
-        employeeId: string;
-        companyId: string;
-      };
-      try {
-        facePayload = jwt.verify(faceProof, faceSecret(), {
-          issuer: "staffora-face",
-        }) as typeof facePayload;
-      } catch {
+      const facePayload = verifyFaceProof(faceProof);
+      if (!facePayload)
         return res.status(401).json({
           message: "Face ID tasdig‘i tugagan. Yuzni qayta skanerlang.",
         });
-      }
       if (
-        facePayload.type !== "FACE_VERIFICATION" ||
         facePayload.employeeId !== auth.employeeId ||
         facePayload.companyId !== auth.companyId
       )
@@ -708,6 +722,7 @@ export function createMiniRouter() {
           createdAt: now.toISOString(),
           expiresAt: new Date(now.getTime() + 3 * 60_000).toISOString(),
           faceVerifiedAt: now.toISOString(),
+          method: facePayload.method || "FACE",
         };
         db.attendanceSessions.push(value);
         return {
@@ -735,6 +750,11 @@ export function createMiniRouter() {
             .max(600_000)
             .regex(/^data:image\/(jpeg|jpg|webp);base64,/)
             .optional(),
+          /** Harakat sensori xulosasi (emulyatorni sezish uchun). */
+          motion: z
+            .object({ samples: z.number().int().min(0).max(1000), spread: z.number().min(0).max(1000), source: z.enum(["telegram", "browser"]).optional() })
+            .optional(),
+          platform: z.string().max(30).optional(),
         })
         .parse(req.body);
       const auth = req.employeeSession!;
@@ -895,7 +915,7 @@ export function createMiniRouter() {
         attendance.verification = [
           ...new Set<Attendance["verification"][number]>([
             ...attendance.verification.filter((item) => item !== "MANUAL"),
-            "FACE",
+            session.method === "BIOMETRIC" ? "DEVICE" : "FACE",
             "GPS",
             "TELEGRAM",
             ...(requiresQr ? (["QR"] as const) : []),
@@ -918,6 +938,7 @@ export function createMiniRouter() {
           },
           history,
         );
+        flags.push(...deviceFlags({ motion: input.motion, platform: input.platform }));
         if (flags.length) attendance.flags = [...new Set([...(attendance.flags || []), ...flags])];
         attendance.latitude = input.latitude;
         attendance.longitude = input.longitude;

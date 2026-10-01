@@ -38,7 +38,7 @@ function describe(db: Database, swap: ShiftSwapRequest) {
   };
 }
 
-async function notify(db: Database, employeeId: string, text: string, title: string) {
+async function notify(db: Database, employeeId: string, text: string, title: string, go = "swaps") {
   const employee = db.employees.find((e) => e.id === employeeId && e.status === "ACTIVE");
   if (!employee) return;
   await updateDb((next) =>
@@ -48,12 +48,13 @@ async function notify(db: Database, employeeId: string, text: string, title: str
       employeeId: employee.id,
       title,
       body: text.replace(/<[^>]+>/g, ""),
-      type: "ATTENDANCE",
+      type: "SWAP",
       read: false,
       createdAt: new Date().toISOString(),
+      go,
     }),
   );
-  await notifyEmployee(db, employee, "attendance", text, { title, openButton: true }).catch(() => undefined);
+  await notifyEmployee(db, employee, "attendance", text, { title, openButton: true, go }).catch(() => undefined);
 }
 
 /** Mini App: so‘rov yuborish, hamkasb javobi, bekor qilish. */

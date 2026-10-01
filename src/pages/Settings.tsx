@@ -19,6 +19,7 @@ import {
   Lock,
   PlugZap,
   Bot,
+  TabletSmartphone,
 } from "lucide-react";
 import { CountingStartCard, IntegrationCenter } from "./Integrations";
 import { CompanyBotSection } from "./Registrations";
@@ -32,6 +33,7 @@ const tabPermissions: Partial<Record<Tab, string[]>> = {
   payroll: ["settings.manage", "payroll.edit"],
   channel: ["settings.manage"],
   bot: ["settings.manage"],
+  miniapp: ["settings.manage"],
   regbot: ["settings.manage"],
   integrations: ["settings.manage"],
 };
@@ -52,7 +54,7 @@ import { calculatePayroll, defaultPayrollSettings } from "@/lib/payroll";
 import { dateUz, money } from "@/lib/format";
 import { resizePhoto } from "./Employees";
 
-type Tab = "profile" | "security" | "lock" | "devices" | "company" | "payroll" | "channel" | "bot" | "regbot" | "integrations";
+type Tab = "profile" | "security" | "lock" | "devices" | "company" | "payroll" | "channel" | "bot" | "miniapp" | "regbot" | "integrations";
 const tabs: [Tab, string, typeof UserRound][] = [
   ["profile", "Profil", UserRound],
   ["security", "Xavfsizlik", ShieldCheck],
@@ -62,6 +64,7 @@ const tabs: [Tab, string, typeof UserRound][] = [
   ["payroll", "Ish haqi va jarima", Banknote],
   ["channel", "Rasm kanali", Camera],
   ["bot", "Telegram bot", Send],
+  ["miniapp", "Mini App", TabletSmartphone],
   ["regbot", "Ro‘yxat boti", Bot],
   ["integrations", "Integratsiyalar", PlugZap],
 ];
@@ -110,6 +113,12 @@ export function SettingsPage() {
           {tab === "lock" && <ScreenLockSection />}
           {tab === "channel" && <PhotoChannelSection />}
           {tab === "bot" && <BotSection />}
+          {tab === "miniapp" && (
+            <>
+              <MiniAppSection />
+              <ClientLogsSection />
+            </>
+          )}
           {tab === "integrations" && <IntegrationCenter />}
           {tab === "regbot" && (
             <>
@@ -758,6 +767,159 @@ function PayrollSection() {
         </div>
       </div>
     </form>
+  );
+}
+
+/* -------------------------------------------------------------- Mini App --- */
+type MiniAppForm = {
+  biometricEnabled: boolean;
+  faceEvery: number;
+  directoryEnabled: boolean;
+  directoryPhones: boolean;
+  breaksEnabled: boolean;
+  leaderboardEnabled: boolean;
+  managerDigest: boolean;
+};
+const miniDefaults: MiniAppForm = {
+  biometricEnabled: true,
+  faceEvery: 5,
+  directoryEnabled: true,
+  directoryPhones: false,
+  breaksEnabled: false,
+  leaderboardEnabled: true,
+  managerDigest: true,
+};
+function MiniAppSection() {
+  const toast = useToast();
+  const { data, loading } = useApi<Company>("/company");
+  const [form, setForm] = useState<MiniAppForm>(miniDefaults);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (data) setForm({ ...miniDefaults, ...(data.miniApp || {}) } as MiniAppForm);
+  }, [data]);
+  if (loading && !data) return <Loading />;
+  const toggle = (key: keyof MiniAppForm, title: string, text: string) => (
+    <label className="setting-row">
+      <span>
+        <b>{title}</b>
+        <small>{text}</small>
+      </span>
+      <span className="switch">
+        <input type="checkbox" checked={Boolean(form[key])} onChange={(e) => setForm({ ...form, [key]: e.target.checked })} />
+        <span />
+      </span>
+    </label>
+  );
+  return (
+    <form
+      className="card"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        setSaving(true);
+        setError("");
+        try {
+          await put("/company/mini-app", form);
+          toast("Mini App sozlamalari saqlandi");
+        } catch (reason) {
+          setError(errorText(reason));
+        } finally {
+          setSaving(false);
+        }
+      }}
+    >
+      <div className="card-head">
+        <div>
+          <h2>Xodimlar ilovasi (Telegram Mini App)</h2>
+          <p>Xavfsizlik va qo‘shimcha imkoniyatlar — o‘zgarish xodimlarda darhol ko‘rinadi</p>
+        </div>
+      </div>
+      <div className="card-body">
+        <div className="stack" style={{ gap: 8, marginBottom: 16 }}>
+          {toggle(
+            "biometricEnabled",
+            "Telefon biometriyasi (barmoq izi / Face ID)",
+            "Xodim bir marta yuz bilan tasdiqlab, keyin barmoq izi bilan 1 soniyada belgilaydi. O‘chirilsa, barcha ulangan qurilmalar bekor qilinadi.",
+          )}
+          {form.biometricEnabled && (
+            <Field label="Har nechanchi belgida baribir yuz tekshirilsin" hint="Masalan 5 — 4 marta barmoq izi, 5-marta kamera orqali yuz. Shuningdek, 7 kunda kamida bir marta.">
+              <input className="input" type="number" min={2} max={50} value={form.faceEvery} onChange={(e) => setForm({ ...form, faceEvery: Number(e.target.value) })} style={{ maxWidth: 160 }} />
+            </Field>
+          )}
+          {toggle("directoryEnabled", "Hamkasblar ma’lumotnomasi", "Xodimlar kompaniyadagi hamkasblarini (ism, lavozim, filial) ko‘radi va Telegram’da yoza oladi")}
+          {form.directoryEnabled && toggle("directoryPhones", "Ma’lumotnomada telefon raqamlari", "Yoqilsa, hamkasblar bir-biriga qo‘ng‘iroq qila oladi. Shaxsiy ma’lumot — ehtiyot bo‘ling")}
+          {toggle("leaderboardEnabled", "Vaqtida kelish reytingi", "Statistikada filial ichidagi o‘rin va eng intizomli 3 kishi (faqat ism) ko‘rinadi")}
+          {toggle("breaksEnabled", "Tanaffus (tushlik) belgilash", "Ish vaqtida «Tanaffus» tugmasi chiqadi. Ma’lumot uchun — ish haqiga ta’sir qilmaydi")}
+          {toggle("managerDigest", "Rahbarlarga «hali kelmaganlar» xabari", "Ish boshlanib 20 daqiqa o‘tgach, filial rahbari va HR’ga kelmaganlar ro‘yxati Telegram’da boradi")}
+        </div>
+        <ErrorBox message={error} />
+        <div className="form-actions">
+          <button className="btn btn-primary" disabled={saving}>
+            <Save size={15} /> {saving ? "Saqlanmoqda…" : "Saqlash"}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+type ClientLog = { id: string; kind: string; message: string; detail?: string; platform?: string; version?: string; at: string; employeeName?: string };
+const logKinds: Record<string, string> = { gps: "GPS", camera: "Kamera", auth: "Kirish", biometric: "Biometriya", js: "Ilova", promise: "Ilova" };
+function ClientLogsSection() {
+  const { data, loading, error, reload } = useApi<ClientLog[]>("/client-logs");
+  const [open, setOpen] = useState<string | null>(null);
+  return (
+    <section className="card">
+      <div className="card-head">
+        <div>
+          <h2>Mini App xatolari</h2>
+          <p>Xodimlarning telefonida yuz bergan muammolar (GPS, kamera, kirish) — yordam berish uchun</p>
+        </div>
+        <button className="btn btn-ghost btn-sm" onClick={() => void reload()}>
+          Yangilash
+        </button>
+      </div>
+      <div className="card-body">
+        {loading && !data ? (
+          <Loading />
+        ) : error ? (
+          <ErrorBox message={error} />
+        ) : !data?.length ? (
+          <p className="hint">Xatolar yo‘q — hammasi joyida.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Vaqt</th>
+                  <th>Xodim</th>
+                  <th>Turi</th>
+                  <th>Xabar</th>
+                  <th>Qurilma</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.slice(0, 100).map((log) => (
+                  <tr key={log.id} onClick={() => setOpen(open === log.id ? null : log.id)} style={{ cursor: log.detail ? "pointer" : undefined }}>
+                    <td style={{ whiteSpace: "nowrap" }}>{new Date(log.at).toLocaleString("ru-RU", { timeZone: "Asia/Tashkent" })}</td>
+                    <td>{log.employeeName || "—"}</td>
+                    <td>{logKinds[log.kind] || log.kind}</td>
+                    <td>
+                      {log.message}
+                      {open === log.id && log.detail && <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, margin: "6px 0 0", opacity: 0.75 }}>{log.detail}</pre>}
+                    </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {log.platform || "—"}
+                      {log.version ? ` · ${log.version}` : ""}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

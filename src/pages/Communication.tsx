@@ -106,6 +106,16 @@ function DeliveryReport({ a }: { a: Announcement }) {
   return (
     <div className="delivery-report">
       {r.staffora && <span className="badge green">Staffora: {r.staffora.delivered} ta</span>}
+      {a.ackRequired && r.staffora && (
+        <span className="badge blue" title="Mini App’da «Tanishdim» bosganlar">
+          Tanishdi: {r.staffora.acknowledged || 0}/{r.staffora.recipients}
+        </span>
+      )}
+      {a.options && r.staffora?.answers && (
+        <span className="badge violet" title="So‘rovnoma natijalari">
+          🗳 {a.options.map((o) => `${o}: ${r.staffora!.answers![o] || 0}`).join(" · ")}
+        </span>
+      )}
       {r.telegram && (
         <span className={`badge ${r.telegram.failed ? "amber" : "green"}`}>
           Staffora boti: {r.telegram.delivered}/{r.telegram.recipients}
@@ -143,6 +153,9 @@ function AnnouncementForm({
   const [form, setForm] = useState({ title: "", message: "" });
   const [channels, setChannels] = useState<string[]>(["STAFFORA", "TELEGRAM"]);
   const [ids, setIds] = useState<string[]>([]);
+  const [ackRequired, setAckRequired] = useState(false);
+  const [poll, setPoll] = useState(false);
+  const [pollOptions, setPollOptions] = useState<string[]>(["Ha", "Yo‘q"]);
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -165,11 +178,16 @@ function AnnouncementForm({
     try {
       if (!channels.length) throw new Error("Kamida bitta kanalni tanlang.");
       if (audience !== "ALL" && !ids.length) throw new Error("Qabul qiluvchilarni tanlang.");
+      const optionsClean = [...new Set(pollOptions.map((o) => o.trim()).filter(Boolean))];
+      if (poll && optionsClean.length < 2) throw new Error("So‘rovnomada kamida 2 ta variant bo‘lsin.");
+      if ((poll || ackRequired) && !channels.includes("STAFFORA")) throw new Error("Tasdiq va so‘rovnoma uchun «Staffora» kanali kerak (javob ilovada beriladi).");
       const result = await post<{ delivered: number }>("/announcements", {
         title: form.title,
         message: form.message,
         channel: channels,
         target: { type: audience, ids: audience === "ALL" ? [] : ids },
+        ackRequired: ackRequired || undefined,
+        options: poll ? [...new Set(pollOptions.map((o) => o.trim()).filter(Boolean))] : undefined,
       });
       onSaved(channels.includes("TELEGRAM") ? result.delivered : undefined);
     } catch (reason) {
@@ -201,6 +219,55 @@ function AnnouncementForm({
                 {channel === "BOT" && !botConnected && <small className="muted">ulanmagan</small>}
               </label>
             ))}
+          </div>
+        </Field>
+        <Field label="Javob" hint="Xodim Mini App’da javob beradi — natija shu yerda ko‘rinadi">
+          <div className="stack" style={{ gap: 8 }}>
+            <label className="setting-row">
+              <span>
+                <b>«Tanishdim» tasdig‘ini so‘rash</b>
+                <small>Masalan, yangi qoida yoki buyruq — kim o‘qiganini bilasiz</small>
+              </span>
+              <span className="switch">
+                <input type="checkbox" checked={ackRequired} onChange={(e) => setAckRequired(e.target.checked)} />
+                <span />
+              </span>
+            </label>
+            <label className="setting-row">
+              <span>
+                <b>So‘rovnoma</b>
+                <small>Xodim variantlardan birini tanlaydi (2–6 ta)</small>
+              </span>
+              <span className="switch">
+                <input type="checkbox" checked={poll} onChange={(e) => setPoll(e.target.checked)} />
+                <span />
+              </span>
+            </label>
+            {poll && (
+              <div className="stack" style={{ gap: 6 }}>
+                {pollOptions.map((option, index) => (
+                  <div key={index} style={{ display: "flex", gap: 6 }}>
+                    <input
+                      className="input"
+                      value={option}
+                      maxLength={60}
+                      placeholder={`${index + 1}-variant`}
+                      onChange={(e) => setPollOptions((list) => list.map((o, i) => (i === index ? e.target.value : o)))}
+                    />
+                    {pollOptions.length > 2 && (
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => setPollOptions((list) => list.filter((_, i) => i !== index))}>
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {pollOptions.length < 6 && (
+                  <button type="button" className="btn btn-ghost btn-sm" style={{ justifySelf: "start" }} onClick={() => setPollOptions((list) => [...list, ""])}>
+                    + Variant qo‘shish
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </Field>
         <Field label="Kimga">
