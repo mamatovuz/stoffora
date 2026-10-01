@@ -81,6 +81,9 @@ const AnalyticsPage = lazy(() =>
 const RegistrationsPage = lazy(() =>
   import("./pages/Registrations").then((m) => ({ default: m.RegistrationsPage })),
 );
+const HelpdeskPage = lazy(() =>
+  import("./pages/Helpdesk").then((m) => ({ default: m.HelpdeskPage })),
+);
 const MiniAppPage = lazy(() =>
   import("./pages/MiniApp").then((m) => ({ default: m.MiniAppPage })),
 );
@@ -132,6 +135,7 @@ export default function App() {
           <Route path="/branches" element={<BranchesPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
           <Route path="/leave" element={<LeavePage />} />
+          <Route path="/helpdesk" element={<HelpdeskPage />} />
           <Route path="/payroll" element={<PayrollPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />

@@ -143,6 +143,12 @@ export function AttendanceFlow({
       const distance = haversineDistance(latitude, longitude, branch.latitude, branch.longitude);
       const value = { lat: latitude, lng: longitude, accuracy: Math.round(accuracy), distance, takenAt: position.timestamp || Date.now() };
       setGps(value);
+      try {
+        // Joylashuvga ruxsat bor — bosh sahifadagi geofence taklifi shundan keyin ishlaydi.
+        localStorage.setItem("staffora:geo-ok", "1");
+      } catch {
+        /* muhim emas */
+      }
       const far = distance - Math.min(35, accuracy) > branch.radiusMeters;
       setGpsState(far ? "far" : "ok");
       if (far) haptic.warning();

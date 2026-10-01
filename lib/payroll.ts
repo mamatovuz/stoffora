@@ -30,6 +30,7 @@ export function normalizePayrollSettings(
     overtimeRequiresApproval: Boolean(merged.overtimeRequiresApproval),
     advanceRequestsEnabled: merged.advanceRequestsEnabled !== false,
     advanceMaxPercent: int(merged.advanceMaxPercent ?? 50, 0, 100, 50),
+    advanceHrApproval: merged.advanceHrApproval !== false,
   };
 }
 

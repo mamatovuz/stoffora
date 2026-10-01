@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Bell, BriefcaseBusiness, CheckCircle2, Clock3, Home, LoaderCircle, Plane, RefreshCw, RotateCcw, Send, UserRound, WifiOff } from "lucide-react";
+import { AlertCircle, ArrowDown, Bell, BriefcaseBusiness, CheckCircle2, Clock3, Home, LoaderCircle, Plane, RefreshCw, RotateCcw, Send, UserRound, WifiOff } from "lucide-react";
 import { ApiError, api, errorText, post, restoreBearerToken, setBearerToken } from "../api";
 import { FaceScanner, preloadFaceModels, type FaceCapture } from "../components/FaceScanner";
 import { enqueueOffline, isNetworkError, readQueue, restoreQueueBackup, syncOfflineQueue } from "./miniOffline";
@@ -17,7 +17,7 @@ import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
 import { MiniHome } from "./mini/Home";
 import { AttendanceFlow, getPosition, prefetchPosition, takePrefetchedPosition, type Flow } from "./mini/AttendanceFlow";
 import { biometricInfo, disableBiometric, enableBiometric, quickProof, type BioInfo } from "./mini/biometric";
-import { PhotoAvatar, toMinutes, type Action, type HomeData, type Tab } from "./mini/shared";
+import { PhotoAvatar, toMinutes, usePullToRefresh, type Action, type HomeData, type Tab } from "./mini/shared";
 import {
   askWriteAccessOnce,
   bindErrorReporting,
@@ -35,6 +35,9 @@ import {
   useSettingsButton,
 } from "./mini/tg";
 import type { ProfileSection } from "./mini/Profile";
+import type { HelpdeskView } from "./mini/Helpdesk";
+import { disableZoom } from "./mini/noZoom";
+import { BirthdaysSheet } from "./mini/Birthdays";
 
 // Bo‘limlar kerak bo‘lganda yuklanadi — birinchi ochilish tezroq.
 const MiniHistory = lazy(() => import("./mini/History").then((m) => ({ default: m.MiniHistory })));
@@ -42,6 +45,8 @@ const MiniRequests = lazy(() => import("./mini/Requests").then((m) => ({ default
 const MiniProfile = lazy(() => import("./mini/Profile").then((m) => ({ default: m.MiniProfile })));
 const ManagerHome = lazy(() => import("./MiniManager").then((m) => ({ default: m.ManagerHome })));
 const DirectorySheet = lazy(() => import("./mini/Directory").then((m) => ({ default: m.DirectorySheet })));
+const HelpdeskSheet = lazy(() => import("./mini/Helpdesk").then((m) => ({ default: m.HelpdeskSheet })));
+const Receipt = lazy(() => import("./mini/Receipt").then((m) => ({ default: m.Receipt })));
 
 type AuthError = { message: string; code?: string; botUsername?: string };
 type Nav = { tab: Tab; key: number; view?: string; id?: string; section?: ProfileSection };
@@ -96,6 +101,13 @@ export function MiniAppPage() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [salaryOpen, setSalaryOpen] = useState(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [helpdesk, setHelpdesk] = useState<{ view?: HelpdeskView; id?: string } | null>(null);
+  const [birthdaysOpen, setBirthdaysOpen] = useState(false);
+  /** Davomat natijasi «cheki»; yopilgach (kerak bo‘lsa) biometriya taklif qilinadi. */
+  const [receipt, setReceipt] = useState<{ row: Attendance; action: Action; method: Flow["method"] } | null>(null);
+  const afterReceipt = useRef<(() => void) | null>(null);
+  const receiptOpen = useRef(false);
+  receiptOpen.current = Boolean(receipt);
   const [prefs, setPrefsState] = useState<MiniPrefs>(() => readPrefs() || DEFAULT_PREFS);
   useEffect(() => {
     applyPrefs(prefs);
@@ -267,6 +279,7 @@ export function MiniAppPage() {
       }
     }
     const unbind = bindViewport();
+    const allowZoom = disableZoom();
     document.title = "Staffora";
     // Internetsiz ochilish uchun ilova qobig‘i va Face ID modellarini keshlaymiz.
     if ("serviceWorker" in navigator && (window.isSecureContext || location.hostname === "localhost"))
@@ -280,6 +293,7 @@ export function MiniAppPage() {
     return () => {
       window.clearTimeout(idle);
       unbind();
+      allowZoom();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticate]);
@@ -317,6 +331,14 @@ export function MiniAppPage() {
         setDirectoryOpen(true);
         return;
       }
+      if (link.tab === "profile" && link.section === "helpdesk") {
+        setHelpdesk({ id: link.id });
+        return;
+      }
+      if (link.tab === "profile" && link.section === "birthdays") {
+        setBirthdaysOpen(true);
+        return;
+      }
       setNav((current) => ({
         tab: link.tab,
         key: current.key + 1,
@@ -352,13 +374,16 @@ export function MiniAppPage() {
   useSettingsButton(() => navigate({ tab: "profile", section: "settings" }));
 
   // Telegram «Orqaga» tugmasi
-  const anyOpen = notifOpen || salaryOpen || directoryOpen || Boolean(flow) || Boolean(faceAction) || bioEnroll;
+  const anyOpen = notifOpen || salaryOpen || directoryOpen || Boolean(helpdesk) || birthdaysOpen || Boolean(receipt) || Boolean(flow) || Boolean(faceAction) || bioEnroll;
   useBackButton(
     anyOpen || nav.tab !== "home"
       ? () => {
           if (notifOpen) setNotifOpen(false);
           else if (salaryOpen) setSalaryOpen(false);
           else if (directoryOpen) setDirectoryOpen(false);
+          else if (receipt) closeReceipt();
+          else if (helpdesk) setHelpdesk(null);
+          else if (birthdaysOpen) setBirthdaysOpen(false);
           else if (flow) setFlow(null);
           else if (faceAction) setFaceAction(null);
           else if (bioEnroll) setBioEnroll(false);
@@ -476,9 +501,16 @@ export function MiniAppPage() {
   };
 
   /** Davomat muvaffaqiyatli: emoji-status, biometriya taklifi, ma’lumotni yangilash. */
-  const onAttendanceSuccess = async (row: Attendance, message: string, method: Flow["method"]) => {
+  function closeReceipt() {
+    setReceipt(null);
+    const next = afterReceipt.current;
+    afterReceipt.current = null;
+    if (next) window.setTimeout(next, 250);
+  }
+  const onAttendanceSuccess = async (row: Attendance, _message: string, method: Flow["method"]) => {
+    const action: Action = row.checkOut ? "CHECK_OUT" : "CHECK_IN";
     setFlow(null);
-    showToast(message);
+    setReceipt({ row, action, method });
     haptic.success();
     clearCached("stats");
     await loadHome().catch(() => undefined);
@@ -494,20 +526,33 @@ export function MiniAppPage() {
     if (method === "FACE" && current?.features?.biometric && info.available && !info.tokenSaved && proof && Date.now() - proof.at < 150_000) {
       const offered = Number((await kvGet("cloud", BIO_OFFER_KEY)) || 0);
       if (offered >= 2) return;
-      void kvSet("cloud", BIO_OFFER_KEY, String(offered + 1));
-      const label = info.type === "face" ? "telefon yuz tanishi (Face ID)" : "barmoq izi";
-      if (await confirmNative(`Keyingi safar ${label} bilan 1 soniyada tasdiqlaysizmi? Kamerani ochish shart bo‘lmaydi.`, { title: "Tezroq belgilash", ok: "Yoqish" })) {
-        try {
-          const ok = await enableBiometric(proof.proof);
-          showToast(ok ? "Biometriya ulandi" : "Biometriyaga ruxsat berilmadi", ok ? "ok" : "error");
-        } catch (reason) {
-          showToast(errorText(reason), "error");
-        }
-        refreshBio();
-        void loadHome().catch(() => undefined);
-      }
+      // Taklif chek yopilgandan keyin chiqadi — ikki oyna ustma-ust tushmasin.
+      const offer = () => void offerBiometric(info.type, proof.proof, offered);
+      if (receiptOpen.current) afterReceipt.current = offer;
+      else offer();
     }
   };
+
+  const offerBiometric = async (type: BioInfo["type"], proof: string, offered: number) => {
+    void kvSet("cloud", BIO_OFFER_KEY, String(offered + 1));
+    const label = type === "face" ? "telefon yuz tanishi (Face ID)" : "barmoq izi";
+    if (!(await confirmNative(`Keyingi safar ${label} bilan 1 soniyada tasdiqlaysizmi? Kamerani ochish shart bo‘lmaydi.`, { title: "Tezroq belgilash", ok: "Yoqish" }))) return;
+    try {
+      const ok = await enableBiometric(proof);
+      showToast(ok ? "Biometriya ulandi" : "Biometriyaga ruxsat berilmadi", ok ? "ok" : "error");
+    } catch (reason) {
+      showToast(errorText(reason), "error");
+    }
+    refreshBio();
+    void loadHome().catch(() => undefined);
+  };
+
+  const refreshAll = useCallback(async () => {
+    clearCached("");
+    await Promise.all([loadHome().catch(() => undefined), flushQueue()]);
+    showToast("Yangilandi");
+  }, [loadHome, flushQueue, showToast]);
+  const ptr = usePullToRefresh(Boolean(home) && !offline && nav.tab === "home" && !anyOpen, refreshAll);
 
   if (loading || (!home && !managerChecked))
     return (
@@ -573,6 +618,9 @@ export function MiniAppPage() {
             {(home.unreadNotifications || 0) > 0 && <span className="mini-badge">{Math.min(99, home.unreadNotifications || 0)}</span>}
           </button>
         </header>
+        <div className={`ptr ${ptr.ready ? "ready" : ""}`} style={{ height: ptr.refreshing ? 36 : ptr.pull }} aria-hidden>
+          {ptr.refreshing ? <LoaderCircle size={20} className="spin" /> : <ArrowDown size={20} />}
+        </div>
         {(offline || queued > 0) && (
           <div className={`mini-offline ${offline ? "" : "sync"}`} role="status">
             {offline ? <WifiOff size={16} /> : <RefreshCw size={16} className="spin" />}
@@ -600,6 +648,8 @@ export function MiniAppPage() {
               onNavigate={navigate}
               onRefresh={() => loadHome().catch(() => undefined)}
               onToast={showToast}
+              onHelpdesk={(view) => setHelpdesk({ view })}
+              onBirthdays={() => setBirthdaysOpen(true)}
             />
           )}
           {nav.tab === "history" && <MiniHistory key={nav.key} home={home} initialView={nav.view as "calendar" | "schedule" | "stats" | undefined} />}
@@ -638,6 +688,8 @@ export function MiniAppPage() {
                 if (enable && webApp?.requestEmojiStatusAccess && supports("8.0")) webApp.requestEmojiStatusAccess(() => undefined);
               }}
               onDirectory={() => setDirectoryOpen(true)}
+              onHelpdesk={(view) => setHelpdesk({ view })}
+              onBirthdays={() => setBirthdaysOpen(true)}
             />
           )}
         </Suspense>
@@ -699,6 +751,19 @@ export function MiniAppPage() {
       <Suspense fallback={null}>
         {salaryOpen && <SalarySheet onClose={() => setSalaryOpen(false)} onToast={showToast} />}
         {directoryOpen && <DirectorySheet onClose={() => setDirectoryOpen(false)} />}
+        {helpdesk && <HelpdeskSheet onClose={() => setHelpdesk(null)} onToast={showToast} initialView={helpdesk.view} focusId={helpdesk.id} />}
+        {birthdaysOpen && <BirthdaysSheet onClose={() => setBirthdaysOpen(false)} onToast={showToast} />}
+        {receipt && (
+          <Receipt
+            row={receipt.row}
+            action={receipt.action}
+            method={receipt.method}
+            branch={home.branch?.name}
+            name={`${home.employee.firstName} ${home.employee.lastName}`}
+            plannedEnd={receipt.row.scheduledEnd}
+            onClose={closeReceipt}
+          />
+        )}
         {notifOpen && (
           <NotificationsSheet
             onClose={() => {

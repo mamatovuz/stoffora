@@ -759,6 +759,8 @@ const buttonLabels: Record<string, string> = {
   notifs: "🔔 Xabarni ochish",
   manager: "📊 Rahbar paneli",
   overtime: "⏱ Qo‘shimcha ish",
+  ticket: "💬 Javobni ko‘rish",
+  helpdesk: "💬 Murojaatlarim",
 };
 
 export async function sendTelegramMessage(

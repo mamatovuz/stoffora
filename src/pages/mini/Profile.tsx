@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronRight, Fingerprint, MapPin, Share2, Smile, Users } from "lucide-react";
+import { Cake, ChevronRight, Fingerprint, MapPin, MessageCircleQuestion, ScrollText, Share2, Smile, Users } from "lucide-react";
+import type { HelpdeskView } from "./Helpdesk";
 import { dateUz, tashkentWeekday } from "@/lib/format";
 import type { Lang } from "../../i18n";
 import { weekdayShort, weekOrder } from "../../types";
@@ -10,7 +11,7 @@ import { biometricLabel } from "./biometric";
 import { PhotoAvatar, type HomeData, type Toast } from "./shared";
 import { confirmNative, haptic, openExternal, shareText, supports, tg } from "./tg";
 
-export type ProfileSection = "docs" | "payslips" | "settings" | "directory";
+export type ProfileSection = "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays";
 
 export function MiniProfile({
   data,
@@ -26,6 +27,8 @@ export function MiniProfile({
   emojiStatus,
   onEmojiStatus,
   onDirectory,
+  onHelpdesk,
+  onBirthdays,
 }: {
   data: HomeData;
   onToast: Toast;
@@ -40,6 +43,8 @@ export function MiniProfile({
   emojiStatus: boolean;
   onEmojiStatus: (enable: boolean) => void;
   onDirectory: () => void;
+  onHelpdesk: (view: HelpdeskView) => void;
+  onBirthdays: () => void;
 }) {
   const [homeScreen, setHomeScreen] = useState<"unsupported" | "unknown" | "added" | "missed">("unsupported");
   useEffect(() => {
@@ -148,6 +153,34 @@ export function MiniProfile({
             <ChevronRight size={16} />
           </button>
         )}
+      </section>
+
+      <div className="mp-group-title">HR bilan aloqa</div>
+      <section className="mp-group">
+        <button className="mp-row link" onClick={() => onHelpdesk("questions")}>
+          <span>
+            <MessageCircleQuestion size={15} /> HR’ga savol berish
+          </span>
+          <ChevronRight size={16} />
+        </button>
+        <button className="mp-row link" onClick={() => onHelpdesk("certificates")}>
+          <span>
+            <ScrollText size={15} /> Ma’lumotnoma (spravka) so‘rash
+          </span>
+          <ChevronRight size={16} />
+        </button>
+        <button className="mp-row link" onClick={() => onHelpdesk("feedback")}>
+          <span>
+            <Share2 size={15} /> Taklif yoki shikoyat (anonim mumkin)
+          </span>
+          <ChevronRight size={16} />
+        </button>
+        <button className="mp-row link" onClick={onBirthdays}>
+          <span>
+            <Cake size={15} /> Tug‘ilgan kunlar
+          </span>
+          <ChevronRight size={16} />
+        </button>
       </section>
 
       {data.schedule && (

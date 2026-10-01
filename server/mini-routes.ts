@@ -12,8 +12,10 @@ import {
 import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { audit, dataIndexes, readDb, updateDb } from "../lib/store";
 import {
+  adaptProfile,
   assertConsistentSamples,
   assertFaceDescriptor,
+  assertPoseVariation,
   isReplayedDescriptor,
   matchFace,
   faceMatchThreshold,
@@ -34,6 +36,7 @@ import { countedRecords, countingStartDate, isPracticeDay } from "../lib/countin
 import { enqueueAttendancePhoto } from "./photo-channel";
 import { signFaceProof, verifyFaceProof } from "./face-proof";
 import { createMiniExtraRouter, miniFeatures } from "./mini-extra";
+import { createMiniHelpdeskRouter } from "./helpdesk";
 import { deviceFlags, isDeepLinkParam } from "../lib/mini";
 import { documentInputSchema, saveDocument } from "./documents";
 import {
@@ -306,6 +309,7 @@ export function createMiniRouter() {
   router.use(createMiniOfflineRouter());
   router.use(createMiniAdvanceRouter());
   router.use(createMiniExtraRouter());
+  router.use(createMiniHelpdeskRouter());
   router.get(
     "/mini/home",
     asyncRoute(async (req, res) => {
@@ -600,7 +604,10 @@ export function createMiniRouter() {
         .object({ descriptor: descriptorSchema, turnDescriptor: descriptorSchema.optional(), liveness: livenessSchema })
         .parse(req.body);
       assertFaceDescriptor(descriptor);
-      if (turnDescriptor) assertFaceDescriptor(turnDescriptor);
+      if (turnDescriptor) {
+        assertFaceDescriptor(turnDescriptor);
+        assertPoseVariation(descriptor, turnDescriptor);
+      }
       const auth = req.employeeSession!;
       const result = await updateDb((db) => {
         const employee = db.employees.find(
@@ -626,6 +633,8 @@ export function createMiniRouter() {
         if (match.matched) {
           profile.lastDescriptor = descriptor;
           profile.lastVerifiedAt = new Date().toISOString();
+          // Ishonchli moslik — profil yangi ko‘rinishga moslashadi (soqol, ko‘zoynak, yorug‘lik).
+          if (adaptProfile(profile, descriptor, front)) profile.updatedAt = profile.lastVerifiedAt;
           // Haqiqiy yuz tekshiruvi — biometriya hisoblagichi boshidan.
           for (const device of db.biometricDevices)
             if (device.employeeId === auth.employeeId && !device.revokedAt) {

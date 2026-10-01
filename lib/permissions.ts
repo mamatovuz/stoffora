@@ -77,6 +77,7 @@ export const pagePermissions: Record<string, string[]> = {
   "/reports": ["reports.view"],
   "/analytics": ["dashboard.view"],
   "/announcements": ["announcements.view"],
+  "/helpdesk": ["employees.edit", "leave.approve"],
   "/notifications": [],
   "/audit": ["audit.view"],
   "/users": ["settings.manage"],

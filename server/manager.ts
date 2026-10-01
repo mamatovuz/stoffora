@@ -6,6 +6,7 @@ import { audit, readDb, updateDb } from "../lib/store";
 import type { PanelSession } from "../lib/types";
 import { signSession, type Session } from "./auth";
 import { verifyTelegramInitData } from "./telegram";
+import { companyBotTokens } from "./company-bots";
 
 /*
  * Rahbar rejimi (Mini App ichida). Panel hisobi Staffora botiga ulangan rahbar
@@ -30,17 +31,28 @@ export function createManagerAuthRouter() {
           const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
           const devMode = process.env.TELEGRAM_DEV_MODE === "true" && process.env.NODE_ENV !== "production";
           let telegramId: string | undefined;
+          let botCompanyId: string | undefined;
           if (devMode && !initData) telegramId = process.env.TELEGRAM_DEV_MANAGER_ID || undefined;
-          else if (token && initData) {
-            try {
-              telegramId = String(verifyTelegramInitData(initData, token).id);
-            } catch {
-              telegramId = undefined;
+          else if (initData) {
+            // Mini App asosiy Staffora botidan yoki kompaniyaning o‘z botidan ochilgan bo‘lishi mumkin —
+            // Telegram ID ikkalasida ham bir xil, imzo esa qaysi botniki bo‘lsa, o‘sha token bilan tekshiriladi.
+            const tokens = [...(token ? [{ companyId: undefined, token }] : []), ...companyBotTokens()];
+            for (const candidate of tokens) {
+              try {
+                telegramId = String(verifyTelegramInitData(initData, candidate.token).id);
+                botCompanyId = candidate.companyId;
+                break;
+              } catch {
+                telegramId = undefined;
+              }
             }
           }
           if (!telegramId) return res.status(204).end();
           const db = await readDb();
-          const user = db.users.find((u) => u.telegramId === telegramId && u.companyId && MANAGER_ROLES.has(u.role));
+          // Kompaniya boti orqali kirilgan bo‘lsa — faqat shu kompaniyaning rahbari.
+          const user = db.users.find(
+            (u) => u.telegramId === telegramId && u.companyId && MANAGER_ROLES.has(u.role) && (!botCompanyId || u.companyId === botCompanyId),
+          );
           const company = user && db.companies.find((c) => c.id === user.companyId);
           // Rahbar emas — jim qaytamiz, Mini App oddiy xodim rejimida qoladi.
           if (!user || !company || company.status === "SUSPENDED") return res.status(204).end();

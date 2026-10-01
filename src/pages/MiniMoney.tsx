@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, ChevronRight, Eye, EyeOff, HandCoins, LoaderCircle, Wallet } from "lucide-react";
-import { api, errorText, post } from "../api";
+import { AlertCircle, Banknote, ChevronRight, CreditCard, Eye, EyeOff, HandCoins, LoaderCircle, Trash2, Wallet } from "lucide-react";
+import { cardBrand, cardDigits, cardError, CARD_BRAND_LABELS, formatCard, holderError } from "@/lib/card";
+import { api, del, errorText, post } from "../api";
 import { Sheet } from "./mini/shared";
 import { confirmNative, haptic } from "./mini/tg";
 import { dateUz } from "@/lib/format";
@@ -11,7 +12,18 @@ import { dateUz } from "@/lib/format";
  * Summa sukut bo‘yicha yashirin (yonidagi odam ko‘rmasin) — ko‘z belgisi bilan ochiladi.
  */
 
-type AdvanceRequest = { id: string; amount: number; reason?: string; status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"; decidedNote?: string; createdAt: string };
+type AdvanceRequest = {
+  id: string;
+  amount: number;
+  reason?: string;
+  status: "PENDING" | "HR_APPROVED" | "APPROVED" | "REJECTED" | "CANCELLED";
+  hrDecidedBy?: string;
+  decidedNote?: string;
+  createdAt: string;
+  payout?: { method: "CARD" | "CASH"; cardMask?: string; cardBrand?: string; holder?: string };
+  paidAt?: string;
+};
+type SavedCard = { mask: string; brand: string; holder: string };
 export type Salary = {
   month: string;
   label: string;
@@ -33,6 +45,7 @@ export type Salary = {
   earnedToDate: number;
   limit: { enabled: boolean; percent: number; max: number; taken: number; pending: number; available: number; closed: boolean };
   requests: AdvanceRequest[];
+  savedCard?: SavedCard | null;
 };
 type Toast = (text: string, tone?: "ok" | "error") => void;
 
@@ -115,7 +128,8 @@ export function SalaryCard({ onOpen, offline }: { onOpen: () => void; offline?: 
 }
 
 const statusChip: Record<AdvanceRequest["status"], [string, string]> = {
-  PENDING: ["Kutilmoqda", "warn"],
+  PENDING: ["HR ko‘rmoqda", "warn"],
+  HR_APPROVED: ["Moliyada", "info"],
   APPROVED: ["Tasdiqlandi", "ok"],
   REJECTED: ["Rad etildi", "bad"],
   CANCELLED: ["Bekor qilindi", ""],
@@ -128,17 +142,40 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState("");
+  // To‘lov usuli: kartaga (saqlangan yoki yangi) yoki naqd.
+  const [method, setMethod] = useState<"CARD" | "CASH">("CARD");
+  const [useSaved, setUseSaved] = useState(true);
+  const [card, setCard] = useState("");
+  const [holder, setHolder] = useState("");
+  const [remember, setRemember] = useState(true);
+  const [touched, setTouched] = useState(false);
   useEffect(() => {
     void reload();
   }, [reload]);
   const digits = Number(amount.replace(/\D/g, "")) || 0;
+  const saved = data?.savedCard || null;
+  const newCard = method === "CARD" && !(saved && useSaved);
+  const cardProblem = newCard ? cardError(card) : null;
+  const holderProblem = newCard ? holderError(holder) : null;
+  const brand = cardDigits(card).length >= 4 ? CARD_BRAND_LABELS[cardBrand(card)] : "";
+  const amountOk = Boolean(data && digits >= 10_000 && digits <= data.limit.available);
+  const formOk = amountOk && !cardProblem && !holderProblem;
   async function submit(event?: React.FormEvent) {
     event?.preventDefault();
-    if (!data || digits < 10_000 || digits > data.limit.available) return setFormError(`Summa 10 000 dan ${data ? som(data.limit.available) : "—"} gacha bo‘lsin.`);
+    setTouched(true);
+    if (!data || !amountOk) return setFormError(`Summa 10 000 dan ${data ? som(data.limit.available) : "—"} gacha bo‘lsin.`);
+    if (cardProblem || holderProblem) return setFormError(cardProblem || holderProblem || "");
     setBusy(true);
     setFormError("");
     try {
-      await post("/mini/advances", { amount: digits, reason: reason.trim() || undefined });
+      await post("/mini/advances", {
+        amount: digits,
+        reason: reason.trim() || undefined,
+        payout: method === "CASH" ? { method } : newCard ? { method, cardNumber: cardDigits(card), holder: holder.trim(), remember } : { method, useSaved: true },
+      });
+      setCard("");
+      setHolder("");
+      setTouched(false);
       onToast("Avans so‘rovi yuborildi — javob Telegram’ga keladi");
       haptic.success();
       setAsking(false);
@@ -161,7 +198,13 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
       onToast(errorText(reason), "error");
     }
   }
-  const pending = data?.requests.some((r) => r.status === "PENDING");
+  async function forgetCard() {
+    if (!(await confirmNative("Saqlangan karta o‘chirilsinmi?", { ok: "O‘chirish", destructive: true }))) return;
+    await del("/mini/payout-card").catch(() => undefined);
+    setUseSaved(false);
+    await reload();
+  }
+  const pending = data?.requests.some((r) => r.status === "PENDING" || r.status === "HR_APPROVED");
   const canAsk = Boolean(data?.limit.enabled && !pending && data.limit.available >= 10_000);
   return (
     <Sheet
@@ -171,7 +214,7 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
       className="ms-sheet"
       primary={
         asking
-          ? { text: digits ? `Avans so‘rash · ${som(digits)}` : "Summani kiriting", onClick: () => void submit(), busy, disabled: !data || digits < 10_000 || digits > data.limit.available }
+          ? { text: digits ? `Avans so‘rash · ${som(digits)}` : "Summani kiriting", onClick: () => void submit(), busy, disabled: !formOk }
           : canAsk
             ? { text: "Avans so‘rash", onClick: () => setAsking(true) }
             : null
@@ -246,6 +289,73 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
                   Sabab (ixtiyoriy)
                   <input value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} placeholder="Masalan: oilaviy sabab" />
                 </label>
+                <div className="ms-payout">
+                  <span className="ms-payout-title">Pulni qanday olasiz?</span>
+                  <div className="mini-seg" role="radiogroup">
+                    <button type="button" role="radio" aria-checked={method === "CARD"} className={method === "CARD" ? "on" : ""} onClick={() => setMethod("CARD")}>
+                      <CreditCard size={15} /> Kartaga
+                    </button>
+                    <button type="button" role="radio" aria-checked={method === "CASH"} className={method === "CASH" ? "on" : ""} onClick={() => setMethod("CASH")}>
+                      <Banknote size={15} /> Naqd
+                    </button>
+                  </div>
+                  {method === "CARD" && saved && useSaved && (
+                    <div className="ms-card-saved">
+                      <span className="ms-card-chip">{saved.brand}</span>
+                      <span>
+                        <b>{saved.mask}</b>
+                        <small>{saved.holder}</small>
+                      </span>
+                      <button type="button" className="mini-link" onClick={() => setUseSaved(false)}>
+                        Boshqa karta
+                      </button>
+                      <button type="button" className="ms-card-del" aria-label="Kartani o‘chirish" onClick={() => void forgetCard()}>
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  )}
+                  {newCard && (
+                    <>
+                      <label className={touched && cardProblem && cardDigits(card).length ? "invalid" : ""}>
+                        Karta raqami{brand ? ` · ${brand}` : ""}
+                        <input
+                          inputMode="numeric"
+                          autoComplete="cc-number"
+                          value={formatCard(card)}
+                          maxLength={19}
+                          onChange={(e) => setCard(cardDigits(e.target.value).slice(0, 16))}
+                          onBlur={() => setTouched(true)}
+                          placeholder="8600 0000 0000 0000"
+                        />
+                        {cardDigits(card).length === 16 && !cardProblem && <small className="ok">✓ Karta raqami to‘g‘ri</small>}
+                        {touched && cardProblem && cardDigits(card).length > 0 && <small className="bad">{cardProblem}</small>}
+                      </label>
+                      <label className={touched && holderProblem && holder ? "invalid" : ""}>
+                        Qabul qiluvchi (karta egasi)
+                        <input
+                          autoComplete="cc-name"
+                          value={holder}
+                          maxLength={60}
+                          onChange={(e) => setHolder(e.target.value)}
+                          onBlur={() => setTouched(true)}
+                          placeholder="Ism Familiya"
+                        />
+                        {touched && holderProblem && holder && <small className="bad">{holderProblem}</small>}
+                      </label>
+                      <label className="sw-toggle">
+                        <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+                        <span>Keyingi safar uchun kartani eslab qolish</span>
+                      </label>
+                      {saved && (
+                        <button type="button" className="mini-link" onClick={() => setUseSaved(true)}>
+                          ← Saqlangan karta ({saved.mask})
+                        </button>
+                      )}
+                      <small className="ms-secure">🔒 Karta raqami shifrlangan holda saqlanadi va faqat moliya bo‘limi o‘tkazma uchun ko‘radi.</small>
+                    </>
+                  )}
+                  {method === "CASH" && <small className="ms-secure">Tasdiqlangach, kassadan olasiz — tayyor bo‘lganda xabar keladi.</small>}
+                </div>
                 {formError && (
                   <div className="mini-alert">
                     <AlertCircle size={18} />
@@ -270,8 +380,10 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
                             <b>{som(r.amount)}</b>
                             <small>
                               {dateUz(r.createdAt.slice(0, 10))}
+                              {r.payout?.method === "CARD" ? ` · 💳 ${r.payout.cardMask?.slice(-4) ? `•••• ${r.payout.cardMask.slice(-4)}` : "karta"}` : r.payout?.method === "CASH" ? " · 💵 naqd" : ""}
                               {r.decidedNote ? ` · ${r.decidedNote}` : r.reason ? ` · ${r.reason}` : ""}
                             </small>
+                            {r.paidAt && <small className="ok">✓ {r.payout?.method === "CASH" ? "Kassada tayyor" : "O‘tkazildi"} · {dateUz(r.paidAt.slice(0, 10))}</small>}
                             {r.status === "PENDING" && (
                               <button className="mini-link-danger" onClick={() => void cancel(r.id)}>
                                 Bekor qilish

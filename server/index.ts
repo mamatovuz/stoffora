@@ -83,6 +83,7 @@ import { registerAccountingReports } from "./tabel";
 import { createAdvanceRouter } from "./advances";
 import { createManagerAuthRouter } from "./manager";
 import { createManagerExtraRouter, createMiniPublicRouter } from "./mini-extra";
+import { createHelpdeskRouter } from "./helpdesk";
 import { startHrWorker, upcomingCelebrations } from "./hr-worker";
 import {
   createCompanyBotRouter,
@@ -587,6 +588,7 @@ app.use("/api", createAnalyticsRouter());
 app.use("/api", createSwapRouter());
 app.use("/api", createAdvanceRouter());
 app.use("/api", createManagerExtraRouter());
+app.use("/api", createHelpdeskRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();
@@ -2708,6 +2710,7 @@ app.put(
         overtimeRequiresApproval: z.boolean().default(false),
         advanceRequestsEnabled: z.boolean().default(true),
         advanceMaxPercent: z.coerce.number().int().min(0).max(100).default(50),
+        advanceHrApproval: z.boolean().default(true),
       })
       .parse(req.body);
     const tenant = companyId(req);

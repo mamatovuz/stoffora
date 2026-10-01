@@ -103,6 +103,8 @@ export interface PayrollSettings {
   advanceRequestsEnabled?: boolean;
   /** Bir oyda olinadigan avans chegarasi — oylikning shuncha foizi. */
   advanceMaxPercent?: number;
+  /** Avans avval HR, keyin moliya tasdiqlaydi (standart: yoqilgan). O‘chirilsa — faqat moliya. */
+  advanceHrApproval?: boolean;
 }
 export interface Branch {
   id: string;
@@ -405,6 +407,11 @@ export interface FaceProfile {
   samples?: number[][];
   /** Oxirgi muvaffaqiyatli tekshiruv deskriptori — replay hujumini aniqlash uchun. */
   lastDescriptor?: number[];
+  /**
+   * Moslashuvchan namunalar: ishonchli tekshiruvlardan olingan oxirgi yuzlar
+   * (soqol, soch, yorug‘lik, yosh o‘zgarishiga moslashish uchun). Ko‘pi bilan 6 ta.
+   */
+  adaptiveSamples?: number[][];
   lastVerifiedAt?: string;
   enrolledAt: string;
   updatedAt: string;
@@ -454,6 +461,66 @@ export interface Database {
   biometricDevices: BiometricDevice[];
   lateNotices: LateNotice[];
   clientLogs: ClientLog[];
+  tickets: Ticket[];
+  certificateRequests: CertificateRequest[];
+  /** Xodim avans uchun saqlagan karta (roziligi bilan). Xodim obyektidan alohida — tasodifan API’da chiqib ketmasin. */
+  payoutCards: PayoutCard[];
+}
+export interface PayoutCard {
+  companyId: string;
+  employeeId: string;
+  cardEnc: string;
+  cardMask: string;
+  cardBrand: string;
+  holder: string;
+  updatedAt: string;
+}
+
+/* ------------------------------------------- murojaatlar (HR’ga savol) --- */
+export interface TicketMessage {
+  id: string;
+  from: "EMPLOYEE" | "HR";
+  /** HR javobida — javob bergan xodim ismi. Anonim murojaatda xodim ismi yozilmaydi. */
+  author?: string;
+  text: string;
+  at: string;
+}
+/**
+ * Xodimning HR’ga savoli yoki taklif/shikoyati. Anonim murojaatda xodim ID si
+ * saqlanmaydi — faqat sirli xesh (o‘zi javobni ko‘rishi uchun), HR uni bilmaydi.
+ */
+export interface Ticket {
+  id: string;
+  companyId: string;
+  employeeId?: string;
+  ownerHash?: string;
+  kind: "QUESTION" | "FEEDBACK";
+  anonymous: boolean;
+  category: string;
+  subject: string;
+  /** Anonim bo‘lmasa — filial (rahbar faqat o‘z filialinikini ko‘radi). */
+  branchId?: string;
+  status: "OPEN" | "ANSWERED" | "CLOSED";
+  messages: TicketMessage[];
+  unreadEmployee: boolean;
+  unreadHr: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+/** Ma’lumotnoma (spravka) so‘rovi: HR tayyorlab faylni yuklaydi, xodim Mini App’dan oladi. */
+export interface CertificateRequest {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  type: "WORK" | "SALARY" | "NDFL" | "VISA" | "OTHER";
+  purpose: string;
+  note?: string;
+  status: "PENDING" | "READY" | "REJECTED";
+  documentId?: string;
+  decidedBy?: string;
+  decidedNote?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /* ----------------------------------------------------------- Mini App --- */
@@ -515,12 +582,31 @@ export interface AdvanceRequest {
   month: string;
   amount: number;
   reason?: string;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  /** PENDING — HR ko‘rmoqda; HR_APPROVED — HR tasdiqladi, moliyada; APPROVED — moliya tasdiqladi (oylikdan ushlanadi). */
+  status: "PENDING" | "HR_APPROVED" | "APPROVED" | "REJECTED" | "CANCELLED";
+  /** 1-bosqich: HR qarori. */
+  hrDecidedBy?: string;
+  hrDecidedAt?: string;
+  hrNote?: string;
   decidedBy?: string;
   decidedNote?: string;
   adjustmentId?: string;
+  /** Pul qanday beriladi: kartaga (raqam shifrlangan) yoki naqd. */
+  payout?: AdvancePayout;
+  /** Moliya pulni o‘tkazdi / berdi. */
+  paidAt?: string;
+  paidBy?: string;
   createdAt: string;
   updatedAt: string;
+}
+export interface AdvancePayout {
+  method: "CARD" | "CASH";
+  /** AES-256-GCM bilan shifrlangan to‘liq raqam — faqat moliya ochadi (audit bilan). */
+  cardEnc?: string;
+  cardMask?: string;
+  cardBrand?: string;
+  /** Qabul qiluvchining ism-familiyasi (karta egasi). */
+  holder?: string;
 }
 export interface PayslipLine {
   employeeId: string;

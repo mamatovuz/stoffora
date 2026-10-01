@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Crosshair, Ruler, Sun } from "lucide-react";
 import { ApiError, errorText, post } from "../api";
 
 /** Internetsiz rejim uchun: tekshiruv natijasi (serverda keyin solishtiriladi). */
@@ -89,6 +89,41 @@ function brightness(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
   return sum / (data.length / 4);
 }
 
+/**
+ * Yuz sohasining yorqinligi va keskinligi (Laplas dispersiyasi, 48×48 da — juda arzon).
+ * Qorong‘i/orqadan yoritilgan yoki xira kadrlar deskriptorni buzadi — ular chetlanadi.
+ */
+function faceQuality(video: HTMLVideoElement, box: { x: number; y: number; width: number; height: number }, canvas: HTMLCanvasElement) {
+  const S = 48;
+  canvas.width = S;
+  canvas.height = S;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return { light: 128, sharp: 100 };
+  context.drawImage(video, box.x, box.y, box.width, box.height, 0, 0, S, S);
+  const data = context.getImageData(0, 0, S, S).data;
+  const gray = new Float32Array(S * S);
+  let sum = 0;
+  for (let i = 0; i < S * S; i += 1) {
+    gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+    sum += gray[i];
+  }
+  let lap = 0;
+  let lap2 = 0;
+  let n = 0;
+  for (let y = 1; y < S - 1; y += 1)
+    for (let x = 1; x < S - 1; x += 1) {
+      const i = y * S + x;
+      const v = 4 * gray[i] - gray[i - 1] - gray[i + 1] - gray[i - S] - gray[i + S];
+      lap += v;
+      lap2 += v * v;
+      n += 1;
+    }
+  const mean = lap / n;
+  return { light: sum / (S * S), sharp: lap2 / n - mean * mean };
+}
+
+type Quality = { light: "ok" | "bad" | ""; distance: "ok" | "bad" | ""; center: "ok" | "bad" | "" };
+
 function capturePhoto(video: HTMLVideoElement) {
   const size = Math.min(video.videoWidth, video.videoHeight);
   const canvas = document.createElement("canvas");
@@ -169,6 +204,22 @@ export function FaceScanner({
   const [arrow, setArrow] = useState<"left" | "right" | null>(null);
   const [error, setError] = useState("");
   const [score, setScore] = useState(0);
+  const [quality, setQualityState] = useState<Quality>({ light: "", distance: "", center: "" });
+  const qualityRef = useRef<Quality>(quality);
+  /** Holat faqat o‘zgarganda yangilanadi — har kadrda qayta chizish yo‘q (tezroq). */
+  const setQuality = (next: Partial<Quality>) => {
+    const merged = { ...qualityRef.current, ...next };
+    if (merged.light === qualityRef.current.light && merged.distance === qualityRef.current.distance && merged.center === qualityRef.current.center) return;
+    qualityRef.current = merged;
+    setQualityState(merged);
+  };
+  const hintRef = useRef("");
+  const say = (text: string) => {
+    if (hintRef.current === text) return;
+    hintRef.current = text;
+    setHint(text);
+  };
+  const startedAtRef = useRef(0);
 
   const stopCamera = () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -199,13 +250,15 @@ export function FaceScanner({
     setArrow(null);
     setPhase("loading");
     setTitle(enrolled ? "Face ID" : "Tayyorlanmoqda");
-    setHint("Kamera ochilmoqda…");
+    say("Kamera ochilmoqda…");
+    setQuality({ light: "", distance: "", center: "" });
+    startedAtRef.current = performance.now();
     try {
       if (!window.isSecureContext) throw new Error("Face ID uchun sayt HTTPS orqali ochilishi kerak.");
       if (!navigator.mediaDevices?.getUserMedia)
         throw new Error("Kameraga kirish imkoni yo‘q. Telegram ilovasini yangilang.");
       const slowHint = window.setTimeout(() => {
-        if (active()) setHint("Kameraga ruxsat so‘rovini tasdiqlang (Ruxsat berish / Allow)");
+        if (active()) say("Kameraga ruxsat so‘rovini tasdiqlang (Ruxsat berish / Allow)");
       }, 6000);
       const [faceapi, stream] = await Promise.all([
         preloadFaceModels(),
@@ -225,8 +278,9 @@ export function FaceScanner({
         video.srcObject = stream;
         await video.play().catch(() => undefined);
       }
-      const fast = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 });
-      const precise = new faceapi.TinyFaceDetectorOptions({ inputSize: 256, scoreThreshold: 0.5 });
+      // Kuzatish kadrlari uchun kichik (tez) o‘lcham; deskriptor olinadigan kadrlar uchun aniqroq.
+      const fast = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.42 });
+      const precise = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
       const samples: number[][] = [];
       let turnDescriptor: number[] | undefined;
       let photo = "";
@@ -240,7 +294,7 @@ export function FaceScanner({
           else requestAnimationFrame(() => resolve());
         });
 
-      type Frame = { yaw: number; pitch: number; descriptor?: number[]; score: number };
+      type Frame = { yaw: number; pitch: number; descriptor?: number[]; score: number; sharp: number };
       /**
        * Bitta kadr — BITTA hisoblash: aniqlash + nuqtalar (+ kerak bo‘lsa deskriptor).
        * Oldingi versiyada har kadr ikki marta hisoblanardi.
@@ -254,7 +308,8 @@ export function FaceScanner({
         const face = await faceapi.detectSingleFace(video, withDescriptor ? precise : fast).withFaceLandmarks(true);
         if (!active()) return null;
         if (!face) {
-          setHint("Yuzingizni doira ichiga joylang");
+          setQuality({ center: "bad" });
+          say("Yuzingizni doira ichiga joylang");
           return null;
         }
         const box = face.detection.box;
@@ -262,53 +317,95 @@ export function FaceScanner({
         const cx = (box.x + box.width / 2) / video.videoWidth;
         const cy = (box.y + box.height / 2) / video.videoHeight;
         if (box.width < frame * 0.22) {
-          setHint("Yaqinroq keling");
+          setQuality({ distance: "bad" });
+          say("Yaqinroq keling");
           return null;
         }
         if (box.width > frame * 0.9) {
-          setHint("Biroz uzoqroq turing");
+          setQuality({ distance: "bad" });
+          say("Biroz uzoqroq turing");
           return null;
         }
+        setQuality({ distance: "ok" });
         if (Math.abs(cx - 0.5) > 0.24 || Math.abs(cy - 0.5) > 0.26) {
-          setHint("Yuzingizni markazga olib keling");
+          setQuality({ center: "bad" });
+          say("Yuzingizni markazga olib keling");
           return null;
         }
+        setQuality({ center: "ok" });
         if (frames % 15 === 0 && brightness(video, canvasRef.current) < 45) {
-          setHint("Juda qorong‘i — yorug‘roq joyga o‘ting");
+          setQuality({ light: "bad" });
+          say("Juda qorong‘i — yorug‘roq joyga o‘ting");
           return null;
         }
         const g = geometry(face.landmarks.positions);
         let descriptor: number[] | undefined;
+        let sharp = 100;
+        if (withDescriptor) {
+          // Faqat deskriptor olinadigan kadrda: yuz yorug‘ligi va keskinligi.
+          const q = faceQuality(video, box, canvasRef.current);
+          sharp = q.sharp;
+          if (q.light < 55) {
+            setQuality({ light: "bad" });
+            say("Yuzingiz qorong‘i — yorug‘lik manbaiga yuzlaning");
+            return null;
+          }
+          if (q.light > 235) {
+            setQuality({ light: "bad" });
+            say("Juda yorqin — to‘g‘ridan tushayotgan yorug‘likdan chetlang");
+            return null;
+          }
+          setQuality({ light: "ok" });
+        }
         if (withDescriptor && face.detection.score >= 0.5) {
           const [crop] = await faceapi.extractFaces(video, [face.landmarks.align(null, { useDlibAlignment: true })]);
           if (!active() || !crop) return null;
           const raw = await faceapi.computeFaceDescriptor(crop);
           descriptor = Array.from(Array.isArray(raw) ? raw[0] : raw);
         }
-        return { ...g, descriptor, score: face.detection.score };
+        return { ...g, descriptor, score: face.detection.score, sharp };
       };
       const accept = (descriptor: number[]) => {
         if (samples.length && distance(samples[0], descriptor) > 0.6)
           throw new Error("Tekshiruv davomida boshqa yuz aniqlandi. Qaytadan boshlang.");
         samples.push(descriptor);
       };
-      /** To‘g‘ri qaragan holatda `count` ta sifatli namuna oladi. */
+      /**
+       * To‘g‘ri qaragan holatda `count` ta eng sifatli namunani oladi: bitta ortiqcha
+       * nomzod yig‘iladi va eng xira / boshqalardan eng uzoq (chetga chiqqan) kadr tashlanadi.
+       * Sifatli kadr kelmasa — 6 soniyadan keyin borlari bilan davom etadi (eski kameralar).
+       */
       const waitFront = async (count: number) => {
-        let captured = 0;
-        while (active() && captured < count) {
+        const candidates: { descriptor: number[]; quality: number; pitch: number }[] = [];
+        const want = count + 1;
+        const started = performance.now();
+        while (active() && candidates.length < want) {
+          if (candidates.length >= count && performance.now() - started > 6000) break;
           const f = await inspect(true);
           if (!f) continue;
-          if (Math.abs(f.yaw) > 0.14) {
-            setHint("Kameraga to‘g‘ri qarang");
+          if (Math.abs(f.yaw) > 0.14 || Math.abs(f.pitch - (candidates[0]?.pitch ?? f.pitch)) > 0.25) {
+            say("Kameraga to‘g‘ri qarang");
             continue;
           }
           if (!f.descriptor || f.score < 0.55) continue;
-          setHint("Qimirlamang…");
-          accept(f.descriptor);
-          captured += 1;
-          baselinePitch = f.pitch;
+          if (f.sharp < 18 && performance.now() - started < 4000) {
+            say("Qimirlamang — tasvir xira");
+            continue;
+          }
+          say("Qimirlamang…");
+          candidates.push({ descriptor: f.descriptor, quality: f.score * Math.min(1, f.sharp / 120), pitch: f.pitch });
           if (!photo) photo = capturePhoto(video);
         }
+        if (!active()) return;
+        let chosen = candidates;
+        if (candidates.length > count) {
+          // Har nomzodning boshqalardan o‘rtacha masofasi — eng chetdagisi (va eng past sifatlisi) tashlanadi.
+          const spread = candidates.map((c, i) => candidates.reduce((s, o, j) => (i === j ? s : s + distance(c.descriptor, o.descriptor)), 0) / (candidates.length - 1));
+          const worst = spread.map((s, i) => s - candidates[i].quality * 0.05).reduce((w, v, i, list) => (v > list[w] ? i : w), 0);
+          chosen = candidates.filter((_, i) => i !== worst).slice(0, count);
+        }
+        for (const c of chosen) accept(c.descriptor);
+        baselinePitch = chosen[chosen.length - 1]?.pitch ?? baselinePitch;
       };
 
       if (!enrolled) {
@@ -321,7 +418,7 @@ export function FaceScanner({
         // 2) doirani to‘ldirish (iPhone Face ID kabi)
         setPhase("rotate");
         setTitle("Boshingizni sekin aylantiring");
-        setHint("Doirani to‘ldirish uchun boshingizni aylana bo‘ylab harakatlantiring");
+        say("Doirani to‘ldirish uchun boshingizni aylana bo‘ylab harakatlantiring");
         const thresholds = [0.18, 0.36, 0.54];
         const startedAt = Date.now();
         while (active()) {
@@ -344,7 +441,7 @@ export function FaceScanner({
               const d = Math.min(Math.abs(i - center), TICKS - Math.abs(i - center));
               return d <= spread;
             });
-            setHint(Date.now() - startedAt > 18000 ? "Boshingizni kattaroq aylana bo‘ylab harakatlantiring" : "Davom eting…");
+            say(Date.now() - startedAt > 18000 ? "Boshingizni kattaroq aylana bo‘ylab harakatlantiring" : "Davom eting…");
           }
           if (wantSample && f.descriptor && f.score >= 0.55 && Math.abs(f.yaw) < 0.45 && magnitude > 0.12) {
             accept(f.descriptor);
@@ -357,7 +454,7 @@ export function FaceScanner({
         // 3) yakuniy to‘g‘ri namuna
         setPhase("final");
         setTitle("Yana to‘g‘ri qarang");
-        setHint("Oxirgi namuna");
+        say("Oxirgi namuna");
         await waitFront(1);
       } else {
         // Tasdiqlash: 2 ta to‘g‘ri kadr (o‘rtachasi aniqroq) → bosh burish (jonlilik).
@@ -372,7 +469,7 @@ export function FaceScanner({
         setPhase("turn");
         setArrow(direction);
         setTitle(direction === "left" ? "Boshingizni chapga buring" : "Boshingizni o‘ngga buring");
-        setHint("Jonli odam ekanini tekshiramiz");
+        say("Jonli odam ekanini tekshiramiz");
         const turnStarted = Date.now();
         // Kamera tasviri ko‘zgu: xodim chapga bursa yaw musbat bo‘ladi.
         const wanted = direction === "left" ? 1 : -1;
@@ -385,8 +482,8 @@ export function FaceScanner({
             turnDescriptor = f.descriptor;
             break;
           }
-          if (f.yaw * wanted < -0.15) setHint(direction === "left" ? "Boshqa tomonga — chapga" : "Boshqa tomonga — o‘ngga");
-          else if (Date.now() - turnStarted > 6000) setHint("Boshingizni biroz ko‘proq buring");
+          if (f.yaw * wanted < -0.15) say(direction === "left" ? "Boshqa tomonga — chapga" : "Boshqa tomonga — o‘ngga");
+          else if (Date.now() - turnStarted > 6000) say("Boshingizni biroz ko‘proq buring");
           fillTo(0.5 + Math.min(0.45, Math.max(0, f.yaw * wanted) * 3));
         }
         if (!active()) return;
@@ -397,7 +494,7 @@ export function FaceScanner({
       fillTo(1);
       setPhase("sending");
       setTitle(enrolled ? "Tekshirilmoqda" : "Saqlanmoqda");
-      setHint("");
+      say("");
       const liveness = { challenge: enrolled ? "turn" : "circle", passed: true, frames };
       // Ikki kadrning o‘rtachasi — shovqin kamayadi, moslik aniqroq.
       const capture: FaceCapture = { descriptor: mean(samples), turnDescriptor, photo: photo || undefined };
@@ -406,7 +503,7 @@ export function FaceScanner({
         stopCamera();
         setPhase("done");
         setTitle("Saqlandi");
-        setHint("Internet kelishi bilan yuboriladi");
+        say("Internet kelishi bilan yuboriladi");
         haptic("success");
         await sleep(600);
         if (active()) await onOffline!(capture);
@@ -429,6 +526,7 @@ export function FaceScanner({
       if (!active()) return;
       stopCamera();
       setScore(result.score);
+      setElapsed(Math.round((performance.now() - startedAtRef.current) / 100) / 10);
       setPhase("done");
       setTitle(enrolled ? "Tasdiqlandi" : "Face ID sozlandi");
       haptic("success");
@@ -465,7 +563,21 @@ export function FaceScanner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const [elapsed, setElapsed] = useState(0);
   const litCount = lit.filter(Boolean).length;
+  const steps = enrolled
+    ? [
+        ["center", "Qarang"],
+        ["turn", "Buriling"],
+        ["sending", "Tekshiruv"],
+      ]
+    : [
+        ["center", "Markaz"],
+        ["rotate", "Aylantirish"],
+        ["final", "Yakun"],
+      ];
+  const order = enrolled ? ["loading", "center", "turn", "sending", "done"] : ["loading", "center", "rotate", "final", "sending", "done"];
+  const position = order.indexOf(phase);
   const showCamera = !["intro", "done"].includes(phase);
   const glyphState = phase === "done" ? "ok" : phase === "error" ? "fail" : "scan";
 
@@ -502,6 +614,19 @@ export function FaceScanner({
         </div>
       ) : (
         <div className="faceid-body">
+          {phase !== "error" && (
+            <ol className="faceid-steps" aria-label="Bosqichlar">
+              {steps.map(([key, label]) => {
+                const at = order.indexOf(key);
+                return (
+                  <li key={key} className={position > at || phase === "done" ? "done" : position === at ? "active" : ""}>
+                    <i />
+                    {label}
+                  </li>
+                );
+              })}
+            </ol>
+          )}
           <h1 className="faceid-title">{title}</h1>
           <div className={`faceid-stage ${phase}`}>
             <svg className="faceid-ticks" viewBox="0 0 200 200" aria-hidden="true">
@@ -545,10 +670,23 @@ export function FaceScanner({
               ? error
               : phase === "done"
                 ? enrolled
-                  ? `Moslik ${score}%`
+                  ? `Moslik ${score}%${elapsed ? ` · ${elapsed.toString().replace(".", ",")} s` : ""}`
                   : "Endi davomatni yuzingiz bilan tasdiqlaysiz"
                 : hint}
           </p>
+          {["center", "turn", "rotate", "final"].includes(phase) && (
+            <div className="faceid-quality" aria-label="Tasvir sifati">
+              <span className={quality.light}>
+                <Sun size={14} /> Yorug‘lik
+              </span>
+              <span className={quality.distance}>
+                <Ruler size={14} /> Masofa
+              </span>
+              <span className={quality.center}>
+                <Crosshair size={14} /> Markaz
+              </span>
+            </div>
+          )}
           {phase === "error" && (
             <div className="faceid-actions">
               <button className="faceid-primary" onClick={() => void run()}>

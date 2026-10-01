@@ -37,6 +37,9 @@ export function emptyDatabase(): Database {
     biometricDevices: [],
     lateNotices: [],
     clientLogs: [],
+    tickets: [],
+    certificateRequests: [],
+    payoutCards: [],
   };
 }
 

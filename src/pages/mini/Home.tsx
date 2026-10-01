@@ -18,7 +18,13 @@ import {
   Users,
   Wallet,
   FileText,
+  MessageCircleQuestion,
+  Navigation,
+  ScrollText,
 } from "lucide-react";
+import { haversineDistance } from "@/lib/attendance";
+import { BirthdayCard } from "./Birthdays";
+import type { HelpdeskView } from "./Helpdesk";
 import { api, errorText, post } from "../../api";
 import { dateLongUz, duration, tashkentClock, tashkentWeekday } from "@/lib/format";
 import { breakMinutes, type DeepLink } from "@/lib/mini";
@@ -45,6 +51,8 @@ export function MiniHome({
   onNavigate,
   onRefresh,
   onToast,
+  onHelpdesk,
+  onBirthdays,
 }: {
   data: HomeData;
   stale: boolean;
@@ -57,6 +65,8 @@ export function MiniHome({
   onNavigate: (link: DeepLink) => void;
   onRefresh: () => Promise<void>;
   onToast: Toast;
+  onHelpdesk: (view: HelpdeskView) => void;
+  onBirthdays: () => void;
 }) {
   const now = useClock();
   const a = data.attendance;
@@ -92,6 +102,7 @@ export function MiniHome({
       .catch(() => undefined);
   }, [offline]);
   const streak = stats?.streak.current || 0;
+  const near = useGeofence(Boolean(!a?.checkIn && day?.enabled && !data.todayLeave && !offline && !stale), data);
 
   return (
     <div className="mini-body mh">
@@ -125,7 +136,7 @@ export function MiniHome({
           </div>
         </div>
 
-        {working && day?.enabled && a?.checkIn && <ShiftProgress start={a.checkIn} end={day.end} now={now} />}
+        {working && day?.enabled && a?.checkIn && <ShiftProgress start={a.checkIn} end={a.scheduledEnd || day.end} now={now} />}
 
         {missingSetup ? (
           <div className="mh-done warn">
@@ -154,7 +165,28 @@ export function MiniHome({
         </div>
       </section>
 
+      {near && !missingSetup && (
+        <button
+          className="mh-geo"
+          onClick={() => {
+            haptic.tap("medium");
+            onAction("CHECK_IN");
+          }}
+        >
+          <span className="mh-geo-pulse">
+            <Navigation size={18} />
+          </span>
+          <span>
+            <b>Siz {data.branch?.name} yonidasiz</b>
+            <small>Ishga keldingizmi? Hozir belgilang — {near} m</small>
+          </span>
+          <ChevronRight size={16} />
+        </button>
+      )}
+
       {data.features?.breaks && working && !finished && <BreakCard data={data} now={now} onChanged={onRefresh} onToast={onToast} />}
+
+      <BirthdayCard onOpen={onBirthdays} offline={offline} />
 
       {canNotifyLate &&
         (data.lateNotice ? (
@@ -212,6 +244,8 @@ export function MiniHome({
         )}
         <QuickTile icon={<Wallet size={19} />} label="Hisob varaqa" onClick={() => onNavigate({ tab: "profile", section: "payslips" })} />
         <QuickTile icon={<CalendarCheck size={19} />} label="Ta’til" onClick={() => onNavigate({ tab: "leave", view: "leave" })} />
+        <QuickTile icon={<MessageCircleQuestion size={19} />} label="HR’ga savol" onClick={() => onHelpdesk("questions")} />
+        <QuickTile icon={<ScrollText size={19} />} label="Spravka" onClick={() => onHelpdesk("certificates")} />
       </section>
 
       {data.month.practiceUntil && (
@@ -284,23 +318,69 @@ function QuickTile({ icon, label, onClick }: { icon: React.ReactNode; label: str
   );
 }
 
+/** Ish kuni halqasi: necha foiz o‘tgani va qancha qolgani. */
 export function ShiftProgress({ start, end, now }: { start: string; end: string; now: Date }) {
   const current = toMinutes(tashkentClock(now));
   const total = Math.max(1, toMinutes(end) - toMinutes(start));
   const done = Math.min(total, Math.max(0, current - toMinutes(start)));
   const left = Math.max(0, toMinutes(end) - current);
   const percent = Math.round((done / total) * 100);
+  const R = 26;
+  const C = 2 * Math.PI * R;
   return (
-    <div className="mini-shift" aria-label={`Ish kuni ${percent}%`}>
-      <div className="mini-shift-bar">
-        <i style={{ width: `${percent}%` }} />
-      </div>
-      <div className="mini-shift-text">
-        <span>{percent}% bajarildi</span>
-        <span>{left ? `${Math.floor(left / 60)} soat ${left % 60} daq qoldi` : "Ish vaqti tugadi"}</span>
-      </div>
+    <div className="mh-ring" aria-label={`Ish kuni ${percent}%`}>
+      <svg viewBox="0 0 64 64" width="64" height="64" aria-hidden>
+        <circle cx="32" cy="32" r={R} className="mh-ring-track" />
+        <circle cx="32" cy="32" r={R} className="mh-ring-fill" strokeDasharray={C} strokeDashoffset={C * (1 - percent / 100)} />
+      </svg>
+      <b>{percent}%</b>
+      <span>
+        <strong>{left ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : "0:00"}</strong>
+        <small>{left ? `qoldi · ${end} gacha` : "Ish vaqti tugadi — ketishni belgilang"}</small>
+      </span>
     </div>
   );
+}
+
+/**
+ * Geofence: Mini App ochiq bo‘lsa va xodim hali kelmagan bo‘lsa, filialga yaqinlashganini
+ * sezib «Ishga keldingizmi?» taklifini ko‘rsatadi. Faqat joylashuvga oldin ruxsat
+ * berilgan bo‘lsa ishlaydi (yangi ruxsat so‘ramaydi) va kam quvvatli rejimda.
+ */
+function useGeofence(enabled: boolean, data: HomeData) {
+  const [near, setNear] = useState<number | null>(null);
+  const branch = data.branch;
+  const day = data.schedule?.days.find((d) => d.day === tashkentWeekday());
+  useEffect(() => {
+    setNear(null);
+    if (!enabled || !branch || !day?.enabled || !navigator.geolocation) return;
+    let granted = false;
+    try {
+      granted = localStorage.getItem("staffora:geo-ok") === "1";
+    } catch {
+      granted = false;
+    }
+    if (!granted) return;
+    // Faqat ish boshlanishidan 90 daqiqa oldin — tugashigacha.
+    const now = toMinutes(tashkentClock());
+    if (now < toMinutes(day.start) - 90 || now > toMinutes(day.end)) return;
+    let notified = false;
+    const watch = navigator.geolocation.watchPosition(
+      (position) => {
+        const distance = Math.round(haversineDistance(position.coords.latitude, position.coords.longitude, branch.latitude, branch.longitude));
+        const inside = distance - Math.min(35, position.coords.accuracy) <= branch.radiusMeters + 40;
+        setNear(inside ? distance : null);
+        if (inside && !notified) {
+          notified = true;
+          haptic.success();
+        }
+      },
+      () => setNear(null),
+      { enableHighAccuracy: false, maximumAge: 60_000, timeout: 20_000 },
+    );
+    return () => navigator.geolocation.clearWatch(watch);
+  }, [enabled, branch, day?.enabled, day?.start, day?.end]);
+  return near;
 }
 
 /* ------------------------------------------------------------ tanaffus --- */

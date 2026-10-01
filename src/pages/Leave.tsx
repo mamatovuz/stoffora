@@ -18,9 +18,12 @@ import {
 import { dateUz, tashkentIsoDate } from "@/lib/format";
 import type { Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../types";
+import { AdvanceRequestsPanel, type AdvanceRow } from "../components/AdvanceRequests";
+import { useAuth } from "../auth";
+import { canAny } from "@/lib/permissions";
 
 type Row = LeaveRequest & { employee?: Employee };
-type Tab = "PENDING" | "APPROVED" | "ALL" | "SWAPS";
+type Tab = "PENDING" | "APPROVED" | "ALL" | "SWAPS" | "ADVANCES";
 type SwapRow = ShiftSwapRequest & { requesterName: string; colleagueName: string; giveShift?: string; takeShift?: string };
 
 const days = (from: string, to: string) =>
@@ -33,6 +36,10 @@ export function LeavePage() {
   const { data, loading, error, reload } = useApi<Row[]>("/leave");
   const [tab, setTab] = useState<Tab>("PENDING");
   const swaps = useApi<SwapRow[]>("/shift-swaps");
+  const { user } = useAuth();
+  // HR 1-bosqichda avans so‘rovlarini ko‘radi (keyin moliyaga o‘tadi).
+  const hrAdvances = Boolean(user && canAny(user.role, ["leave.approve", "employees.edit"]));
+  const advances = useApi<AdvanceRow[]>(hrAdvances ? "/payroll/advances?status=PENDING" : null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const toast = useToast();
@@ -89,10 +96,15 @@ export function LeavePage() {
                 label: "Smena almashish",
                 count: swaps.data?.filter((s) => s.status === "PENDING_MANAGER").length,
               },
+              ...(hrAdvances ? [{ value: "ADVANCES" as Tab, label: "Avans so‘rovlari", count: advances.data?.length }] : []),
             ]}
           />
         </div>
-        {tab === "SWAPS" ? (
+        {tab === "ADVANCES" ? (
+          <div className="card-body">
+            <AdvanceRequestsPanel mode="hr" onChanged={() => void advances.reload(true)} />
+          </div>
+        ) : tab === "SWAPS" ? (
           <SwapsPanel api={swaps} />
         ) : loading && !data ? (
           <Loading />

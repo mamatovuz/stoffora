@@ -3,10 +3,8 @@ import { Link } from "react-router-dom";
 import {
   AlarmClock,
   CalendarRange,
-  Check,
   Database,
   HandCoins,
-  X,
   AlertTriangle,
   Banknote,
   Download,
@@ -25,6 +23,7 @@ import {
 } from "lucide-react";
 import { useApi } from "../hooks";
 import { useAuth } from "../auth";
+import { AdvanceRequestsPanel, type AdvanceRow } from "../components/AdvanceRequests";
 import { can } from "@/lib/permissions";
 import { del, errorText, post, put } from "../api";
 import {
@@ -877,114 +876,10 @@ function SalaryModal({ employees, onClose, onSaved }: { employees: Employee[]; o
   );
 }
 
-/* ------------------------------------------------- avans so‘rovlari --- */
-type AdvanceRow = {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  employeeNo?: string;
-  month: string;
-  amount: number;
-  reason?: string;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
-  decidedBy?: string;
-  decidedNote?: string;
-  createdAt: string;
-  baseSalary: number;
-  limit?: { max: number; taken: number; percent: number };
-};
-const advanceStatus: Record<AdvanceRow["status"], [string, string]> = {
-  PENDING: ["Kutilmoqda", "amber"],
-  APPROVED: ["Tasdiqlangan", "green"],
-  REJECTED: ["Rad etilgan", "red"],
-  CANCELLED: ["Bekor qilingan", "gray"],
-};
-
 function AdvanceRequestsModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
-  const toast = useToast();
-  const { data, loading, reload } = useApi<AdvanceRow[]>("/payroll/advances");
-  const [filter, setFilter] = useState<"PENDING" | "ALL">("PENDING");
-  const [amounts, setAmounts] = useState<Record<string, string>>({});
-  const [busy, setBusy] = useState<string | null>(null);
-  const rows = (data || []).filter((r) => filter === "ALL" || r.status === "PENDING");
-  const decide = async (row: AdvanceRow, approve: boolean) => {
-    setBusy(row.id);
-    try {
-      const amount = parseAmount(amounts[row.id] || "") || undefined;
-      await post(`/payroll/advances/${row.id}/decide`, { approve, amount });
-      toast(approve ? "Avans tasdiqlandi — ish haqidan ushlanadi" : "Avans rad etildi");
-      void reload(true);
-      onChanged();
-    } catch (reason) {
-      toast(errorText(reason), "error");
-    } finally {
-      setBusy(null);
-    }
-  };
   return (
-    <Modal title="Avans so‘rovlari" subtitle="Xodimlar Mini App orqali so‘raydi; tasdiqlangan summa oylikdan avtomatik ushlanadi" onClose={onClose} size="wide">
-      <div className="toolbar" style={{ marginBottom: 12 }}>
-        <button className={`btn btn-sm ${filter === "PENDING" ? "btn-primary" : ""}`} onClick={() => setFilter("PENDING")}>
-          Kutilmoqda
-        </button>
-        <button className={`btn btn-sm ${filter === "ALL" ? "btn-primary" : ""}`} onClick={() => setFilter("ALL")}>
-          Hammasi
-        </button>
-      </div>
-      {loading && !data ? (
-        <Loading />
-      ) : !rows.length ? (
-        <Empty icon={HandCoins} title="Avans so‘rovlari yo‘q" text="Xodim Mini App’dagi «Oyligim» bo‘limidan avans so‘raganda shu yerda ko‘rinadi." />
-      ) : (
-        <div className="adv-list">
-          {rows.map((r) => {
-            const [label, tone] = advanceStatus[r.status];
-            return (
-              <article key={r.id} className={`adv-card ${r.status === "PENDING" ? "is-pending" : ""}`}>
-                <div className="adv-main">
-                  <div>
-                    <b>{r.employeeName}</b>
-                    <small>
-                      {r.employeeNo} · {monthYearUz(`${r.month}-15`)} · {when(r.createdAt)}
-                    </small>
-                  </div>
-                  <strong className="num">{money(r.amount)}</strong>
-                </div>
-                {r.reason && <p className="adv-reason">«{r.reason}»</p>}
-                {r.limit && (
-                  <div className="adv-meta">
-                    <span>Oylik: {money(r.baseSalary)}</span>
-                    <span>Chegara ({r.limit.percent}%): {money(r.limit.max)}</span>
-                    <span>Shu oy berilgan: {money(r.limit.taken)}</span>
-                  </div>
-                )}
-                <footer>
-                  <span className={`badge ${tone}`}>{label}</span>
-                  {r.decidedBy && <small className="muted">{r.decidedBy}</small>}
-                  {r.status === "PENDING" && (
-                    <span className="toolbar adv-actions">
-                      <input
-                        className="input input-sm"
-                        inputMode="numeric"
-                        placeholder={`Summa (≤ ${r.amount.toLocaleString("ru-RU")})`}
-                        value={amounts[r.id] || ""}
-                        onChange={(e) => setAmounts({ ...amounts, [r.id]: formatAmount(e.target.value) })}
-                        aria-label="Tasdiqlanadigan summa"
-                      />
-                      <button className="btn btn-sm btn-primary" disabled={busy === r.id} onClick={() => void decide(r, true)}>
-                        <Check size={14} /> Tasdiqlash
-                      </button>
-                      <button className="btn btn-sm btn-danger" disabled={busy === r.id} onClick={() => void decide(r, false)} aria-label="Rad etish">
-                        <X size={14} />
-                      </button>
-                    </span>
-                  )}
-                </footer>
-              </article>
-            );
-          })}
-        </div>
-      )}
+    <Modal title="Avans so‘rovlari" subtitle="Xodim → HR → moliya: tasdiqlangan summa oylikdan avtomatik ushlanadi" onClose={onClose} size="wide">
+      <AdvanceRequestsPanel mode="finance" onChanged={onChanged} />
     </Modal>
   );
 }

@@ -90,13 +90,14 @@ export function assertConsistentSamples(
  * o‘rtachasini birga hisobga oladi. Bitta tasodifiy o‘xshash namuna yetarli emas.
  */
 export function matchFace(
-  profile: { descriptor: number[]; samples?: number[][] },
+  profile: { descriptor: number[]; samples?: number[][]; adaptiveSamples?: number[][] },
   candidate: number[],
   threshold = faceMatchThreshold(),
 ) {
   assertFaceDescriptor(candidate);
   const centerDistance = faceDistance(profile.descriptor, candidate);
-  const sampleDistances = (profile.samples || [])
+  // Ro‘yxatdan o‘tishdagi namunalar + oxirgi ishonchli tekshiruvlar (vaqt o‘tishi bilan o‘zgarishga moslashadi).
+  const sampleDistances = [...(profile.samples || []), ...(profile.adaptiveSamples || [])]
     .map((sample) => faceDistance(sample, candidate))
     .sort((a, b) => a - b);
   const nearest = sampleDistances.length
@@ -110,6 +111,36 @@ export function matchFace(
     distance,
     score: Math.max(0, Math.min(100, Math.round((1 - distance) * 100))),
   };
+}
+
+export const ADAPTIVE_SAMPLES_MAX = 6;
+
+/**
+ * Ishonchli moslikdan keyin profilni yangilaydi: yangi yuz namunasi moslashuvchan
+ * ro‘yxatga qo‘shiladi (eng eskisi chiqadi). Faqat aniq mos kelganda (chegaradan
+ * ancha past) va mavjud namunalardan farq qilsa — profil boshqa odamga «siljib» ketmaydi,
+ * chunki markaziy (ro‘yxatdagi) deskriptor o‘zgarmaydi va baribir tekshiriladi.
+ */
+export function adaptProfile(
+  profile: { adaptiveSamples?: number[][] },
+  candidate: number[],
+  match: { distance: number },
+  threshold = faceMatchThreshold(),
+) {
+  if (match.distance > threshold * 0.8) return false;
+  const pool = profile.adaptiveSamples || [];
+  if (pool.some((sample) => faceDistance(sample, candidate) < 0.06)) return false;
+  profile.adaptiveSamples = [...pool, candidate].slice(-ADAPTIVE_SAMPLES_MAX);
+  return true;
+}
+
+/**
+ * Jonlilik: bosh burilgan kadr to‘g‘ri kadrdan sezilarli farq qilishi kerak.
+ * Bir xil rasm yoki ekrandagi surat ko‘rsatilsa ikki deskriptor deyarli bir xil chiqadi.
+ */
+export function assertPoseVariation(front: number[], turned: number[]) {
+  if (faceDistance(front, turned) < 0.03)
+    throw Object.assign(new Error("Bosh burilmadi — jonli tekshiruv o‘tmadi. Boshingizni ko‘rsatilgan tomonga buring."), { status: 422 });
 }
 
 /** Aynan bir xil deskriptor qayta yuborilsa — bu yozib olingan so‘rov (replay). */

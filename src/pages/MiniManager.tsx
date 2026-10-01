@@ -9,6 +9,7 @@ import {
   Hourglass,
   LoaderCircle,
   MapPin,
+  Megaphone,
   Plane,
   RefreshCw,
   ShieldAlert,
@@ -25,8 +26,9 @@ import { dateUz, tashkentIsoDate } from "@/lib/format";
 import type { Attendance, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../types";
 import { SkeletonList } from "./mini/shared";
+import { Briefing, EmployeeCardSheet, QuickAnnounceSheet, TrendsList, type TrendRow } from "./mini/ManagerTools";
 import type { ManagerAuth, ManagerView } from "./mini/managerAuth";
-import { callPhone, choiceNative, confirmNative, haptic, useMainButton, useSecondaryButton, writeInTelegram } from "./mini/tg";
+import { confirmNative, haptic, useMainButton, useSecondaryButton } from "./mini/tg";
 
 /*
  * Rahbar rejimi: panelga kirmasdan Telegram’dan bugungi holat, so‘rovlar,
@@ -68,7 +70,17 @@ type RosterRow = {
 type Day = { date: string; stats: { total: number; present: number; inNow: number; late: number; absent: number; leave: number; dayOff: number; notYet: number }; rows: RosterRow[] };
 type LeaveRow = LeaveRequest & { employee?: Employee };
 type SwapRow = { id: string; requesterName: string; colleagueName: string; giveDate: string; takeDate?: string; giveShift?: string; reason?: string; status: string };
-type AdvanceRow = { id: string; employeeName: string; amount: number; reason?: string; status: string; month: string; limit?: { max: number; taken: number } };
+type AdvanceRow = {
+  id: string;
+  employeeName: string;
+  amount: number;
+  reason?: string;
+  status: string;
+  month: string;
+  hrDecidedBy?: string;
+  limit?: { max: number; taken: number };
+  payout?: { method: "CARD" | "CASH"; cardMask?: string; holder?: string };
+};
 type OvertimeRow = { id: string; date: string; name: string; checkIn?: string; checkOut?: string; scheduledEnd: string; overtimeMinutes: number; approved?: boolean; note?: string };
 type LateNotice = { id: string; employeeId: string; employeeName: string; minutes: number; reason: string; createdAt: string };
 type Analytics = {
@@ -95,6 +107,9 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const [overtime, setOvertime] = useState<OvertimeRow[]>([]);
   const [notices, setNotices] = useState<LateNotice[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [trends, setTrends] = useState<TrendRow[] | null>(null);
+  const [cardFor, setCardFor] = useState<string | null>(null);
+  const [announcing, setAnnouncing] = useState(false);
   const [filter, setFilter] = useState<Filter>("ALL");
   const [branch, setBranch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -104,9 +119,14 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const canAttendance = can(role, "attendance.view");
   const canLeave = can(role, "leave.approve");
   const canSwaps = can(role, "leave.approve") || can(role, "attendance.edit");
-  const canAdvances = can(role, "payroll.edit");
+  // Avans: HR 1-bosqich (PENDING), moliya 2-bosqich (HR_APPROVED). Egasi ikkalasini ham ko‘radi.
+  const advanceHr = can(role, "leave.approve") || can(role, "employees.edit");
+  const advanceFinance = can(role, "payroll.edit");
+  const canAdvances = advanceHr || advanceFinance;
   const canOvertime = can(role, "attendance.edit") || can(role, "payroll.edit");
   const canAnalytics = can(role, "dashboard.view");
+  const canEditAttendance = can(role, "attendance.edit");
+  const canAnnounce = can(role, "announcements.create") || role === "BRANCH_MANAGER";
 
   const handle = useCallback(
     (reason: unknown) => {
@@ -120,14 +140,25 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
     setLoading(true);
     try {
       const month = tashkentIsoDate().slice(0, 7);
-      const [d, l, s, a, o, n, b] = await Promise.all([
+      const [d, l, s, a, o, n, b, t] = await Promise.all([
         canAttendance ? call<Day>(`/attendance/day?date=${tashkentIsoDate()}`) : Promise.resolve(null),
         canLeave ? call<LeaveRow[]>("/leave") : Promise.resolve([] as LeaveRow[]),
         canSwaps ? call<SwapRow[]>("/shift-swaps") : Promise.resolve([] as SwapRow[]),
-        canAdvances ? call<AdvanceRow[]>("/payroll/advances?status=PENDING") : Promise.resolve([] as AdvanceRow[]),
+        canAdvances
+          ? Promise.all([
+              call<AdvanceRow[]>("/payroll/advances?status=PENDING,HR_APPROVED"),
+              call<{ payroll?: { advanceHrApproval?: boolean } }>("/company").catch(() => ({ payroll: undefined })),
+            ]).then(([list, company]) => {
+              const twoStep = company.payroll?.advanceHrApproval !== false;
+              return list.filter((a) =>
+                a.status === "PENDING" ? (twoStep ? advanceHr : advanceFinance) : a.status === "HR_APPROVED" && advanceFinance,
+              );
+            })
+          : Promise.resolve([] as AdvanceRow[]),
         canOvertime ? call<{ rows: OvertimeRow[] }>(`/overtime?month=${month}`).catch(() => ({ rows: [] as OvertimeRow[] })) : Promise.resolve({ rows: [] as OvertimeRow[] }),
         canAttendance ? call<LateNotice[]>("/late-notices").catch(() => [] as LateNotice[]) : Promise.resolve([] as LateNotice[]),
         canAttendance ? call<Branch[]>("/branches").catch(() => [] as Branch[]) : Promise.resolve([] as Branch[]),
+        canAttendance ? call<TrendRow[]>("/trends").catch(() => [] as TrendRow[]) : Promise.resolve([] as TrendRow[]),
       ]);
       setDay(d);
       setLeaves(l.filter((x) => x.status === "PENDING"));
@@ -136,6 +167,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
       setOvertime(o.rows.filter((r) => r.approved === undefined));
       setNotices(n);
       setBranches(b);
+      setTrends(t);
     } catch (reason) {
       handle(reason);
     } finally {
@@ -235,18 +267,6 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   useMainButton(view === "requests" && selecting ? { text: selected.length ? `Tasdiqlash (${selected.length})` : "So‘rovlarni belgilang", onClick: () => void bulkApprove(), disabled: !selected.length, progress: busy === "bulk" } : null);
   useSecondaryButton(view === "requests" && selecting ? { text: "Bekor qilish", onClick: () => (setSelecting(false), setSelected([])) } : null);
 
-  async function contact(r: RosterRow) {
-    const e = r.employee;
-    const options = [...(e.telegramUsername || e.phone ? [{ id: "write", text: "Telegram’da yozish" }] : []), ...(e.phone ? [{ id: "call", text: "Qo‘ng‘iroq" }] : [])];
-    if (!options.length) return onToast("Xodimning telefoni va Telegram’i yo‘q", "error");
-    const notice = noticeOf(e.id);
-    const choice = await choiceNative(
-      `${e.firstName} ${e.lastName} · ${stateLabel(r)}${notice ? `\n⏳ ~${notice.minutes} daq kechikadi: «${notice.reason}»` : ""}`,
-      options,
-    );
-    if (choice === "write") writeInTelegram({ username: e.telegramUsername, phone: e.phone });
-    if (choice === "call" && e.phone) callPhone(e.phone);
-  }
 
   const selectableToggle = pendingCount > 1 && (
     <button
@@ -274,9 +294,16 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           <small>Rahbar paneli · {auth.company.name}</small>
           <h1>{auth.user.name}</h1>
         </div>
-        <button className="mg-refresh" onClick={() => void load()} aria-label="Yangilash" disabled={loading}>
-          <RefreshCw size={18} className={loading ? "spin" : ""} />
-        </button>
+        <span className="mg-head-actions">
+          {canAnnounce && (
+            <button className="mg-refresh" onClick={() => setAnnouncing(true)} aria-label="Tezkor e’lon">
+              <Megaphone size={18} />
+            </button>
+          )}
+          <button className="mg-refresh" onClick={() => void load()} aria-label="Yangilash" disabled={loading}>
+            <RefreshCw size={18} className={loading ? "spin" : ""} />
+          </button>
+        </span>
       </div>
       <div className="mini-seg four" role="tablist">
         {(
@@ -310,6 +337,18 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           <SkeletonList />
         ) : (
           <>
+            <Briefing
+              name={auth.user.name}
+              stats={stats}
+              notices={notices.filter((n) => !rows.find((r) => r.employee.id === n.employeeId)?.record?.checkIn).length}
+              pending={pendingCount}
+              trends={trends?.length || 0}
+              onOpen={(target) => {
+                if (target === "requests") setView("requests");
+                else if (target === "trends") setView("week");
+                else setFilter(target);
+              }}
+            />
             <section className="mg-hero">
               <div className="mg-ring" style={{ ["--p" as string]: `${rate}` }}>
                 <b>{rate}%</b>
@@ -349,7 +388,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                   {list.map((r) => {
                     const notice = noticeOf(r.employee.id);
                     return (
-                      <button className="mini-row mg-row" key={r.employee.id} onClick={() => void contact(r)}>
+                      <button className="mini-row mg-row" key={r.employee.id} onClick={() => setCardFor(r.employee.id)}>
                         <span className={`mg-avatar ${stateTone(r)}`}>
                           {r.employee.photoDataUrl ? <img src={r.employee.photoDataUrl} alt="" /> : `${r.employee.firstName[0] || ""}${r.employee.lastName[0] || ""}`}
                         </span>
@@ -377,7 +416,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                 </div>
               )}
             </section>
-            <p className="mp-note">Xodimga bosing — Telegram’da yozish yoki qo‘ng‘iroq qilish.</p>
+            <p className="mp-note">Xodimga bosing — karta: oylik tarix, trendlar, hujjatlar, yozish va qo‘lda belgilash.</p>
           </>
         ))}
 
@@ -496,11 +535,15 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                       {som(a.amount)}
                       {a.limit ? ` · shu oy olgan: ${som(a.limit.taken)}` : ""}
                     </small>
+                    <small>
+                      {a.status === "HR_APPROVED" ? `✓ HR: ${a.hrDecidedBy || "tasdiqlagan"} · moliya tasdig‘i` : "HR tasdig‘i"}
+                      {a.payout?.method === "CARD" ? ` · 💳 ${a.payout.cardMask} (${a.payout.holder})` : a.payout?.method === "CASH" ? " · 💵 naqd" : ""}
+                    </small>
                   </span>
                 </div>
                 {a.reason && <p>«{a.reason}»</p>}
                 {!selecting && (
-                  <Actions busy={busy === a.id} onApprove={() => act(a.id, () => decide(item, true), "Avans tasdiqlandi")} onReject={() => void reject(item, `${a.employeeName} avansi`)} />
+                  <Actions busy={busy === a.id} onApprove={() => act(a.id, () => decide(item, true), a.status === "PENDING" && advanceHr && !advanceFinance ? "Moliyaga yuborildi" : a.status === "PENDING" ? "HR bosqichi tasdiqlandi" : "Avans tasdiqlandi")} onReject={() => void reject(item, `${a.employeeName} avansi`)} />
                 )}
               </article>
             );
@@ -514,9 +557,30 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
       )}
 
       {view === "map" && (
-        <BranchMap rows={rows} branches={branches} branch={branch} onBranch={setBranch} branchNames={branchNames} onPick={(r) => void contact(r)} loading={!day} />
+        <BranchMap rows={rows} branches={branches} branch={branch} onBranch={setBranch} branchNames={branchNames} onPick={(r) => setCardFor(r.employee.id)} loading={!day} />
       )}
-      {view === "week" && <WeekSummary call={call} onError={handle} />}
+      {view === "week" && (
+        <>
+          {canAttendance && (
+            <>
+              <div className="mp-group-title">Diqqat talab (oxirgi 4 hafta)</div>
+              <TrendsList rows={trends} onOpen={setCardFor} />
+            </>
+          )}
+          <WeekSummary call={call} onError={handle} />
+        </>
+      )}
+      {cardFor && (
+        <EmployeeCardSheet
+          employeeId={cardFor}
+          call={call}
+          canEdit={canEditAttendance}
+          onClose={() => setCardFor(null)}
+          onToast={onToast}
+          onChanged={() => void load()}
+        />
+      )}
+      {announcing && <QuickAnnounceSheet call={call} branches={branches} onClose={() => setAnnouncing(false)} onToast={onToast} />}
     </div>
   );
 }

@@ -84,6 +84,9 @@ function normalizeDatabase(database: Database): Database {
   database.biometricDevices ||= [];
   database.lateNotices ||= [];
   database.clientLogs ||= [];
+  database.tickets ||= [];
+  database.certificateRequests ||= [];
+  database.payoutCards ||= [];
   return database;
 }
 

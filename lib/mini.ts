@@ -14,7 +14,7 @@ export type DeepLink =
   | { tab: "home"; action?: "checkin" | "checkout" | "salary" | "notifs" | "late" }
   | { tab: "history"; view?: "calendar" | "schedule" | "stats" }
   | { tab: "leave"; view?: "leave" | "swap" | "overtime"; id?: string }
-  | { tab: "profile"; section?: "docs" | "payslips" | "settings" | "directory"; id?: string }
+  | { tab: "profile"; section?: "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays"; id?: string }
   | { tab: "manager"; view?: "today" | "requests" | "map" | "week" };
 
 const MONTH = /^\d{4}-\d{2}$/;
@@ -60,6 +60,12 @@ export function parseDeepLink(raw?: string | null): DeepLink | null {
       return { tab: "profile", section: head === "settings" ? "settings" : undefined };
     case "directory":
       return { tab: "profile", section: "directory" };
+    case "ticket":
+    case "helpdesk":
+    case "certificate":
+      return { tab: "profile", section: "helpdesk", id };
+    case "birthdays":
+      return { tab: "profile", section: "birthdays" };
     case "manager":
       return { tab: "manager", view: tail === "requests" || tail === "map" || tail === "week" ? tail : "today" };
     default:

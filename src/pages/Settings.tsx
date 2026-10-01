@@ -719,6 +719,22 @@ function PayrollSection() {
             </span>
           </label>
           {form.advanceRequestsEnabled !== false && (
+            <label className="setting-row">
+              <span>
+                <b>Avansni avval HR, keyin moliya tasdiqlaydi</b>
+                <small>Xodim → HR (Ta’til va yo‘qlik → Avans so‘rovlari) → Moliya (Ish haqi → Avans so‘rovlari) → to‘lov. O‘chirilsa — faqat moliya.</small>
+              </span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={form.advanceHrApproval !== false}
+                  onChange={(e) => setForm({ ...form, advanceHrApproval: e.target.checked })}
+                />
+                <span />
+              </span>
+            </label>
+          )}
+          {form.advanceRequestsEnabled !== false && (
             <Field label="Oyiga avans chegarasi (oylikning foizi)" hint="Masalan 50 — oylik 4 mln bo‘lsa, ko‘pi bilan 2 mln so‘raladi">
               <input
                 className="input"
