@@ -79,6 +79,9 @@ import { closedPeriod, createPayrollRouter } from "./payroll-routes";
 import { createDocumentRouter } from "./documents";
 import { createAnalyticsRouter } from "./analytics";
 import { createSwapRouter } from "./swaps";
+import { registerAccountingReports } from "./tabel";
+import { createAdvanceRouter } from "./advances";
+import { createManagerAuthRouter } from "./manager";
 import { startHrWorker, upcomingCelebrations } from "./hr-worker";
 import {
   createCompanyBotRouter,
@@ -570,6 +573,7 @@ app.get(
 );
 
 app.use("/api", createMiniRouter());
+app.use("/api", createManagerAuthRouter());
 app.use("/api", createIntegrationWebhookRouter());
 app.use("/api", createCompanyBotWebhookRouter());
 app.use("/api", requireAuth);
@@ -579,6 +583,7 @@ app.use("/api", createPayrollRouter());
 app.use("/api", createDocumentRouter());
 app.use("/api", createAnalyticsRouter());
 app.use("/api", createSwapRouter());
+app.use("/api", createAdvanceRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();
@@ -2661,6 +2666,10 @@ registerExcelReports(app, {
   ) => express.RequestHandler,
   companyId: companyId as (req: Request) => string,
 });
+registerAccountingReports(app, {
+  requirePermission: requirePermission as unknown as (permission: string) => express.RequestHandler,
+  companyId: companyId as (req: Request) => string,
+});
 
 app.put(
   "/api/company/payroll",
@@ -2675,6 +2684,8 @@ app.put(
         overtimePay: z.boolean(),
         absencePenalty: z.enum(["NONE", "DAILY"]).default("NONE"),
         overtimeRequiresApproval: z.boolean().default(false),
+        advanceRequestsEnabled: z.boolean().default(true),
+        advanceMaxPercent: z.coerce.number().int().min(0).max(100).default(50),
       })
       .parse(req.body);
     const tenant = companyId(req);
@@ -3039,6 +3050,8 @@ if (existsSync(dist)) {
           res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
         else if (filePath.includes(`${path.sep}face-models${path.sep}`))
           res.setHeader("Cache-Control", "public, max-age=604800");
+        // Service worker har doim yangisi tekshirilsin.
+        else if (filePath.endsWith("mini-sw.js")) res.setHeader("Cache-Control", "no-cache");
       },
     }),
   );

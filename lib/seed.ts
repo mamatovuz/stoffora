@@ -31,6 +31,7 @@ export function emptyDatabase(): Database {
     payrollPeriods: [],
     scheduleOverrides: [],
     shiftSwaps: [],
+    advanceRequests: [],
     documents: [],
     sentGreetings: [],
   };

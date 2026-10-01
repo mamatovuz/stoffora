@@ -33,6 +33,24 @@ interface TelegramWebApp {
     onClick(handler: () => void): void;
     offClick(handler: () => void): void;
   };
+  /** Bot API 8.0: bosh ekranga yorliq. */
+  addToHomeScreen?(): void;
+  checkHomeScreenStatus?(callback: (status: "unsupported" | "unknown" | "added" | "missed") => void): void;
+  /** Bot API 6.9: foydalanuvchi qurilmalari orasida sinxron xotira. */
+  CloudStorage?: {
+    setItem(key: string, value: string, callback?: (error: string | null, ok?: boolean) => void): void;
+    getItem(key: string, callback: (error: string | null, value?: string) => void): void;
+  };
+  /** Bot API 8.0: Telegram’ning o‘z joylashuv xizmati. */
+  LocationManager?: {
+    isInited: boolean;
+    isLocationAvailable: boolean;
+    isAccessRequested: boolean;
+    isAccessGranted: boolean;
+    init(callback?: () => void): void;
+    getLocation(callback: (data: { latitude: number; longitude: number; horizontal_accuracy?: number | null } | null) => void): void;
+    openSettings(): void;
+  };
   HapticFeedback?: {
     impactOccurred(style: "light" | "medium" | "heavy" | "rigid" | "soft"): void;
     notificationOccurred(type: "error" | "success" | "warning"): void;

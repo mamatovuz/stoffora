@@ -35,7 +35,9 @@ export async function requireAuth(
   res: Response,
   next: NextFunction,
 ) {
-  const token = req.cookies?.staffora_session;
+  // Rahbar Mini App’i cookie o‘rniga Bearer token yuboradi (Telegram ichida cookie ishonchsiz).
+  const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : undefined;
+  const token = req.cookies?.staffora_session || bearer;
   if (!token)
     return res
       .status(401)

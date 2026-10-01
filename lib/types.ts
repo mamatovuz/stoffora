@@ -81,6 +81,10 @@ export interface PayrollSettings {
   absencePenalty?: "NONE" | "DAILY";
   /** Qo‘shimcha ish faqat rahbar tasdiqlagandan keyin pul bo‘ladi. */
   overtimeRequiresApproval?: boolean;
+  /** Xodim Mini App orqali avans so‘ray oladi. */
+  advanceRequestsEnabled?: boolean;
+  /** Bir oyda olinadigan avans chegarasi — oylikning shuncha foizi. */
+  advanceMaxPercent?: number;
 }
 export interface Branch {
   id: string;
@@ -201,10 +205,12 @@ export interface Attendance {
   overtimeDecidedBy?: string;
   /** Shubhali belgilar (masalan soxta GPS) — HR ko‘rib chiqadi. */
   flags?: AttendanceFlag[];
+  /** Internetsiz belgilanib keyin yuborilgan yozuvlar (takror yuborilsa ikki marta yozilmasligi uchun). */
+  offlineIds?: string[];
   flagsReviewedBy?: string;
   updatedAt: string;
 }
-export type AttendanceFlag = "GPS_ACCURACY" | "GPS_EXACT_REPEAT" | "GPS_TELEPORT" | "GPS_EDGE" | "GPS_STALE";
+export type AttendanceFlag = "GPS_ACCURACY" | "GPS_EXACT_REPEAT" | "GPS_TELEPORT" | "GPS_EDGE" | "GPS_STALE" | "OFFLINE";
 export interface LeaveRequest {
   id: string;
   companyId: string;
@@ -395,6 +401,7 @@ export interface Database {
   payrollPeriods: PayrollPeriod[];
   scheduleOverrides: ScheduleOverride[];
   shiftSwaps: ShiftSwapRequest[];
+  advanceRequests: AdvanceRequest[];
   documents: EmployeeDocument[];
   /** Tug‘ilgan kun tabriklari va hujjat eslatmalari takror yuborilmasligi uchun. */
   sentGreetings: { key: string; at: string }[];
@@ -412,6 +419,21 @@ export interface PayrollAdjustment {
   note?: string;
   createdBy: string;
   createdAt: string;
+}
+/** Xodimning Mini App orqali yuborgan avans so‘rovi. */
+export interface AdvanceRequest {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  month: string;
+  amount: number;
+  reason?: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  decidedBy?: string;
+  decidedNote?: string;
+  adjustmentId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 export interface PayslipLine {
   employeeId: string;

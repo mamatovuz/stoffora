@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { errorText, post } from "../api";
+import { ApiError, errorText, post } from "../api";
+
+/** Internetsiz rejim uchun: tekshiruv natijasi (serverda keyin solishtiriladi). */
+export type FaceCapture = { descriptor: number[]; turnDescriptor?: number[]; photo?: string };
 
 type FaceApi = typeof import("@vladmandic/face-api");
 type Phase = "intro" | "loading" | "center" | "rotate" | "turn" | "final" | "sending" | "done" | "error";
@@ -142,10 +145,16 @@ export function FaceScanner({
   enrolled,
   onClose,
   onVerified,
+  onCapture,
+  onOffline,
 }: {
   enrolled: boolean;
   onClose: () => void;
   onVerified: (proof: string, score: number, photo?: string) => Promise<void> | void;
+  /** Tasdiqlashdan oldin olingan yuz ma’lumoti (keyingi qadamda aloqa uzilsa kerak bo‘ladi). */
+  onCapture?: (capture: FaceCapture) => void;
+  /** Aloqa yo‘q — belgini qurilmada saqlash uchun. */
+  onOffline?: (capture: FaceCapture) => Promise<void> | void;
 }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(document.createElement("canvas"));
@@ -240,8 +249,9 @@ export function FaceScanner({
         await nextFrame();
         if (!active() || video.readyState < 2) return null;
         frames += 1;
-        const base = faceapi.detectSingleFace(video, withDescriptor ? precise : fast).withFaceLandmarks(true);
-        const face = withDescriptor ? await base.withFaceDescriptor() : await base;
+        // Avval arzon bosqich (aniqlash + nuqtalar). Deskriptor (eng og‘ir qism) faqat
+        // yuz to‘g‘ri joylashgan kadrlar uchun hisoblanadi — Face ID sezilarli tezlashadi.
+        const face = await faceapi.detectSingleFace(video, withDescriptor ? precise : fast).withFaceLandmarks(true);
         if (!active()) return null;
         if (!face) {
           setHint("Yuzingizni doira ichiga joylang");
@@ -268,7 +278,13 @@ export function FaceScanner({
           return null;
         }
         const g = geometry(face.landmarks.positions);
-        const descriptor = "descriptor" in face ? Array.from((face as { descriptor: Float32Array }).descriptor) : undefined;
+        let descriptor: number[] | undefined;
+        if (withDescriptor && face.detection.score >= 0.5) {
+          const [crop] = await faceapi.extractFaces(video, [face.landmarks.align(null, { useDlibAlignment: true })]);
+          if (!active() || !crop) return null;
+          const raw = await faceapi.computeFaceDescriptor(crop);
+          descriptor = Array.from(Array.isArray(raw) ? raw[0] : raw);
+        }
         return { ...g, descriptor, score: face.detection.score };
       };
       const accept = (descriptor: number[]) => {
@@ -383,18 +399,33 @@ export function FaceScanner({
       setTitle(enrolled ? "Tekshirilmoqda" : "Saqlanmoqda");
       setHint("");
       const liveness = { challenge: enrolled ? "turn" : "circle", passed: true, frames };
-      const result = enrolled
-        ? await post<{ proof: string; score: number }>("/mini/face/verify", {
-            // Ikki kadrning o‘rtachasi — shovqin kamayadi, moslik aniqroq.
-            descriptor: mean(samples),
-            turnDescriptor,
-            liveness,
-          })
-        : await post<{ proof: string; score: number }>("/mini/face/enroll", {
-            samples: samples.slice(0, 8),
-            photoDataUrl: photo,
-            liveness,
-          });
+      // Ikki kadrning o‘rtachasi — shovqin kamayadi, moslik aniqroq.
+      const capture: FaceCapture = { descriptor: mean(samples), turnDescriptor, photo: photo || undefined };
+      if (enrolled) onCapture?.(capture);
+      const saveOffline = async () => {
+        stopCamera();
+        setPhase("done");
+        setTitle("Saqlandi");
+        setHint("Internet kelishi bilan yuboriladi");
+        haptic("success");
+        await sleep(600);
+        if (active()) await onOffline!(capture);
+      };
+      if (enrolled && onOffline && navigator.onLine === false) return void (await saveOffline());
+      let result: { proof: string; score: number };
+      try {
+        result = enrolled
+          ? await post<{ proof: string; score: number }>("/mini/face/verify", { descriptor: capture.descriptor, turnDescriptor, liveness })
+          : await post<{ proof: string; score: number }>("/mini/face/enroll", {
+              samples: samples.slice(0, 8),
+              photoDataUrl: photo,
+              liveness,
+            });
+      } catch (reason) {
+        // Aloqa uzildi — yuz ma’lumoti bilan belgini qurilmada saqlaymiz.
+        if (enrolled && onOffline && reason instanceof ApiError && reason.status === 0) return void (await saveOffline());
+        throw reason;
+      }
       if (!active()) return;
       stopCamera();
       setScore(result.score);
@@ -421,7 +452,7 @@ export function FaceScanner({
       haptic("error");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enrolled, onVerified]);
+  }, [enrolled, onVerified, onCapture, onOffline]);
 
   useEffect(() => {
     aliveRef.current = true;

@@ -2,6 +2,11 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlarmClock,
+  CalendarRange,
+  Check,
+  Database,
+  HandCoins,
+  X,
   AlertTriangle,
   Banknote,
   Download,
@@ -19,6 +24,8 @@ import {
   Wallet,
 } from "lucide-react";
 import { useApi } from "../hooks";
+import { useAuth } from "../auth";
+import { can } from "@/lib/permissions";
 import { del, errorText, post, put } from "../api";
 import {
   Confirm,
@@ -105,6 +112,11 @@ export function PayrollPage() {
   const [closeOpen, setCloseOpen] = useState(false);
   const [reopenOpen, setReopenOpen] = useState(false);
   const [q, setQ] = useState("");
+  const [advancesOpen, setAdvancesOpen] = useState(false);
+  const { user } = useAuth();
+  const canEditPayroll = Boolean(user && can(user.role, "payroll.edit"));
+  const advanceRequests = useApi<AdvanceRow[]>(canEditPayroll ? "/payroll/advances?status=PENDING" : null);
+  const pendingAdvances = advanceRequests.data?.length || 0;
   const rows = data?.rows || [];
   const closed = data?.closed;
   const noSalary = rows.filter((x) => !x.employee.baseSalary).length;
@@ -147,6 +159,11 @@ export function PayrollPage() {
             {data?.settings.overtimeRequiresApproval && (
               <button className="btn" onClick={() => setOvertimeOpen(true)}>
                 <Timer size={16} /> Qo‘shimcha ish{pendingOvertime ? <span className="btn-count">{Math.round(pendingOvertime / 60)}s</span> : null}
+              </button>
+            )}
+            {canEditPayroll && (
+              <button className="btn" onClick={() => setAdvancesOpen(true)}>
+                <HandCoins size={16} /> Avans so‘rovlari{pendingAdvances ? <span className="btn-count">{pendingAdvances}</span> : null}
               </button>
             )}
             <button className="btn" onClick={() => setSalaryOpen(true)} disabled={!rows.length || Boolean(closed)}>
@@ -204,6 +221,18 @@ export function PayrollPage() {
         <StatCard label="Avans berilgan" value={money(advances)} note={`Qo‘shimcha: ${money(plus)}`} icon={Banknote} tone="blue" />
         <StatCard label="O‘rtacha KPI" value={`${avgKpi}`} note="Davomat 60% + vaqtida 40%" icon={TrendingUp} tone="violet" />
       </div>
+      {pendingAdvances > 0 && (
+        <div className="alert info" style={{ marginBottom: 16 }}>
+          <HandCoins size={18} />
+          <div style={{ flex: 1 }}>
+            <b>{pendingAdvances} ta avans so‘rovi kutmoqda</b>
+            <p>Xodimlar Mini App orqali yuborgan. Tasdiqlangan summa shu oy ish haqidan avtomatik ushlanadi.</p>
+          </div>
+          <button className="btn btn-sm btn-primary" onClick={() => setAdvancesOpen(true)}>
+            Ko‘rib chiqish
+          </button>
+        </div>
+      )}
       {!closed && noSalary > 0 && (
         <div className="alert warn" style={{ marginBottom: 16 }}>
           <AlertTriangle size={18} />
@@ -321,6 +350,15 @@ export function PayrollPage() {
       )}
       {adjustFor && <AdjustModal row={adjustFor} month={month} onClose={() => setAdjustFor(null)} onChanged={() => void reload(true)} />}
       {overtimeOpen && <OvertimeModal month={month} onClose={() => { setOvertimeOpen(false); void reload(true); }} />}
+      {advancesOpen && (
+        <AdvanceRequestsModal
+          onClose={() => setAdvancesOpen(false)}
+          onChanged={() => {
+            void reload(true);
+            void advanceRequests.reload(true);
+          }}
+        />
+      )}
       {closeOpen && (
         <CloseMonthModal
           month={month}
@@ -579,7 +617,18 @@ export function ReportsPage() {
     ["Shu oy", `${today.slice(0, 7)}-01`, today],
     ["O‘tgan oy", ...lastMonth(today)],
   ];
-  const reports = [
+  const month = from.slice(0, 7);
+  const reports: {
+    name: string;
+    desc: string;
+    icon: typeof Timer;
+    xlsx: string;
+    csv: string;
+    tag?: string;
+    kind?: string;
+    xlsxLabel?: string;
+    csvLabel?: string;
+  }[] = [
     {
       name: "Davomat hisoboti",
       desc: "3 varaq: Xulosa (xodim bo‘yicha), Batafsil (har bir keldi-ketdi) va rangli Tabel (xodim × kun).",
@@ -601,6 +650,25 @@ export function ReportsPage() {
       icon: FileSpreadsheet,
       xlsx: `/api/reports/payroll.xlsx?month=${from.slice(0, 7)}`,
       csv: `/api/reports/payroll.csv?month=${from.slice(0, 7)}`,
+    },
+    {
+      name: "T-13 tabel (buxgalteriya)",
+      desc: `${monthYearUz(`${month}-15`)}: standart T-13 shakli — har kun belgisi (Я, В, ОТ, Б, НН) va soati, yarim oy va oy jamlari, imzo joylari. Chop etishga tayyor.`,
+      icon: CalendarRange,
+      xlsx: `/api/reports/t13.xlsx?month=${month}`,
+      csv: `/api/reports/1c-timesheet.csv?month=${month}`,
+      csvLabel: "1C uchun CSV",
+      tag: "Yangi",
+    },
+    {
+      name: "1C ga yuklash — ish haqi",
+      desc: `${monthYearUz(`${month}-15`)}: tabel raqami, oklad, ishlagan kun/soat, qo‘shimcha, bonus, ushlanmalar, avans va qo‘lga. «;» ajratilgan UTF-8 fayl — 1C’dagi «Загрузка из табличного документа» orqali yuklanadi.`,
+      icon: Database,
+      kind: "1C",
+      xlsx: `/api/reports/1c-payroll.csv?month=${month}`,
+      csv: `/api/reports/payroll.xlsx?month=${month}`,
+      xlsxLabel: "1C fayli (CSV)",
+      csvLabel: "Excel",
     },
     {
       name: "Xodimlar ro‘yxati",
@@ -652,9 +720,9 @@ export function ReportsPage() {
           <article className="card report-card" key={r.name}>
             <div className="card-body">
               <div className="branch-top">
-                <span className="xlsx-icon">
+                <span className={`xlsx-icon ${r.kind === "1C" ? "is-1c" : ""}`}>
                   <r.icon size={20} />
-                  <i>XLSX</i>
+                  <i>{r.kind || "XLSX"}</i>
                 </span>
                 {r.tag && <span className="badge green plain">{r.tag}</span>}
               </div>
@@ -665,10 +733,10 @@ export function ReportsPage() {
             </div>
             <div className="card-foot">
               <a className="link" href={r.csv} download>
-                CSV
+                {r.csvLabel || "CSV"}
               </a>
               <a className="btn btn-sm btn-primary" href={r.xlsx} download>
-                <Download size={14} /> Excel yuklab olish
+                <Download size={14} /> {r.xlsxLabel || "Excel yuklab olish"}
               </a>
             </div>
           </article>
@@ -805,6 +873,118 @@ function SalaryModal({ employees, onClose, onSaved }: { employees: Employee[]; o
           <Wallet size={15} /> Saqlash ({changed.length})
         </button>
       </div>
+    </Modal>
+  );
+}
+
+/* ------------------------------------------------- avans so‘rovlari --- */
+type AdvanceRow = {
+  id: string;
+  employeeId: string;
+  employeeName: string;
+  employeeNo?: string;
+  month: string;
+  amount: number;
+  reason?: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  decidedBy?: string;
+  decidedNote?: string;
+  createdAt: string;
+  baseSalary: number;
+  limit?: { max: number; taken: number; percent: number };
+};
+const advanceStatus: Record<AdvanceRow["status"], [string, string]> = {
+  PENDING: ["Kutilmoqda", "amber"],
+  APPROVED: ["Tasdiqlangan", "green"],
+  REJECTED: ["Rad etilgan", "red"],
+  CANCELLED: ["Bekor qilingan", "gray"],
+};
+
+function AdvanceRequestsModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+  const toast = useToast();
+  const { data, loading, reload } = useApi<AdvanceRow[]>("/payroll/advances");
+  const [filter, setFilter] = useState<"PENDING" | "ALL">("PENDING");
+  const [amounts, setAmounts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const rows = (data || []).filter((r) => filter === "ALL" || r.status === "PENDING");
+  const decide = async (row: AdvanceRow, approve: boolean) => {
+    setBusy(row.id);
+    try {
+      const amount = parseAmount(amounts[row.id] || "") || undefined;
+      await post(`/payroll/advances/${row.id}/decide`, { approve, amount });
+      toast(approve ? "Avans tasdiqlandi — ish haqidan ushlanadi" : "Avans rad etildi");
+      void reload(true);
+      onChanged();
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <Modal title="Avans so‘rovlari" subtitle="Xodimlar Mini App orqali so‘raydi; tasdiqlangan summa oylikdan avtomatik ushlanadi" onClose={onClose} size="wide">
+      <div className="toolbar" style={{ marginBottom: 12 }}>
+        <button className={`btn btn-sm ${filter === "PENDING" ? "btn-primary" : ""}`} onClick={() => setFilter("PENDING")}>
+          Kutilmoqda
+        </button>
+        <button className={`btn btn-sm ${filter === "ALL" ? "btn-primary" : ""}`} onClick={() => setFilter("ALL")}>
+          Hammasi
+        </button>
+      </div>
+      {loading && !data ? (
+        <Loading />
+      ) : !rows.length ? (
+        <Empty icon={HandCoins} title="Avans so‘rovlari yo‘q" text="Xodim Mini App’dagi «Oyligim» bo‘limidan avans so‘raganda shu yerda ko‘rinadi." />
+      ) : (
+        <div className="adv-list">
+          {rows.map((r) => {
+            const [label, tone] = advanceStatus[r.status];
+            return (
+              <article key={r.id} className={`adv-card ${r.status === "PENDING" ? "is-pending" : ""}`}>
+                <div className="adv-main">
+                  <div>
+                    <b>{r.employeeName}</b>
+                    <small>
+                      {r.employeeNo} · {monthYearUz(`${r.month}-15`)} · {when(r.createdAt)}
+                    </small>
+                  </div>
+                  <strong className="num">{money(r.amount)}</strong>
+                </div>
+                {r.reason && <p className="adv-reason">«{r.reason}»</p>}
+                {r.limit && (
+                  <div className="adv-meta">
+                    <span>Oylik: {money(r.baseSalary)}</span>
+                    <span>Chegara ({r.limit.percent}%): {money(r.limit.max)}</span>
+                    <span>Shu oy berilgan: {money(r.limit.taken)}</span>
+                  </div>
+                )}
+                <footer>
+                  <span className={`badge ${tone}`}>{label}</span>
+                  {r.decidedBy && <small className="muted">{r.decidedBy}</small>}
+                  {r.status === "PENDING" && (
+                    <span className="toolbar adv-actions">
+                      <input
+                        className="input input-sm"
+                        inputMode="numeric"
+                        placeholder={`Summa (≤ ${r.amount.toLocaleString("ru-RU")})`}
+                        value={amounts[r.id] || ""}
+                        onChange={(e) => setAmounts({ ...amounts, [r.id]: formatAmount(e.target.value) })}
+                        aria-label="Tasdiqlanadigan summa"
+                      />
+                      <button className="btn btn-sm btn-primary" disabled={busy === r.id} onClick={() => void decide(r, true)}>
+                        <Check size={14} /> Tasdiqlash
+                      </button>
+                      <button className="btn btn-sm btn-danger" disabled={busy === r.id} onClick={() => void decide(r, false)} aria-label="Rad etish">
+                        <X size={14} />
+                      </button>
+                    </span>
+                  )}
+                </footer>
+              </article>
+            );
+          })}
+        </div>
+      )}
     </Modal>
   );
 }

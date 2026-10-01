@@ -27,6 +27,8 @@ import { FLAG_LABELS, gpsFlags } from "../lib/gps";
 import { createMiniDocumentRouter } from "./documents";
 import { createMiniSwapRouter } from "./swaps";
 import { createMiniPayrollRouter } from "./payroll-routes";
+import { createMiniOfflineRouter } from "./offline";
+import { createMiniAdvanceRouter } from "./advances";
 import { companyBotTokens } from "./company-bots";
 import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
 import { enqueueAttendancePhoto } from "./photo-channel";
@@ -305,6 +307,8 @@ export function createMiniRouter() {
   router.use(createMiniDocumentRouter());
   router.use(createMiniSwapRouter());
   router.use(createMiniPayrollRouter());
+  router.use(createMiniOfflineRouter());
+  router.use(createMiniAdvanceRouter());
   router.get(
     "/mini/home",
     asyncRoute(async (req, res) => {

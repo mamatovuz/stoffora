@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, ArrowLeftRight, Check, ChevronDown, FileText, LoaderCircle, Send, Upload, Wallet, X } from "lucide-react";
 import { api, errorText, post } from "../api";
+import { SkeletonList } from "./MiniManager";
+import { getCached, setCached } from "./miniCache";
 import { fileToDataUrl, DOCUMENT_LABELS } from "../components/Documents";
 import { dateUz, tashkentIsoDate } from "@/lib/format";
 import type { DocumentType, PayslipLine, ShiftSwapRequest } from "@/lib/types";
@@ -22,13 +24,16 @@ const swapChip: Record<ShiftSwapRequest["status"], [string, string]> = {
 };
 
 export function MiniSwaps({ onToast }: { onToast: Toast }) {
-  const [data, setData] = useState<{ swaps: Swap[]; colleagues: { id: string; name: string }[] } | null>(null);
+  const [data, setData] = useState<{ swaps: Swap[]; colleagues: { id: string; name: string }[] } | null>(() => getCached("swaps"));
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const load = useCallback(
     () =>
       api<{ swaps: Swap[]; colleagues: { id: string; name: string }[] }>("/mini/swaps")
-        .then(setData)
+        .then((value) => {
+          setCached("swaps", value);
+          setData(value);
+        })
         .catch((e) => onToast(errorText(e), "error")),
     [onToast],
   );
@@ -80,9 +85,7 @@ export function MiniSwaps({ onToast }: { onToast: Toast }) {
       )}
       <section className="mini-card">
         {data === null ? (
-          <div className="mini-loader">
-            <LoaderCircle className="spin" />
-          </div>
+          <SkeletonList rows={3} />
         ) : !rest.length ? (
           <div className="mini-empty">
             <ArrowLeftRight size={28} />
@@ -217,12 +220,21 @@ function SwapSheet({ colleagues, onClose, onSaved }: { colleagues: { id: string;
 type MiniDoc = { id: string; type: DocumentType; title: string; expiresAt?: string; createdAt: string; status: "OK" | "SOON" | "EXPIRED" };
 
 export function MiniDocuments({ onToast }: { onToast: Toast }) {
-  const [docs, setDocs] = useState<MiniDoc[] | null>(null);
+  const [docs, setDocs] = useState<MiniDoc[] | null>(() => getCached("docs"));
   const [type, setType] = useState<DocumentType>("PASSPORT");
   const [expiresAt, setExpiresAt] = useState("");
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
-  const load = useCallback(() => api<MiniDoc[]>("/mini/documents").then(setDocs).catch(() => setDocs([])), []);
+  const load = useCallback(
+    () =>
+      api<MiniDoc[]>("/mini/documents")
+        .then((value) => {
+          setCached("docs", value);
+          setDocs(value);
+        })
+        .catch(() => setDocs((current) => current || [])),
+    [],
+  );
   useEffect(() => {
     void load();
   }, [load]);
@@ -247,9 +259,7 @@ export function MiniDocuments({ onToast }: { onToast: Toast }) {
       <div className="mp-group-title">Hujjatlarim</div>
       <section className="mp-group">
         {docs === null ? (
-          <div className="mini-loader">
-            <LoaderCircle className="spin" />
-          </div>
+          <SkeletonList rows={3} />
         ) : (
           docs.map((d) => (
             <div className="mp-row" key={d.id}>

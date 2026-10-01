@@ -78,6 +78,7 @@ function normalizeDatabase(database: Database): Database {
   database.payrollPeriods ||= [];
   database.scheduleOverrides ||= [];
   database.shiftSwaps ||= [];
+  database.advanceRequests ||= [];
   database.documents ||= [];
   database.sentGreetings ||= [];
   return database;

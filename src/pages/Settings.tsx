@@ -697,6 +697,33 @@ function PayrollSection() {
           </label>
           <label className="setting-row">
             <span>
+              <b>Xodimlar Mini App orqali avans so‘ray oladi</b>
+              <small>So‘rov «Ish haqi → Avans so‘rovlari» ga tushadi; tasdiqlangan summa oylikdan avtomatik ushlanadi</small>
+            </span>
+            <span className="switch">
+              <input
+                type="checkbox"
+                checked={form.advanceRequestsEnabled !== false}
+                onChange={(e) => setForm({ ...form, advanceRequestsEnabled: e.target.checked })}
+              />
+              <span />
+            </span>
+          </label>
+          {form.advanceRequestsEnabled !== false && (
+            <Field label="Oyiga avans chegarasi (oylikning foizi)" hint="Masalan 50 — oylik 4 mln bo‘lsa, ko‘pi bilan 2 mln so‘raladi">
+              <input
+                className="input"
+                type="number"
+                min={0}
+                max={100}
+                value={form.advanceMaxPercent ?? 50}
+                onChange={(e) => setForm({ ...form, advanceMaxPercent: Number(e.target.value) })}
+                style={{ maxWidth: 160 }}
+              />
+            </Field>
+          )}
+          <label className="setting-row">
+            <span>
               <b>Sababsiz kelmagan kun uchun ushlanma</b>
               <small>Kunlik stavka = oylik / oydagi ish kunlari. Ta’til, dam olish va mashq davri hisobga kirmaydi</small>
             </span>

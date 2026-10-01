@@ -28,6 +28,8 @@ export function normalizePayrollSettings(
     overtimePay: Boolean(merged.overtimePay),
     absencePenalty: merged.absencePenalty === "DAILY" ? "DAILY" : "NONE",
     overtimeRequiresApproval: Boolean(merged.overtimeRequiresApproval),
+    advanceRequestsEnabled: merged.advanceRequestsEnabled !== false,
+    advanceMaxPercent: int(merged.advanceMaxPercent ?? 50, 0, 100, 50),
   };
 }
 

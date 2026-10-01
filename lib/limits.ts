@@ -64,6 +64,7 @@ export function purgeEmployees(db: Database, companyId: string, ids: Set<string>
   db.documents = db.documents.filter((d) => !mine(d));
   db.scheduleOverrides = db.scheduleOverrides.filter((o) => !mine(o));
   db.shiftSwaps = db.shiftSwaps.filter((s) => !(s.companyId === companyId && (ids.has(s.requesterId) || ids.has(s.colleagueId))));
+  db.advanceRequests = db.advanceRequests.filter((a) => !(a.companyId === companyId && ids.has(a.employeeId)));
   db.payrollAdjustments = db.payrollAdjustments.filter((a) => !mine(a));
   db.telegramInvites = db.telegramInvites.filter((i) => !mine(i));
   db.attendanceSessions = db.attendanceSessions.filter((s) => !mine(s));
