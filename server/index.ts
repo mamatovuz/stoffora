@@ -85,6 +85,8 @@ import { createManagerAuthRouter } from "./manager";
 import { createManagerExtraRouter, createMiniPublicRouter } from "./mini-extra";
 import { createHelpdeskRouter } from "./helpdesk";
 import { createDayOffRouter } from "./dayoff";
+import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
+import { startPushDispatcher } from "./push";
 import { startHrWorker, upcomingCelebrations } from "./hr-worker";
 import {
   createCompanyBotRouter,
@@ -217,6 +219,7 @@ app.use(
     skip: (req) =>
       req.path === "/telegram/webhook" ||
       req.path.startsWith("/mini/") ||
+      req.path.startsWith("/mobile/") ||
       req.path === "/telegram/auth" ||
       req.path.startsWith("/telegram/company/") ||
       /^\/integrations\/[^/]+\/webhook$/.test(req.path),
@@ -577,6 +580,9 @@ app.get(
 );
 
 app.use("/api", createMiniRouter());
+// Native mobil ilova: faollashtirish/sessiya (ochiq, qurilma imzosi bilan) va xodim yo‘llari.
+app.use("/api", createMobilePublicRouter());
+app.use("/api", createMobileRouter());
 app.use("/api", createMiniPublicRouter());
 app.use("/api", createManagerAuthRouter());
 app.use("/api", createIntegrationWebhookRouter());
@@ -592,6 +598,7 @@ app.use("/api", createAdvanceRouter());
 app.use("/api", createManagerExtraRouter());
 app.use("/api", createHelpdeskRouter());
 app.use("/api", createDayOffRouter());
+app.use("/api", createMobileAdminRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();
@@ -3129,6 +3136,7 @@ startAttendanceReminders();
 startPhotoChannelWorker();
 startIntegrationWorker();
 startHrWorker();
+startPushDispatcher();
 void startCompanyBots();
 void updateDb((db) => {
   const fixed = new Map<string, number>();

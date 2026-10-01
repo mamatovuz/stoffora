@@ -1,3 +1,4 @@
+import { DeviceRequestsPanel } from "../components/MobileDevices";
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, CalendarSync, Check, Plane, Plus, X } from "lucide-react";
 import { errorText, notifyChange, patch, post } from "../api";
@@ -23,7 +24,7 @@ import { useAuth } from "../auth";
 import { canAny } from "@/lib/permissions";
 
 type Row = LeaveRequest & { employee?: Employee };
-type Tab = "PENDING" | "APPROVED" | "ALL" | "SWAPS" | "DAYOFF" | "ADVANCES";
+type Tab = "PENDING" | "APPROVED" | "ALL" | "SWAPS" | "DAYOFF" | "ADVANCES" | "DEVICES";
 type DayOffRow = { id: string; employeeName: string; fromDate: string; toDate: string; fromWeekday: string; toWeekday: string; reason?: string; status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"; decidedBy?: string; createdAt: string };
 type SwapRow = ShiftSwapRequest & { requesterName: string; colleagueName: string; giveShift?: string; takeShift?: string };
 
@@ -42,6 +43,7 @@ export function LeavePage() {
   // HR 1-bosqichda avans so‘rovlarini ko‘radi (keyin moliyaga o‘tadi).
   const hrAdvances = Boolean(user && canAny(user.role, ["leave.approve", "employees.edit"]));
   const advances = useApi<AdvanceRow[]>(hrAdvances ? "/payroll/advances?status=PENDING" : null);
+  const deviceRequests = useApi<{ id: string }[]>(hrAdvances ? "/mobile/device-requests?status=PENDING" : null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const toast = useToast();
@@ -100,6 +102,7 @@ export function LeavePage() {
               },
               { value: "DAYOFF", label: "Dam kunini ko‘chirish", count: dayoffs.data?.filter((m) => m.status === "PENDING").length },
               ...(hrAdvances ? [{ value: "ADVANCES" as Tab, label: "Avans so‘rovlari", count: advances.data?.length }] : []),
+              ...(hrAdvances ? [{ value: "DEVICES" as Tab, label: "Yangi telefon", count: deviceRequests.data?.length }] : []),
             ]}
           />
         </div>
@@ -107,6 +110,8 @@ export function LeavePage() {
           <div className="card-body">
             <AdvanceRequestsPanel mode="hr" onChanged={() => void advances.reload(true)} />
           </div>
+        ) : tab === "DEVICES" ? (
+          <DeviceRequestsPanel onChanged={() => void deviceRequests.reload(true)} />
         ) : tab === "SWAPS" ? (
           <SwapsPanel api={swaps} />
         ) : tab === "DAYOFF" ? (

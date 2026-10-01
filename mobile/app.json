@@ -1,0 +1,110 @@
+{
+  "expo": {
+    "name": "Staffora",
+    "slug": "staffora",
+    "scheme": "staffora",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "backgroundColor": "#F2F3F5",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F2F3F5"
+    },
+    "ios": {
+      "bundleIdentifier": "uz.staffora.app",
+      "supportsTablet": false,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "NSCameraUsageDescription": "Staffora ishga kelish va ketishda yuzingizni (Face ID) tekshirish hamda filial QR kodini skanerlash uchun kameradan foydalanadi.",
+        "NSLocationWhenInUseUsageDescription": "Staffora ishga kelish/ketishni belgilaganingizda filial hududida ekaningizni tekshirish uchun joylashuvingizdan foydalanadi. Joylashuv fonda kuzatilmaydi.",
+        "NSFaceIDUsageDescription": "Staffora ilovani ochishda sizni telefon Face ID orqali tasdiqlaydi. Bu davomat Face ID’sidan alohida.",
+        "NSPhotoLibraryUsageDescription": "Staffora ta’til yoki kasallik varaqasi kabi hujjat rasmini biriktirish uchun galereyangizdan foydalanadi."
+      }
+    },
+    "android": {
+      "package": "uz.staffora.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#2563EB",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.READ_PHONE_STATE"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-font",
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Staffora ilovani ochishda sizni telefon Face ID orqali tasdiqlaydi."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Staffora ishga kelish va ketishda yuzingizni (Face ID) tekshirish hamda filial QR kodini skanerlash uchun kameradan foydalanadi.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Staffora ishga kelish/ketishni belgilaganingizda filial hududida ekaningizni tekshirish uchun joylashuvingizdan foydalanadi. Joylashuv fonda kuzatilmaydi.",
+          "isAndroidBackgroundLocationEnabled": false,
+          "isIosBackgroundLocationEnabled": false
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Staffora ilovani ochishda sizni telefon Face ID orqali tasdiqlaydi. Bu davomat Face ID’sidan alohida."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#2563EB",
+          "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Staffora ta’til yoki kasallik varaqasi kabi hujjat rasmini biriktirish uchun galereyangizdan foydalanadi.",
+          "cameraPermission": "Staffora ishga kelish va ketishda yuzingizni (Face ID) tekshirish hamda filial QR kodini skanerlash uchun kameradan foydalanadi.",
+          "microphonePermission": false
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "apiUrl": "",
+      "eas": {
+        "projectId": ""
+      }
+    }
+  }
+}

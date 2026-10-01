@@ -88,6 +88,11 @@ function normalizeDatabase(database: Database): Database {
   database.certificateRequests ||= [];
   database.payoutCards ||= [];
   database.dayOffMoves ||= [];
+  database.mobileDevices ||= [];
+  database.mobileSessions ||= [];
+  database.mobileActivationCodes ||= [];
+  database.deviceChangeRequests ||= [];
+  database.mobilePushTokens ||= [];
   return database;
 }
 
@@ -348,6 +353,12 @@ function trimCollections(db: Database) {
     db.photoQueue = db.photoQueue.slice(db.photoQueue.length - PHOTO_QUEUE_LIMIT);
   if (db.syncJobs.length > 300) db.syncJobs = db.syncJobs.slice(0, 300);
   if (db.clientLogs.length > 500) db.clientLogs = db.clientLogs.slice(0, 500);
+  // Mobil: muddati 30 kundan oshgan (yoki bekor qilingan) sessiya va kodlar tozalanadi.
+  const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
+  if (db.mobileSessions.length > 200)
+    db.mobileSessions = db.mobileSessions.filter((s) => s.expiresAt > cutoff && !(s.revokedAt && s.revokedAt < cutoff));
+  if (db.mobileActivationCodes.length > 200)
+    db.mobileActivationCodes = db.mobileActivationCodes.filter((c) => c.expiresAt > cutoff);
   if (db.lateNotices.length > 5000) db.lateNotices = db.lateNotices.slice(0, 5000);
   if (db.sentGreetings.length > 5000) db.sentGreetings = db.sentGreetings.slice(-3000);
   // Tugallanmagan anketalar 14 kundan keyin o‘chadi; ko‘rib chiqilganlar tarixda qoladi.

@@ -1,3 +1,4 @@
+import { MobileDevicePanel } from "../components/MobileDevices";
 import { useEffect, useMemo, useState } from "react";
 import {
   Link,
@@ -703,7 +704,7 @@ export function EmployeeProfilePage() {
     ["attendance", `Davomat (${data.attendance.length})`],
     ["leave", `Ta’til (${data.leave.length})`],
     ["documents", "Hujjatlar"],
-    ["connect", "Telegram va Face ID"],
+    ["connect", "Telegram, Face ID, telefon"],
     ["activity", "Faoliyat"],
   ];
 
@@ -934,6 +935,7 @@ export function EmployeeProfilePage() {
                 onUnlinkTelegram={() => setConfirm("telegram")}
               />
             )}
+            {tab === "connect" && <MobileDevicePanel employeeId={e.id} canEdit={canEditDocs} />}
             {tab === "activity" &&
               (data.activity.length ? (
                 <div className="activity-list">

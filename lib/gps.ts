@@ -28,6 +28,7 @@ export const FLAG_LABELS: Record<AttendanceFlag, string> = {
   OFFLINE: "Internetsiz belgilangan — keyin yuborilgan",
   DEVICE_STILL: "Telefon umuman qimirlamagan (emulyator bo‘lishi mumkin)",
   DESKTOP: "Kompyuterdagi Telegram’dan belgilangan",
+  MOCK_LOCATION: "Telefon soxta joylashuv (mock GPS) yoqilganini bildirdi",
 };
 
 const same = (a: number, b: number) => Math.abs(a - b) < 1e-7;

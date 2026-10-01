@@ -1,0 +1,86 @@
+/* Server javoblari (Mini App bilan bir xil API — /mini/*). Faqat ilovada ishlatiladigan maydonlar. */
+
+export type Branch = { id: string; name: string; latitude: number; longitude: number; radiusMeters: number; address?: string; attendanceMode?: "QR_GPS_FACE" | "GPS_FACE" };
+export type Attendance = {
+  id: string;
+  date: string;
+  checkIn?: string;
+  checkOut?: string;
+  scheduledStart?: string;
+  scheduledEnd?: string;
+  lateMinutes: number;
+  earlyLeaveMinutes: number;
+  workedMinutes: number;
+  overtimeMinutes: number;
+  status: string;
+  distanceMeters?: number;
+  breaks?: { start: string; end?: string }[];
+  flags?: string[];
+  verification?: string[];
+};
+export type Notification = { id: string; title: string; body: string; type: string; read: boolean; createdAt: string; go?: string; ackRequired?: boolean; ackAt?: string; options?: string[]; answer?: string };
+export type ScheduleDay = { day: number; enabled: boolean; start: string; end: string; breakMinutes?: number };
+export type Employee = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  employeeNo?: string;
+  phone?: string;
+  photoDataUrl?: string;
+  faceEnrolledAt?: string;
+  restDays?: number[];
+  hireDate?: string;
+  role?: string;
+};
+export type HomeData = {
+  employee: Employee;
+  company?: { id: string; name: string };
+  branch: Branch | null;
+  department: { name: string } | null;
+  position: { name: string } | null;
+  schedule: { id: string; name: string; days: ScheduleDay[] } | null;
+  attendance?: Attendance;
+  todayLeave: { id: string; type: string; startDate: string; endDate: string } | null;
+  todayPlan?: { enabled: boolean; start: string; end: string; overridden: boolean; reason?: string; personalRest?: boolean };
+  month: { practiceUntil?: string; deduction?: number; days: number; late: number; lateMinutes: number; workedMinutes: number; overtimeMinutes: number };
+  features?: { breaks: boolean; directory: boolean; advances: boolean; leaderboard: boolean; overtimeApproval: boolean };
+  lateNotice?: { id: string; minutes: number; reason: string } | null;
+  notifications: Notification[];
+  unreadNotifications?: number;
+  manager?: boolean;
+};
+export type Stats = { streak: { current: number; best: number; badge?: { emoji: string; label: string } | null } };
+export type AdvanceRequest = {
+  id: string;
+  amount: number;
+  reason?: string;
+  status: "PENDING" | "HR_APPROVED" | "APPROVED" | "REJECTED" | "CANCELLED";
+  decidedNote?: string;
+  createdAt: string;
+  payout?: { method: "CARD" | "CASH"; cardMask?: string; cardBrand?: string; holder?: string };
+  paidAt?: string;
+};
+export type Salary = {
+  month: string;
+  label: string;
+  closed: boolean;
+  base: number;
+  workingDays: number;
+  days: number;
+  expectedDays: number;
+  absentDays: number;
+  lateMinutes: number;
+  overtimeAmount: number;
+  pendingOvertimeMinutes: number;
+  bonus: number;
+  lateDeduction: number;
+  absenceDeduction: number;
+  fine: number;
+  advance: number;
+  net: number;
+  earnedToDate: number;
+  compensatedDays?: number;
+  limit: { enabled: boolean; percent: number; max: number; taken: number; pending: number; available: number; closed: boolean };
+  requests: AdvanceRequest[];
+  savedCard?: { mask: string; brand: string; holder: string } | null;
+};

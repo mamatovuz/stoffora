@@ -256,7 +256,8 @@ export type AttendanceFlag =
   | "GPS_STALE"
   | "OFFLINE"
   | "DEVICE_STILL"
-  | "DESKTOP";
+  | "DESKTOP"
+  | "MOCK_LOCATION";
 export interface LeaveRequest {
   id: string;
   companyId: string;
@@ -336,6 +337,8 @@ export interface Notification {
   answer?: string;
   /** Mini App ichidagi bo‘lim (chuqur havola): leave, swaps, salary, payslip_2026-09… */
   go?: string;
+  /** Mobil ilovaga push yuborilgan vaqt (takror yuborilmasin). */
+  pushedAt?: string;
 }
 export interface User {
   id: string;
@@ -480,6 +483,12 @@ export interface Database {
   /** Xodim avans uchun saqlagan karta (roziligi bilan). Xodim obyektidan alohida — tasodifan API’da chiqib ketmasin. */
   payoutCards: PayoutCard[];
   dayOffMoves: DayOffMove[];
+  /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
+  mobileDevices: MobileDevice[];
+  mobileSessions: MobileSession[];
+  mobileActivationCodes: MobileActivationCode[];
+  deviceChangeRequests: DeviceChangeRequest[];
+  mobilePushTokens: MobilePushToken[];
 }
 export interface PayoutCard {
   companyId: string;
@@ -656,6 +665,96 @@ export interface PayrollPeriod {
 
 /* --------------------------------------------------- grafik o‘zgarishi --- */
 /** Bitta kunga grafik o‘zgarishi (smena almashish natijasi). */
+/* ============================================== Native mobil ilova === */
+/**
+ * Ishonchli qurilma: o‘rnatishda yaratilgan ECDSA P-256 kalit juftining ochiq qismi.
+ * Maxfiy kalit telefondan chiqmaydi. Qoida: bir xodim — bitta faol qurilma,
+ * bitta qurilma (ochiq kalit) — bitta xodim. Server tomonida tekshiriladi.
+ */
+export interface MobileDevice {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  /** SPKI (DER, base64) — imzoni tekshirish uchun. */
+  publicKey: string;
+  /** Ochiq kalitning SHA-256 izi — noyoblik va qidiruv uchun. */
+  keyFingerprint: string;
+  platform: "ios" | "android";
+  model?: string;
+  osVersion?: string;
+  appVersion?: string;
+  status: "ACTIVE" | "REVOKED";
+  createdAt: string;
+  lastSeenAt?: string;
+  revokedAt?: string;
+  revokedBy?: string;
+  revokeReason?: string;
+}
+/** Mobil sessiya: refresh token faqat xesh ko‘rinishida; har yangilanishda almashadi. */
+export interface MobileSession {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  deviceId: string;
+  refreshHash: string;
+  /** Oldingi refresh token xeshi — qayta ishlatilsa (o‘g‘irlangan token) sessiya yopiladi. */
+  prevRefreshHash?: string;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+  revokedAt?: string;
+  revokeReason?: string;
+}
+/** Bir martalik faollashtirish kodi (xesh saqlanadi); Mini App yoki HR beradi. */
+export interface MobileActivationCode {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  codeHash: string;
+  /** Kodning oxirgi 2 belgisi — HR ko‘rishi uchun (kodni tiklab bo‘lmaydi). */
+  hint: string;
+  source: "MINI_APP" | "HR";
+  createdBy: string;
+  createdAt: string;
+  expiresAt: string;
+  usedAt?: string;
+  revokedAt?: string;
+  attempts: number;
+}
+/** Yangi telefon: eski faol qurilma bor — HR tasdiqlaydi, eskisi bekor qilinadi. */
+export interface DeviceChangeRequest {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  oldDeviceId?: string;
+  publicKey: string;
+  keyFingerprint: string;
+  platform: "ios" | "android";
+  model?: string;
+  osVersion?: string;
+  appVersion?: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  createdAt: string;
+  decidedAt?: string;
+  decidedBy?: string;
+  /** Tasdiqlangach yaratilgan yangi qurilma. */
+  newDeviceId?: string;
+}
+export interface MobilePushToken {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  deviceId: string;
+  provider: "expo";
+  token: string;
+  platform: "ios" | "android";
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastSeenAt: string;
+  lastError?: string;
+}
+
 /** Dam olish kunini bir martaga boshqa kunga ko‘chirish (rahbar tasdiqlaydi). */
 export interface DayOffMove {
   id: string;

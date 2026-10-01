@@ -41,6 +41,11 @@ export function emptyDatabase(): Database {
     certificateRequests: [],
     payoutCards: [],
     dayOffMoves: [],
+    mobileDevices: [],
+    mobileSessions: [],
+    mobileActivationCodes: [],
+    deviceChangeRequests: [],
+    mobilePushTokens: [],
   };
 }
 

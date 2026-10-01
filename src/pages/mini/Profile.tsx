@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Cake, ChevronRight, Fingerprint, MapPin, MessageCircleQuestion, ScrollText, Share2, Smile, Users } from "lucide-react";
 import type { HelpdeskView } from "./Helpdesk";
+import { MobileLinkRow } from "./MobileLink";
 import { dateUz, tashkentWeekday } from "@/lib/format";
 import type { Lang } from "../../i18n";
 import { weekdayShort, weekOrder } from "../../types";
@@ -184,6 +185,11 @@ export function MiniProfile({
           </span>
           <ChevronRight size={16} />
         </button>
+      </section>
+
+      <div className="mp-group-title">Mobil ilova</div>
+      <section className="mp-group">
+        <MobileLinkRow onToast={onToast} />
       </section>
 
       {data.schedule && (

@@ -10,7 +10,8 @@ import { TileMap, type MapPoint } from "./TileMap";
 import { haptic, reportError } from "./tg";
 
 /*
- * Kundalik Face ID (ro‘yxatdan o‘tgandan keyin): kamera to‘liq ekranda, yuz atrofida ramka.
+ * Kundalik Face ID (ro‘yxatdan o‘tgandan keyin): kamera kesilmasdan (to‘liq ko‘rish maydoni, zoom yo‘q),
+ * markazda QOTIRILGAN ramka — xodim yuzini ramkaga o‘zi olib keladi.
  *   • yuz yo‘q / qiyshiq / ramkadan tashqarida / moslik past — ramka QIZIL;
  *   • yuz to‘g‘ri va moslik ≥ 65% — YASHIL; ~0,9 soniya yashil turgach rasm olinadi va tasdiqlanadi.
  * Pastda xarita: filial, ruxsat etilgan radius va xodim turgan joy (GPS aniqligi bilan).
@@ -84,7 +85,9 @@ export function FaceCheck({
   const [status, setStatusState] = useState<Status>("loading");
   const [percent, setPercent] = useState<number | null>(null);
   const [hold, setHold] = useState(0);
-  const [frame, setFrame] = useState<{ x: number; y: number; size: number } | null>(null);
+  /** Kamera oynasi — video nisbatida, sahnaga sig‘adigan (kesilmaydi, kattalashtirilmaydi). */
+  const [view, setView] = useState<{ w: number; h: number } | null>(null);
+  const [seen, setSeen] = useState(false);
   const [error, setError] = useState("");
   const [flash, setFlash] = useState(false);
   const [pass, setPass] = useState(65);
@@ -128,19 +131,35 @@ export function FaceCheck({
     streamRef.current = null;
   };
 
-  /** Video kadridagi yuz qutisini ekrandagi (ko‘zgu, object-fit: cover) koordinatalarga o‘tkazadi. */
-  const toScreen = (box: Box, video: HTMLVideoElement) => {
+  /** Oyna o‘lchami: video nisbatini saqlab sahnaga sig‘diradi (kesilmaydi, kattalashtirilmaydi). */
+  const layout = useCallback(() => {
     const stage = stageRef.current;
-    if (!stage) return null;
-    const W = stage.clientWidth;
-    const H = stage.clientHeight;
-    const scale = Math.max(W / video.videoWidth, H / video.videoHeight);
-    const offX = (W - video.videoWidth * scale) / 2;
-    const offY = (H - video.videoHeight * scale) / 2;
-    const size = Math.max(box.width, box.height) * scale * 1.18;
-    const cx = W - (offX + (box.x + box.width / 2) * scale);
-    const cy = offY + (box.y + box.height / 2) * scale - size * 0.04;
-    return { x: cx - size / 2, y: cy - size / 2, size };
+    const video = videoRef.current;
+    if (!stage || !video?.videoWidth) return;
+    const maxW = stage.clientWidth - 24;
+    const pad = getComputedStyle(stage);
+    const maxH = stage.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom);
+    const ratio = video.videoWidth / video.videoHeight;
+    let w = maxW;
+    let h = w / ratio;
+    if (h > maxH) {
+      h = maxH;
+      w = h * ratio;
+    }
+    setView({ w: Math.round(w), h: Math.round(h) });
+  }, []);
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => layout());
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [layout]);
+
+  /** Qotirilgan ramka video kadrida (piksel): markazda, ekrandagi ramka bilan bir xil joy. */
+  const frameInVideo = (video: HTMLVideoElement) => {
+    const size = Math.min(video.videoWidth * 0.6, video.videoHeight * 0.62);
+    return { cx: video.videoWidth / 2, cy: video.videoHeight * 0.47, size };
   };
 
   const run = useCallback(async () => {
@@ -158,8 +177,13 @@ export function FaceCheck({
         streamRef.current
           ? Promise.resolve(streamRef.current)
           : navigator.mediaDevices
-              .getUserMedia({ video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 640 }, frameRate: { ideal: 30 } }, audio: false })
-              .then((value) => {
+              // 4:3 — old kameraning to‘liq ko‘rish maydoni (kvadrat so‘rov kadrni kesib, yuzni yaqinlashtirardi).
+              .getUserMedia({ video: { facingMode: "user", width: { ideal: 960 }, height: { ideal: 720 }, aspectRatio: { ideal: 4 / 3 }, frameRate: { ideal: 30 } }, audio: false })
+              .then(async (value) => {
+                // Ba’zi telefonlar old kamerani kattalashtirib ochadi — eng kichik zoom.
+                const track = value.getVideoTracks()[0];
+                const caps = (track?.getCapabilities?.() || {}) as MediaTrackCapabilities & { zoom?: { min: number } };
+                if (caps.zoom) await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min } as MediaTrackConstraintSet] }).catch(() => undefined);
                 // Kamera darhol ko‘rinadi — model yuklanishini kutmasdan.
                 if (videoRef.current) {
                   videoRef.current.srcObject = value;
@@ -176,6 +200,9 @@ export function FaceCheck({
         video.srcObject = stream;
         await video.play().catch(() => undefined);
       }
+      video.onloadedmetadata = () => layout();
+      video.onresize = () => layout();
+      layout();
       if (reference) setPass(reference.passPercent);
       const passPercent = reference?.passPercent ?? 65;
       const detector = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 });
@@ -206,26 +233,28 @@ export function FaceCheck({
           setHold(0);
         };
         if (!face) {
-          setFrame(null);
+          setSeen(false);
           smooth = null;
           setPercent(null);
           reset("none");
           continue;
         }
         const box = face.detection.box;
-        setFrame(toScreen(box, video));
-        const side = Math.min(video.videoWidth, video.videoHeight);
-        const cx = (box.x + box.width / 2) / video.videoWidth;
-        const cy = (box.y + box.height / 2) / video.videoHeight;
-        if (box.width < side * 0.24) {
+        setSeen(true);
+        // Yuz qotirilgan ramka ichida bo‘lishi kerak: markazi yaqin, o‘lchami ramkaga mos.
+        const target = frameInVideo(video);
+        const faceSize = Math.max(box.width, box.height);
+        const dx = (box.x + box.width / 2 - target.cx) / target.size;
+        const dy = (box.y + box.height / 2 - target.cy) / target.size;
+        if (faceSize < target.size * 0.4) {
           reset("far");
           continue;
         }
-        if (box.width > side * 0.85) {
+        if (faceSize > target.size * 1.02) {
           reset("near");
           continue;
         }
-        if (Math.abs(cx - 0.5) > 0.2 || Math.abs(cy - 0.5) > 0.24) {
+        if (Math.abs(dx) > 0.2 || Math.abs(dy) > 0.22) {
           reset("offcenter");
           continue;
         }
@@ -355,13 +384,14 @@ export function FaceCheck({
   return (
     <div className={`fc ${tone}`} role="dialog" aria-modal="true" aria-label="Face ID">
       <div className="fc-stage" ref={stageRef}>
-        <video ref={videoRef} muted playsInline autoPlay />
-        <div className="fc-shade" aria-hidden />
-        <div
-          className={`fc-frame ${tone} ${frame ? "tracking" : ""}`}
-          style={frame ? { transform: `translate(${frame.x}px, ${frame.y}px)`, width: frame.size, height: frame.size } : undefined}
-          aria-hidden
-        >
+        <div className="fc-view" style={view ? { width: view.w, height: view.h } : undefined}>
+          <video ref={videoRef} muted playsInline autoPlay />
+          <div className="fc-shade" aria-hidden />
+          <div
+            className={`fc-frame ${tone} ${seen ? "seen" : ""}`}
+            style={view ? { width: Math.min(view.w * 0.6, view.h * 0.62) } : undefined}
+            aria-hidden
+          >
           <i />
           <i />
           <i />
@@ -371,8 +401,9 @@ export function FaceCheck({
               <rect x="2" y="2" width="96" height="96" rx="14" pathLength={100} strokeDasharray={`${hold * 100} 100`} />
             </svg>
           )}
+          </div>
+          {flash && <div className="fc-flash" aria-hidden />}
         </div>
-        {flash && <div className="fc-flash" aria-hidden />}
         <header className="fc-top">
           <button onClick={onClose} aria-label="Orqaga">
             <ArrowLeft size={20} />

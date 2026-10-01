@@ -130,7 +130,7 @@ export type MotionSample = {
   samples: number;
   /** Tezlanish o‘zgarishining maksimal farqi (m/s²). */
   spread: number;
-  source?: "telegram" | "browser";
+  source?: "telegram" | "browser" | "native";
 };
 
 const DESKTOP_PLATFORMS = new Set(["tdesktop", "macos", "weba", "webk", "web", "unigram"]);
@@ -140,8 +140,10 @@ const DESKTOP_PLATFORMS = new Set(["tdesktop", "macos", "weba", "webk", "web", "
  * emulyator yoki GPS soxtalashtiruvchi muhitda o‘lchovlar aynan bir xil bo‘ladi.
  * Belgi davomatni bloklamaydi — faqat HR ko‘rib chiqishi uchun.
  */
-export function deviceFlags(input: { motion?: MotionSample; platform?: string }): AttendanceFlag[] {
+export function deviceFlags(input: { motion?: MotionSample; platform?: string; mocked?: boolean }): AttendanceFlag[] {
   const flags: AttendanceFlag[] = [];
+  // Native ilova: Android «mock location» belgisi (OS beradi). Mijoz ma’lumoti — faqat belgi, qaror HR’da.
+  if (input.mocked) flags.push("MOCK_LOCATION");
   const motion = input.motion;
   if (motion && motion.samples >= 10 && motion.spread === 0) flags.push("DEVICE_STILL");
   if (input.platform && DESKTOP_PLATFORMS.has(input.platform)) flags.push("DESKTOP");

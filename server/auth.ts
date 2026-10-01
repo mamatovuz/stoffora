@@ -18,6 +18,9 @@ export interface EmployeeSession {
   companyId: string;
   telegramId: string;
   kind: "employee";
+  /** Native mobil ilova: sessiya va ishonchli qurilma (Telegram sessiyasida bo‘lmaydi). */
+  msid?: string;
+  mdid?: string;
 }
 export interface AuthedRequest extends Request {
   session?: Session;
@@ -100,6 +103,11 @@ export function requireRole(...roles: Role[]) {
       ? next()
       : res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
 }
+/** Mobil ilova uchun qisqa muddatli (15 daqiqa) kirish tokeni — sessiya va qurilmaga bog‘langan. */
+export const MOBILE_ACCESS_TTL_SECONDS = 15 * 60;
+export function signMobileAccess(session: EmployeeSession & { msid: string; mdid: string }) {
+  return jwt.sign(session, employeeSecret, { expiresIn: MOBILE_ACCESS_TTL_SECONDS, issuer: "staffora-mini-app" });
+}
 export function signEmployeeSession(session: EmployeeSession) {
   return jwt.sign(session, employeeSecret, {
     expiresIn: "24h",
@@ -127,14 +135,27 @@ export function requireEmployee(
     return res.status(401).json({
       message: "Telegram sessiyasi topilmadi. Mini App’ni bot orqali oching.",
     });
+  let session: EmployeeSession;
   try {
-    req.employeeSession = jwt.verify(token, employeeSecret, {
+    session = jwt.verify(token, employeeSecret, {
       issuer: "staffora-mini-app",
     }) as EmployeeSession;
-    next();
   } catch {
     return res.status(401).json({
       message: "Telegram sessiyasi tugagan. Mini App’ni qayta oching.",
     });
   }
+  req.employeeSession = session;
+  // Telegram Mini App tokeni — avvalgidek, qo‘shimcha tekshiruvsiz.
+  if (!session.msid) return next();
+  // Native ilova: sessiya bekor qilinmagan va qurilma hali ishonchli bo‘lishi shart.
+  readDb()
+    .then((db) => {
+      const mobile = db.mobileSessions.find((s) => s.id === session.msid);
+      const device = db.mobileDevices.find((d) => d.id === session.mdid);
+      if (!mobile || mobile.revokedAt || mobile.employeeId !== session.employeeId || !device || device.status !== "ACTIVE" || device.employeeId !== session.employeeId)
+        return res.status(401).json({ code: "DEVICE_REVOKED", message: "Bu qurilma endi ishonchli emas. Ilovani qayta faollashtiring." });
+      next();
+    })
+    .catch(next);
 }

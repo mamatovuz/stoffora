@@ -1,3 +1,4 @@
+import { createMiniMobileRouter } from "./mobile";
 import { Router, type NextFunction, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import jwt from "jsonwebtoken";
@@ -316,6 +317,7 @@ export function createMiniRouter() {
   router.use(createMiniExtraRouter());
   router.use(createMiniHelpdeskRouter());
   router.use(createMiniDayOffRouter());
+  router.use(createMiniMobileRouter());
   router.get(
     "/mini/home",
     asyncRoute(async (req, res) => {
@@ -810,9 +812,11 @@ export function createMiniRouter() {
             .optional(),
           /** Harakat sensori xulosasi (emulyatorni sezish uchun). */
           motion: z
-            .object({ samples: z.number().int().min(0).max(1000), spread: z.number().min(0).max(1000), source: z.enum(["telegram", "browser"]).optional() })
+            .object({ samples: z.number().int().min(0).max(1000), spread: z.number().min(0).max(1000), source: z.enum(["telegram", "browser", "native"]).optional() })
             .optional(),
           platform: z.string().max(30).optional(),
+          /** Native ilova: OS soxta joylashuvni bildirgan (Android). */
+          mocked: z.boolean().optional(),
         })
         .parse(req.body);
       const auth = req.employeeSession!;
@@ -996,7 +1000,7 @@ export function createMiniRouter() {
           },
           history,
         );
-        flags.push(...deviceFlags({ motion: input.motion, platform: input.platform }));
+        flags.push(...deviceFlags({ motion: input.motion, platform: input.platform, mocked: input.mocked }));
         if (flags.length) attendance.flags = [...new Set([...(attendance.flags || []), ...flags])];
         attendance.latitude = input.latitude;
         attendance.longitude = input.longitude;
