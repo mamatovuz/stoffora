@@ -11,6 +11,9 @@ import { biometricLabel } from "./biometric";
 import { PhotoAvatar, type HomeData, type Toast } from "./shared";
 import { confirmNative, haptic, openExternal, shareText, supports, tg } from "./tg";
 
+/** «09:00» → «9», «09:30» → «9:30» — haftalik jadval tor ustunlarga sig‘sin. */
+const short = (hhmm: string) => (hhmm.endsWith(":00") ? String(Number(hhmm.slice(0, 2))) : hhmm.replace(/^0/, ""));
+
 export type ProfileSection = "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays";
 
 export function MiniProfile({
@@ -192,7 +195,7 @@ export function MiniProfile({
               return (
                 <div key={day} className={`${day === today ? "today" : ""} ${d?.enabled ? "" : "off"}`}>
                   <span>{weekdayShort[day]}</span>
-                  <b>{d?.enabled ? `${d.start}–${d.end}` : "Dam"}</b>
+                  <b>{d?.enabled ? `${short(d.start)}–${short(d.end)}` : "Dam"}</b>
                 </div>
               );
             })}

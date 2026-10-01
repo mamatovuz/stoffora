@@ -10,6 +10,9 @@ import { Seg, type HomeData } from "./shared";
 import { haptic } from "./tg";
 
 type View = "calendar" | "schedule" | "stats";
+const MONTHS = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"];
+/** «Oktabr 2026» */
+const monthTitle = (iso: string) => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
 
 export function MiniHistory({ home, initialView }: { home: HomeData; initialView?: View }) {
   const [view, setView] = useState<View>(initialView || "calendar");
@@ -17,7 +20,7 @@ export function MiniHistory({ home, initialView }: { home: HomeData; initialView
     <div className="mini-body">
       <div className="mini-title">
         <h1>{view === "calendar" ? "Davomat tarixi" : view === "schedule" ? "Ish grafigim" : "Statistika"}</h1>
-        <p>{view === "stats" ? "Oxirgi 6 oy" : dateLongUz(tashkentIsoDate()).split(" ").slice(1).join(" ")}</p>
+        <p>{view === "stats" ? "Oxirgi 6 oy" : monthTitle(tashkentIsoDate())}</p>
       </div>
       <Seg
         className="three"

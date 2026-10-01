@@ -253,6 +253,9 @@ export function createPayrollRouter() {
       const row = await updateDb((db) => {
         const record = db.attendance.find((a) => a.id === req.params.id && a.companyId === tenant);
         if (!record) throw httpError("Davomat yozuvi topilmadi.", 404);
+        // Filial rahbari faqat o‘z filiali yozuvlarini ko‘rib chiqadi.
+        if (req.session!.role === "BRANCH_MANAGER" && !(db.users.find((u) => u.id === req.session!.userId)?.branchIds || []).includes(record.branchId))
+          throw httpError("Davomat yozuvi topilmadi.", 404);
         record.flagsReviewedBy = `${req.session!.name} · ${verdict === "OK" ? "joyida edi" : "shubhali"}`;
         record.updatedAt = new Date().toISOString();
         db.auditLogs.unshift(audit(tenant, req.session!.name, `Shubhali joylashuv ko‘rib chiqildi: ${verdict === "OK" ? "hammasi joyida" : "shubhali deb belgilandi"}`, "attendance", record.id));

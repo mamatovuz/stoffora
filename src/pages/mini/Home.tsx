@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { haversineDistance } from "@/lib/attendance";
 import { BirthdayCard } from "./Birthdays";
+import { quietPosition } from "./AttendanceFlow";
 import type { HelpdeskView } from "./Helpdesk";
 import { api, errorText, post } from "../../api";
 import { dateLongUz, duration, tashkentClock, tashkentWeekday } from "@/lib/format";
@@ -124,12 +125,12 @@ export function MiniHome({
         <div className="mh-times">
           <div>
             <small>Keldi</small>
-            <b className={a?.checkIn ? "" : "empty"}>{a?.checkIn || "--:--"}</b>
+            <b className={a?.checkIn ? "" : "is-blank"}>{a?.checkIn || "--:--"}</b>
             {a?.checkIn && <em className={a.lateMinutes ? "late" : "ok"}>{a.lateMinutes ? `${a.lateMinutes} daq kech` : "vaqtida"}</em>}
           </div>
           <div>
             <small>{finished ? "Ketdi" : "Ishlangan"}</small>
-            <b className={finished || working ? "" : "empty"}>
+            <b className={finished || working ? "" : "is-blank"}>
               {finished ? a?.checkOut : working && a?.checkIn ? clockDuration(minutesSince(a.checkIn)) : "--:--"}
             </b>
             {finished && <em className="ok">{clockDuration(a?.workedMinutes || 0)} soat</em>}
@@ -145,6 +146,13 @@ export function MiniHome({
         ) : finished ? (
           <div className="mh-done">
             <CheckCircle2 size={17} /> {a?.checkIn} – {a?.checkOut} · {duration(a?.workedMinutes || 0)}
+          </div>
+        ) : data.todayLeave && !working ? (
+          <div className="mh-leave">
+            <div className="mh-done off">🏖 Bugun ta’tildasiz — dam oling!</div>
+            <button className="mini-link" onClick={() => onAction("CHECK_IN")}>
+              Baribir ishga keldim
+            </button>
           </div>
         ) : (
           <button className={`mh-action ${working ? "out" : ""}`} disabled={stale || Boolean(openBreak)} onClick={() => onAction(working ? "CHECK_OUT" : "CHECK_IN")}>
@@ -236,7 +244,7 @@ export function MiniHome({
       <section className="mh-quick" aria-label="Tezkor bo‘limlar">
         <QuickTile icon={<CalendarRange size={19} />} label="Grafigim" onClick={() => onNavigate({ tab: "history", view: "schedule" })} />
         <QuickTile icon={<TrendingUp size={19} />} label="Statistika" onClick={() => onNavigate({ tab: "history", view: "stats" })} />
-        <QuickTile icon={<Timer size={19} />} label="Qo‘shimcha ish" onClick={() => onNavigate({ tab: "leave", view: "overtime" })} />
+        <QuickTile icon={<Timer size={19} />} label="Qo‘shimcha" onClick={() => onNavigate({ tab: "leave", view: "overtime" })} />
         {data.features?.directory !== false ? (
           <QuickTile icon={<Users size={19} />} label="Hamkasblar" onClick={() => onNavigate({ tab: "profile", section: "directory" })} />
         ) : (
@@ -353,32 +361,30 @@ function useGeofence(enabled: boolean, data: HomeData) {
   const day = data.schedule?.days.find((d) => d.day === tashkentWeekday());
   useEffect(() => {
     setNear(null);
-    if (!enabled || !branch || !day?.enabled || !navigator.geolocation) return;
-    let granted = false;
-    try {
-      granted = localStorage.getItem("staffora:geo-ok") === "1";
-    } catch {
-      granted = false;
-    }
-    if (!granted) return;
+    if (!enabled || !branch || !day?.enabled) return;
     // Faqat ish boshlanishidan 90 daqiqa oldin — tugashigacha.
     const now = toMinutes(tashkentClock());
     if (now < toMinutes(day.start) - 90 || now > toMinutes(day.end)) return;
     let notified = false;
-    const watch = navigator.geolocation.watchPosition(
-      (position) => {
-        const distance = Math.round(haversineDistance(position.coords.latitude, position.coords.longitude, branch.latitude, branch.longitude));
-        const inside = distance - Math.min(35, position.coords.accuracy) <= branch.radiusMeters + 40;
-        setNear(inside ? distance : null);
-        if (inside && !notified) {
-          notified = true;
-          haptic.success();
-        }
-      },
-      () => setNear(null),
-      { enableHighAccuracy: false, maximumAge: 60_000, timeout: 20_000 },
-    );
-    return () => navigator.geolocation.clearWatch(watch);
+    let alive = true;
+    // Ruxsat so‘ramaydigan joylashuv (allaqachon berilgan bo‘lsa) — har 45 soniyada.
+    const check = async () => {
+      const position = await quietPosition();
+      if (!alive || !position) return;
+      const distance = Math.round(haversineDistance(position.coords.latitude, position.coords.longitude, branch.latitude, branch.longitude));
+      const inside = distance - Math.min(35, position.coords.accuracy) <= branch.radiusMeters + 40;
+      setNear(inside ? distance : null);
+      if (inside && !notified) {
+        notified = true;
+        haptic.success();
+      }
+    };
+    void check();
+    const timer = window.setInterval(() => document.visibilityState === "visible" && void check(), 45_000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
   }, [enabled, branch, day?.enabled, day?.start, day?.end]);
   return near;
 }
@@ -414,7 +420,7 @@ function BreakCard({ data, now, onChanged, onToast }: { data: HomeData; now: Dat
           Bugun: {total} daq{planned ? ` / ${planned} daq` : ""}
         </small>
       </span>
-      <button className={`mini-btn sm ${open ? "" : "ghost"}`} disabled={busy} onClick={() => void toggle()}>
+      <button className={`mini-btn sm ${open ? "" : "soft"}`} disabled={busy} onClick={() => void toggle()}>
         {busy ? <LoaderCircle size={15} className="spin" /> : null}
         {open ? "Qaytdim" : "Boshlash"}
       </button>

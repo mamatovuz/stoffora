@@ -214,7 +214,7 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
       className="ms-sheet"
       primary={
         asking
-          ? { text: digits ? `Avans so‘rash · ${som(digits)}` : "Summani kiriting", onClick: () => void submit(), busy, disabled: !formOk }
+          ? { text: digits ? `So‘rash · ${som(digits)}` : "Summani kiriting", onClick: () => void submit(), busy, disabled: !formOk }
           : canAsk
             ? { text: "Avans so‘rash", onClick: () => setAsking(true) }
             : null

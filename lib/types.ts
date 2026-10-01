@@ -174,6 +174,9 @@ export interface Employee {
   telegramConnected: boolean;
   deviceStatus: "PENDING" | "CONNECTED" | "BLOCKED";
   photoDataUrl?: string;
+  /** Profil rasmining sifati (0–1, Face ID kadridan) va yangilangan vaqti. */
+  photoQuality?: number;
+  photoUpdatedAt?: string;
   faceEnrolledAt?: string;
   status: EmployeeStatus;
   dismissedAt?: string;

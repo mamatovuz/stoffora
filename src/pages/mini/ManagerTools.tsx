@@ -3,6 +3,7 @@ import { AlertTriangle, CalendarClock, FileText, Flame, Megaphone, MessageCircle
 import { dateUz, duration, tashkentClock, tashkentIsoDate } from "@/lib/format";
 import type { Attendance, Branch } from "@/lib/types";
 import { leaveTypeLabel } from "../../types";
+import { FLAG_LABELS } from "@/lib/gps";
 import { EmptyArt, PhotoAvatar, Seg, Sheet, SkeletonList } from "./shared";
 import { callPhone, confirmNative, haptic, writeInTelegram } from "./tg";
 
@@ -128,7 +129,7 @@ type Card = {
   month: { present: number; late: number; lateMinutes: number; workedHours: number; overtimeHours: number; absent: number };
   streak: { current: number; best: number };
   trends: TrendAlert[];
-  recent: { id: string; date: string; checkIn?: string; checkOut?: string; lateMinutes: number; workedMinutes: number; flags?: string[]; manual: boolean }[];
+  recent: { id: string; date: string; checkIn?: string; checkOut?: string; lateMinutes: number; workedMinutes: number; flags?: string[]; reviewed?: string; distance?: number; manual: boolean }[];
   documents: { id: string; title: string; expiresAt?: string; status: "OK" | "SOON" | "EXPIRED" }[];
   leaves: { id: string; type: string; startDate: string; endDate: string }[];
 };
@@ -152,6 +153,21 @@ export function EmployeeCardSheet({
   const [error, setError] = useState("");
   const [tab, setTab] = useState<"stats" | "history" | "docs">("stats");
   const [marking, setMarking] = useState(false);
+  const [reviewing, setReviewing] = useState<string | null>(null);
+  async function review(id: string, verdict: "OK" | "SUSPICIOUS") {
+    setReviewing(id);
+    try {
+      await call(`/attendance/${id}/review-flags`, { verdict });
+      haptic.success();
+      onToast(verdict === "OK" ? "Belgilandi: joyida edi" : "Shubhali deb belgilandi");
+      onChanged();
+      void load();
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : "Xatolik", "error");
+    } finally {
+      setReviewing(null);
+    }
+  }
   const load = () =>
     call<Card>(`/employee-card/${employeeId}`)
       .then(setCard)
@@ -312,8 +328,24 @@ export function EmployeeCardSheet({
                           {r.workedMinutes ? duration(r.workedMinutes) : ""}
                           {r.lateMinutes ? ` · ${r.lateMinutes} daq kech` : ""}
                           {r.manual ? " · ✍️ qo‘lda" : ""}
-                          {r.flags?.length ? " · ⚠️" : ""}
+                          {typeof r.distance === "number" ? ` · ${r.distance} m` : ""}
                         </small>
+                        {r.flags?.length ? (
+                          <small className={r.reviewed ? "" : "bad"}>
+                            ⚠️ {r.flags.map((f) => FLAG_LABELS[f as keyof typeof FLAG_LABELS] || f).join(", ")}
+                            {r.reviewed ? ` — ${r.reviewed}` : ""}
+                          </small>
+                        ) : null}
+                        {r.flags?.length && !r.reviewed && canEdit ? (
+                          <span className="ec-review">
+                            <button disabled={reviewing === r.id} onClick={() => void review(r.id, "OK")}>
+                              ✓ Joyida edi
+                            </button>
+                            <button className="bad" disabled={reviewing === r.id} onClick={() => void review(r.id, "SUSPICIOUS")}>
+                              Shubhali
+                            </button>
+                          </span>
+                        ) : null}
                       </span>
                       <span className={`mini-chip ${r.lateMinutes ? "warn" : "ok"}`}>{r.lateMinutes ? "Kech" : "Vaqtida"}</span>
                     </div>

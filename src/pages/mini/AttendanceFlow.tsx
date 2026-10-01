@@ -58,11 +58,44 @@ function telegramPosition() {
   });
 }
 
+/**
+ * Avval Telegram’ning o‘z joylashuv xizmati: ruxsat bir marta so‘raladi va Telegram uni
+ * eslab qoladi (brauzer joylashuvi esa Telegram ichida har sessiyada qayta so‘raydi).
+ * Telegram xizmati bo‘lmasa yoki ishlamasa — brauzer GPS.
+ */
 export function getPosition(highAccuracy: boolean) {
-  return browserPosition(highAccuracy).catch((reason) =>
-    // Brauzer joylashuvi ishlamasa — Telegram orqali urinamiz; u ham bo‘lmasa asl xato.
-    telegramPosition().catch(() => Promise.reject(reason)),
-  );
+  const manager = tg()?.LocationManager;
+  if (manager && supports("8.0"))
+    return telegramPosition().catch((reason) => browserPosition(highAccuracy).catch(() => Promise.reject(reason)));
+  return browserPosition(highAccuracy).catch((reason) => telegramPosition().catch(() => Promise.reject(reason)));
+}
+
+/**
+ * Ruxsat SO‘RAMASDAN joylashuv (geofence uchun): faqat ruxsat allaqachon berilgan bo‘lsa.
+ * Aks holda null — foydalanuvchi bezovta qilinmaydi.
+ */
+export async function quietPosition(): Promise<GeolocationPosition | null> {
+  const manager = tg()?.LocationManager;
+  if (manager && supports("8.0")) {
+    // init ruxsat so‘ramaydi — faqat holatni (berilganmi) o‘qiydi.
+    if (!manager.isInited)
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, 1500);
+        try {
+          manager.init(() => resolve());
+        } catch {
+          resolve();
+        }
+      });
+    if (manager.isAccessGranted) return telegramPosition().catch(() => null);
+  }
+  try {
+    const status = await navigator.permissions?.query({ name: "geolocation" as PermissionName });
+    if (status?.state === "granted") return await browserPosition(false);
+  } catch {
+    /* permissions API yo‘q */
+  }
+  return null;
 }
 
 /**
@@ -318,7 +351,7 @@ export function AttendanceFlow({
                 )
               )}
               {nativeQr && !cameraOpen && (
-                <button className="mini-btn ghost" onClick={() => setCameraOpen(true)}>
+                <button className="mini-btn soft" onClick={() => setCameraOpen(true)}>
                   Ichki kamera orqali skanerlash
                 </button>
               )}

@@ -574,7 +574,18 @@ export function createHelpdeskRouter() {
         recent: [...records.values()]
           .sort((a, b) => b.date.localeCompare(a.date))
           .slice(0, 14)
-          .map((a) => ({ id: a.id, date: a.date, checkIn: a.checkIn, checkOut: a.checkOut, lateMinutes: a.lateMinutes, workedMinutes: a.workedMinutes, flags: a.flags, manual: a.verification.includes("MANUAL") })),
+          .map((a) => ({
+            id: a.id,
+            date: a.date,
+            checkIn: a.checkIn,
+            checkOut: a.checkOut,
+            lateMinutes: a.lateMinutes,
+            workedMinutes: a.workedMinutes,
+            flags: a.flags,
+            reviewed: a.flagsReviewedBy,
+            distance: a.distanceMeters,
+            manual: a.verification.includes("MANUAL"),
+          })),
         documents: canAny(auth.session!.role, ["employees.view"])
           ? db.documents
               .filter((d) => d.employeeId === employee.id && d.companyId === tenant)

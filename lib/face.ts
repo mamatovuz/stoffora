@@ -143,6 +143,28 @@ export function assertPoseVariation(front: number[], turned: number[]) {
     throw Object.assign(new Error("Bosh burilmadi — jonli tekshiruv o‘tmadi. Boshingizni ko‘rsatilgan tomonga buring."), { status: 422 });
 }
 
+/**
+ * Kundalik Face ID kadridan profil rasmini yangilash kerakmi:
+ * faqat yuz aniq mos kelganda (chegaradan ancha past) va kadr avvalgisidan sezilarli
+ * sifatliroq bo‘lsa — yoki joriy rasm 30 kundan eski bo‘lib, yangisi yetarlicha sifatli bo‘lsa.
+ */
+export function shouldRefreshPhoto(input: {
+  distance: number;
+  quality?: number;
+  currentQuality?: number;
+  photoUpdatedAt?: string;
+  threshold?: number;
+  now?: number;
+}) {
+  const threshold = input.threshold ?? faceMatchThreshold();
+  if (input.quality === undefined || !Number.isFinite(input.quality) || input.quality < 0.35) return false;
+  if (input.distance > threshold * 0.75) return false;
+  const current = input.currentQuality ?? 0;
+  if (input.quality >= current + 0.05) return true;
+  const age = (input.now ?? Date.now()) - (input.photoUpdatedAt ? Date.parse(input.photoUpdatedAt) : 0);
+  return age > 30 * 86_400_000 && input.quality >= current * 0.9;
+}
+
 /** Aynan bir xil deskriptor qayta yuborilsa — bu yozib olingan so‘rov (replay). */
 export function isReplayedDescriptor(
   previous: number[] | undefined,

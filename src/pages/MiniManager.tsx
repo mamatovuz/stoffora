@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -12,6 +12,9 @@ import {
   Megaphone,
   Plane,
   RefreshCw,
+  Search,
+  LogIn,
+  LogOut,
   ShieldAlert,
   Square,
   Timer,
@@ -26,6 +29,9 @@ import { dateUz, tashkentIsoDate } from "@/lib/format";
 import type { Attendance, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../types";
 import { SkeletonList } from "./mini/shared";
+import { TileMap, type MapPoint } from "./mini/TileMap";
+import { haversineDistance } from "@/lib/attendance";
+import { FLAG_LABELS } from "@/lib/gps";
 import { Briefing, EmployeeCardSheet, QuickAnnounceSheet, TrendsList, type TrendRow } from "./mini/ManagerTools";
 import type { ManagerAuth, ManagerView } from "./mini/managerAuth";
 import { confirmNative, haptic, useMainButton, useSecondaryButton } from "./mini/tg";
@@ -90,6 +96,7 @@ type Analytics = {
   punctual: { id: string; name: string; present: number }[];
   latecomers: { id: string; name: string; lateMinutes: number; late: number }[];
   daily: { date: string; rate: number; late: number; absent: number }[];
+  branches: { id: string; name: string; employees: number; attendanceRate: number; punctuality: number; lateMinutes: number; absent: number; score: number | null }[];
 };
 type Pending = { kind: "leave" | "swap" | "advance" | "overtime"; id: string };
 
@@ -111,6 +118,11 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const [cardFor, setCardFor] = useState<string | null>(null);
   const [announcing, setAnnouncing] = useState(false);
   const [filter, setFilter] = useState<Filter>("ALL");
+  const [query, setQuery] = useState("");
+  const [updatedAt, setUpdatedAt] = useState<string>("");
+  /** Oldingi yangilanishda kelmaganlar — yangi kelganlar qisqa vaqt ajratib ko‘rsatiladi. */
+  const seen = useRef<Set<string> | null>(null);
+  const [fresh, setFresh] = useState<Set<string>>(new Set());
   const [branch, setBranch] = useState("");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -161,6 +173,19 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
         canAttendance ? call<TrendRow[]>("/trends").catch(() => [] as TrendRow[]) : Promise.resolve([] as TrendRow[]),
       ]);
       setDay(d);
+      if (d) {
+        const arrived = new Set(d.rows.filter((r) => r.record?.checkIn).map((r) => r.employee.id));
+        if (seen.current) {
+          const newcomers = new Set([...arrived].filter((id) => !seen.current!.has(id)));
+          if (newcomers.size) {
+            setFresh(newcomers);
+            haptic.tap("light");
+            window.setTimeout(() => setFresh(new Set()), 20_000);
+          }
+        }
+        seen.current = arrived;
+      }
+      setUpdatedAt(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tashkent" }));
       setLeaves(l.filter((x) => x.status === "PENDING"));
       setSwaps(s.filter((x) => x.status === "PENDING_MANAGER"));
       setAdvances(a);
@@ -247,7 +272,9 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
     flagged: scoped.filter(flagged).length,
     expected: scoped.filter((r) => !["DAY_OFF", "ON_LEAVE", "UPCOMING"].includes(r.state)).length,
   };
+  const q = query.trim().toLowerCase();
   const list = scoped
+    .filter((r) => !q || `${r.employee.firstName} ${r.employee.lastName} ${r.employee.employeeNo}`.toLowerCase().includes(q))
     .filter((r) =>
       filter === "ALL"
         ? r.state !== "DAY_OFF"
@@ -376,7 +403,24 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                 <span>{stats.flagged} ta shubhali belgi (GPS / qurilma / internetsiz) — panelda ko‘rib chiqing</span>
               </button>
             )}
-            {branchNames.length > 1 && <BranchSelect value={branch} options={branchNames} onChange={setBranch} />}
+            <LiveFeed rows={scoped} onOpen={setCardFor} />
+            <div className="mg-tools">
+              <label className="md-search">
+                <Search size={16} />
+                <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Xodimni qidirish" />
+              </label>
+              {branchNames.length > 1 && <BranchSelect value={branch} options={branchNames} onChange={setBranch} />}
+            </div>
+            {updatedAt && (
+              <p className="mg-updated">
+                <i /> Jonli · {updatedAt} da yangilandi
+                {filter !== "ALL" && (
+                  <button className="mini-link" onClick={() => setFilter("ALL")}>
+                    Filtrni olib tashlash
+                  </button>
+                )}
+              </p>
+            )}
             <section className="mini-card">
               {!list.length ? (
                 <div className="mini-empty">
@@ -388,7 +432,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                   {list.map((r) => {
                     const notice = noticeOf(r.employee.id);
                     return (
-                      <button className="mini-row mg-row" key={r.employee.id} onClick={() => setCardFor(r.employee.id)}>
+                      <button className={`mini-row mg-row ${fresh.has(r.employee.id) ? "fresh" : ""}`} key={r.employee.id} onClick={() => setCardFor(r.employee.id)}>
                         <span className={`mg-avatar ${stateTone(r)}`}>
                           {r.employee.photoDataUrl ? <img src={r.employee.photoDataUrl} alt="" /> : `${r.employee.firstName[0] || ""}${r.employee.lastName[0] || ""}`}
                         </span>
@@ -557,7 +601,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
       )}
 
       {view === "map" && (
-        <BranchMap rows={rows} branches={branches} branch={branch} onBranch={setBranch} branchNames={branchNames} onPick={(r) => setCardFor(r.employee.id)} loading={!day} />
+        <BranchMap rows={rows} branches={branches} onOpen={setCardFor} loading={!day} />
       )}
       {view === "week" && (
         <>
@@ -585,6 +629,36 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   );
 }
 
+/** So‘nggi belgilar lentasi: bugun kim qachon keldi/ketdi (eng yangisi tepada). */
+function LiveFeed({ rows, onOpen }: { rows: RosterRow[]; onOpen: (employeeId: string) => void }) {
+  const events = rows
+    .flatMap((r) => [
+      ...(r.record?.checkIn ? [{ r, time: r.record.checkIn, kind: "in" as const }] : []),
+      ...(r.record?.checkOut ? [{ r, time: r.record.checkOut, kind: "out" as const }] : []),
+    ])
+    .sort((a, b) => b.time.localeCompare(a.time))
+    .slice(0, 6);
+  if (!events.length) return null;
+  return (
+    <section className="mg-feed" aria-label="So‘nggi belgilar">
+      <div className="mg-feed-head">So‘nggi belgilar</div>
+      <div className="mg-feed-list">
+        {events.map(({ r, time, kind }) => (
+          <button key={`${r.employee.id}:${kind}`} className={`mg-feed-item ${kind} ${kind === "in" && r.late ? "late" : ""}`} onClick={() => onOpen(r.employee.id)}>
+            <span className="mg-avatar sm">
+              {r.employee.photoDataUrl ? <img src={r.employee.photoDataUrl} alt="" /> : `${r.employee.firstName[0] || ""}${r.employee.lastName[0] || ""}`}
+            </span>
+            <b>{r.employee.firstName}</b>
+            <small>
+              {kind === "in" ? <LogIn size={11} /> : <LogOut size={11} />} {time}
+            </small>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function BranchSelect({ value, options, onChange }: { value: string; options: string[]; onChange: (value: string) => void }) {
   return (
     <label className="mg-branch">
@@ -602,114 +676,232 @@ function BranchSelect({ value, options, onChange }: { value: string; options: st
 }
 
 /* --------------------------------------------------------- filial xaritasi --- */
+type MapFilter = "ALL" | "OK" | "LATE" | "FLAG" | "EDGE";
+const personTone = (r: RosterRow): MapPoint["tone"] => (r.record?.flags?.length && !r.record.flagsReviewedBy ? "bad" : r.late ? "warn" : r.state === "LEFT" ? "muted" : "ok");
+
 /**
- * Tashqi xarita xizmatisiz: filial markazda, ruxsat etilgan radius doira,
- * xodimlar belgilangan nuqtalar (metrda, shimol tepada).
+ * Haqiqiy xarita: «Barcha filiallar» — har filial pinida kelganlar soni; filial tanlansa —
+ * ruxsat etilgan radius va xodimlar belgilagan joylar (avatar-pin). Pin bosilsa — ma’lumot kartasi.
  */
-function BranchMap({
-  rows,
-  branches,
-  branch,
-  branchNames,
-  onBranch,
-  onPick,
-  loading,
-}: {
-  rows: RosterRow[];
-  branches: Branch[];
-  branch: string;
-  branchNames: string[];
-  onBranch: (value: string) => void;
-  onPick: (row: RosterRow) => void;
-  loading: boolean;
-}) {
-  const name = branch || branchNames[0] || branches[0]?.name || "";
-  const target = branches.find((b) => b.name === name);
+function BranchMap({ rows, branches, onOpen, loading }: { rows: RosterRow[]; branches: Branch[]; onOpen: (employeeId: string) => void; loading: boolean }) {
+  const active = useMemo(() => branches.filter((b) => b.status !== "INACTIVE" && Number.isFinite(b.latitude) && (b.latitude || b.longitude)), [branches]);
+  const [focus, setFocus] = useState<string>(() => (active.length === 1 ? active[0].id : "ALL"));
+  const [filter, setFilter] = useState<MapFilter>("ALL");
+  const [selected, setSelected] = useState<string | null>(null);
+  useEffect(() => {
+    if (focus !== "ALL" && !active.some((b) => b.id === focus)) setFocus(active.length === 1 ? active[0].id : "ALL");
+    else if (focus === "ALL" && active.length === 1) setFocus(active[0].id);
+  }, [active, focus]);
   if (loading) return <SkeletonList rows={3} />;
-  if (!target)
+  if (!active.length)
     return (
       <div className="mini-empty">
         <MapPin size={26} />
-        Filial ma’lumoti topilmadi
+        Filiallar koordinatasi kiritilmagan
       </div>
     );
-  const points = rows
-    .filter((r) => r.branch === target.name && typeof r.record?.latitude === "number" && typeof r.record?.longitude === "number")
-    .map((r) => {
-      const dy = (r.record!.latitude! - target.latitude) * 111_320;
-      const dx = (r.record!.longitude! - target.longitude) * 111_320 * Math.cos((target.latitude * Math.PI) / 180);
-      return { row: r, dx, dy, distance: Math.round(Math.hypot(dx, dy)) };
+
+  const byBranch = (id: string) => rows.filter((r) => r.employee.branchId === id);
+  const stat = (list: RosterRow[]) => ({
+    in: list.filter((r) => r.state === "IN" || r.state === "LEFT").length,
+    expected: list.filter((r) => !["DAY_OFF", "ON_LEAVE", "UPCOMING"].includes(r.state)).length,
+    late: list.filter((r) => r.late).length,
+    flagged: list.filter((r) => r.record?.flags?.length && !r.record.flagsReviewedBy).length,
+  });
+  const branch = active.find((b) => b.id === focus);
+
+  // «Barcha filiallar» rejimi
+  if (!branch) {
+    const points: MapPoint[] = active.map((b) => {
+      const s = stat(byBranch(b.id));
+      const rate = s.expected ? s.in / s.expected : 1;
+      return {
+        id: b.id,
+        lat: b.latitude,
+        lng: b.longitude,
+        kind: "branch",
+        label: b.name,
+        badge: `${s.in}/${s.expected}`,
+        tone: s.flagged ? "bad" : rate >= 0.9 ? "ok" : rate >= 0.7 ? "warn" : "bad",
+      };
     });
-  const extent = Math.max(target.radiusMeters * 1.4, ...points.map((p) => p.distance * 1.15), 50);
-  const size = 300;
-  const scale = size / 2 / extent;
-  const radius = target.radiusMeters * scale;
-  const outside = points.filter((p) => p.distance > target.radiusMeters);
+    return (
+      <>
+        <BranchChips branches={active} focus={focus} onFocus={setFocus} />
+        <TileMap points={points} circles={active.map((b) => ({ id: b.id, lat: b.latitude, lng: b.longitude, radius: b.radiusMeters }))} fitKey="ALL" onPick={(p) => p && setFocus(p.id)} />
+        <section className="mini-card mg-branch-list">
+          {active
+            .map((b) => ({ b, s: stat(byBranch(b.id)) }))
+            .sort((x, y) => (x.s.expected ? x.s.in / x.s.expected : 1) - (y.s.expected ? y.s.in / y.s.expected : 1))
+            .map(({ b, s }) => {
+              const rate = s.expected ? Math.round((s.in / s.expected) * 100) : 100;
+              return (
+                <button key={b.id} className="mg-branch-row" onClick={() => setFocus(b.id)}>
+                  <span>
+                    <b>{b.name}</b>
+                    <small>
+                      {s.in}/{s.expected} keldi{s.late ? ` · ${s.late} kechikdi` : ""}
+                      {s.flagged ? ` · ⚠️ ${s.flagged}` : ""}
+                    </small>
+                  </span>
+                  <span className="mg-meter">
+                    <i style={{ width: `${rate}%` }} className={rate >= 90 ? "ok" : rate >= 70 ? "warn" : "bad"} />
+                  </span>
+                  <em>{rate}%</em>
+                </button>
+              );
+            })}
+        </section>
+      </>
+    );
+  }
+
+  // Bitta filial
+  const list = byBranch(branch.id);
+  const located = list
+    .filter((r) => typeof r.record?.latitude === "number" && typeof r.record?.longitude === "number")
+    .map((r) => ({ r, distance: Math.round(haversineDistance(branch.latitude, branch.longitude, r.record!.latitude!, r.record!.longitude!)) }));
+  const counts = {
+    ok: located.filter((p) => !p.r.late && !(p.r.record?.flags?.length && !p.r.record.flagsReviewedBy)).length,
+    late: located.filter((p) => p.r.late).length,
+    flag: located.filter((p) => p.r.record?.flags?.length && !p.r.record.flagsReviewedBy).length,
+    edge: located.filter((p) => p.distance > branch.radiusMeters).length,
+  };
+  const visible = located.filter(({ r, distance }) =>
+    filter === "ALL"
+      ? true
+      : filter === "OK"
+        ? !r.late && !(r.record?.flags?.length && !r.record.flagsReviewedBy)
+        : filter === "LATE"
+          ? r.late
+          : filter === "FLAG"
+            ? Boolean(r.record?.flags?.length && !r.record.flagsReviewedBy)
+            : distance > branch.radiusMeters,
+  );
+  const points: MapPoint[] = [
+    { id: `branch:${branch.id}`, lat: branch.latitude, lng: branch.longitude, kind: "branch", label: branch.name, tone: "info" },
+    ...visible.map(({ r }) => ({
+      id: r.employee.id,
+      lat: r.record!.latitude!,
+      lng: r.record!.longitude!,
+      kind: "person" as const,
+      label: r.employee.firstName,
+      initials: `${r.employee.firstName[0] || ""}${r.employee.lastName[0] || ""}`,
+      photo: r.employee.photoDataUrl,
+      tone: personTone(r),
+    })),
+  ];
+  const pick = located.find((p) => p.r.employee.id === selected);
+  const notMarked = list.filter((r) => r.state === "NOT_YET" || r.state === "ABSENT").length;
   return (
     <>
-      {branchNames.length > 1 && <BranchSelect value={name} options={branchNames} onChange={onBranch} />}
-      <section className="mini-card mg-map">
-        <svg viewBox={`0 0 ${size} ${size}`} role="img" aria-label={`${target.name} — belgilar xaritasi`}>
-          <defs>
-            <radialGradient id="mg-zone">
-              <stop offset="0%" stopColor="var(--m-accent)" stopOpacity="0.18" />
-              <stop offset="100%" stopColor="var(--m-accent)" stopOpacity="0.05" />
-            </radialGradient>
-          </defs>
-          {[0.5, 1, 1.5].map((k) => (
-            <circle key={k} cx={size / 2} cy={size / 2} r={radius * k} className="mg-map-ring" />
-          ))}
-          <circle cx={size / 2} cy={size / 2} r={radius} fill="url(#mg-zone)" className="mg-map-zone" />
-          <text x={size / 2} y={14} className="mg-map-n">
-            N
-          </text>
-          <g transform={`translate(${size / 2} ${size / 2})`}>
-            <rect x={-7} y={-7} width={14} height={14} rx={3} className="mg-map-branch" />
-          </g>
-          {points.map((p) => (
-            <g key={p.row.employee.id} transform={`translate(${size / 2 + p.dx * scale} ${size / 2 - p.dy * scale})`} onClick={() => onPick(p.row)} className="mg-map-dot">
-              <circle r={7} className={flaggedTone(p.row)} />
-              <text y={-11}>{p.row.employee.firstName}</text>
-            </g>
-          ))}
-        </svg>
-        <div className="mini-legend">
-          <span>
-            <i style={{ background: "var(--m-success)" }} /> Vaqtida
-          </span>
-          <span>
-            <i style={{ background: "var(--m-warn)" }} /> Kechikkan
-          </span>
-          <span>
-            <i style={{ background: "var(--m-danger)" }} /> Shubhali
-          </span>
-        </div>
-        <small className="mg-map-scale">Doira — ruxsat etilgan {target.radiusMeters} m · {points.length} ta belgi</small>
-      </section>
-      {outside.length > 0 && (
-        <div className="mg-alert">
-          <ShieldAlert size={17} />
-          <span>{outside.length} kishi radius chetida belgilangan (GPS aniqligi hisobiga) — tekshirib ko‘ring.</span>
-        </div>
-      )}
-      <section className="mp-group">
-        {points
-          .sort((a, b) => b.distance - a.distance)
-          .map((p) => (
-            <button className="mp-row link" key={p.row.employee.id} onClick={() => onPick(p.row)}>
-              <span>
-                {p.row.employee.firstName} {p.row.employee.lastName}
-              </span>
-              <b className={p.distance > target.radiusMeters ? "warn" : ""}>
-                {p.distance} m{p.row.record?.flags?.length ? " ⚠️" : ""}
+      <BranchChips branches={active} focus={focus} onFocus={(id) => (setFocus(id), setSelected(null))} />
+      <div className="mg-map-filters" role="radiogroup">
+        {(
+          [
+            ["ALL", `Hammasi ${located.length}`, ""],
+            ["OK", `Vaqtida ${counts.ok}`, "ok"],
+            ["LATE", `Kechikkan ${counts.late}`, "warn"],
+            ["FLAG", `Shubhali ${counts.flag}`, "bad"],
+            ["EDGE", `Chegarada ${counts.edge}`, "warn"],
+          ] as const
+        ).map(([key, label, tone]) => (
+          <button
+            key={key}
+            role="radio"
+            aria-checked={filter === key}
+            className={`${tone} ${filter === key ? "on" : ""}`}
+            onClick={() => {
+              haptic.select();
+              setFilter(key);
+              setSelected(null);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <TileMap
+        points={points}
+        circles={[{ id: branch.id, lat: branch.latitude, lng: branch.longitude, radius: branch.radiusMeters }]}
+        selectedId={selected}
+        fitKey={`${branch.id}:${filter}`}
+        onPick={(p) => setSelected(p && p.kind === "person" ? p.id : null)}
+        height={380}
+      >
+        {pick && (
+          <div className="tm-card" onPointerDown={(event) => event.stopPropagation()}>
+            <span className={`mg-avatar ${personTone(pick.r)}`}>
+              {pick.r.employee.photoDataUrl ? <img src={pick.r.employee.photoDataUrl} alt="" /> : `${pick.r.employee.firstName[0] || ""}${pick.r.employee.lastName[0] || ""}`}
+            </span>
+            <span>
+              <b>
+                {pick.r.employee.firstName} {pick.r.employee.lastName}
               </b>
+              <small>
+                {pick.r.record?.checkIn ? `Keldi ${pick.r.record.checkIn}` : ""}
+                {pick.r.record?.checkOut ? ` · ketdi ${pick.r.record.checkOut}` : ""} · {pick.distance} m
+                {pick.distance > branch.radiusMeters ? " (chegarada)" : ""}
+              </small>
+              {pick.r.record?.flags?.length && !pick.r.record.flagsReviewedBy ? (
+                <small className="bad">⚠️ {pick.r.record.flags.map((f) => FLAG_LABELS[f as keyof typeof FLAG_LABELS] || f).join(", ")}</small>
+              ) : null}
+            </span>
+            <button className="mini-btn sm" onClick={() => onOpen(pick.r.employee.id)}>
+              Karta
             </button>
-          ))}
+          </div>
+        )}
+      </TileMap>
+      <section className="mg-map-stats">
+        <div>
+          <b>{stat(list).in}</b>
+          <small>keldi</small>
+        </div>
+        <div>
+          <b>{notMarked}</b>
+          <small>belgilamagan</small>
+        </div>
+        <div>
+          <b>{branch.radiusMeters} m</b>
+          <small>radius</small>
+        </div>
       </section>
+      {visible.length > 0 && (
+        <section className="mp-group">
+          {[...visible]
+            .sort((a, b) => b.distance - a.distance)
+            .map(({ r, distance }) => (
+              <button className="mp-row link" key={r.employee.id} onClick={() => setSelected(r.employee.id)}>
+                <span>
+                  <i className={`mg-dot ${personTone(r)}`} /> {r.employee.firstName} {r.employee.lastName}
+                </span>
+                <b className={distance > branch.radiusMeters ? "warn" : ""}>
+                  {distance} m{r.record?.flags?.length && !r.record.flagsReviewedBy ? " ⚠️" : ""}
+                </b>
+              </button>
+            ))}
+        </section>
+      )}
     </>
   );
 }
-const flaggedTone = (r: RosterRow) => (r.record?.flags?.length && !r.record.flagsReviewedBy ? "bad" : r.late ? "warn" : "ok");
+
+function BranchChips({ branches, focus, onFocus }: { branches: Branch[]; focus: string; onFocus: (id: string) => void }) {
+  if (branches.length < 2) return null;
+  return (
+    <div className="mg-map-branches">
+      <button className={focus === "ALL" ? "on" : ""} onClick={() => onFocus("ALL")}>
+        Barcha filiallar
+      </button>
+      {branches.map((b) => (
+        <button key={b.id} className={focus === b.id ? "on" : ""} onClick={() => onFocus(b.id)}>
+          {b.name}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /* -------------------------------------------------------- haftalik xulosa --- */
 function WeekSummary({ call, onError }: { call: <T>(url: string) => Promise<T>; onError: (reason: unknown) => void }) {
@@ -765,6 +957,29 @@ function WeekSummary({ call, onError }: { call: <T>(url: string) => Promise<T>; 
           </div>
         ))}
       </section>
+      {data.branches.length > 1 && (
+        <>
+          <div className="mp-group-title">Filiallar reytingi (shu oy)</div>
+          <section className="mini-card mg-branch-list">
+            {data.branches.map((b, i) => (
+              <div className="mg-branch-row" key={b.id}>
+                <span>
+                  <b>
+                    {["🥇", "🥈", "🥉"][i] || `${i + 1}.`} {b.name}
+                  </b>
+                  <small>
+                    {b.employees} xodim · vaqtida {b.punctuality}% · kelmagan {b.absent}
+                  </small>
+                </span>
+                <span className="mg-meter">
+                  <i style={{ width: `${b.attendanceRate}%` }} className={b.attendanceRate >= 90 ? "ok" : b.attendanceRate >= 75 ? "warn" : "bad"} />
+                </span>
+                <em>{b.attendanceRate}%</em>
+              </div>
+            ))}
+          </section>
+        </>
+      )}
       {data.latecomers.length > 0 && (
         <>
           <div className="mp-group-title">Ko‘p kechikkanlar (shu oy)</div>

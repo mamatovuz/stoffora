@@ -166,7 +166,8 @@ app.use(
           useDefaults: true,
           directives: {
             "script-src": ["'self'", "https://telegram.org"],
-            "img-src": ["'self'", "data:", "blob:"],
+            // Rahbar Mini App’idagi filial xaritasi: OpenStreetMap plitkalari (yoki MAP_TILE_ORIGIN — o‘z xizmatingiz).
+            "img-src": ["'self'", "data:", "blob:", "https://tile.openstreetmap.org", ...(process.env.MAP_TILE_ORIGIN ? [process.env.MAP_TILE_ORIGIN] : [])],
             "media-src": ["'self'", "blob:"],
             "worker-src": ["'self'", "blob:"],
             "connect-src": ["'self'"],
@@ -2014,7 +2015,7 @@ const branchSchema = z.object({
   address: z.string().trim().min(3),
   latitude: z.coerce.number().min(-90).max(90),
   longitude: z.coerce.number().min(-180).max(180),
-  radiusMeters: z.coerce.number().min(20).max(2000),
+  radiusMeters: z.coerce.number().int("Radius butun son bo‘lsin.").min(10, "Radius kamida 10 m.").max(10_000, "Radius ko‘pi bilan 10 000 m."),
   manager: z.string().trim().default(""),
   scheduleId: z.string().default(""),
   status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),

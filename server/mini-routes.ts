@@ -13,6 +13,7 @@ import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { audit, dataIndexes, readDb, updateDb } from "../lib/store";
 import {
   adaptProfile,
+  shouldRefreshPhoto,
   assertConsistentSamples,
   assertFaceDescriptor,
   assertPoseVariation,
@@ -529,6 +530,7 @@ export function createMiniRouter() {
             .string()
             .max(700_000)
             .regex(/^data:image\/(jpeg|jpg|webp);base64,/),
+          photoQuality: z.number().min(0).max(1).optional(),
           liveness: livenessSchema,
         })
         .parse(req.body);
@@ -574,6 +576,8 @@ export function createMiniRouter() {
           updatedAt: now,
         });
         row.photoDataUrl = input.photoDataUrl;
+        row.photoQuality = input.photoQuality;
+        row.photoUpdatedAt = now;
         row.faceEnrolledAt = now;
         row.updatedAt = now;
         db.auditLogs.unshift(
@@ -600,8 +604,14 @@ export function createMiniRouter() {
     "/mini/face/verify",
     perEmployeeLimit(10),
     asyncRoute(async (req, res) => {
-      const { descriptor, turnDescriptor, liveness } = z
-        .object({ descriptor: descriptorSchema, turnDescriptor: descriptorSchema.optional(), liveness: livenessSchema })
+      const { descriptor, turnDescriptor, liveness, photoDataUrl, photoQuality } = z
+        .object({
+          descriptor: descriptorSchema,
+          turnDescriptor: descriptorSchema.optional(),
+          liveness: livenessSchema,
+          photoDataUrl: z.string().max(700_000).regex(/^data:image\/(jpeg|jpg|webp);base64,/).optional(),
+          photoQuality: z.number().min(0).max(1).optional(),
+        })
         .parse(req.body);
       assertFaceDescriptor(descriptor);
       if (turnDescriptor) {
@@ -635,6 +645,17 @@ export function createMiniRouter() {
           profile.lastVerifiedAt = new Date().toISOString();
           // Ishonchli moslik — profil yangi ko‘rinishga moslashadi (soqol, ko‘zoynak, yorug‘lik).
           if (adaptProfile(profile, descriptor, front)) profile.updatedAt = profile.lastVerifiedAt;
+          // Sifatliroq kadr bo‘lsa — profil rasmi yangilanadi (birinchi rasm noqulay chiqqan bo‘lsa ham tuzaladi).
+          if (
+            photoDataUrl &&
+            shouldRefreshPhoto({ distance: front.distance, quality: photoQuality, currentQuality: employee.photoQuality, photoUpdatedAt: employee.photoUpdatedAt ?? employee.faceEnrolledAt })
+          ) {
+            employee.photoDataUrl = photoDataUrl;
+            employee.photoQuality = photoQuality;
+            employee.photoUpdatedAt = profile.lastVerifiedAt;
+            employee.updatedAt = profile.lastVerifiedAt;
+            db.auditLogs.unshift(audit(auth.companyId, `${employee.firstName} ${employee.lastName}`, "Profil rasmi yangilandi (Face ID’dagi sifatliroq kadr)", "employee", employee.id));
+          }
           // Haqiqiy yuz tekshiruvi — biometriya hisoblagichi boshidan.
           for (const device of db.biometricDevices)
             if (device.employeeId === auth.employeeId && !device.revokedAt) {

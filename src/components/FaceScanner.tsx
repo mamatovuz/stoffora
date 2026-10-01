@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Crosshair, Ruler, Sun } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import { ApiError, errorText, post } from "../api";
 
 /** Internetsiz rejim uchun: tekshiruv natijasi (serverda keyin solishtiriladi). */
@@ -124,17 +124,33 @@ function faceQuality(video: HTMLVideoElement, box: { x: number; y: number; width
 
 type Quality = { light: "ok" | "bad" | ""; distance: "ok" | "bad" | ""; center: "ok" | "bad" | "" };
 
-function capturePhoto(video: HTMLVideoElement) {
-  const size = Math.min(video.videoWidth, video.videoHeight);
+/**
+ * Profil rasmi: yuz markazda, atrofida yetarli joy (portret kabi), ko‘zgu holatida.
+ * Yuz qutisi berilmasa — kadr markazidan kvadrat.
+ */
+function capturePhoto(video: HTMLVideoElement, box?: { x: number; y: number; width: number; height: number }) {
+  const vw = video.videoWidth;
+  const vh = video.videoHeight;
+  let size = Math.min(vw, vh);
+  let sx = (vw - size) / 2;
+  let sy = (vh - size) / 2;
+  if (box) {
+    size = Math.min(vw, vh, box.width * 2.2);
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height * 0.45;
+    sx = Math.max(0, Math.min(vw - size, cx - size / 2));
+    sy = Math.max(0, Math.min(vh - size, cy - size / 2));
+  }
   const canvas = document.createElement("canvas");
-  canvas.width = 480;
-  canvas.height = 480;
+  canvas.width = 512;
+  canvas.height = 512;
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Profil rasmini tayyorlab bo‘lmadi.");
-  context.translate(480, 0);
+  context.translate(512, 0);
   context.scale(-1, 1);
-  context.drawImage(video, (video.videoWidth - size) / 2, (video.videoHeight - size) / 2, size, size, 0, 0, 480, 480);
-  return canvas.toDataURL("image/jpeg", 0.84);
+  context.imageSmoothingQuality = "high";
+  context.drawImage(video, sx, sy, size, size, 0, 0, 512, 512);
+  return canvas.toDataURL("image/jpeg", 0.86);
 }
 
 const distance = (a: number[], b: number[]) =>
@@ -257,17 +273,28 @@ export function FaceScanner({
       if (!window.isSecureContext) throw new Error("Face ID uchun sayt HTTPS orqali ochilishi kerak.");
       if (!navigator.mediaDevices?.getUserMedia)
         throw new Error("Kameraga kirish imkoni yo‘q. Telegram ilovasini yangilang.");
+      // Sekin bo‘lsa — nima kutilayotganini aniq aytamiz: kamera ruxsatimi yoki Face ID modeli.
+      let cameraReady = Boolean(streamRef.current);
       const slowHint = window.setTimeout(() => {
-        if (active()) say("Kameraga ruxsat so‘rovini tasdiqlang (Ruxsat berish / Allow)");
-      }, 6000);
+        if (active()) say(cameraReady ? "Face ID tayyorlanmoqda — bir lahza…" : "Kameraga ruxsat so‘rovini tasdiqlang (Ruxsat berish / Allow)");
+      }, 4000);
       const [faceapi, stream] = await Promise.all([
         preloadFaceModels(),
-        streamRef.current
+        (streamRef.current
           ? Promise.resolve(streamRef.current)
           : navigator.mediaDevices.getUserMedia({
               video: { facingMode: "user", width: { ideal: 480 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
               audio: false,
-            }),
+            })
+        ).then((value) => {
+          cameraReady = true;
+          // Kamera darhol ko‘rinadi — model yuklanishini kutmasdan.
+          if (videoRef.current && videoRef.current.srcObject !== value) {
+            videoRef.current.srcObject = value;
+            void videoRef.current.play().catch(() => undefined);
+          }
+          return value;
+        }),
       ]);
       window.clearTimeout(slowHint);
       if (!active()) return;
@@ -294,7 +321,9 @@ export function FaceScanner({
           else requestAnimationFrame(() => resolve());
         });
 
-      type Frame = { yaw: number; pitch: number; descriptor?: number[]; score: number; sharp: number };
+      type Frame = { yaw: number; pitch: number; descriptor?: number[]; score: number; sharp: number; box: { x: number; y: number; width: number; height: number } };
+      /** Eng sifatli (to‘g‘ri qaragan, keskin, yorug‘) kadr — profil rasmi shundan. */
+      let photoQuality = -1;
       /**
        * Bitta kadr — BITTA hisoblash: aniqlash + nuqtalar (+ kerak bo‘lsa deskriptor).
        * Oldingi versiyada har kadr ikki marta hisoblanardi.
@@ -363,7 +392,7 @@ export function FaceScanner({
           const raw = await faceapi.computeFaceDescriptor(crop);
           descriptor = Array.from(Array.isArray(raw) ? raw[0] : raw);
         }
-        return { ...g, descriptor, score: face.detection.score, sharp };
+        return { ...g, descriptor, score: face.detection.score, sharp, box: { x: box.x, y: box.y, width: box.width, height: box.height } };
       };
       const accept = (descriptor: number[]) => {
         if (samples.length && distance(samples[0], descriptor) > 0.6)
@@ -393,8 +422,14 @@ export function FaceScanner({
             continue;
           }
           say("Qimirlamang…");
-          candidates.push({ descriptor: f.descriptor, quality: f.score * Math.min(1, f.sharp / 120), pitch: f.pitch });
-          if (!photo) photo = capturePhoto(video);
+          // Sifat: aniqlash ishonchi × keskinlik × to‘g‘ri qarash (bosh burilmagan, egilmagan).
+          const quality = f.score * Math.min(1, f.sharp / 120) * (1 - Math.min(0.6, Math.abs(f.yaw) * 2 + Math.abs(f.pitch - (candidates[0]?.pitch ?? f.pitch))));
+          candidates.push({ descriptor: f.descriptor, quality, pitch: f.pitch });
+          // Har safar oldingisidan yaxshiroq kadr bo‘lsa — profil rasmi shu kadrdan.
+          if (quality > photoQuality) {
+            photoQuality = quality;
+            photo = capturePhoto(video, f.box);
+          }
         }
         if (!active()) return;
         let chosen = candidates;
@@ -412,6 +447,7 @@ export function FaceScanner({
         // 1) markaz
         setPhase("center");
         setTitle("Yuzingizni doira ichiga joylang");
+        say("Telefonni yuzingiz ro‘parasida ushlang");
         await waitFront(2);
         if (!active()) return;
         tap();
@@ -461,6 +497,7 @@ export function FaceScanner({
         // Burilgan yuz ham serverda profil bilan solishtiriladi — rasm/ekranni almashtirib bo‘lmaydi.
         setPhase("center");
         setTitle("Kameraga qarang");
+        say("Yuzingizni oval ichiga joylang");
         await waitFront(2);
         if (!active()) return;
         fillTo(0.5);
@@ -512,10 +549,18 @@ export function FaceScanner({
       let result: { proof: string; score: number };
       try {
         result = enrolled
-          ? await post<{ proof: string; score: number }>("/mini/face/verify", { descriptor: capture.descriptor, turnDescriptor, liveness })
+          ? await post<{ proof: string; score: number }>("/mini/face/verify", {
+              descriptor: capture.descriptor,
+              turnDescriptor,
+              liveness,
+              // Sifatli kadr bo‘lsa server profil rasmini yangilashi mumkin.
+              photoDataUrl: photo || undefined,
+              photoQuality: photoQuality > 0 ? Number(photoQuality.toFixed(3)) : undefined,
+            })
           : await post<{ proof: string; score: number }>("/mini/face/enroll", {
               samples: samples.slice(0, 8),
               photoDataUrl: photo,
+              photoQuality: photoQuality > 0 ? Number(photoQuality.toFixed(3)) : undefined,
               liveness,
             });
       } catch (reason) {
@@ -565,19 +610,6 @@ export function FaceScanner({
 
   const [elapsed, setElapsed] = useState(0);
   const litCount = lit.filter(Boolean).length;
-  const steps = enrolled
-    ? [
-        ["center", "Qarang"],
-        ["turn", "Buriling"],
-        ["sending", "Tekshiruv"],
-      ]
-    : [
-        ["center", "Markaz"],
-        ["rotate", "Aylantirish"],
-        ["final", "Yakun"],
-      ];
-  const order = enrolled ? ["loading", "center", "turn", "sending", "done"] : ["loading", "center", "rotate", "final", "sending", "done"];
-  const position = order.indexOf(phase);
   const showCamera = !["intro", "done"].includes(phase);
   const glyphState = phase === "done" ? "ok" : phase === "error" ? "fail" : "scan";
 
@@ -614,26 +646,12 @@ export function FaceScanner({
         </div>
       ) : (
         <div className="faceid-body">
-          {phase !== "error" && (
-            <ol className="faceid-steps" aria-label="Bosqichlar">
-              {steps.map(([key, label]) => {
-                const at = order.indexOf(key);
-                return (
-                  <li key={key} className={position > at || phase === "done" ? "done" : position === at ? "active" : ""}>
-                    <i />
-                    {label}
-                  </li>
-                );
-              })}
-            </ol>
-          )}
-          <h1 className="faceid-title">{title}</h1>
           <div className={`faceid-stage ${phase}`}>
             <svg className="faceid-ticks" viewBox="0 0 200 200" aria-hidden="true">
               {lit.map((on, i) => {
                 const angle = (i / TICKS) * Math.PI * 2 - Math.PI / 2;
-                const r1 = 88;
-                const r2 = on ? 99 : 95;
+                const r1 = 91;
+                const r2 = on ? 99.5 : 96;
                 return (
                   <line
                     key={i}
@@ -648,6 +666,15 @@ export function FaceScanner({
             </svg>
             <div className="faceid-camera">
               <video ref={videoRef} muted playsInline autoPlay style={{ opacity: showCamera ? 1 : 0 }} />
+              {["center", "turn", "final"].includes(phase) && (
+                <>
+                  {/* Yuz joylashadigan oval yo‘riqnoma va skanerlash chizig‘i */}
+                  <svg className={`faceid-guide ${quality.center === "ok" && quality.distance === "ok" ? "ok" : ""}`} viewBox="0 0 100 100" aria-hidden="true">
+                    <ellipse cx="50" cy="48" rx="27" ry="35" />
+                  </svg>
+                  <i className="faceid-scanline" aria-hidden="true" />
+                </>
+              )}
               {(phase === "loading" || phase === "sending") && (
                 <div className="faceid-cover">
                   <FaceIdGlyph state="scan" size={84} />
@@ -665,28 +692,20 @@ export function FaceScanner({
               </span>
             )}
           </div>
-          <p className="faceid-hint" aria-live="polite">
+          {/* Bitta aniq ko‘rsatma: nima qilish kerak (yoki natija). */}
+          <p className={`faceid-hint ${phase}`} aria-live="polite">
             {phase === "error"
               ? error
               : phase === "done"
                 ? enrolled
-                  ? `Moslik ${score}%${elapsed ? ` · ${elapsed.toString().replace(".", ",")} s` : ""}`
-                  : "Endi davomatni yuzingiz bilan tasdiqlaysiz"
-                : hint}
+                  ? `${title} · ${score}%${elapsed ? ` · ${elapsed.toString().replace(".", ",")} s` : ""}`
+                  : "Face ID sozlandi — endi davomatni yuzingiz bilan tasdiqlaysiz"
+                : phase === "turn" || phase === "rotate"
+                  ? title
+                  : phase === "sending"
+                    ? title
+                    : hint || title}
           </p>
-          {["center", "turn", "rotate", "final"].includes(phase) && (
-            <div className="faceid-quality" aria-label="Tasvir sifati">
-              <span className={quality.light}>
-                <Sun size={14} /> Yorug‘lik
-              </span>
-              <span className={quality.distance}>
-                <Ruler size={14} /> Masofa
-              </span>
-              <span className={quality.center}>
-                <Crosshair size={14} /> Markaz
-              </span>
-            </div>
-          )}
           {phase === "error" && (
             <div className="faceid-actions">
               <button className="faceid-primary" onClick={() => void run()}>
@@ -699,9 +718,6 @@ export function FaceScanner({
           )}
         </div>
       )}
-      <footer className="faceid-foot">
-        Yuz ma’lumoti shifrlangan vektor ko‘rinishida saqlanadi va faqat davomat uchun ishlatiladi.
-      </footer>
     </div>
   );
 }

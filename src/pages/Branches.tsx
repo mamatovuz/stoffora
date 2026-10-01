@@ -263,8 +263,8 @@ function BranchForm({
           <Field label="Uzunlik (lng)">
             <input className="input" inputMode="decimal" value={form.longitude} onChange={(e) => set("longitude", e.target.value)} placeholder="69.240562" required />
           </Field>
-          <Field label="Radius (metr)" hint="Tavsiya: 100–200 m">
-            <input className="input" type="number" min={20} max={2000} value={form.radiusMeters} onChange={(e) => set("radiusMeters", Number(e.target.value))} />
+          <Field label="Radius (metr)" hint="10 – 10 000 m. Tavsiya: bino uchun 100–200 m">
+            <input className="input" type="number" min={10} max={10000} step={10} value={form.radiusMeters} onChange={(e) => set("radiusMeters", Number(e.target.value))} />
           </Field>
         </div>
         <div className="toolbar" style={{ marginTop: -4, marginBottom: 14 }}>

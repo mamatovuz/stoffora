@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { cardBrand, cardError, formatCard, holderError, luhnValid, maskCard, normalizeHolder } from "../lib/card";
 import { detectTrends, type TrendDay } from "../lib/trends";
-import { adaptProfile, assertPoseVariation, matchFace, ADAPTIVE_SAMPLES_MAX } from "../lib/face";
+import { adaptProfile, assertPoseVariation, matchFace, shouldRefreshPhoto, ADAPTIVE_SAMPLES_MAX } from "../lib/face";
 
 describe("avans kartasi", () => {
   it("Luhn, tur va yashirish", () => {
@@ -90,5 +90,23 @@ describe("Face ID aniqligi", () => {
   it("bosh burilmagan (bir xil) kadrni rad etadi", () => {
     expect(() => assertPoseVariation(base, shift(base, 0.0005))).toThrow(/burilmadi/);
     expect(() => assertPoseVariation(base, shift(base, 0.01))).not.toThrow();
+  });
+});
+
+describe("profil rasmini yangilash", () => {
+  const now = Date.parse("2026-10-01T09:00:00Z");
+  it("aniq moslik va sifatliroq kadrda yangilanadi", () => {
+    expect(shouldRefreshPhoto({ distance: 0.2, quality: 0.7, currentQuality: 0.5, threshold: 0.5, now })).toBe(true);
+    // Sifati noma’lum eski rasm (birinchi noqulay kadr) — darhol almashadi
+    expect(shouldRefreshPhoto({ distance: 0.2, quality: 0.5, threshold: 0.5, now })).toBe(true);
+  });
+  it("shubhali moslik, past sifat yoki deyarli bir xil sifatda yangilanmaydi", () => {
+    expect(shouldRefreshPhoto({ distance: 0.45, quality: 0.9, currentQuality: 0.1, threshold: 0.5, now })).toBe(false);
+    expect(shouldRefreshPhoto({ distance: 0.1, quality: 0.2, threshold: 0.5, now })).toBe(false);
+    expect(shouldRefreshPhoto({ distance: 0.1, quality: 0.62, currentQuality: 0.6, photoUpdatedAt: "2026-09-25T00:00:00Z", threshold: 0.5, now })).toBe(false);
+    expect(shouldRefreshPhoto({ distance: 0.1, threshold: 0.5, now })).toBe(false);
+  });
+  it("30 kundan eski rasm o‘xshash sifatli kadr bilan yangilanadi", () => {
+    expect(shouldRefreshPhoto({ distance: 0.1, quality: 0.58, currentQuality: 0.6, photoUpdatedAt: "2026-08-01T00:00:00Z", threshold: 0.5, now })).toBe(true);
   });
 });

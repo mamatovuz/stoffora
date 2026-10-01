@@ -288,15 +288,30 @@ export function MiniAppPage() {
     void authenticate();
     refreshBio();
     void kvGet("cloud", EMOJI_KEY).then((value) => setEmojiStatusPref(value === "1"));
-    // Face modellarini oldindan yuklab qo‘yamiz — tugma bosilganda tezroq ochiladi.
-    const idle = window.setTimeout(() => void preloadFaceModels().catch(() => undefined), 300);
     return () => {
-      window.clearTimeout(idle);
       unbind();
       allowZoom();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticate]);
+
+  /*
+   * Face ID modeli (~6 MB, WebGL) faqat kerak bo‘lganda oldindan yuklanadi: bosh sahifada,
+   * xodim bugun hali belgilashi kerak bo‘lsa va brauzer bo‘sh turganda. Rahbar xarita ko‘rayotganda
+   * yoki ish kuni tugaganda telefon protsessori va GPU’si band qilinmaydi.
+   */
+  const needsFace = Boolean(home && nav.tab === "home" && home.branch && !home.attendance?.checkOut && !home.todayLeave);
+  useEffect(() => {
+    if (!needsFace) return;
+    const run = () => void preloadFaceModels().catch(() => undefined);
+    const idle = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
+    if (idle.requestIdleCallback) {
+      const handle = idle.requestIdleCallback(run, { timeout: 2500 });
+      return () => idle.cancelIdleCallback?.(handle);
+    }
+    const timer = window.setTimeout(run, 1200);
+    return () => window.clearTimeout(timer);
+  }, [needsFace]);
 
   // Ilova qayta ochilganda (fon rejimidan) ma’lumotni yangilaymiz.
   useEffect(() => {
@@ -825,7 +840,7 @@ function AuthErrorScreen({ error, onRetry }: { error: AuthError | null; onRetry:
             <RotateCcw size={17} /> Qayta urinish
           </button>
           {tg()?.initData && (
-            <button className="mini-btn ghost" onClick={() => tg()?.close()}>
+            <button className="mini-btn ghost-neutral" onClick={() => tg()?.close()}>
               Yopish
             </button>
           )}

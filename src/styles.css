@@ -5966,7 +5966,7 @@ button.ic-stat small {
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
 }
-.mh-times b.empty {
+.mh-times b.is-blank {
   color: color-mix(in srgb, var(--m-muted) 70%, transparent);
   font-weight: 400;
 }
@@ -7906,19 +7906,6 @@ button.mp-row { width: 100%; border-left: 0; border-right: 0; border-top: 0; bac
 .mg-select.on { background: var(--m-accent); color: var(--m-accent-ink); }
 .mg-check { display: grid; place-items: center; width: 34px; height: 34px; border: 0; background: none; color: var(--m-accent); flex: none; padding: 0; }
 .mg-req.picked { box-shadow: inset 0 0 0 1.5px var(--m-accent); }
-.mg-map { display: grid; gap: 8px; }
-.mg-map svg { width: 100%; max-width: 360px; margin: 0 auto; aspect-ratio: 1; touch-action: manipulation; }
-.mg-map-ring { fill: none; stroke: var(--m-line); stroke-dasharray: 3 4; }
-.mg-map-zone { stroke: var(--m-accent); stroke-width: 1.5; }
-.mg-map-n { fill: var(--m-muted); font-size: 11px; font-weight: 700; text-anchor: middle; }
-.mg-map-branch { fill: var(--m-ink); }
-.mg-map-dot { cursor: pointer; }
-.mg-map-dot circle { stroke: var(--m-card); stroke-width: 2; }
-.mg-map-dot circle.ok { fill: var(--m-success); }
-.mg-map-dot circle.warn { fill: var(--m-warn); }
-.mg-map-dot circle.bad { fill: var(--m-danger); }
-.mg-map-dot text { fill: var(--m-ink); font-size: 10px; font-weight: 600; text-anchor: middle; paint-order: stroke; stroke: var(--m-card); stroke-width: 3px; }
-.mg-map-scale { color: var(--m-muted); font-size: 12px; text-align: center; }
 .mg-kpis { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .mg-kpis > div { display: grid; gap: 2px; padding: 12px 14px; border-radius: 16px; background: var(--m-card); }
 .mg-kpis small { color: var(--m-muted); font-size: 12.5px; }
@@ -8163,3 +8150,215 @@ html[data-tg-scheme="dark"] .rc-card, html[data-mini-theme="dark"] .rc-card { bo
 .hd-bubble.emp { justify-self: start; background: var(--surface); border: 1px solid var(--line); }
 .hd-bubble.hr { justify-self: end; background: var(--brand); color: #fff; }
 @media (max-width: 640px) { .hd-item { grid-template-columns: minmax(0, 1fr) auto; } }
+
+/* =====================================================================
+   Rahbar rejimi: haqiqiy xarita, jonli lenta, kuchaytirilgan hero
+   ===================================================================== */
+/* Xarita */
+.tm { position: relative; overflow: hidden; border-radius: 20px; background: #e9eef3; touch-action: none; user-select: none; -webkit-user-select: none;
+  box-shadow: 0 0 0 1px var(--m-line); cursor: grab; }
+.tm:active { cursor: grabbing; }
+.tm.tm-dark { background: #1b1f24; }
+.tm.tm-nomap { background-color: var(--m-card); background-image: linear-gradient(var(--m-line) 1px, transparent 1px), linear-gradient(90deg, var(--m-line) 1px, transparent 1px); background-size: 32px 32px; }
+.tm-tiles { position: absolute; inset: 0; }
+.tm-tiles img { position: absolute; width: 256px; height: 256px; opacity: 0; transition: opacity 0.25s ease; pointer-events: none; max-width: none; }
+.tm-tiles img.on { opacity: 1; }
+.tm-overlay { position: absolute; inset: 0; pointer-events: none; }
+.tm-zone { fill: color-mix(in srgb, var(--m-accent) 14%, transparent); stroke: var(--m-accent); stroke-width: 2; stroke-dasharray: 6 5; }
+.tm-zone.warn { fill: color-mix(in srgb, var(--m-warn) 12%, transparent); stroke: var(--m-warn); }
+.tm-accuracy { fill: color-mix(in srgb, var(--m-accent) 18%, transparent); stroke: color-mix(in srgb, var(--m-accent) 60%, transparent); stroke-width: 1; }
+.tm-pin { position: absolute; left: 0; top: 0; display: grid; justify-items: center; gap: 2px; padding: 0; border: 0; background: none; font: inherit; color: inherit;
+  margin: -19px 0 0 -19px; transition: transform 0.18s ease; cursor: pointer; z-index: 2; }
+.tm-pin.on { z-index: 4; }
+.tm-pin small { max-width: 110px; padding: 2px 7px; border-radius: 99px; background: var(--m-card); color: var(--m-ink); font-size: 11px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 6px rgba(0,0,0,0.18); }
+.tm-avatar { --ring: var(--m-success); display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; overflow: hidden; background: var(--m-card);
+  color: var(--m-ink); font-size: 13px; font-weight: 700; box-shadow: 0 0 0 3px var(--ring), 0 4px 10px rgba(0,0,0,0.25); position: relative; }
+.tm-avatar img { width: 100%; height: 100%; object-fit: cover; pointer-events: none; }
+.tm-pin.person::after { content: ""; position: absolute; top: 34px; left: 50%; width: 8px; height: 8px; margin-left: -4px; transform: rotate(45deg); background: var(--ring, var(--m-success)); z-index: -1; }
+.tm-pin.warn { --ring: var(--m-warn); }
+.tm-pin.warn .tm-avatar { --ring: var(--m-warn); }
+.tm-pin.bad .tm-avatar { --ring: var(--m-danger); }
+.tm-pin.bad { --ring: var(--m-danger); }
+.tm-pin.muted .tm-avatar { --ring: var(--m-muted); }
+.tm-pin.muted { --ring: var(--m-muted); }
+.tm-pin.on .tm-avatar { transform: scale(1.18); box-shadow: 0 0 0 3px var(--ring), 0 0 0 9px color-mix(in srgb, var(--ring) 25%, transparent), 0 6px 14px rgba(0,0,0,0.3); }
+.tm-pin.bad .tm-avatar::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--m-danger); animation: tm-alert 1.6s ease-out infinite; }
+@keyframes tm-alert { to { transform: scale(1.5); opacity: 0; } }
+.tm-pin.branch { margin: -22px 0 0 -22px; }
+.tm-branch-head { position: relative; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 14px; color: #fff;
+  background: linear-gradient(135deg, var(--m-accent), color-mix(in srgb, var(--m-accent) 65%, #7c3aed)); box-shadow: 0 6px 16px -4px color-mix(in srgb, var(--m-accent) 70%, transparent), 0 0 0 3px var(--m-card); }
+.tm-pin.branch.ok .tm-branch-head { background: linear-gradient(135deg, #16a34a, #22c55e); }
+.tm-pin.branch.warn .tm-branch-head { background: linear-gradient(135deg, #d97706, #f59e0b); }
+.tm-pin.branch.bad .tm-branch-head { background: linear-gradient(135deg, #dc2626, #f43f5e); }
+.tm-branch-head em { position: absolute; top: -9px; right: -14px; padding: 1px 6px; border-radius: 99px; background: var(--m-card); color: var(--m-ink); font-size: 11px; font-style: normal; font-weight: 700;
+  font-variant-numeric: tabular-nums; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+.tm-controls { position: absolute; top: 10px; right: 10px; display: grid; gap: 6px; z-index: 5; }
+.tm-controls button { display: grid; place-items: center; width: 38px; height: 38px; border: 0; border-radius: 12px; background: var(--m-card); color: var(--m-ink); box-shadow: 0 3px 10px rgba(0,0,0,0.18); }
+.tm-controls button:disabled { opacity: 0.4; }
+.tm-attrib { position: absolute; left: 8px; bottom: 6px; padding: 1px 6px; border-radius: 6px; background: color-mix(in srgb, var(--m-card) 80%, transparent); color: var(--m-muted); font-size: 9.5px; z-index: 3; pointer-events: none; }
+.tm-card { position: absolute; left: 10px; right: 10px; bottom: 24px; z-index: 6; display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 16px;
+  background: var(--m-card); box-shadow: 0 10px 28px -8px rgba(0,0,0,0.35); animation: mini-enter 0.2s ease; cursor: default; }
+.tm-card > span:nth-child(2) { flex: 1; display: grid; min-width: 0; }
+.tm-card small { color: var(--m-muted); font-size: 12px; }
+.tm-card small.bad { color: var(--m-danger); }
+.tm-card .mini-btn.sm { width: auto; min-height: 36px; }
+
+.mg-map-branches, .mg-map-filters { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 1px; }
+.mg-map-branches::-webkit-scrollbar, .mg-map-filters::-webkit-scrollbar { display: none; }
+.mg-map-branches button, .mg-map-filters button { flex: none; padding: 7px 12px; border: 0; border-radius: 99px; background: var(--m-card); color: var(--m-ink); font: inherit; font-size: 13px; font-weight: 600; }
+.mg-map-branches button.on { background: var(--m-ink); color: var(--m-card); }
+.mg-map-filters button.ok { color: var(--m-success); }
+.mg-map-filters button.warn { color: var(--m-warn); }
+.mg-map-filters button.bad { color: var(--m-danger); }
+.mg-map-filters button.on { box-shadow: inset 0 0 0 1.5px currentColor; background: color-mix(in srgb, currentColor 10%, var(--m-card)); }
+.mg-map-filters button:not(.ok):not(.warn):not(.bad).on { color: var(--m-accent); }
+.mg-map-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 12px 4px; border-radius: 18px; background: var(--m-card); }
+.mg-map-stats > div { display: grid; justify-items: center; }
+.mg-map-stats > div + div { border-left: 0.5px solid var(--m-line); }
+.mg-map-stats b { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.mg-map-stats small { color: var(--m-muted); font-size: 12px; }
+.mg-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: var(--m-success); }
+.mg-dot.warn { background: var(--m-warn); }
+.mg-dot.bad { background: var(--m-danger); }
+.mg-dot.muted { background: var(--m-muted); }
+.mg-branch-list { display: grid; gap: 2px; padding-top: 6px; padding-bottom: 6px; }
+.mg-branch-row { display: grid; grid-template-columns: minmax(0, 1fr) 70px 42px; align-items: center; gap: 10px; width: 100%; padding: 10px 0; border: 0;
+  border-bottom: 0.5px solid var(--m-line); background: none; color: var(--m-ink); font: inherit; text-align: left; }
+.mg-branch-row:last-child { border-bottom: 0; }
+.mg-branch-row > span:first-child { display: grid; min-width: 0; }
+.mg-branch-row b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mg-branch-row small { color: var(--m-muted); font-size: 12px; }
+.mg-branch-row em { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.mg-meter { height: 7px; border-radius: 99px; background: var(--m-tint); overflow: hidden; }
+.mg-meter i { display: block; height: 100%; border-radius: inherit; background: var(--m-success); transition: width 0.6s ease; }
+.mg-meter i.warn { background: var(--m-warn); }
+.mg-meter i.bad { background: var(--m-danger); }
+
+/* Jonli lenta va qidiruv */
+.mg-feed { display: grid; gap: 8px; }
+.mg-feed-head { padding: 0 4px; color: var(--m-muted); font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+.mg-feed-list { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px; }
+.mg-feed-list::-webkit-scrollbar { display: none; }
+.mg-feed-item { flex: none; display: grid; justify-items: center; gap: 3px; width: 74px; padding: 10px 4px 8px; border: 0; border-radius: 16px; background: var(--m-card); color: var(--m-ink); font: inherit; }
+.mg-feed-item b { max-width: 66px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; }
+.mg-feed-item small { display: inline-flex; align-items: center; gap: 3px; color: var(--m-success); font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mg-feed-item.out small { color: var(--m-accent); }
+.mg-feed-item.late small { color: var(--m-warn); }
+.mg-avatar.sm { width: 34px; height: 34px; font-size: 12px; }
+.mg-tools { display: grid; gap: 8px; }
+.mg-tools .md-search { margin: 0; }
+.mg-updated { display: flex; align-items: center; gap: 6px; margin: 0; padding: 0 4px; color: var(--m-muted); font-size: 12px; }
+.mg-updated i { width: 7px; height: 7px; border-radius: 50%; background: var(--m-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--m-success) 22%, transparent); animation: live-dot 2s ease-in-out infinite; }
+.mg-updated .mini-link { margin-left: auto; padding: 0; }
+@keyframes live-dot { 50% { opacity: 0.35; } }
+.mg-row.fresh { animation: fresh-row 2.4s ease; border-radius: 12px; }
+@keyframes fresh-row { 0%, 40% { background: color-mix(in srgb, var(--m-success) 18%, transparent); } }
+
+/* Xodim kartasi: belgini ko‘rib chiqish */
+.ec-review { display: flex; gap: 6px; margin-top: 6px; }
+.ec-review button { padding: 5px 10px; border: 0; border-radius: 99px; background: color-mix(in srgb, var(--m-success) 14%, transparent); color: var(--m-success); font: inherit; font-size: 12px; font-weight: 700; }
+.ec-review button.bad { background: color-mix(in srgb, var(--m-danger) 12%, transparent); color: var(--m-danger); }
+.mini-row small.bad { color: var(--m-danger); }
+
+/* Rahbar hero: gradient halqa va kartochkalar */
+.mg-hero { position: relative; overflow: hidden; isolation: isolate; background: linear-gradient(150deg, color-mix(in srgb, var(--m-success) 12%, var(--m-card)), var(--m-card) 60%); }
+.mg-hero::after { content: ""; position: absolute; z-index: -1; left: -50px; bottom: -70px; width: 180px; height: 180px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--m-accent) 16%, transparent), transparent 70%); }
+.mg-ring { background: radial-gradient(closest-side, var(--m-card) 78%, transparent 79% 100%), conic-gradient(from -90deg, #22c55e, #16a34a calc(var(--p) * 1%), var(--m-tint) 0); transition: background 0.6s; }
+.mg-tile { background: color-mix(in srgb, var(--m-card) 70%, var(--m-tint)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-pin, .tm-tiles img { transition: none; }
+  .tm-pin.bad .tm-avatar::after, .mg-updated i, .mg-row.fresh { animation: none; }
+}
+
+/* =====================================================================
+   Face ID 2.0 — katta doira, oval yo‘riqnoma, skanerlash chizig‘i
+   ===================================================================== */
+.faceid-body { justify-content: center; padding-bottom: 3vh; }
+.faceid-title { min-height: 52px; margin: 8px 0 2px; font-size: 21px; }
+/* Doira ekran kengligining ~88% i; past ekranlarda balandlikka moslashadi */
+.faceid-stage { width: min(380px, 88vw, 58vh); margin: 6px 0 14px; }
+.faceid-camera { inset: 6.5%; box-shadow: 0 0 0 4px color-mix(in srgb, var(--f-accent) 12%, transparent), 0 24px 60px -28px color-mix(in srgb, var(--f-accent) 70%, transparent);
+  transition: box-shadow 0.3s ease; isolation: isolate; -webkit-mask-image: -webkit-radial-gradient(white, black); }
+.faceid-stage.done .faceid-camera { box-shadow: 0 0 0 4px color-mix(in srgb, var(--f-ok) 25%, transparent), 0 24px 60px -28px var(--f-ok); }
+.faceid-stage.error .faceid-camera { box-shadow: 0 0 0 4px color-mix(in srgb, var(--f-bad) 20%, transparent); }
+/* Qoplama doira bo‘yicha qirqiladi (backdrop-filter overflow’ni buzadi) */
+.faceid-cover { border-radius: 50%; }
+.faceid-ticks line { stroke-width: 2; }
+.faceid-ticks line.on { stroke-width: 2.8; filter: drop-shadow(0 0 2px color-mix(in srgb, var(--f-ok) 60%, transparent)); }
+.faceid-guide { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1; }
+.faceid-guide ellipse { fill: none; stroke: rgba(255, 255, 255, 0.75); stroke-width: 0.8; stroke-dasharray: 2.4 2; transition: stroke 0.25s ease; }
+.faceid-guide.ok ellipse { stroke: var(--f-ok); stroke-dasharray: none; stroke-width: 1; }
+.faceid-scanline { position: absolute; left: 12%; right: 12%; top: 10%; height: 2px; border-radius: 2px; z-index: 1; pointer-events: none;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--f-accent) 85%, white), transparent);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--f-accent) 80%, transparent); animation: faceid-scan 2.2s ease-in-out infinite; }
+@keyframes faceid-scan { 50% { top: 86%; } }
+.faceid-arrow { width: 46px; height: 46px; margin-top: -23px; box-shadow: 0 6px 16px -4px color-mix(in srgb, var(--f-accent) 70%, transparent); }
+.faceid-arrow.left { left: -10px; }
+.faceid-arrow.right { right: -10px; }
+.faceid-hint { max-width: 330px; min-height: 2.8em; font-size: 15.5px; font-weight: 500; color: var(--f-ink); opacity: 0.8; }
+.faceid-top span { padding: 4px 10px; border-radius: 99px; background: color-mix(in srgb, var(--f-muted) 12%, var(--f-bg)); }
+@media (max-height: 640px) { .faceid-title { min-height: 40px; font-size: 19px; } .faceid-stage { margin: 2px 0 8px; } .faceid-foot { display: none; } }
+@media (prefers-reduced-motion: reduce) { .faceid-scanline { animation: none; display: none; } }
+
+/* Xarita: tungi mavzuda OSM plitkalari qorong‘ilashtiriladi; tile’lar 1x — keskinroq ko‘rinishi uchun */
+.tm.tm-dark .tm-tiles img { filter: invert(1) hue-rotate(180deg) brightness(0.92) contrast(0.88) saturate(0.6); }
+.tm-tiles img { image-rendering: auto; }
+
+/* Oyna tugmalari (Telegram tashqarisida) uzun formada ham doim ko‘rinib tursin */
+.sheet-actions { position: sticky; bottom: calc(-18px - env(safe-area-inset-bottom)); margin: 14px -16px calc(-18px - env(safe-area-inset-bottom)); padding: 12px 16px calc(14px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--m-bg) 75%, color-mix(in srgb, var(--m-bg) 0%, transparent)); z-index: 3; }
+
+/* =====================================================================
+   Dizayn tuzatishlari (telefon skrinshotlari bo‘yicha)
+   ===================================================================== */
+/* Ikkinchi darajali tugma: ko‘k, yumshoq (qizil «ghost» faqat rad etish uchun) */
+.mini-btn.soft { background: color-mix(in srgb, var(--m-accent) 12%, transparent); color: var(--m-accent); box-shadow: none; }
+.mini-btn.soft.dashed { background: transparent; border: 1.5px dashed color-mix(in srgb, var(--m-accent) 55%, transparent); box-shadow: none; }
+.ps-actions .mini-btn.soft { box-shadow: none; }
+
+/* Matn ichidagi ikonkalar alohida qatorga tushmasin (Tailwind svg’ni block qiladi) */
+.mini span > svg, .mini small > svg, .mini b > svg, .mini p > svg, .mini em > svg, .mini .mini-link > svg, .sheet-layer span > svg, .sheet-layer small > svg {
+  display: inline-block; vertical-align: -0.15em; flex: none; }
+.mp-row > span { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.mp-row > span > svg { color: var(--m-muted); margin: 0; }
+.mp-switch > span { display: block; flex: 1; min-width: 0; }
+.mp-switch > span > svg { margin-right: 6px; color: var(--m-muted); }
+
+/* Pastki oynadagi qidiruv: label umumiy «grid» qoidasiga tushmasin */
+.sheet .md-search { display: flex; align-items: center; gap: 8px; color: var(--m-muted); }
+.sheet .md-search input { min-height: 44px; padding: 0; background: none; box-shadow: none; }
+.sheet .md-search input:focus { box-shadow: none; }
+.sheet input[type="checkbox"], .sheet input[type="radio"] { width: auto; min-height: 0; padding: 0; }
+
+/* Hujjat muddati maydoni (bo‘sh sana inputi tushunarsiz ko‘rinardi) */
+.md-expiry { position: relative; display: grid; gap: 3px; min-width: 0; font-size: 11.5px; color: var(--m-muted); }
+.md-expiry input { width: 100%; }
+.md-expiry em { position: absolute; left: 11px; bottom: 10px; font-style: normal; font-size: 13px; color: var(--m-muted); pointer-events: none; }
+.md-upload { align-items: end; }
+
+/* Ta’til kuni */
+.mh-leave { display: grid; justify-items: center; gap: 6px; }
+.mh-leave .mh-done { width: 100%; }
+.mh-done.off { background: color-mix(in srgb, #8b5cf6 12%, var(--m-card)); color: var(--m-ink); }
+
+/* To‘liq ekranda aylantirganda kontent Telegram tugmalari ostida xira fonda qoladi */
+.mini::before { content: ""; position: fixed; z-index: 40; top: 0; left: 0; right: 0; height: var(--m-safe-top, 0px); pointer-events: none;
+  background: color-mix(in srgb, var(--m-bg) 82%, transparent); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+
+/* Face ID: faqat katta doira va bitta ko‘rsatma */
+.faceid-steps, .faceid-quality, .faceid-foot, .faceid-title { display: none !important; }
+.faceid-body { justify-content: center; gap: 18px; padding-bottom: 6vh; }
+.faceid-stage { width: min(430px, 94vw, 66vh); margin: 0; }
+.faceid-camera { inset: 6%; }
+.faceid-hint { max-width: 340px; min-height: 3em; margin: 0; color: var(--f-ink); opacity: 1; font-size: 18px; font-weight: 600; line-height: 1.35; letter-spacing: -0.01em; }
+.faceid-hint.turn, .faceid-hint.rotate { color: var(--f-accent); font-size: 20px; }
+.faceid-hint.done { color: var(--f-ok); }
+.faceid-hint.error { color: var(--f-bad); font-weight: 500; font-size: 16px; }
+.faceid-hint.loading, .faceid-hint.sending { color: var(--f-muted); font-weight: 500; }
+.faceid-arrow { width: 52px; height: 52px; margin-top: -26px; }
+.faceid-arrow.left { left: -4px; }
+.faceid-arrow.right { right: -4px; }
+.faceid-top { min-height: 40px; }
+@media (max-height: 640px) { .faceid-stage { width: min(430px, 90vw, 60vh); } .faceid-hint { font-size: 16px; } }

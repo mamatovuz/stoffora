@@ -226,7 +226,7 @@ function LeaveSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
               </button>
             </div>
           ) : (
-            <button type="button" className="mini-btn ghost" onClick={() => fileInput.current?.click()}>
+            <button type="button" className="mini-btn soft dashed" onClick={() => fileInput.current?.click()}>
               <Camera size={17} /> {form.type === "SICK" ? "Kasallik varaqasini rasmga olish" : "Hujjat biriktirish (ixtiyoriy)"}
             </button>
           )}
