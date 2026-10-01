@@ -56,7 +56,7 @@ const tap = () => window.Telegram?.WebApp?.HapticFeedback?.impactOccurred("light
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type Point = { x: number; y: number };
-function geometry(points: Point[]) {
+export function geometry(points: Point[]) {
   const avg = (from: number, to: number) => {
     const slice = points.slice(from, to + 1);
     return {
@@ -93,7 +93,7 @@ function brightness(video: HTMLVideoElement, canvas: HTMLCanvasElement) {
  * Yuz sohasining yorqinligi va keskinligi (Laplas dispersiyasi, 48×48 da — juda arzon).
  * Qorong‘i/orqadan yoritilgan yoki xira kadrlar deskriptorni buzadi — ular chetlanadi.
  */
-function faceQuality(video: HTMLVideoElement, box: { x: number; y: number; width: number; height: number }, canvas: HTMLCanvasElement) {
+export function faceQuality(video: HTMLVideoElement, box: { x: number; y: number; width: number; height: number }, canvas: HTMLCanvasElement) {
   const S = 48;
   canvas.width = S;
   canvas.height = S;
@@ -128,7 +128,7 @@ type Quality = { light: "ok" | "bad" | ""; distance: "ok" | "bad" | ""; center: 
  * Profil rasmi: yuz markazda, atrofida yetarli joy (portret kabi), ko‘zgu holatida.
  * Yuz qutisi berilmasa — kadr markazidan kvadrat.
  */
-function capturePhoto(video: HTMLVideoElement, box?: { x: number; y: number; width: number; height: number }) {
+export function capturePhoto(video: HTMLVideoElement, box?: { x: number; y: number; width: number; height: number }) {
   const vw = video.videoWidth;
   const vh = video.videoHeight;
   let size = Math.min(vw, vh);

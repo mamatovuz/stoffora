@@ -4,6 +4,7 @@ import {
   ArrowLeftRight,
   Check,
   CheckSquare,
+  CalendarSync,
   ChevronDown,
   HandCoins,
   Hourglass,
@@ -65,7 +66,7 @@ function client(token: string) {
   };
 }
 
-type RosterRow = {
+export type RosterRow = {
   employee: Employee;
   record?: Attendance;
   state: "PRACTICE" | "IN" | "LEFT" | "ABSENT" | "ON_LEAVE" | "DAY_OFF" | "NOT_YET" | "UPCOMING";
@@ -98,7 +99,8 @@ type Analytics = {
   daily: { date: string; rate: number; late: number; absent: number }[];
   branches: { id: string; name: string; employees: number; attendanceRate: number; punctuality: number; lateMinutes: number; absent: number; score: number | null }[];
 };
-type Pending = { kind: "leave" | "swap" | "advance" | "overtime"; id: string };
+type Pending = { kind: "leave" | "swap" | "advance" | "overtime" | "dayoff"; id: string };
+type DayOffRow = { id: string; employeeName: string; fromDate: string; toDate: string; fromWeekday: string; toWeekday: string; reason?: string };
 
 const som = (value: number) => `${Math.round(value).toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m`;
 type Filter = "ALL" | "IN" | "LATE" | "ABSENT" | "NOT_YET" | "ON_LEAVE" | "FLAGGED";
@@ -110,6 +112,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const [day, setDay] = useState<Day | null>(null);
   const [leaves, setLeaves] = useState<LeaveRow[]>([]);
   const [swaps, setSwaps] = useState<SwapRow[]>([]);
+  const [dayoffs, setDayoffs] = useState<DayOffRow[]>([]);
   const [advances, setAdvances] = useState<AdvanceRow[]>([]);
   const [overtime, setOvertime] = useState<OvertimeRow[]>([]);
   const [notices, setNotices] = useState<LateNotice[]>([]);
@@ -188,6 +191,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
       setUpdatedAt(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tashkent" }));
       setLeaves(l.filter((x) => x.status === "PENDING"));
       setSwaps(s.filter((x) => x.status === "PENDING_MANAGER"));
+      if (canSwaps) void call<DayOffRow[]>("/dayoff-moves?status=PENDING").then(setDayoffs).catch(() => setDayoffs([]));
       setAdvances(a);
       setOvertime(o.rows.filter((r) => r.approved === undefined));
       setNotices(n);
@@ -223,6 +227,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const decide = (item: Pending, approve: boolean) => {
     if (item.kind === "leave") return call(`/leave/${item.id}`, { status: approve ? "APPROVED" : "REJECTED" }, "PATCH");
     if (item.kind === "swap") return call(`/shift-swaps/${item.id}/decide`, { approve });
+    if (item.kind === "dayoff") return call(`/dayoff-moves/${item.id}/decide`, { approve });
     if (item.kind === "advance") return call(`/payroll/advances/${item.id}/decide`, { approve });
     return call(`/attendance/${item.id}/overtime`, { approved: approve });
   };
@@ -287,7 +292,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               : r.state === filter,
     )
     .sort((a, b) => order(a) - order(b) || `${a.employee.firstName}`.localeCompare(`${b.employee.firstName}`));
-  const pendingCount = leaves.length + swaps.length + advances.length + overtime.length;
+  const pendingCount = leaves.length + swaps.length + dayoffs.length + advances.length + overtime.length;
   const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
 
   // Pastki Telegram tugmalari: ommaviy tasdiqlash rejimida.
@@ -537,6 +542,31 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               </article>
             );
           })}
+          {dayoffs.length > 0 && <div className="mp-group-title">Dam olish kunini ko‘chirish</div>}
+          {dayoffs.map((m) => {
+            const item = { kind: "dayoff" as const, id: m.id };
+            return (
+              <article className={`mg-req ${isSelected(item) ? "picked" : ""}`} key={m.id}>
+                <div className="mg-req-head">
+                  {pick(item) || (
+                    <span className="mini-ico">
+                      <CalendarSync size={17} />
+                    </span>
+                  )}
+                  <span>
+                    <b>{m.employeeName}</b>
+                    <small>
+                      {dateUz(m.fromDate)} ({m.fromWeekday}) ishlaydi → {dateUz(m.toDate)} ({m.toWeekday}) dam oladi
+                    </small>
+                  </span>
+                </div>
+                {m.reason && <p>«{m.reason}»</p>}
+                {!selecting && (
+                  <Actions busy={busy === m.id} onApprove={() => act(m.id, () => decide(item, true), "Dam kuni ko‘chirildi")} onReject={() => void reject(item, `${m.employeeName} dam kuni`)} />
+                )}
+              </article>
+            );
+          })}
           {overtime.length > 0 && <div className="mp-group-title">Qo‘shimcha ish</div>}
           {overtime.map((o) => {
             const item = { kind: "overtime" as const, id: o.id };
@@ -683,7 +713,20 @@ const personTone = (r: RosterRow): MapPoint["tone"] => (r.record?.flags?.length 
  * Haqiqiy xarita: «Barcha filiallar» — har filial pinida kelganlar soni; filial tanlansa —
  * ruxsat etilgan radius va xodimlar belgilagan joylar (avatar-pin). Pin bosilsa — ma’lumot kartasi.
  */
-function BranchMap({ rows, branches, onOpen, loading }: { rows: RosterRow[]; branches: Branch[]; onOpen: (employeeId: string) => void; loading: boolean }) {
+/** Rahbar Mini App’i va panel (sayt) uchun umumiy filial xaritasi. `height` — panelda kattaroq. */
+export function BranchMap({
+  rows,
+  branches,
+  onOpen,
+  loading,
+  height = 380,
+}: {
+  rows: RosterRow[];
+  branches: Branch[];
+  onOpen: (employeeId: string) => void;
+  loading: boolean;
+  height?: number;
+}) {
   const active = useMemo(() => branches.filter((b) => b.status !== "INACTIVE" && Number.isFinite(b.latitude) && (b.latitude || b.longitude)), [branches]);
   const [focus, setFocus] = useState<string>(() => (active.length === 1 ? active[0].id : "ALL"));
   const [filter, setFilter] = useState<MapFilter>("ALL");
@@ -728,7 +771,7 @@ function BranchMap({ rows, branches, onOpen, loading }: { rows: RosterRow[]; bra
     return (
       <>
         <BranchChips branches={active} focus={focus} onFocus={setFocus} />
-        <TileMap points={points} circles={active.map((b) => ({ id: b.id, lat: b.latitude, lng: b.longitude, radius: b.radiusMeters }))} fitKey="ALL" onPick={(p) => p && setFocus(p.id)} />
+        <TileMap points={points} circles={active.map((b) => ({ id: b.id, lat: b.latitude, lng: b.longitude, radius: b.radiusMeters }))} fitKey="ALL" height={height} onPick={(p) => p && setFocus(p.id)} />
         <section className="mini-card mg-branch-list">
           {active
             .map((b) => ({ b, s: stat(byBranch(b.id)) }))
@@ -827,7 +870,7 @@ function BranchMap({ rows, branches, onOpen, loading }: { rows: RosterRow[]; bra
         selectedId={selected}
         fitKey={`${branch.id}:${filter}`}
         onPick={(p) => setSelected(p && p.kind === "person" ? p.id : null)}
-        height={380}
+        height={height}
       >
         {pick && (
           <div className="tm-card" onPointerDown={(event) => event.stopPropagation()}>

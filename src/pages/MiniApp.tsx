@@ -38,6 +38,7 @@ import type { ProfileSection } from "./mini/Profile";
 import type { HelpdeskView } from "./mini/Helpdesk";
 import { disableZoom } from "./mini/noZoom";
 import { BirthdaysSheet } from "./mini/Birthdays";
+import { FaceCheck } from "./mini/FaceCheck";
 
 // Bo‘limlar kerak bo‘lganda yuklanadi — birinchi ochilish tezroq.
 const MiniHistory = lazy(() => import("./mini/History").then((m) => ({ default: m.MiniHistory })));
@@ -668,7 +669,7 @@ export function MiniAppPage() {
             />
           )}
           {nav.tab === "history" && <MiniHistory key={nav.key} home={home} initialView={nav.view as "calendar" | "schedule" | "stats" | undefined} />}
-          {nav.tab === "leave" && <MiniRequests key={nav.key} onToast={showToast} initialView={nav.view as "leave" | "swap" | "overtime" | undefined} focusId={nav.id} />}
+          {nav.tab === "leave" && <MiniRequests key={nav.key} onToast={showToast} initialView={nav.view as "leave" | "swap" | "dayoff" | "overtime" | undefined} focusId={nav.id} />}
           {nav.tab === "manager" && manager && (
             <ManagerHome key={nav.key} auth={manager} onToast={showToast} onExpired={() => void checkManager()} initialView={nav.view as ManagerView | undefined} />
           )}
@@ -732,7 +733,23 @@ export function MiniAppPage() {
           </button>
         ))}
       </nav>
-      {(faceAction || bioEnroll) && (
+      {/* Kundalik belgilash: kamera + ramka (qizil/yashil) + xarita. Birinchi marta va biometriya ulashda — to‘liq skaner. */}
+      {faceAction && !bioEnroll && home.employee.faceEnrolledAt && (
+        <FaceCheck
+          action={faceAction}
+          branch={home.branch}
+          onClose={() => setFaceAction(null)}
+          onVerified={onVerified}
+          onCapture={(capture) => {
+            captureRef.current = capture;
+          }}
+          onOffline={(capture) => {
+            captureRef.current = capture;
+            return saveOffline(faceAction);
+          }}
+        />
+      )}
+      {((faceAction && !home.employee.faceEnrolledAt) || bioEnroll) && (
         <FaceScanner
           enrolled={Boolean(home.employee.faceEnrolledAt)}
           onClose={() => {

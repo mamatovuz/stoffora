@@ -23,6 +23,15 @@ export function faceDistance(reference: number[], candidate: number[]) {
   );
 }
 
+/**
+ * Moslik foizi (ekranda ko‘rsatiladi): chegara masofasi (standart 0,5) = 65%.
+ * Shu sababli «65% dan yuqori — yashil» qoidasi chegarani o‘zgartirganda ham ma’noli qoladi.
+ */
+export function matchPercent(distance: number) {
+  return Math.max(0, Math.min(100, Math.round(100 - distance * 70)));
+}
+export const matchPassPercent = (threshold = faceMatchThreshold()) => matchPercent(threshold);
+
 export function faceMatchThreshold() {
   const configured = Number(process.env.FACE_MATCH_THRESHOLD || 0.5);
   return Number.isFinite(configured) && configured >= 0.3 && configured <= 0.8
@@ -109,7 +118,7 @@ export function matchFace(
   return {
     matched: distance <= threshold && centerDistance <= threshold + 0.08,
     distance,
-    score: Math.max(0, Math.min(100, Math.round((1 - distance) * 100))),
+    score: matchPercent(distance),
   };
 }
 

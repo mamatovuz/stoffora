@@ -27,6 +27,8 @@ export type HomeData = {
   schedule: Schedule | null;
   attendance?: Attendance;
   todayLeave: LeaveRequest | null;
+  /** Bugungi reja (server): smena almashish, dam kunini ko‘chirish, shaxsiy dam kuni hisobga olingan. */
+  todayPlan?: { enabled: boolean; start: string; end: string; overridden: boolean; reason?: string; personalRest?: boolean };
   month: {
     practiceUntil?: string;
     deduction?: number;

@@ -115,6 +115,11 @@ export function prefetchPosition() {
   promise.catch(() => undefined);
   gpsPrefetch = { at: Date.now(), promise };
 }
+/** Oldindan so‘ralgan joylashuvni OLMASDAN o‘qiydi (Face ID ekranidagi xarita uchun). */
+export function peekPrefetchedPosition(): Promise<GeolocationPosition> {
+  if (!gpsPrefetch || Date.now() - gpsPrefetch.at > 60_000) prefetchPosition();
+  return gpsPrefetch!.promise;
+}
 export async function takePrefetchedPosition() {
   const current = gpsPrefetch;
   gpsPrefetch = null;

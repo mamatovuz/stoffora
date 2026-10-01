@@ -60,6 +60,17 @@ function CalendarView({ home }: { home: HomeData }) {
   const days = new Date(Date.UTC(year, m, 0)).getUTCDate();
   const offset = (new Date(Date.UTC(year, m - 1, 1)).getUTCDay() + 6) % 7;
   const byDate = useMemo(() => new Map((rows || []).map((r) => [r.date, r])), [rows]);
+  // Har kun rejasi serverdan: shaxsiy dam kuni, ko‘chirish, smena almashish va ta’til hisobga olingan.
+  const [plan, setPlan] = useState<ScheduleMonth | null>(() => getCached<ScheduleMonth>(`schedule:${month}`));
+  useEffect(() => {
+    void api<ScheduleMonth>(`/mini/schedule?month=${month}`)
+      .then((value) => {
+        setCached(`schedule:${month}`, value);
+        setPlan(value);
+      })
+      .catch(() => undefined);
+  }, [month]);
+  const planOf = useMemo(() => new Map((plan?.days || []).map((d) => [d.date, d])), [plan]);
   return (
     <>
       <section className="mini-card">
@@ -74,18 +85,23 @@ function CalendarView({ home }: { home: HomeData }) {
             const date = `${month}-${String(i + 1).padStart(2, "0")}`;
             const row = byDate.get(date);
             const weekday = dateParts(date).weekday;
-            const workday = home.schedule?.days.find((d) => d.day === weekday)?.enabled ?? true;
+            const day = planOf.get(date);
+            const workday = day ? day.working : (home.schedule?.days.find((d) => d.day === weekday)?.enabled ?? true);
             const tone = row?.checkIn
               ? row.lateMinutes
                 ? "late"
                 : "present"
-              : date < today && workday && date >= home.employee.startDate
-                ? "absent"
-                : !workday
-                  ? "off"
-                  : "";
+              : day?.leave
+                ? "leave"
+                : date < today && workday && date >= home.employee.startDate
+                  ? "absent"
+                  : !workday
+                    ? "off"
+                    : "";
+            // Dam olish kunida ishga kelgan — kichik ko‘k nuqta (qoplash / qo‘shimcha ish).
+            const restWork = Boolean(row?.checkIn && day && !day.working && !day.leave);
             return (
-              <span key={date} className={`mini-cal-day ${tone} ${date === today ? "today" : ""}`}>
+              <span key={date} className={`mini-cal-day ${tone} ${restWork ? "rest-work" : ""} ${date === today ? "today" : ""}`} title={day?.reason || undefined}>
                 {i + 1}
               </span>
             );
@@ -100,6 +116,9 @@ function CalendarView({ home }: { home: HomeData }) {
           </span>
           <span>
             <i style={{ background: "var(--m-danger)" }} /> Kelmagan
+          </span>
+          <span>
+            <i style={{ background: "var(--m-rest)" }} /> Dam olish
           </span>
         </div>
       </section>

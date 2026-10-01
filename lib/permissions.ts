@@ -64,6 +64,7 @@ export const canAny = (role: Role, permissions: string[]) => permissions.some((p
 export const pagePermissions: Record<string, string[]> = {
   "/dashboard": ["dashboard.view"],
   "/attendance": ["attendance.view"],
+  "/map": ["attendance.view"],
   "/calendar": ["attendance.view", "leave.view"],
   "/employees": ["employees.view"],
   "/dismissed": ["employees.view"],

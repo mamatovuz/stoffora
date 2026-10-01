@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowLeftRight, Check, Plane, Plus, X } from "lucide-react";
+import { ArrowLeftRight, CalendarSync, Check, Plane, Plus, X } from "lucide-react";
 import { errorText, notifyChange, patch, post } from "../api";
 import type { ShiftSwapRequest } from "@/lib/types";
 import { useApi } from "../hooks";
@@ -23,7 +23,8 @@ import { useAuth } from "../auth";
 import { canAny } from "@/lib/permissions";
 
 type Row = LeaveRequest & { employee?: Employee };
-type Tab = "PENDING" | "APPROVED" | "ALL" | "SWAPS" | "ADVANCES";
+type Tab = "PENDING" | "APPROVED" | "ALL" | "SWAPS" | "DAYOFF" | "ADVANCES";
+type DayOffRow = { id: string; employeeName: string; fromDate: string; toDate: string; fromWeekday: string; toWeekday: string; reason?: string; status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"; decidedBy?: string; createdAt: string };
 type SwapRow = ShiftSwapRequest & { requesterName: string; colleagueName: string; giveShift?: string; takeShift?: string };
 
 const days = (from: string, to: string) =>
@@ -36,6 +37,7 @@ export function LeavePage() {
   const { data, loading, error, reload } = useApi<Row[]>("/leave");
   const [tab, setTab] = useState<Tab>("PENDING");
   const swaps = useApi<SwapRow[]>("/shift-swaps");
+  const dayoffs = useApi<DayOffRow[]>("/dayoff-moves");
   const { user } = useAuth();
   // HR 1-bosqichda avans so‘rovlarini ko‘radi (keyin moliyaga o‘tadi).
   const hrAdvances = Boolean(user && canAny(user.role, ["leave.approve", "employees.edit"]));
@@ -96,6 +98,7 @@ export function LeavePage() {
                 label: "Smena almashish",
                 count: swaps.data?.filter((s) => s.status === "PENDING_MANAGER").length,
               },
+              { value: "DAYOFF", label: "Dam kunini ko‘chirish", count: dayoffs.data?.filter((m) => m.status === "PENDING").length },
               ...(hrAdvances ? [{ value: "ADVANCES" as Tab, label: "Avans so‘rovlari", count: advances.data?.length }] : []),
             ]}
           />
@@ -106,6 +109,8 @@ export function LeavePage() {
           </div>
         ) : tab === "SWAPS" ? (
           <SwapsPanel api={swaps} />
+        ) : tab === "DAYOFF" ? (
+          <DayOffPanel api={dayoffs} />
         ) : loading && !data ? (
           <Loading />
         ) : error ? (
@@ -371,6 +376,83 @@ function SwapsPanel({ api }: { api: ReturnType<typeof useApi<SwapRow[]>> }) {
                   <Check size={14} /> Tasdiqlash
                 </button>
                 <button className="btn btn-sm btn-danger" disabled={busy === s.id} onClick={() => void decide(s.id, false)} aria-label="Rad etish">
+                  <X size={14} />
+                </button>
+              </span>
+            )}
+          </footer>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+/** Dam olish kunini bir martaga ko‘chirish so‘rovlari (xodim Mini App’dan yuboradi). */
+function DayOffPanel({ api }: { api: ReturnType<typeof useApi<DayOffRow[]>> }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const toast = useToast();
+  async function decide(id: string, approve: boolean) {
+    setBusy(id);
+    try {
+      await post(`/dayoff-moves/${id}/decide`, { approve });
+      toast(approve ? "Dam kuni ko‘chirildi — faqat shu hafta uchun" : "So‘rov rad etildi");
+      notifyChange("leave");
+      void api.reload(true);
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    } finally {
+      setBusy(null);
+    }
+  }
+  if (api.loading && !api.data) return <Loading />;
+  if (api.error)
+    return (
+      <div className="card-body">
+        <ErrorBox message={api.error} />
+      </div>
+    );
+  if (!api.data?.length)
+    return (
+      <Empty
+        icon={CalendarSync}
+        title="Dam kunini ko‘chirish so‘rovlari yo‘q"
+        text="Xodim Mini App’da «Dam kuni» bo‘limidan masalan juma o‘rniga shanba dam olishni so‘raydi. Tasdiqlansa — faqat o‘sha hafta uchun ko‘chadi."
+      />
+    );
+  return (
+    <div className="swap-list">
+      {api.data.map((m) => (
+        <article key={m.id} className={`swap-card ${m.status === "PENDING" ? "is-pending" : ""}`}>
+          <div className="swap-people">
+            <div>
+              <small>Xodim</small>
+              <b>{m.employeeName}</b>
+            </div>
+          </div>
+          <div className="swap-dates">
+            <span>
+              <b className="num">{dateUz(m.fromDate)}</b>
+              <small>{m.fromWeekday}</small>
+              <em>ishlaydi (odatda dam)</em>
+            </span>
+            <span>
+              <b className="num">{dateUz(m.toDate)}</b>
+              <small>{m.toWeekday}</small>
+              <em>dam oladi</em>
+            </span>
+          </div>
+          {m.reason && <p className="swap-reason">{m.reason}</p>}
+          <footer>
+            <span className="state-cell">
+              <Status value={m.status} label={{ PENDING: "Tasdiq kutilmoqda", APPROVED: "Tasdiqlangan", REJECTED: "Rad etilgan", CANCELLED: "Bekor qilingan" }[m.status]} />
+              {m.decidedBy && <small>{m.decidedBy}</small>}
+            </span>
+            {m.status === "PENDING" && (
+              <span className="toolbar">
+                <button className="btn btn-sm btn-primary" disabled={busy === m.id} onClick={() => void decide(m.id, true)}>
+                  <Check size={14} /> Tasdiqlash
+                </button>
+                <button className="btn btn-sm btn-danger" disabled={busy === m.id} onClick={() => void decide(m.id, false)} aria-label="Rad etish">
                   <X size={14} />
                 </button>
               </span>

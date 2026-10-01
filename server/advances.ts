@@ -102,6 +102,9 @@ export function salarySnapshot(db: Database, employee: Employee, month = tashken
     advance: frozen?.advance ?? row?.advance ?? 0,
     net: frozen?.net ?? row?.net ?? 0,
     // Bugungacha ishlab topilgani: oylikning ishlangan kunlarga to‘g‘ri keladigan qismi.
+    // Dam olish kunida ishlab qoplangan kelmaslik kunlari (ushlanma olinmaydi).
+    compensatedDays: row?.compensatedDays ?? 0,
+    compensatedDates: row?.compensatedDates ?? [],
     earnedToDate: workingDays ? Math.round((employee.baseSalary / workingDays) * Math.min(workingDays, frozen?.days ?? row?.days ?? 0)) : 0,
   };
 }

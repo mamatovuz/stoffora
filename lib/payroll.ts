@@ -31,6 +31,7 @@ export function normalizePayrollSettings(
     advanceRequestsEnabled: merged.advanceRequestsEnabled !== false,
     advanceMaxPercent: int(merged.advanceMaxPercent ?? 50, 0, 100, 50),
     advanceHrApproval: merged.advanceHrApproval !== false,
+    absenceCompensation: merged.absenceCompensation !== false,
   };
 }
 

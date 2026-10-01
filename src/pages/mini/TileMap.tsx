@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Building2, LocateFixed, Minus, Plus } from "lucide-react";
+import { Building2, Layers, LocateFixed, Maximize2, Minimize2, Minus, Plus } from "lucide-react";
 
 /*
  * Yengil xarita (kutubxonasiz): OpenStreetMap asosidagi CARTO plitkalari, Web Mercator.
@@ -11,7 +11,8 @@ export type MapPoint = {
   id: string;
   lat: number;
   lng: number;
-  kind: "person" | "branch";
+  /** person — xodim (avatar), branch — filial, me — «siz shu yerdasiz» (ko‘k nuqta). */
+  kind: "person" | "branch" | "me";
   label: string;
   initials?: string;
   photo?: string;
@@ -60,7 +61,10 @@ function isDark() {
  */
 const TILE_TEMPLATE = (import.meta.env.VITE_MAP_TILE_URL as string | undefined) || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_ATTRIBUTION = (import.meta.env.VITE_MAP_ATTRIBUTION as string | undefined) || "© OpenStreetMap";
-const tileUrl = (z: number, x: number, y: number) => TILE_TEMPLATE.replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
+/** Ixtiyoriy sputnik qatlami (masalan MapTiler satellite) — berilsa, qatlam tugmasi chiqadi. */
+const SATELLITE_TEMPLATE = import.meta.env.VITE_MAP_TILE_URL_SATELLITE as string | undefined;
+const fill = (template: string, z: number, x: number, y: number) => template.replace("{z}", String(z)).replace("{x}", String(x)).replace("{y}", String(y));
+const tileUrl = (z: number, x: number, y: number, satellite = false) => fill(satellite && SATELLITE_TEMPLATE ? SATELLITE_TEMPLATE : TILE_TEMPLATE, z, x, y);
 
 /** Barcha nuqta va doiralarni sig‘diradigan zoom va markaz. */
 function fitView(points: { lat: number; lng: number; radius?: number }[], width: number, height: number) {
@@ -96,6 +100,7 @@ export function TileMap({
   onPick,
   fitKey,
   height = 360,
+  compact = false,
   children,
 }: {
   points: MapPoint[];
@@ -105,8 +110,22 @@ export function TileMap({
   /** O‘zgarganda xarita hammasini sig‘diradigan holatga qaytadi. */
   fitKey: string;
   height?: number;
+  /** Ixcham boshqaruv (Face ID ekranidagi kichik xarita uchun). */
+  compact?: boolean;
   children?: ReactNode;
 }) {
+  const [full, setFull] = useState(false);
+  const [satellite, setSatellite] = useState(false);
+  const [viewportH, setViewportH] = useState(() => window.innerHeight);
+  useEffect(() => {
+    if (!full) return;
+    const onResize = () => setViewportH(window.innerHeight);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [full]);
+  const outerHeight = height;
+  // eslint-disable-next-line no-param-reassign
+  height = full ? viewportH : outerHeight;
   const box = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(360);
   const [zoom, setZoom] = useState(15);
@@ -167,11 +186,19 @@ export function TileMap({
       if (ty < 0 || ty >= count) continue;
       for (let tx = x0; tx <= x1; tx += 1) {
         const wrapped = ((tx % count) + count) % count;
-        list.push({ key: `${zoom}/${tx}/${ty}`, left: tx * TILE - origin.x, top: ty * TILE - origin.y, src: tileUrl(zoom, wrapped, ty) });
+        list.push({ key: `${satellite ? "s" : "m"}${zoom}/${tx}/${ty}`, left: tx * TILE - origin.x, top: ty * TILE - origin.y, src: tileUrl(zoom, wrapped, ty, satellite) });
       }
     }
     return list;
-  }, [zoom, origin.x, origin.y, width, height]);
+  }, [zoom, origin.x, origin.y, width, height, satellite]);
+
+  // Bitta plitka yuklanmasa (chekka, vaqtincha xato) — xarita ishlashda davom etadi.
+  // Faqat birorta ham plitka yuklanmay, bir nechtasi xato bersa — «sxema» rejimi.
+  const tileStats = useRef({ ok: 0, bad: 0 });
+  const onTileError = () => {
+    tileStats.current.bad += 1;
+    if (tileStats.current.ok === 0 && tileStats.current.bad >= 4) setFailed(true);
+  };
 
   const zoomTo = (next: number, anchor?: { x: number; y: number }) => {
     const target = clampZoom(next);
@@ -241,7 +268,7 @@ export function TileMap({
       const key = `${Math.round(s.x / 22)}:${Math.round(s.y / 22)}`;
       const n = buckets.get(key) || 0;
       buckets.set(key, n + 1);
-      if (!n || p.kind === "branch") return { point: p, ...s };
+      if (!n || p.kind !== "person") return { point: p, ...s };
       const angle = n * 2.4;
       const r = 14 + n * 3;
       return { point: p, x: s.x + Math.cos(angle) * r, y: s.y + Math.sin(angle) * r };
@@ -254,7 +281,7 @@ export function TileMap({
   return (
     <div
       ref={box}
-      className={`tm ${failed ? "tm-nomap" : ""} ${dark ? "tm-dark" : ""}`}
+      className={`tm ${failed ? "tm-nomap" : ""} ${dark && !satellite ? "tm-dark" : ""} ${full ? "tm-full" : ""} ${compact ? "tm-compact" : ""}`}
       style={{ height }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -273,8 +300,11 @@ export function TileMap({
               draggable={false}
               className="tm-hit"
               style={{ left: t.left, top: t.top }}
-              onError={() => setFailed(true)}
-              onLoad={(e) => e.currentTarget.classList.add("on")}
+              onError={onTileError}
+              onLoad={(e) => {
+                tileStats.current.ok += 1;
+                e.currentTarget.classList.add("on");
+              }}
             />
           ))}
       </div>
@@ -289,6 +319,12 @@ export function TileMap({
         {selected?.point.accuracy ? (
           <circle cx={selected.x} cy={selected.y} r={Math.max(6, selected.point.accuracy / metersPerPixel(selected.point.lat, zoom))} className="tm-accuracy" />
         ) : null}
+        {/* «Siz shu yerdasiz» — GPS aniqlik doirasi doim ko‘rinadi */}
+        {placed
+          .filter((p) => p.point.kind === "me" && p.point.accuracy)
+          .map((p) => (
+            <circle key={`acc-${p.point.id}`} cx={p.x} cy={p.y} r={Math.max(8, p.point.accuracy! / metersPerPixel(p.point.lat, zoom))} className="tm-accuracy me" />
+          ))}
       </svg>
       {placed.map(({ point, x, y }) =>
         x < -40 || y < -40 || x > width + 40 || y > height + 40 ? null : (
@@ -304,7 +340,9 @@ export function TileMap({
             }}
             aria-label={point.label}
           >
-            {point.kind === "branch" ? (
+            {point.kind === "me" ? (
+              <span className="tm-me" />
+            ) : point.kind === "branch" ? (
               <span className="tm-branch-head">
                 <Building2 size={16} />
                 {point.badge && <em>{point.badge}</em>}
@@ -326,6 +364,16 @@ export function TileMap({
         <button onClick={fit} aria-label="Hammasini ko‘rsatish">
           <LocateFixed size={17} />
         </button>
+        {SATELLITE_TEMPLATE && (
+          <button className={satellite ? "on" : ""} onClick={() => setSatellite(!satellite)} aria-label="Xarita / sputnik">
+            <Layers size={17} />
+          </button>
+        )}
+        {!compact && (
+          <button onClick={() => setFull(!full)} aria-label={full ? "Kichraytirish" : "To‘liq ekran"}>
+            {full ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+          </button>
+        )}
       </div>
       <span className="tm-attrib">{failed ? "Xarita yuklanmadi — sxema" : TILE_ATTRIBUTION}</span>
       {children}

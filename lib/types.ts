@@ -105,6 +105,12 @@ export interface PayrollSettings {
   advanceMaxPercent?: number;
   /** Avans avval HR, keyin moliya tasdiqlaydi (standart: yoqilgan). O‘chirilsa — faqat moliya. */
   advanceHrApproval?: boolean;
+  /**
+   * Sababsiz kelmagan kunni dam olish kunida ishlab qoplash (shu oy ichida).
+   * Standart: yoqilgan. Qoplangan kun uchun kelmaslik ushlanmasi olinmaydi
+   * (o‘sha dam kunidagi ish esa qo‘shimcha ish sifatida to‘lanmaydi).
+   */
+  absenceCompensation?: boolean;
 }
 export interface Branch {
   id: string;
@@ -183,6 +189,11 @@ export interface Employee {
   dismissReason?: string;
   /** Xodim uchun alohida hisoblash boshlanish sanasi (kompaniyanikidan keyin bo‘lsa ustun). */
   countingStartDate?: string;
+  /**
+   * Shaxsiy dam olish kunlari (0 — yakshanba … 6 — shanba). Grafik har kuni ishlasa ham
+   * xodim shu kunlari dam oladi: kelmasa «kelmadi» hisoblanmaydi, kelsa — ishlagan kun.
+   */
+  restDays?: number[];
   /** telegramId qayerdan kelgan: xodimning o‘zi ulagan yoki integratsiya (bot) bergan. */
   telegramIdSource?: "LINK" | "INTEGRATION";
   /** Xabarlar qaysi bot orqali yetadi: Staffora boti, kompaniya boti yoki xodimlar boti. */
@@ -468,6 +479,7 @@ export interface Database {
   certificateRequests: CertificateRequest[];
   /** Xodim avans uchun saqlagan karta (roziligi bilan). Xodim obyektidan alohida — tasodifan API’da chiqib ketmasin. */
   payoutCards: PayoutCard[];
+  dayOffMoves: DayOffMove[];
 }
 export interface PayoutCard {
   companyId: string;
@@ -644,6 +656,21 @@ export interface PayrollPeriod {
 
 /* --------------------------------------------------- grafik o‘zgarishi --- */
 /** Bitta kunga grafik o‘zgarishi (smena almashish natijasi). */
+/** Dam olish kunini bir martaga boshqa kunga ko‘chirish (rahbar tasdiqlaydi). */
+export interface DayOffMove {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  /** Odatdagi dam olish kuni — shu kuni ishlaydi. */
+  fromDate: string;
+  /** Yangi dam olish kuni — shu kuni ishlamaydi. */
+  toDate: string;
+  reason?: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  decidedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 export interface ScheduleOverride {
   id: string;
   companyId: string;
@@ -654,6 +681,8 @@ export interface ScheduleOverride {
   end?: string;
   reason: string;
   swapId?: string;
+  /** Dam olish kunini ko‘chirish so‘rovi natijasi. */
+  dayOffMoveId?: string;
 }
 export interface ShiftSwapRequest {
   id: string;

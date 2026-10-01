@@ -761,6 +761,22 @@ function PayrollSection() {
               <span />
             </span>
           </label>
+          {form.absencePenalty === "DAILY" && (
+            <label className="setting-row">
+              <span>
+                <b>Kelmagan kunni dam olish kunida ishlab qoplash</b>
+                <small>Masalan seshanba sababsiz kelmagan xodim shu oydagi dam kunida (jumada) ishlasa — ushlanma olinmaydi. O‘sha dam kunidagi ish qo‘shimcha ish sifatida to‘lanmaydi.</small>
+              </span>
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={form.absenceCompensation !== false}
+                  onChange={(e) => setForm({ ...form, absenceCompensation: e.target.checked })}
+                />
+                <span />
+              </span>
+            </label>
+          )}
         </div>
         <div className="alert info" style={{ marginBottom: 14 }}>
           <Banknote size={18} />

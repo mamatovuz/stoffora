@@ -84,6 +84,7 @@ import { createAdvanceRouter } from "./advances";
 import { createManagerAuthRouter } from "./manager";
 import { createManagerExtraRouter, createMiniPublicRouter } from "./mini-extra";
 import { createHelpdeskRouter } from "./helpdesk";
+import { createDayOffRouter } from "./dayoff";
 import { startHrWorker, upcomingCelebrations } from "./hr-worker";
 import {
   createCompanyBotRouter,
@@ -590,6 +591,7 @@ app.use("/api", createSwapRouter());
 app.use("/api", createAdvanceRouter());
 app.use("/api", createManagerExtraRouter());
 app.use("/api", createHelpdeskRouter());
+app.use("/api", createDayOffRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();
@@ -1317,6 +1319,8 @@ const employeeSchema = z.object({
   positionId: z.string().min(1, "Lavozimni tanlang."),
   branchId: z.string().min(1, "Filialni tanlang."),
   scheduleId: z.string().min(1, "Ish grafigini tanlang."),
+  // Shaxsiy dam olish kunlari (0 — yakshanba … 6 — shanba); grafik har kuni ishlasa ham.
+  restDays: z.array(z.number().int().min(0).max(6)).max(6).optional().transform((v) => (v ? [...new Set(v)].sort() : v)),
   startDate: dateSchema,
   employmentType: z.enum(["FULL_TIME", "PART_TIME", "CONTRACT"]),
   baseSalary: z.coerce.number().min(0),
@@ -2712,6 +2716,7 @@ app.put(
         advanceRequestsEnabled: z.boolean().default(true),
         advanceMaxPercent: z.coerce.number().int().min(0).max(100).default(50),
         advanceHrApproval: z.boolean().default(true),
+        absenceCompensation: z.boolean().default(true),
       })
       .parse(req.body);
     const tenant = companyId(req);

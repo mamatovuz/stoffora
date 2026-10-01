@@ -43,6 +43,8 @@ export type Salary = {
   advance: number;
   net: number;
   earnedToDate: number;
+  compensatedDays?: number;
+  compensatedDates?: string[];
   limit: { enabled: boolean; percent: number; max: number; taken: number; pending: number; available: number; closed: boolean };
   requests: AdvanceRequest[];
   savedCard?: SavedCard | null;
@@ -248,6 +250,13 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
               {data.bonus > 0 && <Line label="Bonus" value={`+${som(data.bonus)}`} tone="ok" />}
               {data.lateDeduction > 0 && <Line label={`Kechikish (${data.lateMinutes} daq)`} value={`−${som(data.lateDeduction)}`} tone="bad" />}
               {data.absenceDeduction > 0 && <Line label={`Kelmagan ${data.absentDays} kun`} value={`−${som(data.absenceDeduction)}`} tone="bad" />}
+              {(data.compensatedDays || 0) > 0 && (
+                <Line
+                  label={`Qoplandi: ${data.compensatedDays} kun (dam kunida ishladingiz)`}
+                  value={(data.compensatedDates || []).map((d) => d.slice(8, 10) + "." + d.slice(5, 7)).join(", ") || "✓"}
+                  tone="ok"
+                />
+              )}
               {data.fine > 0 && <Line label="Jarima" value={`−${som(data.fine)}`} tone="bad" />}
               {data.advance > 0 && <Line label="Olingan avans" value={`−${som(data.advance)}`} />}
             </div>

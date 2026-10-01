@@ -41,6 +41,13 @@ function minutesSince(checkIn: string) {
   return Math.max(0, toMinutes(tashkentClock()) - toMinutes(checkIn));
 }
 
+/** Bugungi reja: serverdan (shaxsiy dam kuni, ko‘chirish hisobga olingan), bo‘lmasa haftalik grafik. */
+function todayPlanOf(data: HomeData) {
+  if (data.todayPlan) return data.todayPlan;
+  const weekly = data.schedule?.days.find((d) => d.day === tashkentWeekday());
+  return weekly ? { enabled: weekly.enabled, start: weekly.start, end: weekly.end, overridden: false } : undefined;
+}
+
 export function MiniHome({
   data,
   stale,
@@ -73,7 +80,7 @@ export function MiniHome({
   const a = data.attendance;
   const working = Boolean(a?.checkIn && !a.checkOut);
   const finished = Boolean(a?.checkOut);
-  const day = data.schedule?.days.find((d) => d.day === tashkentWeekday());
+  const day = todayPlanOf(data);
   const clock = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tashkent" });
   const missingSetup = !data.branch || !data.schedule;
   const openBreak = a?.breaks?.find((b) => !b.end);
@@ -86,7 +93,7 @@ export function MiniHome({
         : data.todayLeave
           ? { text: "Bugun ta’tildasiz", tone: "off" }
           : !day?.enabled
-            ? { text: "Dam olish kuni", tone: "off" }
+            ? { text: day?.overridden ? "Dam olish (ko‘chirilgan)" : "Dam olish kuni", tone: "off" }
             : { text: "Hali kelmagansiz", tone: "idle" };
   const qr = (data.branch?.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE";
   const [lateOpen, setLateOpen] = useState(false);
@@ -172,6 +179,16 @@ export function MiniHome({
           <ShieldCheck size={12} /> {quick ? (quick === "finger" ? "Barmoq izi" : "Telefon Face ID") : "Face ID"} · GPS{qr ? " · QR" : ""}
         </div>
       </section>
+
+      {!day?.enabled && !a?.checkIn && !data.todayLeave && !missingSetup && (
+        <div className="mh-hint rest">
+          <CalendarCheck size={16} />
+          <span>
+            Bugun dam olish kuningiz — kelmasangiz jarima yo‘q. Ishga kelsangiz, shu oydagi sababsiz kelmagan kun qoplanadi
+            (bo‘lmasa qo‘shimcha ish hisoblanadi).
+          </span>
+        </div>
+      )}
 
       {near && !missingSetup && (
         <button
@@ -358,7 +375,7 @@ export function ShiftProgress({ start, end, now }: { start: string; end: string;
 function useGeofence(enabled: boolean, data: HomeData) {
   const [near, setNear] = useState<number | null>(null);
   const branch = data.branch;
-  const day = data.schedule?.days.find((d) => d.day === tashkentWeekday());
+  const day = todayPlanOf(data);
   useEffect(() => {
     setNear(null);
     if (!enabled || !branch || !day?.enabled) return;

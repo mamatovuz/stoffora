@@ -192,10 +192,13 @@ export function MiniProfile({
           <section className="mp-group mp-week">
             {weekOrder.map((day) => {
               const d = data.schedule!.days.find((x) => x.day === day);
+              // Shaxsiy dam kuni grafikdagi ish kunidan ustun.
+              const personal = Boolean(e.restDays?.includes(day));
+              const working = Boolean(d?.enabled) && !personal;
               return (
-                <div key={day} className={`${day === today ? "today" : ""} ${d?.enabled ? "" : "off"}`}>
+                <div key={day} className={`${day === today ? "today" : ""} ${working ? "" : "off"} ${personal ? "personal" : ""}`}>
                   <span>{weekdayShort[day]}</span>
-                  <b>{d?.enabled ? `${short(d.start)}–${short(d.end)}` : "Dam"}</b>
+                  <b>{working && d ? `${short(d.start)}–${short(d.end)}` : "Dam"}</b>
                 </div>
               );
             })}

@@ -81,6 +81,7 @@ const AnalyticsPage = lazy(() =>
 const RegistrationsPage = lazy(() =>
   import("./pages/Registrations").then((m) => ({ default: m.RegistrationsPage })),
 );
+const MapPage = lazy(() => import("./pages/MapPage").then((m) => ({ default: m.MapPage })));
 const HelpdeskPage = lazy(() =>
   import("./pages/Helpdesk").then((m) => ({ default: m.HelpdeskPage })),
 );
@@ -131,6 +132,7 @@ export default function App() {
           <Route path="/dismissed" element={<DismissedPage />} />
           <Route path="/registrations" element={<RegistrationsPage />} />
           <Route path="/attendance" element={<AttendancePage />} />
+          <Route path="/map" element={<MapPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/branches" element={<BranchesPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />

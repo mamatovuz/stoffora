@@ -412,7 +412,7 @@ export function DashboardPage() {
           </div>
         </section>
 
-        <section className="card">
+        <section className="card dash-feed">
           <div className="card-head">
             <div>
               <h2>So‘nggi voqealar</h2>

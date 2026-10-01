@@ -355,6 +355,7 @@ type FormState = {
   positionId: string;
   branchId: string;
   scheduleId: string;
+  restDays?: number[];
   startDate: string;
   employmentType: string;
   baseSalary: number;
@@ -376,7 +377,7 @@ function EmployeeFields({
   meta: Meta;
   editing?: boolean;
 }) {
-  const set = (name: keyof FormState, value: string | number) =>
+  const set = (name: keyof FormState, value: string | number | number[]) =>
     setForm((f) => ({ ...f, [name]: value }));
   const positions = meta.positions.filter((x) => x.departmentId === form.departmentId);
   return (
@@ -429,6 +430,24 @@ function EmployeeFields({
               <option key={x.id} value={x.id}>{x.name}</option>
             ))}
           </select>
+        </Field>
+        <Field label="Shaxsiy dam olish kuni" hint="Grafik har kuni ishlasa ham, xodim shu kun(lar)i dam oladi — kelmasa jarima yo‘q">
+          <div className="rest-days" role="group" aria-label="Dam olish kunlari">
+            {[1, 2, 3, 4, 5, 6, 0].map((day) => {
+              const on = (form.restDays || []).includes(day);
+              return (
+                <button
+                  type="button"
+                  key={day}
+                  className={on ? "on" : ""}
+                  aria-pressed={on}
+                  onClick={() => set("restDays", on ? (form.restDays || []).filter((d) => d !== day) : [...(form.restDays || []), day])}
+                >
+                  {["Ya", "Du", "Se", "Ch", "Pa", "Ju", "Sh"][day]}
+                </button>
+              );
+            })}
+          </div>
         </Field>
         <Field label="Bo‘lim *">
           <select
@@ -1296,6 +1315,7 @@ function EditEmployee({
     positionId: employee.positionId,
     branchId: employee.branchId,
     scheduleId: employee.scheduleId,
+    restDays: employee.restDays || [],
     startDate: employee.startDate,
     employmentType: employee.employmentType,
     baseSalary: employee.baseSalary,

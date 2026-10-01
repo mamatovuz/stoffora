@@ -40,9 +40,18 @@ export function payrollRows(db: Database, tenant: string, month: string) {
       const expectedDays = statuses.filter((s) => ["present", "late", "absent"].includes(s.kind)).length;
       const own = adjustments.filter((a) => a.employeeId === e.id);
       const sum = (type: string) => own.filter((a) => a.type === type).reduce((s, a) => s + a.amount, 0);
+      const absent = statuses.filter((s) => s.kind === "absent").length;
+      // Kompensatsiya: sababsiz kelmagan kun shu oydagi dam olish kunida ishlab qoplanadi.
+      // Qoplash uchun ishlatilgan dam kunidagi ish qo‘shimcha ish sifatida to‘lanmaydi.
+      const restWorked = settings.absenceCompensation
+        ? rows.filter((r) => r.checkIn && r.date <= lastDay && !isPracticeDay(r.date, company, e) && !dayPlan(db, e, r.date).enabled).sort((a, b) => a.date.localeCompare(b.date))
+        : [];
+      const compensatedDays = Math.min(absent, restWorked.length);
+      const used = new Set(restWorked.slice(0, compensatedDays).map((r) => r.id));
+      const payable = used.size ? rows.map((r) => (used.has(r.id) ? { ...r, overtimeMinutes: 0 } : r)) : rows;
       // Hisoblash boshlanish sanasigacha bo‘lgan (mashq) kunlar oylikka ta’sir qilmaydi.
-      const line = calculatePayroll(e.baseSalary, countedRecords(rows, company, e), settings, {
-        absentDays: statuses.filter((s) => s.kind === "absent").length,
+      const line = calculatePayroll(e.baseSalary, countedRecords(payable, company, e), settings, {
+        absentDays: absent - compensatedDays,
         workingDays: workingDaysInMonth(db, e, month),
         bonus: sum("BONUS"),
         fine: sum("FINE"),
@@ -56,6 +65,13 @@ export function payrollRows(db: Database, tenant: string, month: string) {
       return {
         employee: e,
         ...line,
+        // absentDays — ushlanadigan (qoplanmagan) kunlar; absentTotal — haqiqiy kelmagan kunlar.
+        explanation: compensatedDays
+          ? `${line.explanation} ${compensatedDays} kun kelmaslik dam olish kunida ishlab qoplandi.`
+          : line.explanation,
+        absentTotal: absent,
+        compensatedDays,
+        compensatedDates: restWorked.slice(0, compensatedDays).map((r) => r.date),
         expectedDays,
         adjustments: own,
         kpi,

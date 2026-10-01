@@ -20,6 +20,7 @@ import {
   isReplayedDescriptor,
   matchFace,
   faceMatchThreshold,
+  matchPassPercent,
 } from "../lib/face";
 import type { Attendance, Database, Employee, LeaveRequest } from "../lib/types";
 import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
@@ -38,6 +39,7 @@ import { enqueueAttendancePhoto } from "./photo-channel";
 import { signFaceProof, verifyFaceProof } from "./face-proof";
 import { createMiniExtraRouter, miniFeatures } from "./mini-extra";
 import { createMiniHelpdeskRouter } from "./helpdesk";
+import { createMiniDayOffRouter } from "./dayoff";
 import { deviceFlags, isDeepLinkParam } from "../lib/mini";
 import { documentInputSchema, saveDocument } from "./documents";
 import {
@@ -122,6 +124,8 @@ function buildHome(db: Database, employee: Employee) {
     attendance: dataIndexes(db).attendanceByKey.get(`${employee.id}|${date}`),
     todayLeave: todayLeave || null,
     month: monthSummary(db, employee.id),
+    // Bugungi reja: smena almashish, dam kunini ko‘chirish va shaxsiy dam kuni hisobga olingan.
+    todayPlan: dayPlan(db, employee, date),
     features: miniFeatures(db, employee),
     lateNotice: db.lateNotices.find((n) => n.employeeId === employee.id && n.date === date) || null,
     serverTime: new Date().toISOString(),
@@ -311,6 +315,7 @@ export function createMiniRouter() {
   router.use(createMiniAdvanceRouter());
   router.use(createMiniExtraRouter());
   router.use(createMiniHelpdeskRouter());
+  router.use(createMiniDayOffRouter());
   router.get(
     "/mini/home",
     asyncRoute(async (req, res) => {
@@ -597,6 +602,29 @@ export function createMiniRouter() {
         proof: signFaceProof(auth.employeeId, auth.companyId),
         matched: true,
         score: 100,
+      });
+    }),
+  );
+  /**
+   * Jonli moslik foizi uchun xodimning O‘Z yuz namunasi (faqat o‘ziga, sessiya bilan).
+   * Telefon kadrdagi yuzni shu bilan solishtirib qizil/yashil ramkani ko‘rsatadi;
+   * yakuniy qaror baribir serverda (/mini/face/verify) — mijoz natijasiga ishonilmaydi.
+   */
+  router.get(
+    "/mini/face/reference",
+    perEmployeeLimit(20),
+    asyncRoute(async (req, res) => {
+      const auth = req.employeeSession!;
+      const db = await readDb();
+      const profile = db.faceProfiles.find((p) => p.employeeId === auth.employeeId && p.companyId === auth.companyId);
+      if (!profile) return res.status(404).json({ message: "Face ID hali sozlanmagan." });
+      const threshold = faceMatchThreshold();
+      res.setHeader("Cache-Control", "private, no-store");
+      res.json({
+        descriptor: profile.descriptor,
+        samples: [...(profile.samples || []), ...(profile.adaptiveSamples || [])].slice(-14),
+        threshold,
+        passPercent: matchPassPercent(threshold),
       });
     }),
   );

@@ -40,6 +40,7 @@ export function emptyDatabase(): Database {
     tickets: [],
     certificateRequests: [],
     payoutCards: [],
+    dayOffMoves: [],
   };
 }
 

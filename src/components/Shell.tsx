@@ -19,6 +19,7 @@ import {
   ChartNoAxesCombined,
   Megaphone,
   MessagesSquare,
+  MapPinned,
   Bell,
   Settings,
   ShieldCheck,
@@ -55,6 +56,7 @@ const sections: { label: string; items: NavItem[] }[] = [
     items: [
       ["/dashboard", "Bosh sahifa", LayoutDashboard],
       ["/attendance", "Keldi-ketdi", Clock3],
+      ["/map", "Xarita", MapPinned],
       ["/employees", "Xodimlar", Users],
       ["/calendar", "Kalendar", CalendarDays],
       ["/leave", "Ta’til va yo‘qlik", Plane, "leave"],

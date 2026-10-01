@@ -13,7 +13,7 @@ import type { AttendanceFlag, BiometricDevice } from "./types";
 export type DeepLink =
   | { tab: "home"; action?: "checkin" | "checkout" | "salary" | "notifs" | "late" }
   | { tab: "history"; view?: "calendar" | "schedule" | "stats" }
-  | { tab: "leave"; view?: "leave" | "swap" | "overtime"; id?: string }
+  | { tab: "leave"; view?: "leave" | "swap" | "overtime" | "dayoff"; id?: string }
   | { tab: "profile"; section?: "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays"; id?: string }
   | { tab: "manager"; view?: "today" | "requests" | "map" | "week" };
 
@@ -50,6 +50,8 @@ export function parseDeepLink(raw?: string | null): DeepLink | null {
       return { tab: "leave", view: "swap", id };
     case "overtime":
       return { tab: "leave", view: "overtime", id };
+    case "dayoff":
+      return { tab: "leave", view: "dayoff", id };
     case "docs":
       return { tab: "profile", section: "docs", id };
     case "payslip":

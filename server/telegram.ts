@@ -10,8 +10,9 @@ import {
   webhookCallback,
 } from "grammy";
 import { audit, readDb, updateDb } from "../lib/store";
-import { phoneKey, tashkentIsoDate, tashkentWeekday } from "../lib/format";
+import { phoneKey, tashkentIsoDate } from "../lib/format";
 import type { Database, Employee } from "../lib/types";
+import { dayPlan } from "../lib/schedule";
 
 type TelegramBotState = {
   state: "disabled" | "starting" | "running" | "error";
@@ -448,10 +449,8 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
     }
     const lang = botLang(from, employee);
     const branch = db.branches.find((item) => item.id === employee.branchId);
-    const schedule = db.schedules.find(
-      (item) => item.id === employee.scheduleId,
-    );
-    const day = schedule?.days.find((item) => item.day === tashkentWeekday());
+    // Shaxsiy dam kuni va ko‘chirishlar hisobga olingan bugungi reja.
+    const day = dayPlan(db, employee, tashkentIsoDate());
     const today = db.attendance.find(
       (item) =>
         item.employeeId === employee.id && item.date === tashkentIsoDate(),
@@ -760,6 +759,7 @@ const buttonLabels: Record<string, string> = {
   manager: "📊 Rahbar paneli",
   overtime: "⏱ Qo‘shimcha ish",
   ticket: "💬 Javobni ko‘rish",
+  dayoff: "🗓 Dam olish kunlarim",
   helpdesk: "💬 Murojaatlarim",
 };
 
