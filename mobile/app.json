@@ -81,7 +81,8 @@
         "expo-notifications",
         {
           "color": "#2563EB",
-          "defaultChannel": "default"
+          "defaultChannel": "default",
+          "icon": "./assets/notification-icon.png"
         }
       ],
       [
@@ -115,6 +116,9 @@
       },
       "router": {}
     },
-    "owner": "mamatovuz"
+    "owner": "mamatovuz",
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
   }
 }

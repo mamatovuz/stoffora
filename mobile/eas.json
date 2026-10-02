@@ -24,10 +24,18 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://staffora.up.railway.app/api"
+      },
+      "android": {
+        "buildType": "app-bundle"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "android": {
+        "track": "internal",
+        "releaseStatus": "draft"
+      }
+    }
   }
 }
