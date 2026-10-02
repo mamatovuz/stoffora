@@ -4,8 +4,11 @@ import { api, errorText } from "./api";
 
 /* Oddiy so‘rov hook’i: xotira keshi (ekranlar orasida tez ochilish), ekran fokusida yangilash. */
 const cache = new Map<string, { at: number; value: unknown }>();
+/** Ochiq ekranlar: kesh tozalanganda shu yo‘ldagi ma’lumot darhol qayta yuklanadi. */
+const live = new Map<string, Set<() => void>>();
 export const invalidate = (prefix = "") => {
   for (const key of [...cache.keys()]) if (key.startsWith(prefix)) cache.delete(key);
+  for (const [path, fns] of live) if (path.startsWith(prefix)) for (const fn of fns) fn();
 };
 
 export function useData<T>(path: string | null, options: { refetchOnFocus?: boolean; maxAgeMs?: number } = {}) {
@@ -53,11 +56,24 @@ export function useData<T>(path: string | null, options: { refetchOnFocus?: bool
     if (!hit || Date.now() - hit.at > maxAgeMs) void load(hit ? "silent" : "initial");
   }, [path, load, maxAgeMs]);
 
+  useEffect(() => {
+    if (!path) return;
+    const fn = () => void load("silent");
+    const set = live.get(path) || new Set();
+    set.add(fn);
+    live.set(path, set);
+    return () => {
+      set.delete(fn);
+      if (!set.size) live.delete(path);
+    };
+  }, [path, load]);
+
   useFocusEffect(
     useCallback(() => {
       if (!refetchOnFocus || !path) return;
       const hit = cache.get(path);
-      if (hit && Date.now() - hit.at > 5_000) void load("silent");
+      // Kesh tozalangan (invalidate) yoki eskirgan bo‘lsa — ekranga qaytganda yangilanadi.
+      if (!hit || Date.now() - hit.at > 5_000) void load("silent");
     }, [refetchOnFocus, path, load]),
   );
 

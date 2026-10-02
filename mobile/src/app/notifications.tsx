@@ -28,6 +28,19 @@ export default function NotificationsScreen() {
   const [actionError, setActionError] = useState("");
   const navigating = useRef(false);
 
+  // Sahifadan chiqqanda ko‘rilgan bildirishnomalar o‘qilgan bo‘ladi (bosh sahifadan yo‘qoladi).
+  const unreadRef = useRef(0);
+  unreadRef.current = data?.unread || 0;
+  useEffect(
+    () => () => {
+      if (!unreadRef.current) return;
+      void post("/mini/notifications/read", { all: true })
+        .catch(() => undefined)
+        .finally(() => invalidate("/mini/"));
+      void Notifications.setBadgeCountAsync(0).catch(() => undefined);
+    },
+    [],
+  );
   const readAll = async () => {
     if (!data?.unread) return;
     setData({ items: data.items.map((n) => ({ ...n, read: true })), unread: 0 });
@@ -53,8 +66,9 @@ export default function NotificationsScreen() {
     haptic.select();
     if (!n.read) {
       setData((d) => (d ? { items: d.items.map((x) => (x.id === n.id ? { ...x, read: true } : x)), unread: Math.max(0, d.unread - 1) } : d));
-      void post("/mini/notifications/read", { ids: [n.id] }).catch(() => undefined);
-      invalidate("/mini/home");
+      void post("/mini/notifications/read", { ids: [n.id] })
+        .catch(() => undefined)
+        .finally(() => invalidate("/mini/home"));
     }
     // Bir bosish — bitta o‘tish: ikki marta bosilsa ekran ikki qavat ochilmaydi.
     const target = !n.ackRequired && !n.options?.length ? routeForGo(n.go) : null;

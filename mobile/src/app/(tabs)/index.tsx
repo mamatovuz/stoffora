@@ -243,7 +243,7 @@ export default function Home() {
       ) : null}
       {!data.employee.faceEnrolledAt && !finished && !missingSetup ? <Hint icon="scan-outline">Birinchi marta Face ID sozlanadi (~15 soniya). Yorug‘ joyda turing.</Hint> : null}
 
-      {data.notifications.length > 0 ? (
+      {data.notifications.some((n) => !n.read) ? (
         <Card style={{ paddingVertical: 6 }} onPress={() => go("/notifications")}>
           <View style={st.notifHead}>
             <Text style={{ color: c.ink, fontWeight: "600", fontSize: 16 }}>Xabarlar</Text>
@@ -251,7 +251,7 @@ export default function Home() {
             <View style={{ flex: 1 }} />
             <Icon name="chevron-forward" size={17} color={c.muted} />
           </View>
-          {data.notifications.slice(0, 2).map((n) => (
+          {data.notifications.filter((n) => !n.read).slice(0, 2).map((n) => (
             <NotifLine key={n.id} item={n} />
           ))}
         </Card>
