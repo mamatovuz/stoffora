@@ -8984,12 +8984,12 @@ html[data-tg-scheme="dark"] .rc-card, html[data-mini-theme="dark"] .rc-card { bo
 
 /* Mini App: moliya vositalari */
 .mf-picked { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; background: var(--m-tint); }
-.mf-picked > span { flex: 1; display: grid; }
+.mf-picked > span:not(.mini-avatar) { flex: 1; display: grid; min-width: 0; }
 .mf-picked small { color: var(--m-muted, #8a8f98); }
 .mf-list { display: grid; gap: 2px; max-height: 230px; overflow: auto; margin: 6px 0 4px; }
 .mf-list button { display: flex; align-items: center; gap: 10px; padding: 8px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; }
 .mf-list button:active { background: var(--m-tint); }
-.mf-list button span { display: grid; }
+.mf-list button > span:not(.mini-avatar) { display: grid; min-width: 0; text-align: left; }
 .mf-list small { color: var(--m-muted, #8a8f98); }
 .mf-quick { display: flex; gap: 6px; flex-wrap: wrap; margin: -2px 0 6px; }
 .mf-quick button { padding: 6px 12px; border: 0; border-radius: 99px; background: var(--m-tint); color: inherit; font: inherit; font-size: 13px; font-weight: 600; }
@@ -9005,3 +9005,29 @@ html[data-tg-scheme="dark"] .rc-card, html[data-mini-theme="dark"] .rc-card { bo
 .mf-amount small.ok { color: var(--m-success, #2fb26a); }
 .mf-amount small.warn { color: #d97706; }
 .mf-amount .bad { color: var(--m-danger, #e5484d); }
+.mf-picked .mini-avatar, .mf-list .mini-avatar { width: 40px; height: 40px; flex: none; }
+.sheet .md-search { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: 12px; background: var(--m-card); color: var(--m-muted); }
+.sheet .md-search input { min-height: 44px; padding: 0; background: transparent; box-shadow: none !important; }
+.fine-picked .person { flex: 1; }
+.fine-results .person { width: 100%; }
+
+/* Rag‘batlantirish */
+.reward-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 960px) { .reward-grid { grid-template-columns: 1fr; } }
+.reward-h { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
+.card-head .reward-h { margin: 0; }
+.reward-switch { display: flex; gap: 10px; align-items: flex-start; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 12px; cursor: pointer; }
+.reward-switch input { margin-top: 3px; width: 17px; height: 17px; accent-color: var(--brand); }
+.reward-switch span { display: grid; gap: 2px; }
+.reward-switch small { color: var(--muted); }
+.reward-rules { display: grid; gap: 8px; margin-bottom: 12px; }
+.reward-rule { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--ink-2); font-size: 13.5px; }
+.reward-rule .input { width: 84px; }
+.reward-rule .input.money-input { width: 130px; }
+.reward-list { display: grid; }
+.reward-row { display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-top: 1px solid var(--line-2); }
+.reward-row .person { flex: 1; min-width: 0; }
+.reward-rank { width: 22px; color: var(--faint); font-weight: 700; text-align: center; }
+.reward-streak { display: grid; justify-items: end; white-space: nowrap; }
+.reward-streak small { color: var(--muted); font-size: 12px; }
+.reward-streak .plus { color: var(--green); }

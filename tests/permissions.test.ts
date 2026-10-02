@@ -22,7 +22,9 @@ describe("rollar va sahifalar", () => {
   it("HR arizalarni ko‘radi, egasi hammasini", () => {
     expect(canOpenPage("HR_MANAGER", "/registrations")).toBe(true);
     expect(can("HR_MANAGER", "registrations.approve")).toBe(true);
-    expect(canOpenPage("HR_MANAGER", "/payroll")).toBe(false);
+    // HR bitta: «HR menejer» ham to‘liq HR (ish haqini ko‘radi, sozlamalarni boshqaradi).
+    expect(canOpenPage("HR_MANAGER", "/payroll")).toBe(true);
+    expect(canOpenPage("FINANCE", "/registrations")).toBe(false);
     expect(canOpenPage("COMPANY_OWNER", "/payroll")).toBe(true);
     expect(canOpenPage("COMPANY_OWNER", "/users")).toBe(true);
   });

@@ -93,13 +93,19 @@ export function RegistrationsPage() {
                 </span>
               </header>
               <dl className="reg-grid">
-                {(row.answers || []).filter((a) => a.field !== "fullName" && a.field !== "idDocument").map((a) => (
+                {(row.answers || []).filter((a) => a.field !== "fullName" && a.field !== "idDocument" && a.field !== "selfie").map((a) => (
                   <div key={a.id} className={a.value.length > 28 || a.field === "address" ? "wide" : ""}>
                     <dt>{a.label}</dt>
                     <dd>{a.value}</dd>
                   </div>
                 ))}
               </dl>
+              {row.data.selfie ? (
+                <a className="reg-doc" href={`/api/registrations/${row.id}/document?kind=selfie`} target="_blank" rel="noreferrer" title="Kattaroq ochish">
+                  <img src={`/api/registrations/${row.id}/document?kind=selfie`} alt="Yuz rasmi" loading="lazy" style={{ width: 150, height: 200, objectFit: "cover" }} />
+                  <small>🤳 Yuz rasmi (profil va Face ID)</small>
+                </a>
+              ) : null}
               {row.data.idDocument ? (
                 <a className="reg-doc" href={`/api/registrations/${row.id}/document`} target="_blank" rel="noreferrer" title="Kattaroq ochish">
                   {row.data.idDocumentMime === "application/pdf" ? (

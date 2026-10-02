@@ -35,6 +35,7 @@ import {
   validateText,
 } from "./registration";
 import { resolveWebAppUrl } from "./telegram";
+import { referenceFromPhoto } from "./face-reference";
 
 /*
  * Kompaniya boti: har bir kompaniya o‘z bot tokenini panel sozlamalarida kiritadi.
@@ -262,7 +263,7 @@ async function activeDraft(companyId: string, telegramId: string) {
 }
 
 /** Javobni saqlab keyingi qadamga o‘tadi. `confirm` — summani tasdiqlatish. */
-async function answer(requestId: string, questionId: string, value: string | number | undefined, options: { confirm?: boolean } = {}) {
+async function answer(requestId: string, questionId: string, value: string | number | undefined, options: { confirm?: boolean; scheduleId?: string | null } = {}) {
   return updateDb((db) => {
     const row = db.registrations.find((r) => r.id === requestId && r.status === "DRAFT");
     if (!row) return undefined;
@@ -270,6 +271,7 @@ async function answer(requestId: string, questionId: string, value: string | num
     const question = findQuestion(form, questionId);
     if (!question || row.step !== questionId) return { ...row };
     setValue(question, row.data, value);
+    if (question.type === "workHours") row.data.scheduleId = options.scheduleId || undefined;
     // Smena o‘zgarsa oldingi ish vaqti yaroqsiz bo‘lishi mumkin.
     if (question.type === "shift") {
       const hours = activeQuestions(form).find((q) => q.type === "workHours");
@@ -487,7 +489,7 @@ export function attachHandlers(bot: Bot, companyId: string) {
         }
         const parsed = parseButton(question, value, db, companyId);
         if (!parsed.ok) return void (await ctx.answerCallbackQuery({ text: parsed.error }));
-        updated = await answer(draft.id, questionId, parsed.value);
+        updated = await answer(draft.id, questionId, parsed.value, { scheduleId: question.type === "workHours" && value.startsWith("s:") ? value.slice(2) : null });
         break;
       }
       case "submit":
@@ -542,6 +544,11 @@ export function attachHandlers(bot: Bot, companyId: string) {
     const doc = ctx.message.document;
     const photo = ctx.message.photo ? [...ctx.message.photo].sort((a, b) => (b.file_size || 0) - (a.file_size || 0)).find((p) => (p.file_size || 0) <= MAX_DOC_BYTES) : undefined;
     const mime = doc ? doc.mime_type || "" : "image/jpeg";
+    const selfie = question.field === "selfie";
+    if (selfie && mime !== "image/jpeg") {
+      await ctx.reply("⚠️ Yuz rasmini oddiy rasm (📎 → Rasm) sifatida yuboring.");
+      return;
+    }
     if (doc && !/^(image\/(jpeg|png|webp)|application\/pdf)$/.test(mime)) {
       await ctx.reply("⚠️ Faqat rasm (JPG, PNG) yoki PDF yuboring.");
       return;
@@ -560,12 +567,22 @@ export function attachHandlers(bot: Bot, companyId: string) {
         await ctx.reply("⚠️ Fayl juda katta — 1,4 MB gacha bo‘lsin.");
         return;
       }
+      // Yuz rasmi: yuz topilishi va to‘g‘ri qaragan bo‘lishi shart (Face ID namunasi shundan).
+      let descriptor: number[] | undefined;
+      if (selfie)
+        try {
+          descriptor = await referenceFromPhoto(`data:image/jpeg;base64,${buffer.toString("base64")}`);
+        } catch (error) {
+          await ctx.reply(`⚠️ ${(error as Error).message.replace("3×4 rasm yuklang", "rasm yuboring")}`);
+          return;
+        }
       const id = randomUUID();
       await (await documentFiles()).putFile(id, companyId, mime, buffer, new Date().toISOString());
-      const previous = draft.data.idDocument;
+      const previous = selfie ? draft.data.selfie : draft.data.idDocument;
       const updated = await updateDb((next) => {
         const row = next.registrations.find((r) => r.id === draft.id && r.status === "DRAFT");
-        if (row) {
+        if (row && selfie) row.data.selfieDescriptor = descriptor;
+        else if (row) {
           row.data.idDocumentMime = mime;
           row.data.idDocumentSize = buffer.length;
         }
@@ -575,7 +592,7 @@ export function attachHandlers(bot: Bot, companyId: string) {
       const saved = await answer(draft.id, question.id, id);
       // Qayta yuborilgan bo‘lsa — eski rasm o‘chiriladi.
       if (previous && previous !== id) await (await documentFiles()).deleteFile(previous).catch(() => undefined);
-      await ctx.reply("✅ Rasm qabul qilindi.");
+      await ctx.reply(selfie ? "✅ Yuz rasmi qabul qilindi." : "✅ Rasm qabul qilindi."); 
       if (saved) await ask(ctx, companyId, saved.id);
     } catch (error) {
       console.warn("Anketa rasmi yuklanmadi:", (error as Error).message);
@@ -692,13 +709,17 @@ export async function decideRegistration(
   actor: string,
   options: { reason?: string; positionId?: string; branchId?: string } = {},
 ) {
+  // Yuz rasmi (bo‘lsa) — profil rasmi uchun oldindan o‘qiladi.
+  const pre = (await readDb()).registrations.find((r) => r.id === requestId && r.companyId === companyId);
+  const selfieFile = decision === "APPROVE" && pre?.data.selfie ? await (await documentFiles()).getFile(pre.data.selfie).catch(() => undefined) : undefined;
+  const selfieDataUrl = selfieFile ? `data:${selfieFile.mime};base64,${Buffer.from(selfieFile.data).toString("base64")}` : undefined;
   const result = await updateDb((db) => {
     const request = db.registrations.find((r) => r.id === requestId && r.companyId === companyId);
     if (!request) throw Object.assign(new Error("Ariza topilmadi."), { status: 404 });
     if (decision === "APPROVE") {
       if (options.positionId) request.data.positionId = options.positionId;
       if (options.branchId) request.data.branchId = options.branchId;
-      const employee = approveRegistration(db, request, actor);
+      const employee = approveRegistration(db, request, actor, { selfieDataUrl });
       return { request: { ...request }, employee: { ...employee } as Employee | undefined };
     }
     rejectRegistration(db, request, actor, options.reason);
@@ -985,7 +1006,7 @@ export function createCompanyBotRouter() {
       const tenant = tenantOf(req);
       const db = await readDb();
       const request = db.registrations.find((r) => r.id === req.params.id && r.companyId === tenant);
-      const fileId = request?.data.idDocument;
+      const fileId = req.query.kind === "selfie" ? request?.data.selfie : request?.data.idDocument;
       const row = fileId ? await (await documentFiles()).getFile(fileId) : undefined;
       if (!row) return res.status(404).json({ message: "Hujjat rasmi topilmadi." });
       res.setHeader("Content-Type", row.mime);

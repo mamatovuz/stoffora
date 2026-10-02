@@ -22,6 +22,8 @@ export interface Company {
   timezone: string;
   createdAt: string;
   payroll?: PayrollSettings;
+  /** Rag‘batlantirish: ketma-ket vaqtida kelganlarga bonus. */
+  rewards?: RewardSettings;
   photoChannel?: PhotoChannelSettings;
   attendanceCounting?: AttendanceCountingSettings;
   /** Kompaniyaning o‘z Telegram boti (ro‘yxatdan o‘tish, xabarlar, Mini App). */
@@ -85,6 +87,27 @@ export interface PhotoChannelSettings {
   chatTitle?: string;
   /** Necha kundan keyin kanaldagi rasmlar o‘chiriladi (0 — o‘chirilmaydi). */
   retentionDays: number;
+}
+export interface RewardSettings {
+  enabled: boolean;
+  /** Bosqichlar: shuncha ish kuni ketma-ket vaqtida → shuncha so‘m (shu oy oyligiga). */
+  rules: { days: number; amount: number }[];
+  /** Boshqa xodimlarga motivatsiya xabari. */
+  announce: boolean;
+}
+export interface RewardAward {
+  id: string;
+  /** employeeId:days:seriya boshi — takror berilmasligi uchun. */
+  key: string;
+  companyId: string;
+  employeeId: string;
+  days: number;
+  amount: number;
+  month: string;
+  adjustmentId?: string;
+  /** Rag‘batlantirish yoqilgan paytdagi mavjud seriya — pul berilmagan. */
+  skipped?: boolean;
+  createdAt: string;
 }
 export interface PayrollSettings {
   /** NONE — ushlanmaydi; HOURLY — soatlik stavka bo‘yicha; PER_MINUTE — har daqiqa uchun belgilangan summa. */
@@ -502,6 +525,7 @@ export interface Database {
   payoutCards: PayoutCard[];
   dayOffMoves: DayOffMove[];
   attendanceCorrections: AttendanceCorrection[];
+  rewardAwards: RewardAward[];
   /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
   mobileDevices: MobileDevice[];
   mobileSessions: MobileSession[];
@@ -884,7 +908,8 @@ export type BuiltinField =
   | "education"
   | "gender"
   | "pinfl"
-  | "idDocument";
+  | "idDocument"
+  | "selfie";
 export type QuestionType =
   | "name"
   | "text"
@@ -949,6 +974,11 @@ export interface RegistrationData {
   idDocument?: string;
   idDocumentMime?: string;
   idDocumentSize?: number;
+  /** Yuz rasmi (selfi) — fayl ID si; tasdiqlangach profil rasmi va Face ID namunasi bo‘ladi. */
+  selfie?: string;
+  selfieDescriptor?: number[];
+  /** «Ish vaqti» savolida tanlangan mavjud ish grafigi. */
+  scheduleId?: string;
   /** Kompaniya qo‘shgan savollar javoblari (savol ID → javob). */
   custom?: Record<string, string>;
 }

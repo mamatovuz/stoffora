@@ -38,7 +38,6 @@ import { resizePhoto } from "./Employees";
 /* ----------------------------------------------- departments/positions --- */
 const ROLE_HINTS: Record<string, string> = {
   HR_ADMIN: "Xodimlar, davomat, so‘rovlar, jarimalar, hisobotlar va sozlamalar — saytda, Mini App va ilovada.",
-  HR_MANAGER: "Xodimlar, davomat, so‘rovlarni tasdiqlash va jarima — saytda, Mini App va ilovada.",
   FINANCE: "Ish haqi, avanslar (karta raqamlari), jarimalar va moliyaviy hisobotlar (Excel).",
   IT_ADMIN: "Qurilmalar, xodimlar ro‘yxati va tizim sozlamalari (saytda).",
   BRANCH_MANAGER: "O‘z filiali xodimlari va davomati; jarima taklif qiladi (HR tasdiqlaydi). Filial sahifasida qaysi filial ekanini tanlang.",
@@ -303,9 +302,8 @@ function DirectoryForm({
 /* --------------------------------------------------------------- roles --- */
 const roleRows: [Role, string][] = [
   ["COMPANY_OWNER", "Barcha bo‘limlar, sozlamalar va foydalanuvchilar"],
-  ["HR_ADMIN", "Xodimlar, davomat, filiallar, ta’til, e’lonlar va hisobotlar"],
-  ["HR_MANAGER", "Xodimlarni qo‘shish/tahrirlash, davomat va ta’tilni tasdiqlash"],
-  ["FINANCE", "Ish haqi va hisobotlarni ko‘rish, eksport"],
+  ["HR_ADMIN", "Xodimlar, davomat, filiallar, so‘rovlarni tasdiqlash, jarima, avanslar, e’lonlar va hisobotlar — sayt, Mini App va ilovada"],
+  ["FINANCE", "Ish haqi, avanslar (karta raqamlari), jarimalar, moliyaviy hisobotlar va Excel"],
   ["IT_ADMIN", "Qurilmalar, sozlamalar va audit jurnali"],
   ["BRANCH_MANAGER", "Xodimlar ro‘yxati, davomatni ko‘rish va tuzatish"],
 ];
@@ -329,7 +327,7 @@ export function RolesPage() {
 
 /* --------------------------------------------------------------- users --- */
 type SafeUser = Omit<User, "passwordHash">;
-const assignable: Role[] = ["HR_ADMIN", "HR_MANAGER", "FINANCE", "IT_ADMIN", "BRANCH_MANAGER"];
+const assignable: Role[] = ["HR_ADMIN", "FINANCE", "IT_ADMIN", "BRANCH_MANAGER"];
 export function UsersPage() {
   const { user } = useAuth();
   const { data, loading, error, reload } = useApi<SafeUser[]>("/users");
@@ -440,7 +438,7 @@ export function UsersPage() {
 }
 
 function UserForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [form, setForm] = useState({ name: "", email: "", password: "", role: "HR_MANAGER" });
+  const [form, setForm] = useState({ name: "", email: "", password: "", role: "HR_ADMIN" });
   const [branchIds, setBranchIds] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);

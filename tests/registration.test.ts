@@ -50,6 +50,23 @@ describe("anketa tekshiruvlari", () => {
   });
 });
 
+describe("smena va ish vaqti — kompaniya grafiklaridan", () => {
+  it("kunduzgi tanlansa — faqat kunduzgi grafiklar (vaqt va kunlari bilan)", async () => {
+    const { buttonsFor, parseButton, defaultForm } = await import("../server/registration");
+    const sched = (id: string, start: string, end: string, days: number[]) => ({ id, companyId: "c1", name: id, type: "FIXED", graceMinutes: 0, overtimeEnabled: false, days: [0, 1, 2, 3, 4, 5, 6].map((d) => ({ day: d, enabled: days.includes(d), start, end })) });
+    const db = { positions: [], branches: [], schedules: [sched("kun", "08:00", "19:00", [1, 2, 3, 4, 5, 6]), sched("kech", "14:00", "22:00", [0, 1, 2, 3, 4, 5, 6])] } as never;
+    const form = defaultForm();
+    const shift = form.questions.find((q) => q.id === "shift")!;
+    const hours = form.questions.find((q) => q.id === "workHours")!;
+    expect(JSON.stringify(buttonsFor(shift, db, "c1", {}))).toContain("Kunduzgi smena · 08:00–19:00");
+    const day = JSON.stringify(buttonsFor(hours, db, "c1", { shift: "DAY" }));
+    expect(day).toContain("08:00 - 19:00 · Du–Sh");
+    expect(day).not.toContain("14:00");
+    expect(JSON.stringify(buttonsFor(hours, db, "c1", { shift: "NIGHT" }))).toContain("14:00 - 22:00 · har kuni");
+    expect(parseButton(hours, "s:kech", db, "c1")).toEqual({ ok: true, value: "14:00 - 22:00" });
+  });
+});
+
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(path.join(tmpdir(), "staffora-reg-"));
@@ -71,6 +88,14 @@ type Call = { method: string; payload: Record<string, unknown> };
 
 async function setup() {
   vi.resetModules();
+  // Yuz aniqlash (og‘ir model) testda soxta: rasmda yuz «topildi».
+  vi.doMock("../server/face-reference", () => ({
+    referenceFromPhoto: async () => Array.from({ length: 128 }, (_, i) => (i % 7) / 10),
+    applyPanelReference: (_db: unknown, employee: { photoDataUrl?: string; faceEnrolledAt?: string }, photo: string) => {
+      employee.photoDataUrl = photo;
+      employee.faceEnrolledAt = new Date().toISOString();
+    },
+  }));
   const store = await import("../lib/store");
   const bots = await import("../server/company-bots");
   const { Bot } = await import("grammy");
@@ -180,8 +205,14 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     expect(String(fetchSpy.mock.calls[0]?.[0])).toContain("photos/passport.jpg");
     fetchSpy.mockRestore();
     expect(t.calls.find((c) => c.method === "getFile")?.payload.file_id).toBe("big");
+    expect((await t.draft())?.step).toBe("selfie");
+    const selfieSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(Buffer.from("fake-selfie"), { status: 200 }));
+    await t.photo(555);
+    selfieSpy.mockRestore();
     let draft = await t.draft();
     expect(draft?.data.idDocument).toBeTruthy();
+    expect(draft?.data.selfie).toBeTruthy();
+    expect(draft?.data.selfieDescriptor).toHaveLength(128);
     expect(draft?.step).toBe("summary");
     expect(t.lastText()).toContain("Ali Valiyev");
 
@@ -231,6 +262,9 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     const passport = db.documents.find((d) => d.employeeId === employee.id && d.type === "PASSPORT")!;
     expect(passport.id).toBe(draft!.data.idDocument);
     expect((await (await t.store.documentFiles()).getFile(passport.id))?.data.toString()).toBe("fake-jpeg-bytes");
+    // Yuz rasmi profilga qo‘yildi (Face ID namunasi).
+    expect(employee.faceEnrolledAt).toBeTruthy();
+    expect(employee.photoDataUrl).toBeTruthy();
     const schedule = db.schedules.find((s) => s.id === employee.scheduleId)!;
     expect(schedule.days.find((d) => d.day === 1)).toMatchObject({ enabled: true, start: "09:00", end: "18:00" });
     expect(schedule.days.find((d) => d.day === 0)?.enabled).toBe(false);
@@ -281,6 +315,7 @@ describe("kompaniya o‘zi sozlagan anketa", () => {
           { id: "gender", field: "gender", type: "gender", title: "x", required: true, enabled: false },
           { id: "pinfl", field: "pinfl", type: "pinfl", title: "x", required: true, enabled: false },
           { id: "idDocument", field: "idDocument", type: "photo", title: "x", required: true, enabled: false },
+          { id: "selfie", field: "selfie", type: "photo", title: "x", required: true, enabled: false },
         ],
         intro: "Salom! {company} jamoasiga xush kelibsiz <script>",
       });
@@ -323,7 +358,7 @@ describe("kompaniya o‘zi sozlagan anketa", () => {
     const ids = form.questions.filter((q) => q.enabled).map((q) => q.id);
     expect(ids.indexOf("gender")).toBe(ids.indexOf("fullName") + 1);
     expect(ids).toContain("pinfl");
-    expect(ids.at(-1)).toBe("idDocument");
+    expect(ids.slice(-2)).toEqual(["idDocument", "selfie"]);
     const custom = normalizeForm({ questions: [{ id: "abcd1", type: "choice", title: "Tanlang", options: [], required: true, enabled: true }] });
     expect(custom.questions.find((q) => q.id === "abcd1")?.options).toEqual(["Ha", "Yo‘q"]);
   });

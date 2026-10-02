@@ -80,8 +80,8 @@ export function Protected({
 export const roleLabels: Record<Role, string> = {
   SUPER_ADMIN: "Super admin",
   COMPANY_OWNER: "Kompaniya egasi",
-  HR_ADMIN: "HR administrator",
-  HR_MANAGER: "HR mutaxassisi",
+  HR_ADMIN: "HR",
+  HR_MANAGER: "HR",
   FINANCE: "Moliya",
   IT_ADMIN: "IT administrator",
   BRANCH_MANAGER: "Filial rahbari",

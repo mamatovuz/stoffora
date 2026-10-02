@@ -42,6 +42,7 @@ export function emptyDatabase(): Database {
     payoutCards: [],
     dayOffMoves: [],
     attendanceCorrections: [],
+    rewardAwards: [],
     mobileDevices: [],
     mobileSessions: [],
     mobileActivationCodes: [],

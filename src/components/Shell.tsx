@@ -41,6 +41,7 @@ import {
   ClockAlert,
   HandCoins,
   Gavel,
+  Trophy,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -83,6 +84,7 @@ const sections: { label: string; items: NavItem[] }[] = [
       ["/payroll", "Ish haqi", Banknote],
       ["/advances", "Avans oluvchilar", HandCoins],
       ["/fines", "Jarimalar", Gavel, "fines"],
+      ["/rewards", "Rag‘batlantirish", Trophy],
       ["/reports", "Hisobotlar", ChartNoAxesCombined],
     ],
   },

@@ -90,6 +90,7 @@ function normalizeDatabase(database: Database): Database {
   database.payoutCards ||= [];
   database.dayOffMoves ||= [];
   database.attendanceCorrections ||= [];
+  database.rewardAwards ||= [];
   database.mobileDevices ||= [];
   database.mobileSessions ||= [];
   database.mobileActivationCodes ||= [];

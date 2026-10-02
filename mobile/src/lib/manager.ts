@@ -48,8 +48,9 @@ export async function mcall<T>(path: string, body?: unknown, method = body === u
 /* Rol huquqlari — lib/permissions bilan bir xil mantiq (faqat ko‘rsatish uchun; tekshiruv serverda). */
 const ROLE_PERMS: Record<string, string[]> = {
   COMPANY_OWNER: ["*"],
-  HR_ADMIN: ["attendance.view", "attendance.edit", "leave.approve", "employees.edit", "dashboard.view", "announcements.create"],
-  HR_MANAGER: ["attendance.view", "attendance.edit", "leave.approve", "employees.edit", "dashboard.view"],
+  // HR bitta: «HR menejer» ham HR bilan bir xil.
+  HR_ADMIN: ["attendance.view", "attendance.edit", "leave.approve", "employees.edit", "employees.view", "dashboard.view", "announcements.create"],
+  HR_MANAGER: ["attendance.view", "attendance.edit", "leave.approve", "employees.edit", "employees.view", "dashboard.view", "announcements.create"],
   FINANCE: ["payroll.edit"],
   BRANCH_MANAGER: ["attendance.view", "attendance.edit", "dashboard.view"],
 };

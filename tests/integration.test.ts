@@ -418,7 +418,7 @@ describe("ishonchlilik", () => {
 
   it("21. RBAC — oddiy xodim va moliya roli integratsiyani boshqara olmaydi", async () => {
     ctx = await boot();
-    for (const role of ["EMPLOYEE", "FINANCE", "BRANCH_MANAGER", "HR_MANAGER"]) {
+    for (const role of ["EMPLOYEE", "FINANCE", "BRANCH_MANAGER"]) {
       const res = await ctx.call("POST", "/integrations", { baseUrl: BOT_URL, apiKey: GOOD_KEY }, `c1:${role}`);
       expect(res.status, role).toBe(403);
     }

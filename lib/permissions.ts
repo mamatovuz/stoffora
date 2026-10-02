@@ -21,20 +21,8 @@ const rolePermissions: Record<Role, string[]> = {
     "settings.manage",
     "registrations.*",
   ],
-  HR_MANAGER: [
-    "dashboard.view",
-    "employees.view",
-    "employees.create",
-    "employees.edit",
-    "attendance.view",
-    "attendance.edit",
-    "org.view",
-    "leave.view",
-    "leave.approve",
-    "reports.view",
-    "announcements.view",
-    "registrations.*",
-  ],
+  // «HR menejer» va «HR administrator» — bitta HR: huquqlar bir xil (eski hisoblar ham to‘liq HR).
+  HR_MANAGER: [],
   // Moliya: faqat ish haqi, hisobotlar va jarima sozlamalari.
   FINANCE: ["payroll.*", "reports.view", "reports.export"],
   IT_ADMIN: ["dashboard.view", "employees.view", "org.view", "devices.*", "settings.manage", "audit.view"],
@@ -48,6 +36,8 @@ const rolePermissions: Record<Role, string[]> = {
   ],
   EMPLOYEE: ["profile.view", "attendance.self", "leave.self"],
 };
+
+rolePermissions.HR_MANAGER = rolePermissions.HR_ADMIN;
 
 export function can(role: Role, permission: string) {
   return rolePermissions[role].some(
@@ -78,6 +68,7 @@ export const pagePermissions: Record<string, string[]> = {
   "/payroll": ["payroll.view"],
   "/advances": ["payroll.view", "payroll.edit", "leave.approve", "employees.edit"],
   "/fines": ["employees.edit", "payroll.edit", "attendance.edit"],
+  "/rewards": ["payroll.view", "payroll.edit", "employees.edit", "settings.manage"],
   "/reports": ["reports.view"],
   "/analytics": ["dashboard.view"],
   "/announcements": ["announcements.view"],

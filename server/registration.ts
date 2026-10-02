@@ -15,6 +15,7 @@ import type {
 } from "../lib/types";
 import { parseSalary } from "./integrations/transform";
 import { assertEmployeeCapacity } from "../lib/limits";
+import { applyPanelReference } from "./face-reference";
 
 /*
  * Botdagi xodim anketasi — sozlanadigan dvigatel.
@@ -87,9 +88,44 @@ export const BUILTINS: Record<
     locked: false,
     enabled: true,
   },
+  selfie: {
+    type: "photo",
+    label: "Yuz rasmi",
+    title: "🤳 Yuzingiz rasmini yuboring.",
+    hint: "Oxirgi 10 kun ichida tushgan, kameraga to‘g‘ri qarab turgan, yorug‘ joyda (ko‘zoynak va bosh kiyimsiz). Bu rasm profilingizga qo‘yiladi va Face ID uchun namuna bo‘ladi.",
+    locked: false,
+    enabled: true,
+  },
 };
 /** Keyinroq qo‘shilgan tizim maydonlari: saqlangan anketada yo‘q bo‘lsa — yoqilgan holda shu savoldan keyin qo‘shiladi. */
-const ADDED_FIELDS: Partial<Record<BuiltinField, BuiltinField | "end">> = { gender: "fullName", pinfl: "birthDate", idDocument: "end" };
+const ADDED_FIELDS: Partial<Record<BuiltinField, BuiltinField | "end">> = { gender: "fullName", pinfl: "birthDate", idDocument: "end", selfie: "end" };
+
+/* -------------------------------------------- smena va ish grafiklari --- */
+const SHORT_DAYS = ["Ya", "Du", "Se", "Ch", "Pa", "Ju", "Sh"];
+/** Ish kunlari qisqa: «har kuni», «Du–Ju», «Du, Se, Pa». */
+export function scheduleDaysLabel(schedule: Schedule) {
+  const on = [1, 2, 3, 4, 5, 6, 0].filter((d) => schedule.days.find((x) => x.day === d)?.enabled);
+  if (on.length === 7) return "har kuni";
+  if (!on.length) return "—";
+  const order = [1, 2, 3, 4, 5, 6, 0];
+  const contiguous = on.every((d, i) => i === 0 || order.indexOf(d) === order.indexOf(on[i - 1]) + 1);
+  return contiguous && on.length > 2 ? `${SHORT_DAYS[on[0]]}–${SHORT_DAYS[on[on.length - 1]]}` : on.map((d) => SHORT_DAYS[d]).join(", ");
+}
+/** Grafikning asosiy vaqti (birinchi ish kuni bo‘yicha). */
+export function scheduleHours(schedule: Schedule) {
+  const day = schedule.days.find((d) => d.enabled);
+  return day ? `${day.start} - ${day.end === "23:59" ? "00:00" : day.end}` : undefined;
+}
+/** Grafik qaysi smena: 12:00 gacha boshlansa — kunduzgi, keyin — kechki. */
+export function scheduleShift(schedule: Schedule): "DAY" | "NIGHT" {
+  const start = schedule.days.find((d) => d.enabled)?.start || "09:00";
+  return Number(start.slice(0, 2)) < 12 ? "DAY" : "NIGHT";
+}
+export function companySchedules(db: Database, companyId: string, shift?: string) {
+  return db.schedules
+    .filter((s) => s.companyId === companyId && scheduleHours(s) && (!shift || shift === "BOTH" || scheduleShift(s) === shift))
+    .sort((a, b) => (scheduleHours(a) || "").localeCompare(scheduleHours(b) || ""));
+}
 const BUILTIN_ORDER = Object.keys(BUILTINS) as BuiltinField[];
 
 export const CUSTOM_TYPES: QuestionType[] = ["text", "number", "date", "phone", "money", "choice", "yesno"];
@@ -402,9 +438,23 @@ export function buttonsFor(question: RegistrationQuestion, db: Database, company
           .map((b) => ({ label: b.name.slice(0, 40), value: b.id })),
         2,
       );
-    case "shift":
-      return (Object.keys(SHIFTS) as (keyof typeof SHIFTS)[]).map((key) => [{ label: SHIFTS[key].label, value: key }]);
+    case "shift": {
+      // Kompaniyadagi grafiklar soatlari bilan: «☀️ Kunduzgi · 08:00–19:00, 09:00–18:00».
+      const hoursOf = (shift: "DAY" | "NIGHT") =>
+        [...new Set(companySchedules(db, companyId, shift).map((s) => scheduleHours(s)!.replace(" - ", "–")))].slice(0, 2).join(", ");
+      return (Object.keys(SHIFTS) as (keyof typeof SHIFTS)[]).map((key) => {
+        const hours = key === "BOTH" ? "" : hoursOf(key);
+        return [{ label: `${SHIFTS[key].label}${hours ? ` · ${hours}` : ""}`.slice(0, 60), value: key }];
+      });
+    }
     case "workHours": {
+      // Tanlangan smenadagi mavjud ish grafiklari (vaqt va kunlari bilan); bo‘lmasa — tayyor variantlar.
+      const schedules = companySchedules(db, companyId, data.shift);
+      if (schedules.length)
+        return [
+          ...schedules.slice(0, 8).map((s) => [{ label: `🕒 ${scheduleHours(s)} · ${scheduleDaysLabel(s)}`.slice(0, 60), value: `s:${s.id}` }]),
+          [{ label: "✍️ Boshqa vaqt", value: "__other" }],
+        ];
       const presets = (question.options || []).filter((option) => {
         const hour = Number(option.slice(0, 2));
         if (data.shift === "DAY") return hour < 12;
@@ -436,8 +486,14 @@ export function parseButton(question: RegistrationQuestion, value: string, db: D
       return db.branches.some((b) => b.id === value && b.companyId === companyId) ? { ok: true, value } : bad;
     case "shift":
       return value in SHIFTS ? { ok: true, value } : bad;
-    case "workHours":
+    case "workHours": {
+      if (value.startsWith("s:")) {
+        const schedule = db.schedules.find((s) => s.id === value.slice(2) && s.companyId === companyId);
+        const hours = schedule && scheduleHours(schedule);
+        return hours ? { ok: true, value: hours } : bad;
+      }
       return (question.options || []).includes(value) ? { ok: true, value } : bad;
+    }
     case "weekday": {
       const day = Number(value);
       return day === -1 || (day >= 0 && day <= 6) ? { ok: true, value: day } : bad;
@@ -550,7 +606,7 @@ function scheduleFor(db: Database, companyId: string, workHours: string | undefi
  * Arizani tasdiqlaydi: xodim yaratiladi (yoki telefon/Telegram bo‘yicha mavjudi
  * yangilanadi — dublikat bo‘lmaydi). updateDb ichida chaqiriladi.
  */
-export function approveRegistration(db: Database, request: RegistrationRequest, actor: string): Employee {
+export function approveRegistration(db: Database, request: RegistrationRequest, actor: string, extra: { selfieDataUrl?: string } = {}): Employee {
   if (request.status !== "PENDING") throw Object.assign(new Error("Ariza allaqachon ko‘rib chiqilgan."), { status: 409 });
   const data = request.data;
   const tenant = request.companyId;
@@ -580,7 +636,12 @@ export function approveRegistration(db: Database, request: RegistrationRequest, 
     positionId: position.id,
     departmentId: position.departmentId,
     branchId: branch.id,
-    scheduleId: scheduleFor(db, tenant, data.workHours, data.restDay, actor),
+    // Mavjud grafik tanlangan bo‘lsa — o‘sha; dam olish kuni grafikda ish kuni bo‘lsa — shaxsiy dam kuni.
+    scheduleId: data.scheduleId && db.schedules.some((s) => s.id === data.scheduleId && s.companyId === tenant) ? data.scheduleId : scheduleFor(db, tenant, data.workHours, data.restDay, actor),
+    restDays:
+      data.scheduleId && data.restDay !== undefined && data.restDay >= 0 && db.schedules.find((s) => s.id === data.scheduleId)?.days.find((d) => d.day === data.restDay)?.enabled
+        ? [data.restDay]
+        : undefined,
     shift: data.shift,
     education: data.education,
     customFields: Object.keys(customFields).length ? customFields : undefined,
@@ -593,6 +654,7 @@ export function approveRegistration(db: Database, request: RegistrationRequest, 
     registrationId: request.id,
     updatedAt: now,
   };
+  if (!fields.restDays) delete (fields as Partial<typeof fields>).restDays;
   // Bitta Telegram hisob — bitta xodim.
   for (const other of db.employees)
     if (other.companyId === tenant && other.telegramId === request.telegramId && other.status !== "ACTIVE") {
@@ -628,6 +690,17 @@ export function approveRegistration(db: Database, request: RegistrationRequest, 
     };
     db.employees.push(employee);
     db.auditLogs.unshift(audit(tenant, actor, "Botdagi anketa tasdiqlandi — xodim qo‘shildi", "employee", employee.id, undefined, employee));
+  }
+  // Anketadagi yuz rasmi — profil rasmi va Face ID namunasi (boshqa xodimning yuziga o‘xshasa — faqat rasm).
+  if (extra.selfieDataUrl) {
+    if (data.selfieDescriptor?.length)
+      try {
+        applyPanelReference(db, employee, extra.selfieDataUrl, data.selfieDescriptor, actor);
+      } catch (error) {
+        employee.photoDataUrl = extra.selfieDataUrl;
+        db.auditLogs.unshift(audit(tenant, actor, `Anketa rasmi Face ID namunasi qilinmadi: ${(error as Error).message}`, "employee", employee.id));
+      }
+    else employee.photoDataUrl = extra.selfieDataUrl;
   }
   // Anketadagi pasport / ID karta rasmi — xodim hujjatlariga (fayl o‘sha, nusxa olinmaydi).
   if (data.idDocument && !db.documents.some((d) => d.id === data.idDocument))

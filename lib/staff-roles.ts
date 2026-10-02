@@ -11,9 +11,9 @@ import type { Database, Employee, Role, User } from "./types";
 
 export const STAFF_ROLES = ["HR_ADMIN", "HR_MANAGER", "FINANCE", "IT_ADMIN", "BRANCH_MANAGER"] as const;
 export type StaffRole = (typeof STAFF_ROLES)[number];
-export const STAFF_ROLE_LABELS: Record<StaffRole, string> = {
-  HR_ADMIN: "HR administrator",
-  HR_MANAGER: "HR menejer",
+/** Tanlovda ko‘rinadiganlar: HR bitta (HR_MANAGER — eski yozuvlar uchun, HR bilan bir xil). */
+export const STAFF_ROLE_LABELS: Partial<Record<StaffRole, string>> = {
+  HR_ADMIN: "HR",
   FINANCE: "Moliya",
   IT_ADMIN: "IT xodimi",
   BRANCH_MANAGER: "Filial rahbari",

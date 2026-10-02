@@ -142,7 +142,13 @@ export function startHrWorker() {
       await sendWeeklyDigests(today);
     });
   };
-  timer = setInterval(() => void tick(), 10 * 60_000);
+  // Rag‘batlantirish — har tekshiruvda (bosqichga yetgan kunning o‘zida bonus).
+  const rewards = async () => {
+    const { runRewards } = await import("./rewards");
+    await runRewards(today()).catch((error) => console.error("Rag‘batlantirish xatosi", error));
+  };
+  const today = () => tashkentIsoDate();
+  timer = setInterval(() => void tick().then(rewards), 10 * 60_000);
   timer.unref();
   setTimeout(() => void tick(), 30_000).unref();
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Banknote, Check, CreditCard, Download, Eye, Gavel, HandCoins, Plus, Search, Trash2, Wallet, X } from "lucide-react";
-import { api, errorText, notifyChange, post } from "../api";
+import { Banknote, Check, CreditCard, Download, Eye, Flame, Gavel, HandCoins, Plus, Search, Trash2, Trophy, Wallet, X } from "lucide-react";
+import { api, errorText, notifyChange, post, put } from "../api";
 import { useApi, useDebounced, usePolling } from "../hooks";
 import { Confirm, Empty, ErrorBox, Field, Loading, Modal, PageHeader, Person, Segmented, StatCard, Status, useToast } from "../components/ui";
 import { useAuth } from "../auth";
@@ -541,5 +541,173 @@ export function FineModal({ direct, onClose, onSaved, employee: preset }: { dire
         </div>
       </form>
     </Modal>
+  );
+}
+
+/* ========================================================== rag‘batlantirish === */
+type RewardRule = { days: number; amount: number };
+type RewardsData = {
+  settings: { enabled: boolean; rules: RewardRule[]; announce: boolean };
+  awards: { id: string; employeeName: string; photoDataUrl?: string; branch: string; days: number; amount: number; createdAt: string }[];
+  leaders: { id: string; name: string; photoDataUrl?: string; branch: string; streak: number }[];
+};
+
+export function RewardsPage() {
+  const toast = useToast();
+  const { user } = useAuth();
+  const editable = Boolean(user && canAny(user.role, ["payroll.edit", "settings.manage"]));
+  const [month, setMonth] = useState(thisMonth());
+  const { data, loading, error, reload } = useApi<RewardsData>(`/rewards?month=${month}`);
+  const [form, setForm] = useState<RewardsData["settings"] | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (data && !form) setForm({ ...data.settings, rules: data.settings.rules.length ? data.settings.rules : [{ days: 10, amount: 100_000 }] });
+  }, [data, form]);
+  const awards = data?.awards || [];
+  const total = awards.reduce((s, a) => s + a.amount, 0);
+  const top = form?.rules.length ? Math.max(...form.rules.map((r) => r.days)) : 0;
+
+  async function save() {
+    if (!form) return;
+    setSaving(true);
+    try {
+      const saved = await put<RewardsData["settings"]>("/company/rewards", form);
+      setForm(saved);
+      toast(saved.enabled ? "Rag‘batlantirish yoqildi — xodimlarga motivatsiya xabarlari boradi" : "Saqlandi");
+      void reload(true);
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+  const setRule = (i: number, patch: Partial<RewardRule>) => form && setForm({ ...form, rules: form.rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) });
+
+  return (
+    <div className="page">
+      <PageHeader title="Rag‘batlantirish" subtitle="Ketma-ket vaqtida kelgan xodimlarga avtomatik mukofot — shu oy oyligiga qo‘shiladi" actions={<MonthPicker value={month} onChange={setMonth} />} />
+      <div className="stat-grid">
+        <StatCard
+          label="Holat"
+          value={data?.settings.enabled ? "Yoqilgan" : "O‘chiq"}
+          note={data?.settings.rules.map((r) => `${r.days} kun → ${money(r.amount)}`).join(" · ") || "bosqich yo‘q"}
+          icon={Trophy}
+          tone={data?.settings.enabled ? "green" : undefined}
+        />
+        <StatCard label="Berilgan mukofotlar" value={awards.length} note={monthYearUz(`${month}-15`)} icon={HandCoins} tone="blue" />
+        <StatCard label="Jami summa" value={money(total)} note="oyliklarga qo‘shildi" icon={Wallet} tone="violet" />
+        <StatCard label="Eng uzun seriya" value={data?.leaders[0] ? `${data.leaders[0].streak} kun` : "—"} note={data?.leaders[0]?.name || "hali yo‘q"} icon={Flame} tone="amber" />
+      </div>
+      {loading && !data ? (
+        <Loading />
+      ) : error ? (
+        <ErrorBox message={error} />
+      ) : (
+        <div className="reward-grid">
+          <section className="card card-body">
+            <h3 className="reward-h">Sozlama</h3>
+            {form && (
+              <>
+                <label className="reward-switch">
+                  <input type="checkbox" checked={form.enabled} disabled={!editable} onChange={(e) => setForm({ ...form, enabled: e.target.checked })} />
+                  <span>
+                    <b>Rag‘batlantirish yoqilgan</b>
+                    <small>Seriya bosqichga yetgan kuni bonus avtomatik yoziladi va xodimga tabrik boradi.</small>
+                  </span>
+                </label>
+                <div className="reward-rules">
+                  {form.rules.map((rule, i) => (
+                    <div className="reward-rule" key={i}>
+                      <span>Ketma-ket</span>
+                      <input className="input" type="number" min={2} max={120} value={rule.days || ""} disabled={!editable} onChange={(e) => setRule(i, { days: Number(e.target.value) })} />
+                      <span>ish kuni vaqtida →</span>
+                      <input className="input money-input" inputMode="numeric" value={rule.amount ? rule.amount.toLocaleString("ru-RU") : ""} disabled={!editable} onChange={(e) => setRule(i, { amount: parseAmount(e.target.value) })} />
+                      <span>so‘m</span>
+                      {editable && form.rules.length > 1 && (
+                        <button className="icon-btn" title="Olib tashlash" onClick={() => setForm({ ...form, rules: form.rules.filter((_, j) => j !== i) })}>
+                          <Trash2 size={15} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                  {editable && form.rules.length < 6 && (
+                    <button className="btn btn-sm" style={{ justifySelf: "start" }} onClick={() => setForm({ ...form, rules: [...form.rules, { days: (top || 10) + 10, amount: 200_000 }] })}>
+                      <Plus size={14} /> Bosqich qo‘shish
+                    </button>
+                  )}
+                </div>
+                <label className="reward-switch">
+                  <input type="checkbox" checked={form.announce} disabled={!editable} onChange={(e) => setForm({ ...form, announce: e.target.checked })} />
+                  <span>
+                    <b>Boshqa xodimlarga xabar</b>
+                    <small>«Hamkasblaringiz mukofot oldi — siz ham vaqtida keling» (ilova va Mini App bildirishnomasi).</small>
+                  </span>
+                </label>
+                <p className="hint">Kechikish yoki kelmaslik seriyani uzadi. Dam olish va ta’til kunlari uzmaydi. Yoqilgan paytdagi mavjud seriyalar uchun orqaga qarab pul berilmaydi.</p>
+                {editable && (
+                  <div className="form-actions">
+                    <button className="btn btn-primary" disabled={saving} onClick={() => void save()}>
+                      <Check size={16} /> {saving ? "Saqlanmoqda…" : "Saqlash"}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+          <section className="card">
+            <div className="card-head">
+              <h3 className="reward-h">Hozirgi seriyalar — yetakchilar</h3>
+            </div>
+            {!data?.leaders.length ? (
+              <Empty icon={Flame} title="Hali seriya yo‘q" />
+            ) : (
+              <div className="reward-list">
+                {data.leaders.map((l, i) => {
+                  const [first, last] = split(l.name);
+                  const next = form?.rules.find((r) => r.days > l.streak);
+                  return (
+                    <div key={l.id} className="reward-row">
+                      <span className="reward-rank">{i + 1}</span>
+                      <Person first={first} last={last} photo={l.photoDataUrl} sub={l.branch} />
+                      <span className="reward-streak">
+                        <b>{l.streak} kun</b>
+                        {next && (
+                          <small>
+                            yana {next.days - l.streak} kun → {money(next.amount)}
+                          </small>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+      <section className="card" style={{ marginTop: 16 }}>
+        <div className="card-head">
+          <h3 className="reward-h">Berilgan mukofotlar — {monthYearUz(`${month}-15`)}</h3>
+        </div>
+        {!awards.length ? (
+          <Empty icon={Trophy} title="Bu oy mukofot berilmagan" />
+        ) : (
+          <div className="reward-list">
+            {awards.map((a) => {
+              const [first, last] = split(a.employeeName);
+              return (
+                <div key={a.id} className="reward-row">
+                  <Person first={first} last={last} photo={a.photoDataUrl} sub={`${a.branch} · ${dateUz(a.createdAt)}`} />
+                  <span className="reward-streak">
+                    <b className="plus">+ {money(a.amount)}</b>
+                    <small>{a.days} kun ketma-ket vaqtida</small>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
