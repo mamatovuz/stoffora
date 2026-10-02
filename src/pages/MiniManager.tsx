@@ -15,6 +15,7 @@ import {
   RefreshCw,
   Search,
   LogIn,
+  Gavel,
   LogOut,
   ShieldAlert,
   Square,
@@ -27,6 +28,7 @@ import {
 import { ApiError } from "../api";
 import { can } from "@/lib/permissions";
 import { dateLongUz, dateUz, tashkentIsoDate } from "@/lib/format";
+import { FineSheet, MoneyView } from "./mini/MoneyTools";
 import type { Attendance, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../types";
 import { SkeletonList } from "./mini/shared";
@@ -99,7 +101,8 @@ type Analytics = {
   daily: { date: string; rate: number; late: number; absent: number }[];
   branches: { id: string; name: string; employees: number; attendanceRate: number; punctuality: number; lateMinutes: number; absent: number; score: number | null }[];
 };
-type Pending = { kind: "leave" | "swap" | "advance" | "overtime" | "dayoff" | "mark"; id: string };
+type Pending = { kind: "leave" | "swap" | "advance" | "overtime" | "dayoff" | "mark" | "fine"; id: string };
+type FineRow = { id: string; employeeName: string; branchName: string; amount: number; reason: string; proposedBy?: string; createdAt: string };
 type MarkRow = { id: string; employeeName: string; position?: string; date: string; time: string; kind: "IN" | "OUT"; branchName: string; comment: string };
 type DayOffRow = { id: string; employeeName: string; fromDate: string; toDate: string; fromWeekday: string; toWeekday: string; reason?: string };
 
@@ -115,6 +118,8 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const [swaps, setSwaps] = useState<SwapRow[]>([]);
   const [dayoffs, setDayoffs] = useState<DayOffRow[]>([]);
   const [marks, setMarks] = useState<MarkRow[]>([]);
+  const [fines, setFines] = useState<FineRow[]>([]);
+  const [fining, setFining] = useState(false);
   const [advances, setAdvances] = useState<AdvanceRow[]>([]);
   const [overtime, setOvertime] = useState<OvertimeRow[]>([]);
   const [notices, setNotices] = useState<LateNotice[]>([]);
@@ -144,6 +149,13 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const canAnalytics = can(role, "dashboard.view");
   const canEditAttendance = can(role, "attendance.edit");
   const canAnnounce = can(role, "announcements.create") || role === "BRANCH_MANAGER";
+  // Jarima: HR / direktor / moliya — darhol; filial rahbari — taklif (HR tasdiqlaydi).
+  const fineDirect = can(role, "employees.edit") || can(role, "payroll.edit");
+  const canFine = fineDirect || role === "BRANCH_MANAGER";
+  const canMoney = canAdvances || fineDirect;
+  useEffect(() => {
+    if (!canAttendance && view === "today") setView(canMoney ? "money" : "requests");
+  }, [canAttendance, canMoney, view]);
 
   const handle = useCallback(
     (reason: unknown) => {
@@ -195,6 +207,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
       setSwaps(s.filter((x) => x.status === "PENDING_MANAGER"));
       if (canSwaps) void call<DayOffRow[]>("/dayoff-moves?status=PENDING").then(setDayoffs).catch(() => setDayoffs([]));
       if (canSwaps) void call<MarkRow[]>("/attendance-corrections?status=PENDING").then(setMarks).catch(() => setMarks([]));
+      if (fineDirect) void call<FineRow[]>("/fines?status=PENDING").then(setFines).catch(() => setFines([]));
       setAdvances(a);
       setOvertime(o.rows.filter((r) => r.approved === undefined));
       setNotices(n);
@@ -232,6 +245,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
     if (item.kind === "swap") return call(`/shift-swaps/${item.id}/decide`, { approve });
     if (item.kind === "dayoff") return call(`/dayoff-moves/${item.id}/decide`, { approve });
     if (item.kind === "mark") return call(`/attendance-corrections/${item.id}/decide`, { approve });
+    if (item.kind === "fine") return call(`/fines/${item.id}/decide`, { approve });
     if (item.kind === "advance") return call(`/payroll/advances/${item.id}/decide`, { approve });
     return call(`/attendance/${item.id}/overtime`, { approved: approve });
   };
@@ -296,7 +310,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               : r.state === filter,
     )
     .sort((a, b) => order(a) - order(b) || `${a.employee.firstName}`.localeCompare(`${b.employee.firstName}`));
-  const pendingCount = marks.length + leaves.length + swaps.length + dayoffs.length + advances.length + overtime.length;
+  const pendingCount = fines.length + marks.length + leaves.length + swaps.length + dayoffs.length + advances.length + overtime.length;
   const markDays = [...new Set(marks.map((m) => m.date))].sort((a, b) => b.localeCompare(a));
   const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
 
@@ -332,6 +346,11 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           <h1>{auth.user.name}</h1>
         </div>
         <span className="mg-head-actions">
+          {canFine && (
+            <button className="mg-refresh" onClick={() => setFining(true)} aria-label={fineDirect ? "Jarima yozish" : "Jarima taklif qilish"}>
+              <Gavel size={18} />
+            </button>
+          )}
           {canAnnounce && (
             <button className="mg-refresh" onClick={() => setAnnouncing(true)} aria-label="Tezkor e’lon">
               <Megaphone size={18} />
@@ -342,13 +361,14 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           </button>
         </span>
       </div>
-      <div className="mini-seg four" role="tablist">
+      <div className={`mini-seg ${canMoney && canAttendance && canAnalytics ? "five" : "four"}`} role="tablist">
         {(
           [
             ["today", "Bugun", 0],
             ["requests", "So‘rovlar", pendingCount],
             ...(canAttendance ? ([["map", "Xarita", 0]] as const) : []),
             ...(canAnalytics ? ([["week", "Xulosa", 0]] as const) : []),
+            ...(canMoney ? ([["money", "Moliya", 0]] as const) : []),
           ] as const
         ).map(([key, label, badge]) => (
           <button
@@ -486,6 +506,33 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               Hamma so‘rovlar ko‘rib chiqilgan
             </div>
           )}
+          {fines.length > 0 && <div className="mp-group-title">Jarima takliflari (filial rahbarlaridan)</div>}
+          {fines.map((f) => {
+            const item = { kind: "fine" as const, id: f.id };
+            return (
+              <article className={`mg-req ${isSelected(item) ? "picked" : ""}`} key={f.id}>
+                <div className="mg-req-head">
+                  {pick(item) || (
+                    <span className="mini-ico bad">
+                      <Gavel size={17} />
+                    </span>
+                  )}
+                  <span>
+                    <b>
+                      {f.employeeName} · −{f.amount.toLocaleString("ru-RU")} so‘m
+                    </b>
+                    <small>
+                      {f.branchName} · taklif: {f.proposedBy}
+                    </small>
+                  </span>
+                </div>
+                <p>«{f.reason}»</p>
+                {!selecting && (
+                  <Actions busy={busy === f.id} onApprove={() => act(f.id, () => decide(item, true), "Jarima qo‘llandi — xodimga xabar yuborildi")} onReject={() => void reject(item, `${f.employeeName} jarimasi`)} />
+                )}
+              </article>
+            );
+          })}
           {marks.length > 0 && <div className="mp-group-title">Belgilash so‘rovlari (unutilgan kirish/chiqish)</div>}
           {markDays.map((date) => (
             <div key={date} className="mg-day">
@@ -689,6 +736,20 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           onClose={() => setCardFor(null)}
           onToast={onToast}
           onChanged={() => void load()}
+        />
+      )}
+      {view === "money" && canMoney && <MoneyView call={call} canAdvances={canAdvances} canFines={fineDirect} onError={onToast} />}
+      {fining && (
+        <FineSheet
+          call={call}
+          direct={fineDirect}
+          onClose={() => setFining(false)}
+          onError={onToast}
+          onDone={(text) => {
+            setFining(false);
+            onToast(text);
+            void load();
+          }}
         />
       )}
       {announcing && <QuickAnnounceSheet call={call} branches={branches} onClose={() => setAnnouncing(false)} onToast={onToast} />}

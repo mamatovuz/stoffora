@@ -11,6 +11,7 @@ import {
   Lock,
   Mail,
   MapPin,
+  Phone,
   QrCode,
   Send,
   ShieldCheck,
@@ -100,6 +101,8 @@ export function LoginPage() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [challenge, setChallenge] = useState<{ id: string; telegram: string } | null>(null);
   const [code, setCode] = useState("");
+  const [mode, setMode] = useState<"email" | "phone">("email");
+  const [phone, setPhone] = useState("+998 ");
 
   useEffect(() => {
     void api<{ needsSetup: boolean }>("/setup/status")
@@ -126,7 +129,7 @@ export function LoginPage() {
         requires2fa?: boolean;
         challengeId?: string;
         telegram?: string;
-      }>("/auth/login", { email, password });
+      }>(mode === "phone" ? "/auth/telegram-code" : "/auth/login", mode === "phone" ? { phone } : { email, password });
       if (result.requires2fa && result.challengeId) {
         setChallenge({ id: result.challengeId, telegram: result.telegram || "Telegram" });
         setCode("");
@@ -222,6 +225,29 @@ export function LoginPage() {
           </span>
           <h1>Xush kelibsiz</h1>
           <p>Kompaniya hisobingizga kiring.</p>
+          <div className="login-mode" role="tablist">
+            <button type="button" role="tab" aria-selected={mode === "email"} className={mode === "email" ? "on" : ""} onClick={() => (setMode("email"), setError(""))}>
+              <Mail size={15} /> Email va parol
+            </button>
+            <button type="button" role="tab" aria-selected={mode === "phone"} className={mode === "phone" ? "on" : ""} onClick={() => (setMode("phone"), setError(""))}>
+              <Send size={15} /> Telefon + Telegram kod
+            </button>
+          </div>
+          {mode === "phone" ? (
+            <>
+              <label className="field">
+                <span className="label">Telefon raqamingiz</span>
+                <span className="input-icon">
+                  <Phone size={16} />
+                  <input className="input" type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required autoFocus placeholder="+998 90 123 45 67" />
+                </span>
+              </label>
+              <p className="hint" style={{ marginTop: -4 }}>
+                HR, moliya, IT va filial rahbarlari uchun: lavozimingizga huquq berilgan bo‘lsa, Telegram’ingizga (Staffora boti) 6 xonali kod keladi.
+              </p>
+            </>
+          ) : (
+          <>
           <label className="field">
             <span className="label">Email manzil</span>
             <span className="input-icon">
@@ -262,6 +288,8 @@ export function LoginPage() {
               </button>
             </span>
           </label>
+          </>
+          )}
           <ErrorBox message={error} />
           <button
             className="btn btn-primary btn-lg btn-block"
@@ -273,7 +301,7 @@ export function LoginPage() {
             ) : (
               <ArrowRight size={18} />
             )}
-            {loading ? "Tekshirilmoqda…" : "Tizimga kirish"}
+            {loading ? "Tekshirilmoqda…" : mode === "phone" ? "Kod yuborish" : "Tizimga kirish"}
           </button>
           <p className="hint" style={{ marginTop: 18 }}>
             Xodimmisiz? Davomat uchun kompaniyangiz Telegram botini oching.

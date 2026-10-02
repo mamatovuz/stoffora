@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ManagerPicker, type Picked } from "../components/ManagerPicker";
 import { Link } from "react-router-dom";
 import {
   Building2,
@@ -186,6 +187,11 @@ function BranchForm({
     status: branch?.status || "ACTIVE",
     attendanceMode: branch?.attendanceMode || "QR_GPS_FACE",
   });
+  // Filial rahbarlari (xodimlar): nomlar «manager» matnidan (server shu tartibda yozadi).
+  const [managers, setManagers] = useState<Picked[]>(() => {
+    const names = (branch?.manager || "").split(", ");
+    return (branch?.managerEmployeeIds || []).map((id, i) => ({ id, name: names[i] || "Xodim" }));
+  });
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -227,7 +233,7 @@ function BranchForm({
     }
     setSaving(true);
     try {
-      const body = { ...form, latitude, longitude };
+      const body = { ...form, latitude, longitude, managerEmployeeIds: managers.map((m) => m.id), manager: managers.length ? form.manager : "" };
       if (branch) await put(`/branches/${branch.id}`, body);
       else await post("/branches", body);
       onSaved();
@@ -248,8 +254,8 @@ function BranchForm({
           <Field label="Filial nomi *">
             <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} required minLength={2} placeholder="Bosh ofis" />
           </Field>
-          <Field label="Filial rahbari">
-            <input className="input" value={form.manager} onChange={(e) => set("manager", e.target.value)} />
+          <Field label="Filial rahbari" hint="Tanlangan xodim filial rahbari bo‘ladi: ilova va Mini App’da o‘z filiali xodimlarini, davomatini ko‘radi, jarima taklif qiladi">
+            <ManagerPicker value={managers} onChange={setManagers} />
           </Field>
           <Field label="Manzil *" className="span-2">
             <input className="input" value={form.address} onChange={(e) => set("address", e.target.value)} required minLength={3} placeholder="Shahar, ko‘cha, uy" />

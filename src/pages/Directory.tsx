@@ -1,3 +1,4 @@
+import { STAFF_ROLE_LABELS } from "@/lib/staff-roles";
 import { useEffect, useState } from "react";
 import {
   BriefcaseBusiness,
@@ -35,6 +36,14 @@ import type { Meta } from "../types";
 import { resizePhoto } from "./Employees";
 
 /* ----------------------------------------------- departments/positions --- */
+const ROLE_HINTS: Record<string, string> = {
+  HR_ADMIN: "Xodimlar, davomat, so‘rovlar, jarimalar, hisobotlar va sozlamalar — saytda, Mini App va ilovada.",
+  HR_MANAGER: "Xodimlar, davomat, so‘rovlarni tasdiqlash va jarima — saytda, Mini App va ilovada.",
+  FINANCE: "Ish haqi, avanslar (karta raqamlari), jarimalar va moliyaviy hisobotlar (Excel).",
+  IT_ADMIN: "Qurilmalar, xodimlar ro‘yxati va tizim sozlamalari (saytda).",
+  BRANCH_MANAGER: "O‘z filiali xodimlari va davomati; jarima taklif qiladi (HR tasdiqlaydi). Filial sahifasida qaysi filial ekanini tanlang.",
+};
+
 export function DirectoryPage({ type }: { type: "departments" | "positions" }) {
   const { data, loading, error, reload } = useApi<Meta>("/meta");
   const [editing, setEditing] = useState<Department | Position | "new" | null>(null);
@@ -97,6 +106,12 @@ export function DirectoryPage({ type }: { type: "departments" | "positions" }) {
                   <tr key={row.id}>
                     <td>
                       <b>{row.name}</b>
+                      {!isDept && (row as Position).panelRole && (
+                        <span className="pos-any role" title="Shu lavozimdagilar panel huquqini avtomatik oladi">
+                          <ShieldCheck size={12} />
+                          {STAFF_ROLE_LABELS[(row as Position).panelRole!]}
+                        </span>
+                      )}
                       {!isDept && (row as Position).anyBranch && (
                         <span className="pos-any" title="Istalgan filialdan keldi-ketdi qila oladi">
                           <MapPinned size={12} />
@@ -181,6 +196,7 @@ function DirectoryForm({
   const [anyBranch, setAnyBranch] = useState(Boolean((row as Position)?.anyBranch));
   const [branchIds, setBranchIds] = useState<string[]>((row as Position)?.branchIds || []);
   const [limit, setLimit] = useState(Boolean((row as Position)?.branchIds?.length));
+  const [panelRole, setPanelRole] = useState<string>((row as Position)?.panelRole || "");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function save(e: React.FormEvent) {
@@ -189,7 +205,7 @@ function DirectoryForm({
     setSaving(true);
     setError("");
     try {
-      const body = isDept ? { name, manager } : { name, departmentId, anyBranch, branchIds: anyBranch && limit ? branchIds : [] };
+      const body = isDept ? { name, manager } : { name, departmentId, anyBranch, branchIds: anyBranch && limit ? branchIds : [], panelRole };
       if (row) await put(`/${type}/${row.id}`, body);
       else await post(`/${type}`, body);
       onSaved();
@@ -215,6 +231,18 @@ function DirectoryForm({
               {departments.map((x) => (
                 <option key={x.id} value={x.id}>
                   {x.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
+        {!isDept && (
+          <Field label="Panel huquqi" hint={panelRole ? ROLE_HINTS[panelRole] : "Oddiy xodim: faqat o‘z davomati, so‘rovlari va oyligi."}>
+            <select className="select" value={panelRole} onChange={(e) => setPanelRole(e.target.value)}>
+              <option value="">Yo‘q — oddiy xodim</option>
+              {Object.entries(STAFF_ROLE_LABELS).map(([key, label]) => (
+                <option key={key} value={key}>
+                  {label}
                 </option>
               ))}
             </select>
@@ -346,7 +374,7 @@ export function UsersPage() {
                 {data.map((u) => (
                   <tr key={u.id}>
                     <td>
-                      <Person first={u.name.split(" ")[0]} last={u.name.split(" ")[1]} photo={u.photoDataUrl} sub={u.email} />
+                      <Person first={u.name.split(" ")[0]} last={u.name.split(" ")[1]} photo={u.photoDataUrl} sub={u.autoRole ? "Lavozim/filial orqali · kirish: telefon + Telegram kod" : u.email} />
                     </td>
                     <td data-label="Rol">
                       <span className={`badge plain ${u.role === "COMPANY_OWNER" ? "green" : "blue"}`}>

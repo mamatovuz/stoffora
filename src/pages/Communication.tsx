@@ -323,6 +323,7 @@ const notifMeta: Record<string, { icon: typeof Bell; tone: string; label: string
   LEAVE: { icon: Plane, tone: "blue", label: "Ta’til" },
   ANNOUNCEMENT: { icon: Megaphone, tone: "green", label: "E’lon" },
   ATTENDANCE_REQUEST: { icon: ClockAlert, tone: "blue", label: "Davomat so‘rovi" },
+  FINE: { icon: ClockAlert, tone: "amber", label: "Jarima taklifi" },
 };
 function dayLabel(iso: string) {
   const day = tashkentIsoDate(new Date(iso));

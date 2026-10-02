@@ -39,12 +39,14 @@ import {
   ClipboardCheck,
   TrendingUp,
   ClockAlert,
+  HandCoins,
+  Gavel,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
 import { Avatar } from "./ui";
 import { roleLabels, useAuth } from "../auth";
-import { canOpenPage, homePage } from "@/lib/permissions";
+import { canAny, canOpenPage, homePage } from "@/lib/permissions";
 import { ScreenLock } from "./ScreenLock";
 import { api } from "../api";
 import { useApi, usePolling } from "../hooks";
@@ -76,11 +78,18 @@ const sections: { label: string; items: NavItem[] }[] = [
     ],
   },
   {
-    label: "Hisobot va aloqa",
+    label: "Moliya",
     items: [
       ["/payroll", "Ish haqi", Banknote],
-      ["/analytics", "Tahlil", TrendingUp],
+      ["/advances", "Avans oluvchilar", HandCoins],
+      ["/fines", "Jarimalar", Gavel, "fines"],
       ["/reports", "Hisobotlar", ChartNoAxesCombined],
+    ],
+  },
+  {
+    label: "Tahlil va aloqa",
+    items: [
+      ["/analytics", "Tahlil", TrendingUp],
       ["/announcements", "E’lonlar", Megaphone],
       ["/helpdesk", "Murojaatlar", MessagesSquare],
       ["/notifications", "Bildirishnomalar", Bell, "notifications"],
@@ -169,6 +178,10 @@ export function Shell() {
       window.removeEventListener("staffora:notifications", on);
     };
   }, [reloadCorrections]);
+  const { data: pendingFines, reload: reloadFines } = useApi<{ id: string }[]>(
+    user && canAny(user.role, ["employees.edit", "payroll.edit"]) ? "/fines?status=PENDING" : null,
+  );
+  usePolling(() => void reloadFines(true), 60_000);
   const { data: registrations, reload: reloadRegistrations } = useApi<{ counts: { PENDING: number } }>(
     user && canOpenPage(user.role, "/registrations") ? "/registrations?status=PENDING" : null,
   );
@@ -178,6 +191,7 @@ export function Shell() {
     notifications: notifications?.filter((item) => !item.read).length || 0,
     leave: leave?.filter((item) => item.status === "PENDING").length || 0,
     corrections: corrections?.length || 0,
+    fines: pendingFines?.length || 0,
   };
   const pageTitle = useMemo(() => {
     const exact = pageNames[location.pathname];

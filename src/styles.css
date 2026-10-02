@@ -8953,3 +8953,55 @@ html[data-tg-scheme="dark"] .rc-card, html[data-mini-theme="dark"] .rc-card { bo
 .gender-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .gender-pick button { height: 40px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); color: var(--ink-2); font: inherit; font-weight: 600; cursor: pointer; }
 .gender-pick button.on { border-color: var(--brand); background: var(--brand-50); color: var(--brand-700); }
+
+/* ------------------------------------------------------ moliya: avans va jarima --- */
+.money-table td.wrap { white-space: normal; max-width: 320px; line-height: 1.4; }
+.money-table .mono { font-variant-numeric: tabular-nums; letter-spacing: 0.02em; font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; }
+.money-table tfoot td { padding: 12px 14px; border-top: 1px solid var(--line); font-weight: 600; background: var(--surface-2); }
+.money-table td.minus b { color: var(--red); }
+.money-table tr.row-focus td { background: var(--brand-50); }
+.fine-form { display: grid; gap: 12px; }
+.fine-picked { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
+.fine-results { display: grid; gap: 2px; margin-top: 6px; max-height: 240px; overflow: auto; }
+.fine-results button { display: flex; padding: 7px 8px; border: 0; border-radius: 8px; background: none; text-align: left; cursor: pointer; font: inherit; }
+.fine-results button:hover { background: var(--brand-50); }
+.fine-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+.fine-quick button { padding: 6px 11px; border: 1px solid var(--line); border-radius: 99px; background: var(--surface); color: var(--ink-2); font: inherit; font-size: 13px; cursor: pointer; }
+.fine-quick button.on { border-color: var(--brand); background: var(--brand-50); color: var(--brand-700); font-weight: 600; }
+.mgr-picker { position: relative; display: grid; gap: 6px; }
+.mgr-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.mgr-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 6px 4px 10px; border-radius: 99px; background: var(--brand-50); color: var(--brand-700); font-size: 13px; font-weight: 600; }
+.mgr-chip button { display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.mgr-chip button:hover { background: var(--brand-100); }
+.mgr-options { position: absolute; top: 100%; left: 0; right: 0; z-index: 30; display: grid; margin-top: 4px; padding: 4px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); box-shadow: var(--shadow-lg); }
+.mgr-options button { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 8px 10px; border: 0; border-radius: 7px; background: none; text-align: left; font: inherit; cursor: pointer; }
+.mgr-options button:hover { background: var(--brand-50); }
+.mgr-options small { color: var(--muted); }
+.pos-any.role { background: var(--violet-bg); color: var(--violet); }
+.login-mode { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; margin: 4px 0 14px; border-radius: 12px; background: var(--gray-bg); }
+.login-mode button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 38px; border: 0; border-radius: 9px; background: none; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }
+.login-mode button.on { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-xs); }
+
+/* Mini App: moliya vositalari */
+.mf-picked { display: flex; align-items: center; gap: 10px; padding: 10px; border-radius: 12px; background: var(--m-tint); }
+.mf-picked > span { flex: 1; display: grid; }
+.mf-picked small { color: var(--m-muted, #8a8f98); }
+.mf-list { display: grid; gap: 2px; max-height: 230px; overflow: auto; margin: 6px 0 4px; }
+.mf-list button { display: flex; align-items: center; gap: 10px; padding: 8px; border: 0; border-radius: 10px; background: none; color: inherit; font: inherit; text-align: left; }
+.mf-list button:active { background: var(--m-tint); }
+.mf-list button span { display: grid; }
+.mf-list small { color: var(--m-muted, #8a8f98); }
+.mf-quick { display: flex; gap: 6px; flex-wrap: wrap; margin: -2px 0 6px; }
+.mf-quick button { padding: 6px 12px; border: 0; border-radius: 99px; background: var(--m-tint); color: inherit; font: inherit; font-size: 13px; font-weight: 600; }
+.mf-quick button.on { background: var(--m-accent, #2563eb); color: #fff; }
+.mf-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; }
+.mf-stats > div { display: grid; gap: 2px; padding: 14px; border-radius: 16px; background: var(--m-card, #fff); }
+.mf-stats small { color: var(--m-muted, #8a8f98); font-size: 12px; }
+.mf-stats b { font-size: 19px; letter-spacing: -0.02em; }
+.mf-stats .bad b { color: var(--m-danger, #e5484d); }
+.mf-n { width: 26px; text-align: center; color: var(--m-muted, #8a8f98); font-weight: 600; }
+.mf-amount { display: grid; justify-items: end; gap: 2px; white-space: nowrap; }
+.mf-amount small { font-size: 11.5px; color: var(--m-muted, #8a8f98); }
+.mf-amount small.ok { color: var(--m-success, #2fb26a); }
+.mf-amount small.warn { color: #d97706; }
+.mf-amount .bad { color: var(--m-danger, #e5484d); }

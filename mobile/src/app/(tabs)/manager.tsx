@@ -3,13 +3,14 @@ import { mediaUri } from "@/lib/config";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { MiniMap } from "@/components/MiniMap";
+import { FineSheet, MoneyView } from "@/components/MoneyTools";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
 import { dateUz, dayTitle, som, tashkentIsoDate, timeAgo } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
 
-type MView = "today" | "requests" | "map" | "week";
+type MView = "today" | "requests" | "map" | "week" | "money";
 type Emp = { id: string; firstName: string; lastName: string; photoDataUrl?: string; branchId: string };
 type RosterRow = {
   employee: Emp;
@@ -21,7 +22,7 @@ type RosterRow = {
 };
 type Day = { date: string; rows: RosterRow[] };
 type Branch = { id: string; name: string; latitude: number; longitude: number; radiusMeters: number };
-type Pending = { kind: "leave" | "swap" | "dayoff" | "advance" | "overtime" | "mark"; id: string; title: string; sub: string; extra?: string; date?: string; employeeId?: string; markKind?: "IN" | "OUT"; time?: string; branch?: string; photo?: string };
+type Pending = { kind: "leave" | "swap" | "dayoff" | "advance" | "overtime" | "mark" | "fine"; id: string; title: string; sub: string; extra?: string; date?: string; employeeId?: string; markKind?: "IN" | "OUT"; time?: string; branch?: string; photo?: string };
 type MarkRow = { id: string; employeeId: string; employeeName: string; photoDataUrl?: string; date: string; time: string; kind: "IN" | "OUT"; branchName: string; comment: string };
 type LateNotice = { id: string; employeeName: string; minutes: number; reason: string; createdAt: string };
 type Analytics = {
@@ -55,6 +56,8 @@ export default function Manager() {
   const [filter, setFilter] = useState<Filter>("ALL");
   const [query, setQuery] = useState("");
   const [announcing, setAnnouncing] = useState(false);
+  const [fining, setFining] = useState(false);
+  const [moneyKey, setMoneyKey] = useState(0);
   const [updatedAt, setUpdatedAt] = useState("");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -72,7 +75,8 @@ export default function Manager() {
       const canOt = can(role, "attendance.edit") || advFin;
       const month = tashkentIsoDate().slice(0, 7);
       const safe = <T,>(p: Promise<T>, fallback: T) => p.catch((e) => (e instanceof ApiError && e.status === 403 ? fallback : Promise.reject(e)));
-      const [d, leaves, swaps, dayoffs, advances, company, ot, n, b, marks] = await Promise.all([
+      const fineDirect = can(role, "employees.edit") || can(role, "payroll.edit");
+      const [d, leaves, swaps, dayoffs, advances, company, ot, n, b, marks, fines] = await Promise.all([
         canAtt ? safe(mcall<Day>(`/attendance/day?date=${tashkentIsoDate()}`), null) : null,
         canLeave ? safe(mcall<{ id: string; type: string; startDate: string; endDate: string; reason?: string; status: string; employee?: Emp }[]>("/leave"), []) : [],
         canSwaps ? safe(mcall<{ id: string; requesterName: string; colleagueName: string; giveDate: string; takeDate?: string; reason?: string; status: string }[]>("/shift-swaps"), []) : [],
@@ -83,9 +87,17 @@ export default function Manager() {
         canAtt ? mcall<LateNotice[]>("/late-notices").catch(() => []) : [],
         canAtt ? mcall<Branch[]>("/branches").catch(() => []) : [],
         canSwaps ? safe(mcall<MarkRow[]>("/attendance-corrections?status=PENDING"), []) : [],
+        fineDirect ? safe(mcall<{ id: string; employeeName: string; branchName: string; amount: number; reason: string; proposedBy?: string }[]>("/fines?status=PENDING"), []) : [],
       ]);
       const twoStep = company.payroll?.advanceHrApproval !== false;
       const list: Pending[] = [
+        ...fines.map((f) => ({
+          kind: "fine" as const,
+          id: f.id,
+          title: `Jarima taklifi: ${f.employeeName}`,
+          sub: `${som(f.amount)} · ${f.branchName} · taklif: ${f.proposedBy || "—"}`,
+          extra: f.reason,
+        })),
         ...marks.map((m) => ({
           kind: "mark" as const,
           id: m.id,
@@ -147,6 +159,7 @@ export default function Manager() {
       else if (item.kind === "swap") await mcall(`/shift-swaps/${item.id}/decide`, { approve });
       else if (item.kind === "dayoff") await mcall(`/dayoff-moves/${item.id}/decide`, { approve });
       else if (item.kind === "mark") await mcall(`/attendance-corrections/${item.id}/decide`, { approve });
+      else if (item.kind === "fine") await mcall(`/fines/${item.id}/decide`, { approve });
       else if (item.kind === "advance") await mcall(`/payroll/advances/${item.id}/decide`, { approve });
       else await mcall(`/attendance/${item.id}/overtime`, { approved: approve });
       haptic.success();
@@ -177,6 +190,16 @@ export default function Manager() {
       (!query.trim() || name(r.employee).toLowerCase().includes(query.trim().toLowerCase())),
   );
   const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
+  const role = auth?.user.role || "";
+  const fineDirectRole = can(role, "employees.edit") || can(role, "payroll.edit");
+  const canFine = fineDirectRole || role === "BRANCH_MANAGER";
+  const canMoneyAdvances = can(role, "payroll.edit") || can(role, "employees.edit") || can(role, "leave.approve");
+  const canMoney = canMoneyAdvances || fineDirectRole;
+  // Davomatni ko‘rmaydigan rol (moliya) — darhol «Moliya».
+  const noAttendance = Boolean(auth) && !can(role, "attendance.view");
+  useEffect(() => {
+    if (noAttendance && view === "today") setView(canMoney ? "money" : "requests");
+  }, [noAttendance, view, canMoney]);
   const marks = pending.filter((p) => p.kind === "mark");
   const others = pending.filter((p) => p.kind !== "mark");
   const markDays = [...new Set(marks.map((p) => p.date!))].sort((a, b) => b.localeCompare(a));
@@ -201,11 +224,18 @@ export default function Manager() {
       refreshing={loading}
       onRefresh={load}
       right={
-        can(auth.user.role, "announcements.create") || auth.user.role === "BRANCH_MANAGER" ? (
-          <Pressable onPress={() => setAnnouncing(true)} style={[st.round, { backgroundColor: c.card }]} accessibilityLabel="Tezkor e’lon">
-            <Icon name="megaphone-outline" size={20} color={c.accent} />
-          </Pressable>
-        ) : undefined
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          {canFine ? (
+            <Pressable onPress={() => setFining(true)} style={[st.round, { backgroundColor: c.card }]} accessibilityLabel="Jarima">
+              <Icon name="hammer-outline" size={20} color={c.danger} />
+            </Pressable>
+          ) : null}
+          {can(auth.user.role, "announcements.create") || auth.user.role === "BRANCH_MANAGER" ? (
+            <Pressable onPress={() => setAnnouncing(true)} style={[st.round, { backgroundColor: c.card }]} accessibilityLabel="Tezkor e’lon">
+              <Icon name="megaphone-outline" size={20} color={c.accent} />
+            </Pressable>
+          ) : null}
+        </View>
       }
     >
       <Segmented<MView>
@@ -216,6 +246,7 @@ export default function Manager() {
           ["requests", "So‘rovlar", pending.length],
           ["map", "Xarita"],
           ["week", "Xulosa"],
+          ...(canMoney ? ([["money", "Moliya"]] as [MView, string][]) : []),
         ]}
       />
       {error ? <ErrorBox text={error} onRetry={load} /> : null}
@@ -427,6 +458,18 @@ export default function Manager() {
         )
       ) : null}
 
+      {view === "money" && canMoney ? <MoneyView canAdvances={canMoneyAdvances} canFines={fineDirectRole} reloadKey={moneyKey} /> : null}
+      <FineSheet
+        visible={fining}
+        direct={fineDirectRole}
+        onClose={() => setFining(false)}
+        onDone={(text) => {
+          setFining(false);
+          Alert.alert("Tayyor", text);
+          setMoneyKey((k) => k + 1);
+          void load();
+        }}
+      />
       <AnnounceSheet visible={announcing} branches={branches} onClose={() => setAnnouncing(false)} />
     </Screen>
   );

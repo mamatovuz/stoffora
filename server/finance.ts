@@ -144,6 +144,34 @@ export function createFinanceRouter() {
     }),
   );
 
+  /** Jarima uchun xodim qidirish (filial rahbari — faqat o‘z filiali). */
+  router.get(
+    "/fines/employees",
+    permit(canFineView),
+    route(async (req, res) => {
+      const tenant = req.session!.companyId!;
+      const db = await readDb();
+      const scope = scopeOf(req, db);
+      const q = String(req.query.q || "").trim().toLowerCase();
+      res.json(
+        db.employees
+          .filter((e) => e.companyId === tenant && e.status === "ACTIVE" && (!scope || scope.has(e.branchId)))
+          .filter((e) => !q || `${e.firstName} ${e.lastName} ${e.employeeNo}`.toLowerCase().includes(q))
+          .sort((a, b) => nameOf(a).localeCompare(nameOf(b)))
+          .slice(0, Math.min(50, Number(req.query.limit) || 12))
+          .map((e) => ({
+            id: e.id,
+            firstName: e.firstName,
+            lastName: e.lastName,
+            employeeNo: e.employeeNo,
+            photoDataUrl: e.photoDataUrl,
+            branchName: db.branches.find((b) => b.id === e.branchId)?.name || "",
+            baseSalary: canFineDirect(req.session!.role) ? e.baseSalary : undefined,
+          })),
+      );
+    }),
+  );
+
   router.post(
     "/fines",
     permit(canFineView),
