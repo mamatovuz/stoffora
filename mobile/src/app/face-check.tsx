@@ -3,7 +3,6 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Svg, { Rect } from "react-native-svg";
 import { MiniMap } from "@/components/MiniMap";
 import { Button, Icon, haptic } from "@/components/ui";
 import { ApiError, errorText, post } from "@/lib/api";
@@ -48,7 +47,7 @@ export default function FaceCheck() {
   const alive = useRef(true);
   const active = useRef(true);
   const session = useRef<{ id: string; requiresQr: boolean; photo: string } | null>(null);
-  const [holdValue, setHoldValue] = useState(0);
+  const [area, setArea] = useState<{ w: number; h: number } | null>(null);
 
   useEffect(() => {
     alive.current = true;
@@ -125,13 +124,11 @@ export default function FaceCheck() {
         if (!ok) {
           streak = 0;
           greens = [];
-          setHoldValue(0);
           continue;
         }
         if (!streak) haptic.tap();
         streak += 1;
         greens.push(photo);
-        setHoldValue(Math.min(1, streak / GREEN_STREAK));
         if (streak < GREEN_STREAK) continue;
 
         /* ------------------------------- yakuniy tekshiruv (serverda) --- */
@@ -147,7 +144,6 @@ export default function FaceCheck() {
           if (!alive.current) return;
           if (reason instanceof ApiError && ["NO_FACE", "NOT_LIVE", "REPLAY"].includes(reason.code || "")) {
             // Kadrlar yaroqsiz — jimgina qaytadan (effekt qayta ishga tushadi).
-            setHoldValue(0);
             setGreen(false);
             setPhase("face");
             return;
@@ -229,7 +225,6 @@ export default function FaceCheck() {
     setPercent(null);
     setGreen(false);
     setPlace("loading");
-    setHoldValue(0);
     scanned.current = false;
     session.current = null;
     setPhase("face");
@@ -273,65 +268,65 @@ export default function FaceCheck() {
 
   if (phase === "done" && result) return <Receipt action={action} attendance={result} percent={percent} branchName={branch?.name} distance={gap} />;
 
+  // Ramka ekranda: rasm (3:4) kamera maydonini «cover» bilan to‘ldiradi — ramka rasmdagi joyiga mos chiziladi.
+  const frameBox = (() => {
+    if (!area) return null;
+    const scale = Math.max(area.w / 3, area.h / 4);
+    const iw = 3 * scale;
+    const ih = 4 * scale;
+    const size = FRAME.w * iw;
+    return { size, left: area.w / 2 - size / 2, top: area.h / 2 + (FRAME.cy - 0.5) * ih - size / 2 };
+  })();
+
   return (
     <View style={st.root}>
-      <View style={[st.top, { paddingTop: insets.top + 6 }]}>
-        <Pressable onPress={() => router.back()} style={st.round} hitSlop={8} accessibilityLabel="Orqaga">
-          <Icon name="chevron-back" size={22} color="#fff" />
-        </Pressable>
-        <View style={{ flex: 1 }}>
+      {/* Kamera — tepada to‘liq; yuz turadigan joyda bitta ramka */}
+      <View style={st.camera} onLayout={(e) => setArea({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}>
+        {phase === "qr" ? (
+          <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ["qr"] }} onBarcodeScanned={onQr} />
+        ) : (
+          <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="front" zoom={0} animateShutter={false} mirror={false} onCameraReady={() => setReady(true)} />
+        )}
+        {frameBox && phase !== "qr" ? (
+          <View pointerEvents="none" style={[st.frame, { width: frameBox.size, height: frameBox.size, left: frameBox.left, top: frameBox.top }]}>
+            {[0, 1, 2, 3].map((i) => (
+              <View key={i} style={[cornerStyle(i), { borderColor: color }]} />
+            ))}
+          </View>
+        ) : null}
+        {phase === "verifying" || phase === "locating" || phase === "committing" ? (
+          <View style={[StyleSheet.absoluteFill, st.busy]}>
+            <ActivityIndicator color="#fff" size="large" />
+          </View>
+        ) : null}
+
+        <View style={[st.top, { paddingTop: insets.top + 8 }]}>
           <Text style={st.topTitle}>{action === "CHECK_IN" ? "Ishga kelish" : "Ishdan ketish"}</Text>
           <Text style={st.topSub} numberOfLines={1}>
             {tashkentClock()} · {branch?.name || "Filial"}
           </Text>
         </View>
-        {percent !== null && phase === "face" ? (
-          <View style={[st.percent, { backgroundColor: green ? "#30D158" : place === "ok" ? "#FF453A" : "rgba(255,255,255,0.18)" }]}>
-            <Text style={{ color: "#fff", fontWeight: "700", fontVariant: ["tabular-nums"] }}>{percent}%</Text>
-          </View>
-        ) : null}
-      </View>
 
-      {/* Kamera oynasi: 3:4, kesilmaydi; ramka markazda qotirilgan. */}
-      <View style={st.stage}>
-        <View style={st.view}>
-          {phase === "qr" ? (
-            <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ["qr"] }} onBarcodeScanned={onQr} />
-          ) : (
-            <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="front" zoom={0} ratio="4:3" animateShutter={false} mirror={false} onCameraReady={() => setReady(true)} />
-          )}
-          <View style={[st.frame, { width: `${FRAME.w * 100}%`, top: `${(FRAME.cy - FRAME.h / 2) * 100}%` }]} pointerEvents="none">
-            {[0, 1, 2, 3].map((i) => (
-              <View key={i} style={[cornerStyle(i), { borderColor: color }]} />
-            ))}
-            {phase === "face" && green ? <HoldRing progress={holdValue} /> : null}
-            {phase === "face" && !green ? <ScanLine color={tone === "bad" ? "#FF6B6B" : "#FFFFFF"} /> : null}
-          </View>
-          {phase !== "face" && phase !== "qr" && phase !== "error" ? (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" }]}>
-              <ActivityIndicator color="#fff" size="large" />
-            </View>
-          ) : null}
-          <View style={[st.pill, { backgroundColor: tone === "ok" ? "rgba(48,209,88,0.92)" : tone === "bad" ? "rgba(255,69,58,0.9)" : "rgba(20,20,22,0.72)" }]}>
-            <Text style={st.pillText} numberOfLines={2}>
+        <View style={st.statusWrap}>
+          <View style={[st.status, tone === "ok" && { backgroundColor: "rgba(48,209,88,0.95)" }, tone === "bad" && phase === "error" && { backgroundColor: "rgba(255,69,58,0.92)" }]}>
+            <Text style={st.statusText} numberOfLines={2}>
               {pill}
             </Text>
           </View>
         </View>
-        {phase === "face" && place === "ok" && !green && percent !== null ? <Text style={st.need}>Kerak: {pass}% dan yuqori</Text> : null}
       </View>
 
-      {/* Xarita va amallar */}
-      <View style={[st.panel, { paddingBottom: insets.bottom + 12 }]}>
+      {/* Pastda — xarita (ortiqcha narsalarsiz) va tugma */}
+      <View style={[st.panel, { paddingBottom: insets.bottom + 10 }]}>
         {branch ? (
-          <MiniMap branch={branch} radius={branch.radiusMeters} me={fix} height={150}>
-            <View style={st.gps}>
-              <Icon name={fix ? "navigate" : "location-outline"} size={14} color={fix ? (inside ? "#4ADE80" : "#F87171") : "#fff"} />
-              <Text style={st.gpsText} numberOfLines={1}>
+          <View style={st.mapWrap}>
+            <MiniMap branch={branch} radius={branch.radiusMeters} me={fix} height={210} />
+            <View style={st.mapNote}>
+              <Text style={st.mapNoteText} numberOfLines={1}>
                 {fix
                   ? inside
-                    ? `Filial hududidasiz · ${gap} m · ±${fix.accuracy} m`
-                    : `Filialdan ${Math.max(0, (gap || 0) - branch.radiusMeters)} m uzoqdasiz · ±${fix.accuracy} m`
+                    ? `Filial hududidasiz · ±${fix.accuracy} m`
+                    : `Filialdan ${Math.max(0, (gap || 0) - branch.radiusMeters)} m uzoqda`
                   : gpsError || "Joylashuv aniqlanmoqda…"}
               </Text>
               {gpsError || inside === false ? (
@@ -340,23 +335,21 @@ export default function FaceCheck() {
                 </Pressable>
               ) : null}
             </View>
-          </MiniMap>
+          </View>
         ) : (
           <View style={st.nobranch}>
             <Text style={{ color: "#aaa" }}>Filial biriktirilmagan — HR bilan bog‘laning</Text>
           </View>
         )}
-        <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
-          <Button title="Orqaga" tone="ghost" onPress={() => router.back()} style={{ flex: 0, minWidth: 110, backgroundColor: "#1C1C1E", borderColor: "#2C2C2E" }} />
+        <View style={st.actions}>
+          <Pressable onPress={() => router.back()} style={({ pressed }) => [st.action, pressed && { opacity: 0.7 }]}>
+            <Text style={st.actionText}>Orqaga</Text>
+          </Pressable>
           {phase === "error" ? (
-            <Button title="Qayta urinish" icon="refresh" onPress={retry} style={{ flex: 1 }} />
-          ) : (
-            <View style={{ flex: 1, justifyContent: "center" }}>
-              <Text style={{ color: "#8E8E93", textAlign: "center", fontSize: 13 }}>
-                {phase === "qr" ? "QR kod avtomatik o‘qiladi" : green ? "Qimirlamang…" : `Yashil bo‘lsa — avtomatik ${action === "CHECK_IN" ? "keldi" : "ketdi"}`}
-              </Text>
-            </View>
-          )}
+            <Pressable onPress={retry} style={({ pressed }) => [st.action, { backgroundColor: "#0A84FF" }, pressed && { opacity: 0.8 }]}>
+              <Text style={st.actionText}>Qayta urinish</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </View>
@@ -373,51 +366,12 @@ function pickBranch<T extends { latitude: number; longitude: number; radiusMeter
 }
 
 function cornerStyle(i: number) {
-  const r = 18;
-  const base = { position: "absolute" as const, width: "26%" as const, height: "26%" as const, borderWidth: 3.5 };
+  const r = 22;
+  const base = { position: "absolute" as const, width: "22%" as const, height: "22%" as const, borderWidth: 3 };
   if (i === 0) return { ...base, left: 0, top: 0, borderRightWidth: 0, borderBottomWidth: 0, borderTopLeftRadius: r };
   if (i === 1) return { ...base, right: 0, top: 0, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: r };
   if (i === 2) return { ...base, right: 0, bottom: 0, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: r };
   return { ...base, left: 0, bottom: 0, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: r };
-}
-
-/** Yumaloq to‘rtburchak perimetri (97×97, rx 14) — progress chizig‘i uchun. */
-const PERIMETER = 4 * (97 - 28) + 2 * Math.PI * 14;
-/** Qidiruv paytida ramka ichida yuqoridan pastga yuradigan yumshoq chiziq. */
-function ScanLine({ color }: { color: string }) {
-  const y = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(Animated.timing(y, { toValue: 1, duration: 2100, useNativeDriver: true }));
-    loop.start();
-    return () => loop.stop();
-  }, [y]);
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <Animated.View
-        style={{
-          position: "absolute",
-          left: "10%",
-          right: "10%",
-          height: 2,
-          borderRadius: 2,
-          backgroundColor: color,
-          shadowColor: color,
-          shadowOpacity: 0.9,
-          shadowRadius: 8,
-          opacity: y.interpolate({ inputRange: [0, 0.12, 0.88, 1], outputRange: [0, 0.9, 0.9, 0] }),
-          transform: [{ translateY: y.interpolate({ inputRange: [0, 1], outputRange: [12, 200] }) }],
-        }}
-      />
-    </View>
-  );
-}
-
-function HoldRing({ progress }: { progress: number }) {
-  return (
-    <Svg style={{ position: "absolute", left: -7, top: -7, right: -7, bottom: -7 }} viewBox="0 0 100 100" preserveAspectRatio="none">
-      <Rect x={1.5} y={1.5} width={97} height={97} rx={14} fill="none" stroke="#30D158" strokeWidth={2.2} strokeLinecap="round" strokeDasharray={`${progress * PERIMETER} ${PERIMETER}`} />
-    </Svg>
-  );
 }
 
 /** Natija: faqat server qayd etgandan keyin ko‘rsatiladi. */
@@ -461,20 +415,22 @@ function Receipt({ action, attendance, percent, branchName, distance }: { action
 
 const st = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
-  top: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingBottom: 8 },
-  round: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center" },
-  topTitle: { color: "#fff", fontSize: 17, fontWeight: "600" },
-  topSub: { color: "rgba(255,255,255,0.7)", fontSize: 12.5 },
-  percent: { paddingHorizontal: 11, paddingVertical: 5, borderRadius: 99 },
-  stage: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 12 },
-  view: { width: "100%", maxHeight: "100%", aspectRatio: 3 / 4, borderRadius: 28, overflow: "hidden", backgroundColor: "#111" },
-  frame: { position: "absolute", left: `${(1 - FRAME.w) * 50}%`, aspectRatio: 1 },
-  pill: { position: "absolute", left: 16, right: 16, bottom: 16, alignItems: "center", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14 },
-  pillText: { color: "#fff", fontSize: 15, fontWeight: "600", textAlign: "center" },
-  need: { color: "rgba(255,255,255,0.7)", fontSize: 12, marginTop: 6 },
-  panel: { paddingHorizontal: 12, paddingTop: 10, backgroundColor: "#000" },
-  gps: { position: "absolute", left: 8, right: 8, bottom: 8, flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 12, backgroundColor: "rgba(15,23,42,0.78)" },
-  gpsText: { flex: 1, color: "#fff", fontSize: 13, fontWeight: "500" },
+  camera: { flex: 1, backgroundColor: "#111", overflow: "hidden" },
+  frame: { position: "absolute" },
+  busy: { backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" },
+  top: { position: "absolute", left: 0, right: 0, top: 0, alignItems: "center", paddingBottom: 10 },
+  topTitle: { color: "#fff", fontSize: 17, fontWeight: "600", textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 6 },
+  topSub: { color: "rgba(255,255,255,0.85)", fontSize: 13, marginTop: 2, textShadowColor: "rgba(0,0,0,0.5)", textShadowRadius: 6 },
+  statusWrap: { position: "absolute", left: 0, right: 0, bottom: 40, alignItems: "center", paddingHorizontal: 24 },
+  status: { paddingHorizontal: 16, paddingVertical: 9, borderRadius: 14, backgroundColor: "rgba(0,0,0,0.55)" },
+  statusText: { color: "#fff", fontSize: 15, fontWeight: "600", textAlign: "center" },
+  panel: { marginTop: -26, borderTopLeftRadius: 26, borderTopRightRadius: 26, overflow: "hidden", backgroundColor: "#0B0B0C" },
+  mapWrap: { position: "relative" },
+  mapNote: { position: "absolute", left: 12, bottom: 12, maxWidth: "80%", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: "rgba(20,20,22,0.82)" },
+  mapNoteText: { color: "#fff", fontSize: 13, fontWeight: "500", flexShrink: 1 },
+  actions: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 12 },
+  action: { flex: 1, height: 52, borderRadius: 16, backgroundColor: "#1C1C1E", alignItems: "center", justifyContent: "center" },
+  actionText: { color: "#fff", fontSize: 16, fontWeight: "600" },
   nobranch: { height: 80, borderRadius: 16, backgroundColor: "#1C1C1E", alignItems: "center", justifyContent: "center" },
   permTitle: { color: "#fff", fontSize: 22, fontWeight: "700" },
   permText: { color: "#aaa", fontSize: 15, textAlign: "center", lineHeight: 21 },

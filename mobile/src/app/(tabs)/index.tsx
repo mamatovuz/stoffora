@@ -160,7 +160,7 @@ export default function Home() {
         ) : data.todayLeave && !working ? (
           <View style={{ gap: 8 }}>
             <View style={[st.done, { backgroundColor: `${c.violet}18` }]}>
-              <Text style={{ color: c.violet, fontWeight: "500" }}>🏖 Bugun ta’tildasiz — dam oling!</Text>
+              <Text style={{ color: c.violet, fontWeight: "500" }}>Bugun ta’tildasiz — dam oling</Text>
             </View>
             <Pressable onPress={() => start("CHECK_IN")} style={{ alignSelf: "center", padding: 6 }}>
               <Text style={{ color: c.accent, fontWeight: "500" }}>Baribir ishga keldim</Text>
@@ -213,7 +213,7 @@ export default function Home() {
         <Stat value={String(data.month.days)} label="kun keldi" />
         <Stat value={String(data.month.late)} label="kechikish" warn={data.month.late > 0} border />
         {streak > 0 ? (
-          <Stat value={`${stats.data?.streak.badge?.emoji || "🔥"} ${streak}`} label="kun vaqtida" border onPress={() => go("/(tabs)/history")} />
+          <Stat value={String(streak)} label="kun vaqtida" border onPress={() => go("/(tabs)/history")} />
         ) : (
           <Stat value={String(Math.round(data.month.workedMinutes / 60))} label="soat" border />
         )}
@@ -224,14 +224,14 @@ export default function Home() {
       {/* ----------------------------------------------- tezkor bo‘limlar --- */}
       <GroupTitle>Tezkor bo‘limlar</GroupTitle>
       <Card style={st.quick}>
-        <Tile icon="calendar" color="#FF3B30" label="Grafigim" onPress={() => go({ pathname: "/(tabs)/history", params: { view: "schedule" } })} />
-        <Tile icon="stats-chart" color="#5856D6" label="Statistika" onPress={() => go({ pathname: "/(tabs)/history", params: { view: "stats" } })} />
-        <Tile icon="timer" color="#FF9500" label="Qo‘shimcha" onPress={() => go({ pathname: "/(tabs)/requests", params: { view: "overtime" } })} />
-        <Tile icon="people" color="#34C759" label="Hamkasblar" onPress={() => go("/directory")} />
-        <Tile icon="receipt" color="#30B0C7" label="Hisob varaqa" onPress={() => go("/payslips")} />
-        <Tile icon="airplane" color="#007AFF" label="Ta’til" onPress={() => go({ pathname: "/(tabs)/requests", params: { view: "leave" } })} />
-        <Tile icon="chatbubble-ellipses" color="#AF52DE" label="HR’ga savol" onPress={() => go({ pathname: "/helpdesk", params: { view: "questions" } })} />
-        <Tile icon="document-text" color="#8E8E93" label="Spravka" onPress={() => go({ pathname: "/helpdesk", params: { view: "certificates" } })} />
+        <Tile icon="calendar-outline" label="Grafigim" onPress={() => go({ pathname: "/(tabs)/history", params: { view: "schedule" } })} />
+        <Tile icon="stats-chart-outline" label="Statistika" onPress={() => go({ pathname: "/(tabs)/history", params: { view: "stats" } })} />
+        <Tile icon="timer-outline" label="Qo‘shimcha" onPress={() => go({ pathname: "/(tabs)/requests", params: { view: "overtime" } })} />
+        <Tile icon="people-outline" label="Hamkasblar" onPress={() => go("/directory")} />
+        <Tile icon="receipt-outline" label="Hisob varaqa" onPress={() => go("/payslips")} />
+        <Tile icon="airplane-outline" label="Ta’til" onPress={() => go({ pathname: "/(tabs)/requests", params: { view: "leave" } })} />
+        <Tile icon="chatbubble-ellipses-outline" label="HR’ga savol" onPress={() => go({ pathname: "/helpdesk", params: { view: "questions" } })} />
+        <Tile icon="document-text-outline" label="Spravka" onPress={() => go({ pathname: "/helpdesk", params: { view: "certificates" } })} />
       </Card>
 
       {data.month.practiceUntil ? (
@@ -281,7 +281,7 @@ function Stat({ value, label, warn, border, onPress }: { value: string; label: s
   );
 }
 
-function Tile({ icon, color, label, onPress }: { icon: IconName; color: string; label: string; onPress: () => void }) {
+function Tile({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
   const { c } = useTheme();
   return (
     <Pressable
@@ -291,8 +291,8 @@ function Tile({ icon, color, label, onPress }: { icon: IconName; color: string; 
       }}
       style={({ pressed }) => [st.tile, pressed && { opacity: 0.6, transform: [{ scale: 0.95 }] }]}
     >
-      <View style={[st.tileIcon, { backgroundColor: color }]}>
-        <Icon name={icon} size={21} color="#fff" />
+      <View style={[st.tileIcon, { backgroundColor: `${c.accent}12` }]}>
+        <Icon name={icon} size={22} color={c.accent} />
       </View>
       <Text style={{ color: c.ink, fontSize: 11.5, textAlign: "center", fontWeight: "500" }} numberOfLines={1}>
         {label}
@@ -454,7 +454,7 @@ const st = StyleSheet.create({
   stats: { flexDirection: "row", paddingVertical: 12, paddingHorizontal: 4 },
   quick: { flexDirection: "row", flexWrap: "wrap", paddingVertical: 8, paddingHorizontal: 4 },
   tile: { width: "25%", alignItems: "center", gap: 7, paddingVertical: 10 },
-  tileIcon: { width: 46, height: 46, borderRadius: ios ? 13 : 15, alignItems: "center", justifyContent: "center" },
+  tileIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
   bar: { height: 6, borderRadius: 3, overflow: "hidden" },
   notifHead: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8 },
   unread: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },

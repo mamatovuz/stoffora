@@ -29,10 +29,10 @@ export const verifyFaces = (photos: string[]) => post<{ proof: string; percent: 
 export const enrollFaces = (photos: string[]) => post<{ ok: true; proof: string }>("/mobile/face/enroll", { photos }, 30_000);
 
 /**
- * Qotirilgan ramka (ekranda: 3:4 oynaning markazi, kengligining 60%i) rasm koordinatalarida.
- * Rasm ham 3:4, shuning uchun bir xil: kenglik ulushi 0.6, balandlik ulushi 0.6·(3/4)=0.45.
+ * Qotirilgan kvadrat ramka rasm (3:4) koordinatalarida: kengligi rasmning 50%i, balandlik ulushi 0.5·(3/4).
+ * Ekranda kamera «cover» bilan to‘ldirilgani uchun ramka shu joyga hisoblab chiziladi (face-check.tsx).
  */
-export const FRAME = { cx: 0.5, cy: 0.47, w: 0.6, h: 0.45 };
+export const FRAME = { cx: 0.5, cy: 0.45, w: 0.5, h: 0.375 };
 export type Placement = "ok" | "none" | "far" | "near" | "offcenter" | "tilted" | "dark";
 
 export function placement(face: FaceProbe["face"]): Placement {
