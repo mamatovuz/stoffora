@@ -146,9 +146,11 @@ type FineRow = { id: string; employeeName: string; branchName: string; amount: n
 export function MoneyView({ call, canAdvances, canFines, onError }: { call: Call; canAdvances: boolean; canFines: boolean; onError: Toast }) {
   const [advances, setAdvances] = useState<AdvanceRow[] | null>(canAdvances ? null : []);
   const [fines, setFines] = useState<FineRow[] | null>(canFines ? null : []);
+  const [summary, setSummary] = useState<{ net: number; employees: number; advance: number; fine: number; bonus: number; advances: { pendingCount: number; unpaidCount: number }; pendingFines: number } | null>(null);
   const month = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 7);
   useEffect(() => {
     const fail = (e: unknown) => onError(e instanceof Error ? e.message : "Xatolik", "error");
+    if (canAdvances) call<NonNullable<typeof summary>>(`/finance/summary?month=${month}`).then(setSummary).catch(() => undefined);
     if (canAdvances) call<{ rows: AdvanceRow[] }>(`/advances/recipients?month=${month}`).then((r) => setAdvances(r.rows)).catch(fail);
     if (canFines) call<FineRow[]>(`/fines?month=${month}`).then((r) => setFines(r.filter((f) => f.status === "APPROVED"))).catch(fail);
   }, [call, canAdvances, canFines, month, onError]);
@@ -156,6 +158,32 @@ export function MoneyView({ call, canAdvances, canFines, onError }: { call: Call
   const fineTotal = (fines || []).reduce((s, r) => s + r.amount, 0);
   return (
     <>
+      {summary && (
+        <section className="mf-stats">
+          <div>
+            <small>Qo‘lga beriladi · {summary.employees} xodim</small>
+            <b>{som(summary.net)}</b>
+          </div>
+          <div>
+            <small>Bonus va mukofot</small>
+            <b>{som(summary.bonus)}</b>
+          </div>
+        </section>
+      )}
+      {summary && (summary.advances.pendingCount > 0 || summary.advances.unpaidCount > 0 || summary.pendingFines > 0) && (
+        <div className="mh-hint info">
+          <AlertCircle size={16} />
+          <span>
+            {[
+              summary.advances.pendingCount ? `${summary.advances.pendingCount} ta avans so‘rovi kutmoqda` : "",
+              summary.advances.unpaidCount ? `${summary.advances.unpaidCount} ta tasdiqlangan avans to‘lanmagan` : "",
+              summary.pendingFines ? `${summary.pendingFines} ta jarima taklifi` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </div>
+      )}
       <section className="mf-stats">
         {canAdvances && (
           <div>

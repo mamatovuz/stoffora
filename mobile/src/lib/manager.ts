@@ -52,6 +52,8 @@ const ROLE_PERMS: Record<string, string[]> = {
   HR_ADMIN: ["attendance.view", "attendance.edit", "leave.approve", "employees.edit", "employees.view", "dashboard.view", "announcements.create"],
   HR_MANAGER: ["attendance.view", "attendance.edit", "leave.approve", "employees.edit", "employees.view", "dashboard.view", "announcements.create"],
   FINANCE: ["payroll.edit"],
+  // IT: telefonlar (ulash/almashtirish/o‘chirish).
+  IT_ADMIN: ["devices.manage", "employees.view"],
   BRANCH_MANAGER: ["attendance.view", "attendance.edit", "dashboard.view"],
 };
 export const can = (role: Role, permission: string) => (ROLE_PERMS[role] || []).some((p) => p === "*" || p === permission);

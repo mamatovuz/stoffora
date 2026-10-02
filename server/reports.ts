@@ -346,7 +346,7 @@ export function registerExcelReports(
 
   app.get(
     "/api/reports/payroll.xlsx",
-    deps.requirePermission("reports.export"),
+    deps.requirePermission("payroll.view"),
     route(async (req, res) => {
       const db = await readDb();
       const tenant = deps.companyId(req);

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Cake, ChevronRight, Fingerprint, MapPin, MessageCircleQuestion, ScrollText, Share2, Smile, Users } from "lucide-react";
 import type { HelpdeskView } from "./Helpdesk";
 import { MobileLinkRow } from "./MobileLink";
+import { MiniReminders } from "./Reminders";
 import { dateUz, tashkentWeekday } from "@/lib/format";
 import type { Lang } from "../../i18n";
 import { weekdayShort, weekOrder } from "../../types";
@@ -331,6 +332,8 @@ export function MiniProfile({
           <ChevronRight size={16} />
         </button>
       </section>
+
+      <MiniReminders onToast={onToast} />
 
       <div className="mp-group-title">Til</div>
       <section className="mp-group">

@@ -32,7 +32,7 @@ import { canAny } from "@/lib/permissions";
 const tabPermissions: Partial<Record<Tab, string[]>> = {
   apps: ["employees.view"],
   company: ["settings.manage"],
-  payroll: ["settings.manage", "payroll.edit"],
+  payroll: ["payroll.edit"],
   channel: ["settings.manage"],
   bot: ["settings.manage"],
   miniapp: ["settings.manage"],

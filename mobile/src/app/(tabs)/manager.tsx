@@ -4,13 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { BranchMap } from "@/components/BranchMap";
 import { FineSheet, MoneyView } from "@/components/MoneyTools";
+import { DevicesView } from "@/components/DevicesView";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
 import { dateUz, dayTitle, som, tashkentIsoDate, timeAgo } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
 
-type MView = "today" | "requests" | "map" | "week" | "money";
+type MView = "today" | "requests" | "map" | "week" | "money" | "devices";
 type Emp = { id: string; firstName: string; lastName: string; photoDataUrl?: string; branchId: string };
 type RosterRow = {
   employee: Emp;
@@ -193,13 +194,16 @@ export default function Manager() {
   const role = auth?.user.role || "";
   const fineDirectRole = can(role, "employees.edit") || can(role, "payroll.edit");
   const canFine = fineDirectRole || role === "BRANCH_MANAGER";
-  const canMoneyAdvances = can(role, "payroll.edit") || can(role, "employees.edit") || can(role, "leave.approve");
-  const canMoney = canMoneyAdvances || fineDirectRole;
+  // «Moliya» — faqat moliya va direktor (HR moliyani ko‘rmaydi).
+  const canMoneyAdvances = can(role, "payroll.edit");
+  const canMoney = canMoneyAdvances;
+  // Qurilmalar — IT va HR (direktor ham).
+  const canDevices = can(role, "devices.manage") || can(role, "employees.edit");
   // Davomatni ko‘rmaydigan rol (moliya) — darhol «Moliya».
   const noAttendance = Boolean(auth) && !can(role, "attendance.view");
   useEffect(() => {
-    if (noAttendance && view === "today") setView(canMoney ? "money" : "requests");
-  }, [noAttendance, view, canMoney]);
+    if (noAttendance && view === "today") setView(canMoney ? "money" : canDevices ? "devices" : "requests");
+  }, [noAttendance, view, canMoney, canDevices]);
   const marks = pending.filter((p) => p.kind === "mark");
   const others = pending.filter((p) => p.kind !== "mark");
   const markDays = [...new Set(marks.map((p) => p.date!))].sort((a, b) => b.localeCompare(a));
@@ -247,6 +251,7 @@ export default function Manager() {
           ["map", "Xarita"],
           ["week", "Xulosa"],
           ...(canMoney ? ([["money", "Moliya"]] as [MView, string][]) : []),
+          ...(canDevices ? ([["devices", "Qurilmalar"]] as [MView, string][]) : []),
         ]}
       />
       {error ? <ErrorBox text={error} onRetry={load} /> : null}
@@ -437,7 +442,8 @@ export default function Manager() {
         )
       ) : null}
 
-      {view === "money" && canMoney ? <MoneyView canAdvances={canMoneyAdvances} canFines={fineDirectRole} reloadKey={moneyKey} /> : null}
+      {view === "devices" && canDevices ? <DevicesView /> : null}
+      {view === "money" && canMoney ? <MoneyView canAdvances={canMoneyAdvances} canFines={canMoneyAdvances} reloadKey={moneyKey} /> : null}
       <FineSheet
         visible={fining}
         direct={fineDirectRole}

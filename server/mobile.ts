@@ -102,7 +102,7 @@ function revokeDevice(db: Database, device: MobileDevice, actor: string, reason:
 }
 /** Rahbar sessiyasi qaysi telefonga tegishli ekanini bildiruvchi belgi (panel «Kirgan qurilmalar»da ko‘rinadi). */
 const managerAgent = (deviceId: string) => `Staffora mobil ilova · ${deviceId}`;
-const MANAGER_ROLES = new Set(["COMPANY_OWNER", "HR_ADMIN", "HR_MANAGER", "BRANCH_MANAGER", "FINANCE"]);
+const MANAGER_ROLES = new Set(["COMPANY_OWNER", "HR_ADMIN", "HR_MANAGER", "BRANCH_MANAGER", "FINANCE", "IT_ADMIN"]);
 /** Xodimning Telegram hisobi bilan bog‘langan panel hisobi (rahbar) — shu kompaniyada. */
 function managerUserOf(db: Database, employee: Employee): User | undefined {
   const telegram = employee.telegramId && !employee.telegramId.startsWith("dev") ? employee.telegramId : undefined;
@@ -699,6 +699,9 @@ export function createMobileAdminRouter() {
   };
   const permit = (permission: string) => (req: Request, res: Response, next: NextFunction) =>
     can((req as AuthedRequest).session!.role, permission) ? next() : res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
+  /** IT (devices.*) ham telefonlarni boshqaradi. */
+  const permitAny = (permissions: string[]) => (req: Request, res: Response, next: NextFunction) =>
+    permissions.some((p) => can((req as AuthedRequest).session!.role, p)) ? next() : res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
   const scopeOk = (req: AuthedRequest, db: Database, employee: Employee) =>
     req.session!.role !== "BRANCH_MANAGER" || (db.users.find((u) => u.id === req.session!.userId)?.branchIds || []).includes(employee.branchId);
   const publicDevice = (db: Database, d: MobileDevice) => ({
@@ -793,7 +796,7 @@ export function createMobileAdminRouter() {
 
   router.post(
     "/mobile-devices/:id/revoke",
-    permit("employees.edit"),
+    permitAny(["employees.edit", "devices.manage"]),
     route(async (req, res) => {
       const auth = req as AuthedRequest;
       const tenant = tenantOf(auth);
@@ -835,7 +838,7 @@ export function createMobileAdminRouter() {
   /** Almashtirishni tasdiqlash: eski qurilma va uning sessiyalari bekor, yangi qurilma faol. */
   router.post(
     "/mobile/device-requests/:id/decide",
-    permit("employees.edit"),
+    permitAny(["employees.edit", "devices.manage"]),
     route(async (req, res) => {
       const auth = req as AuthedRequest;
       const tenant = tenantOf(auth);

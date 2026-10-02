@@ -178,7 +178,7 @@ export function registerAccountingReports(
   );
   app.get(
     "/api/reports/1c-payroll.csv",
-    deps.requirePermission("reports.export"),
+    deps.requirePermission("payroll.view"),
     route(async (req, res) => {
       const db = await readDb();
       const month = monthOf(req);

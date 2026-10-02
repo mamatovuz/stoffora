@@ -42,6 +42,7 @@ import {
   HandCoins,
   Gavel,
   Trophy,
+  Wallet,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -81,17 +82,18 @@ const sections: { label: string; items: NavItem[] }[] = [
   {
     label: "Moliya",
     items: [
+      ["/finance", "Moliya xulosasi", Wallet],
       ["/payroll", "Ish haqi", Banknote],
       ["/advances", "Avans oluvchilar", HandCoins],
       ["/fines", "Jarimalar", Gavel, "fines"],
       ["/rewards", "Rag‘batlantirish", Trophy],
-      ["/reports", "Hisobotlar", ChartNoAxesCombined],
     ],
   },
   {
     label: "Tahlil va aloqa",
     items: [
       ["/analytics", "Tahlil", TrendingUp],
+      ["/reports", "Hisobotlar", ChartNoAxesCombined],
       ["/announcements", "E’lonlar", Megaphone],
       ["/helpdesk", "Murojaatlar", MessagesSquare],
       ["/notifications", "Bildirishnomalar", Bell, "notifications"],

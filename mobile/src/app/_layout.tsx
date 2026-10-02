@@ -75,16 +75,35 @@ function AppLock() {
     setLocked(true);
     if (bio) void biometric();
   };
+  // Faqat ilova ochilganda (sessiya yuklanib bo‘lgach) qulflanadi — PIN endigina yoqilganda emas.
+  const booted = useRef(false);
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
+  const lockRef = useRef(lock);
+  lockRef.current = lock;
   useEffect(() => {
-    if (!enabled) return setLocked(false);
-    lock();
+    if (state === "loading" || booted.current) return;
+    booted.current = true;
+    if (enabledRef.current) lockRef.current();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state]);
+  useEffect(() => {
+    if (!enabled) setLocked(false);
+  }, [enabled]);
+  // 1 daqiqadan ko‘p fonda turgandan keyin qaytilganda qulflanadi. Vaqt har safar tozalanadi —
+  // aks holda kamera, galereya yoki Face ID oynasidan qaytganda ham qayta-qayta qulflanardi.
+  useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
       if (next === "background") leftAt.current = Date.now();
-      if (next === "active" && leftAt.current && Date.now() - leftAt.current > 60_000) lock();
+      if (next === "active") {
+        const away = leftAt.current ? Date.now() - leftAt.current : 0;
+        leftAt.current = null;
+        if (enabledRef.current && away > 60_000) lockRef.current();
+      }
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled]);
+  }, []);
   if (!locked) return null;
   return (
     <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]}>
@@ -151,6 +170,7 @@ function Shell() {
         <Stack.Screen name="pin" options={{ presentation: "modal", gestureEnabled: false }} />
         <Stack.Screen name="birthdays" options={{ headerShown: true, title: "Tug‘ilgan kunlar" }} />
         <Stack.Screen name="mark-request" options={{ headerShown: true, title: "Belgilash so‘rovi" }} />
+        <Stack.Screen name="reminders" options={{ headerShown: true, title: "Eslatmalar" }} />
         <Stack.Screen name="employee/[id]" options={{ headerShown: true, title: "Xodimning profili" }} />
       </Stack>
       <Gate />

@@ -102,7 +102,8 @@ export default function EmployeeProfile() {
   const fullName = [e.lastName, e.firstName, e.middleName].filter(Boolean).join(" ");
   // Oklad — faqat HR / moliya (filial rahbariga ko‘rsatilmaydi).
   const canFine = Boolean(auth && (can(auth.user.role, "employees.edit") || can(auth.user.role, "payroll.edit") || auth.user.role === "BRANCH_MANAGER"));
-  const showSalary = Boolean(auth && (can(auth.user.role, "employees.edit") || can(auth.user.role, "payroll.edit")) && e.baseSalary);
+  // Oklad — faqat moliya va direktor (HR va filial rahbari ko‘rmaydi).
+  const showSalary = Boolean(auth && can(auth.user.role, "payroll.edit") && e.baseSalary);
 
   return (
     <ScrollView
@@ -125,7 +126,7 @@ export default function EmployeeProfile() {
         <Text style={{ color: c.ink, fontSize: 20, fontWeight: "700", textAlign: "center" }}>{fullName}</Text>
         <Text style={{ color: c.muted, fontSize: 14 }}>{[nameOf(names.positions, e.positionId), nameOf(names.branches, e.branchId)].filter(Boolean).join(" · ")}</Text>
         {e.phone ? (
-          <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 6, alignSelf: "stretch" }}>
             <Action icon="call" label="Qo‘ng‘iroq" color={c.success} onPress={() => void Linking.openURL(`tel:${e.phone!.replace(/[^\d+]/g, "")}`)} />
             <Action icon="copy-outline" label="Nusxa" color={c.accent} onPress={() => void copy(e.phone!)} />
             {canFine ? <Action icon="hammer-outline" label="Jarima" color={c.danger} onPress={() => setFining(true)} /> : null}
@@ -267,7 +268,9 @@ function Action({ icon, label, color, onPress }: { icon: IconName; label: string
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [st.action, { backgroundColor: c.tint }, pressed && { opacity: 0.6 }]}>
       <Icon name={icon} size={20} color={color} />
-      <Text style={{ color: c.ink, fontSize: 12 }}>{label}</Text>
+      <Text style={{ color: c.ink, fontSize: 12 }} numberOfLines={1} adjustsFontSizeToFit>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -314,7 +317,8 @@ function Field({ label, value, copy: canCopy, last }: { label: string; value?: s
 
 const st = StyleSheet.create({
   photo: { width: 112, height: 112, borderRadius: 56 },
-  action: { width: 84, height: 60, borderRadius: 14, alignItems: "center", justifyContent: "center", gap: 4 },
+  // Tugmalar karta kengligiga teng bo‘linadi — 4 ta bo‘lsa ham tashqariga chiqmaydi.
+  action: { flex: 1, minWidth: 0, height: 62, borderRadius: 14, alignItems: "center", justifyContent: "center", gap: 4, paddingHorizontal: 2 },
   field: { flexDirection: "row", alignItems: "center", paddingVertical: 10 },
   attRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 11 },
 });

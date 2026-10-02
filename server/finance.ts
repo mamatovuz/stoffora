@@ -11,6 +11,7 @@ import { notifyEmployee } from "./integrations/hooks";
 import { decryptSecret } from "./integrations/secrets";
 import { closedPeriod, monthLabel } from "./payroll-routes";
 import { salarySnapshot } from "./advances";
+import { payrollRows } from "./reports";
 import { sendTelegramMessage } from "./telegram";
 
 /*
@@ -34,8 +35,8 @@ const currentMonth = () => tashkentIsoDate().slice(0, 7);
 export const canFineDirect = (role: Role) => canAny(role, ["employees.edit", "payroll.edit"]);
 /** Jarima ko‘ra / taklif qila oladi: yuqoridagilar + filial rahbari (faqat o‘z filiali, HR tasdig‘i bilan). */
 export const canFineView = (role: Role) => canFineDirect(role) || role === "BRANCH_MANAGER";
-/** Avans ro‘yxati: moliya, HR, direktor. */
-const canAdvances = (role: Role) => canAny(role, ["payroll.view", "payroll.edit", "leave.approve", "employees.edit"]);
+/** Avans ro‘yxati (karta raqamlari bilan) — faqat moliya va direktor. */
+const canAdvances = (role: Role) => canAny(role, ["payroll.view", "payroll.edit"]);
 
 const scopeOf = (req: AuthedRequest, db: Database) =>
   req.session!.role === "BRANCH_MANAGER" ? new Set(db.users.find((u) => u.id === req.session!.userId)?.branchIds || []) : null;
@@ -310,6 +311,18 @@ export function createFinanceRouter() {
     }),
   );
 
+  /* ------------------------------------------------------- moliya xulosasi --- */
+  router.get(
+    "/finance/summary",
+    permit(canAdvances),
+    route(async (req, res) => {
+      const tenant = req.session!.companyId!;
+      const month = req.query.month ? monthSchema.parse(String(req.query.month)) : currentMonth();
+      const db = await readDb();
+      res.json(financeSummary(db, tenant, month));
+    }),
+  );
+
   /* ------------------------------------------------------ avans oluvchilar --- */
   router.get(
     "/advances/recipients",
@@ -504,3 +517,79 @@ function advanceRows(db: Database, tenant: string, month: string) {
 
 /** API javobi uchun: shifrlangan karta maydoni chiqmaydi. */
 export const publicAdvanceRows = (rows: ReturnType<typeof advanceRows>) => rows.map(({ cardEnc: _c, ...rest }) => rest);
+
+/** Oy bo‘yicha moliya xulosasi: fond, ushlanmalar, avans, jarima, bonus, filiallar kesimi, 6 oylik dinamika. */
+export function financeSummary(db: Database, tenant: string, month: string) {
+  type Line = { employeeId: string; branchId: string; base: number; net: number; advance: number; fine: number; bonus: number; overtime: number; deductions: number };
+  const linesFor = (m: string): Line[] => {
+    const closed = closedPeriod(db, tenant, m);
+    if (closed)
+      return closed.lines.map((l) => ({
+        employeeId: l.employeeId,
+        branchId: db.employees.find((e) => e.id === l.employeeId)?.branchId || "",
+        base: l.base,
+        net: l.net,
+        advance: l.advance,
+        fine: l.fine,
+        bonus: l.bonus,
+        overtime: l.overtimeAmount,
+        deductions: l.lateDeduction + l.absenceDeduction,
+      }));
+    return payrollRows(db, tenant, m).map((r) => ({
+      employeeId: r.employee.id,
+      branchId: r.employee.branchId,
+      base: r.base,
+      net: r.net,
+      advance: r.advance,
+      fine: r.fine,
+      bonus: r.bonus,
+      overtime: r.overtimeAmount,
+      deductions: r.deduction + r.absenceDeduction,
+    }));
+  };
+  const sum = (lines: Line[], key: keyof Omit<Line, "employeeId" | "branchId">) => lines.reduce((s, l) => s + (l[key] || 0), 0);
+  const lines = linesFor(month);
+  const requests = db.advanceRequests.filter((a) => a.companyId === tenant && a.month === month);
+  const rewards = db.rewardAwards.filter((a) => a.companyId === tenant && a.month === month && !a.skipped);
+  const pendingFines = db.payrollAdjustments.filter((a) => a.companyId === tenant && a.month === month && a.type === "FINE" && a.status === "PENDING");
+  const branches = db.branches
+    .filter((b) => b.companyId === tenant)
+    .map((b) => {
+      const own = lines.filter((l) => l.branchId === b.id);
+      return { id: b.id, name: b.name, employees: own.length, base: sum(own, "base"), net: sum(own, "net"), advance: sum(own, "advance"), fine: sum(own, "fine"), bonus: sum(own, "bonus") };
+    })
+    .filter((b) => b.employees)
+    .sort((a, b) => b.net - a.net);
+  const trend = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(`${month}-15T00:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() - (5 - i));
+    const m = d.toISOString().slice(0, 7);
+    const own = m === month ? lines : linesFor(m);
+    return { month: m, label: monthLabel(m), net: sum(own, "net"), fine: sum(own, "fine"), advance: sum(own, "advance"), closed: Boolean(closedPeriod(db, tenant, m)) };
+  });
+  return {
+    month,
+    label: monthLabel(month),
+    closed: Boolean(closedPeriod(db, tenant, month)),
+    employees: lines.length,
+    base: sum(lines, "base"),
+    net: sum(lines, "net"),
+    deductions: sum(lines, "deductions"),
+    fine: sum(lines, "fine"),
+    bonus: sum(lines, "bonus"),
+    overtime: sum(lines, "overtime"),
+    advance: sum(lines, "advance"),
+    advances: {
+      requested: requests.filter((a) => ["PENDING", "HR_APPROVED"].includes(a.status)).reduce((s, a) => s + a.amount, 0),
+      pendingCount: requests.filter((a) => ["PENDING", "HR_APPROVED"].includes(a.status)).length,
+      approved: requests.filter((a) => a.status === "APPROVED").reduce((s, a) => s + a.amount, 0),
+      paid: requests.filter((a) => a.paidAt).reduce((s, a) => s + a.amount, 0),
+      unpaidCount: requests.filter((a) => a.status === "APPROVED" && !a.paidAt).length,
+    },
+    rewards: { count: rewards.length, amount: rewards.reduce((s, a) => s + a.amount, 0) },
+    pendingFines: pendingFines.length,
+    noSalary: db.employees.filter((e) => e.companyId === tenant && e.status === "ACTIVE" && !e.baseSalary).length,
+    branches,
+    trend,
+  };
+}

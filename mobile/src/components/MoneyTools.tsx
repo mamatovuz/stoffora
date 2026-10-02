@@ -167,9 +167,11 @@ export function MoneyView({ canAdvances, canFines, reloadKey }: { canAdvances: b
   const { c } = useTheme();
   const [advances, setAdvances] = useState<AdvanceRow[] | null>(null);
   const [fines, setFines] = useState<FineRow[] | null>(null);
+  const [summary, setSummary] = useState<{ net: number; employees: number; bonus: number; advances: { pendingCount: number; unpaidCount: number }; pendingFines: number } | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
     const month = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 7);
+    if (canAdvances) mcall<NonNullable<typeof summary>>(`/finance/summary?month=${month}`).then(setSummary).catch(() => undefined);
     if (canAdvances) mcall<{ rows: AdvanceRow[] }>(`/advances/recipients?month=${month}`).then((r) => setAdvances(r.rows)).catch((e) => setError(errorText(e)));
     else setAdvances([]);
     if (canFines) mcall<FineRow[]>(`/fines?month=${month}`).then((r) => setFines(r.filter((f) => f.status === "APPROVED"))).catch((e) => setError(errorText(e)));
@@ -180,6 +182,24 @@ export function MoneyView({ canAdvances, canFines, reloadKey }: { canAdvances: b
   return (
     <>
       {error ? <Hint tone="bad" icon="alert-circle-outline">{error}</Hint> : null}
+      {summary ? (
+        <Card style={{ gap: 4 }}>
+          <Text style={{ color: c.muted, fontSize: 12.5 }}>Qo‘lga beriladi · {summary.employees} xodim (bugungacha)</Text>
+          <Text style={{ color: c.ink, fontSize: 26, fontWeight: "700", letterSpacing: -0.5 }}>{som(summary.net)}</Text>
+          {summary.bonus ? <Text style={{ color: c.success, fontSize: 13 }}>+ {som(summary.bonus)} bonus va mukofot</Text> : null}
+        </Card>
+      ) : null}
+      {summary && (summary.advances.pendingCount || summary.advances.unpaidCount || summary.pendingFines) ? (
+        <Hint tone="warn" icon="alert-circle-outline">
+          {[
+            summary.advances.pendingCount ? `${summary.advances.pendingCount} ta avans so‘rovi kutmoqda` : "",
+            summary.advances.unpaidCount ? `${summary.advances.unpaidCount} ta tasdiqlangan avans to‘lanmagan` : "",
+            summary.pendingFines ? `${summary.pendingFines} ta jarima taklifi` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </Hint>
+      ) : null}
       <View style={{ flexDirection: "row", gap: 10 }}>
         {canAdvances ? (
           <Card style={{ flex: 1, gap: 2 }}>

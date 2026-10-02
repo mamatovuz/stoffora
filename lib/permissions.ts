@@ -15,7 +15,7 @@ const rolePermissions: Record<Role, string[]> = {
     "org.view",
     "leave.*",
     "reports.*",
-    "payroll.view",
+    // HR moliya bo‘limini (ish haqi, avanslar, moliyaviy eksport) ko‘rmaydi — bu moliya va direktor ishi.
     "announcements.*",
     "audit.view",
     "settings.manage",
@@ -23,8 +23,9 @@ const rolePermissions: Record<Role, string[]> = {
   ],
   // «HR menejer» va «HR administrator» — bitta HR: huquqlar bir xil (eski hisoblar ham to‘liq HR).
   HR_MANAGER: [],
-  // Moliya: faqat ish haqi, hisobotlar va jarima sozlamalari.
-  FINANCE: ["payroll.*", "reports.view", "reports.export"],
+  // Moliya: faqat moliya (ish haqi, avans, jarima, rag‘batlantirish, moliyaviy eksport).
+  // Xodimlar ro‘yxati, davomat va shaxsiy ma’lumotlar — ko‘rinmaydi.
+  FINANCE: ["payroll.*"],
   IT_ADMIN: ["dashboard.view", "employees.view", "org.view", "devices.*", "settings.manage", "audit.view"],
   BRANCH_MANAGER: [
     "dashboard.view",
@@ -66,9 +67,10 @@ export const pagePermissions: Record<string, string[]> = {
   "/departments": ["org.view"],
   "/positions": ["org.view"],
   "/payroll": ["payroll.view"],
-  "/advances": ["payroll.view", "payroll.edit", "leave.approve", "employees.edit"],
+  "/advances": ["payroll.view", "payroll.edit"],
   "/fines": ["employees.edit", "payroll.edit", "attendance.edit"],
-  "/rewards": ["payroll.view", "payroll.edit", "employees.edit", "settings.manage"],
+  "/rewards": ["payroll.view", "payroll.edit"],
+  "/finance": ["payroll.view", "payroll.edit"],
   "/reports": ["reports.view"],
   "/analytics": ["dashboard.view"],
   "/announcements": ["announcements.view"],
@@ -91,6 +93,6 @@ export function canOpenPage(role: Role, path: string) {
 
 /** Kirgandan keyingi birinchi sahifa — rolga mos. */
 export function homePage(role: Role) {
-  const order = ["/dashboard", "/payroll", "/attendance", "/employees", "/reports", "/notifications"];
+  const order = ["/dashboard", "/finance", "/payroll", "/attendance", "/employees", "/reports", "/notifications"];
   return order.find((path) => canOpenPage(role, path)) || "/settings";
 }

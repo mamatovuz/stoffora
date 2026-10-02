@@ -150,9 +150,9 @@ const route = (handler: Handler) => (req: Request, res: Response, next: NextFunc
 export function createRewardsRouter() {
   const router = Router();
   const canView = (req: Request, res: Response, next: NextFunction) =>
-    canAny((req as AuthedRequest).session!.role, ["payroll.view", "payroll.edit", "employees.edit", "settings.manage"]) ? next() : res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
+    canAny((req as AuthedRequest).session!.role, ["payroll.view", "payroll.edit"]) ? next() : res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
   const canEdit = (req: Request, res: Response, next: NextFunction) =>
-    canAny((req as AuthedRequest).session!.role, ["payroll.edit", "settings.manage"]) ? next() : res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
+    canAny((req as AuthedRequest).session!.role, ["payroll.edit"]) ? next() : res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
 
   router.get(
     "/rewards",

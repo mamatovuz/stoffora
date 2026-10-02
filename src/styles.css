@@ -9064,3 +9064,20 @@ html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
 .md-summary b { color: var(--m-ink); font-size: 19px; }
 .md-summary .warn b { color: #d97706; }
 .md-summary .bad b { color: var(--m-danger, #e5484d); }
+
+/* Moliya xulosasi */
+.fin-alerts { display: grid; margin-bottom: 16px; }
+.fin-alert { display: flex; align-items: center; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--line-2); color: var(--ink); text-decoration: none; }
+.fin-alert:first-child { border-top: 0; }
+.fin-alert svg { color: var(--amber); flex: none; }
+.fin-alert span { flex: 1; }
+.fin-alert b { color: var(--muted); }
+.fin-alert:hover { background: var(--surface-2); }
+.fin-trend { display: grid; grid-template-columns: repeat(6, 1fr); align-items: end; gap: 10px; height: 190px; margin-bottom: 8px; }
+.fin-bar { display: grid; grid-template-rows: auto 1fr auto; justify-items: center; gap: 4px; height: 100%; }
+.fin-bar i { align-self: end; width: 100%; max-width: 36px; border-radius: 6px 6px 2px 2px; background: var(--brand-100); }
+.fin-bar.on i { background: var(--brand); }
+.fin-bar small { color: var(--muted); font-size: 11px; }
+.fin-bar span { color: var(--ink-2); font-size: 12px; text-transform: capitalize; }
+.mr-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 14px 12px; }
+.mr-controls select { min-height: 40px; padding: 0 10px; border: 0; border-radius: 10px; background: var(--m-tint); color: var(--m-ink); font: inherit; }

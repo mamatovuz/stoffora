@@ -18,7 +18,7 @@ import { companyBotTokens } from "./company-bots";
  * filial chegarasi va audit xuddi paneldagidek ishlaydi.
  */
 
-const MANAGER_ROLES = new Set(["COMPANY_OWNER", "HR_ADMIN", "HR_MANAGER", "BRANCH_MANAGER", "FINANCE"]);
+const MANAGER_ROLES = new Set(["COMPANY_OWNER", "HR_ADMIN", "HR_MANAGER", "BRANCH_MANAGER", "FINANCE", "IT_ADMIN"]);
 
 export function createManagerAuthRouter() {
   const router = Router();

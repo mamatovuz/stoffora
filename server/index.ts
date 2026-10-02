@@ -645,6 +645,24 @@ app.use("/api", createManagerAuthRouter());
 app.use("/api", createIntegrationWebhookRouter());
 app.use("/api", createCompanyBotWebhookRouter());
 app.use("/api", requireAuth);
+// Oylik — moliyaviy ma’lumot: moliya, direktor va HR (xodim qo‘shishda kiritadi) ko‘radi.
+// Filial rahbari, IT va boshqalar uchun javoblardan «baseSalary» olib tashlanadi.
+app.use("/api", (req, res, next) => {
+  const role = (req as AuthedRequest).session?.role;
+  if (!role || canAny(role, ["payroll.view", "employees.edit"])) return next();
+  const json = res.json.bind(res);
+  const strip = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(strip);
+    if (value && typeof value === "object" && !(value instanceof Date)) {
+      const out: Record<string, unknown> = {};
+      for (const [key, item] of Object.entries(value)) if (key !== "baseSalary") out[key] = strip(item);
+      return out;
+    }
+    return value;
+  };
+  res.json = (body: unknown) => json(strip(body));
+  next();
+});
 app.use("/api", createIntegrationRouter());
 app.use("/api", createCompanyBotRouter());
 app.use("/api", createPayrollRouter());
@@ -2785,7 +2803,7 @@ app.get(
 );
 app.get(
   "/api/reports/payroll.csv",
-  requirePermission("reports.export"),
+  requirePermission("payroll.view"),
   asyncRoute(async (req, res) => {
     const db = await readDb(),
       tenant = companyId(req);
@@ -2831,7 +2849,7 @@ registerAccountingReports(app, {
 
 app.put(
   "/api/company/payroll",
-  requireAnyPermission("settings.manage", "payroll.edit"),
+  requirePermission("payroll.edit"),
   asyncRoute(async (req, res) => {
     const input = z
       .object({

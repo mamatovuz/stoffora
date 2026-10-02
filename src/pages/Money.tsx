@@ -555,7 +555,7 @@ type RewardsData = {
 export function RewardsPage() {
   const toast = useToast();
   const { user } = useAuth();
-  const editable = Boolean(user && canAny(user.role, ["payroll.edit", "settings.manage"]));
+  const editable = Boolean(user && can(user.role, "payroll.edit"));
   const [month, setMonth] = useState(thisMonth());
   const { data, loading, error, reload } = useApi<RewardsData>(`/rewards?month=${month}`);
   const [form, setForm] = useState<RewardsData["settings"] | null>(null);
@@ -708,6 +708,134 @@ export function RewardsPage() {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/* ============================================================ moliya xulosasi === */
+type Summary = {
+  month: string;
+  label: string;
+  closed: boolean;
+  employees: number;
+  base: number;
+  net: number;
+  deductions: number;
+  fine: number;
+  bonus: number;
+  overtime: number;
+  advance: number;
+  advances: { requested: number; pendingCount: number; approved: number; paid: number; unpaidCount: number };
+  rewards: { count: number; amount: number };
+  pendingFines: number;
+  noSalary: number;
+  branches: { id: string; name: string; employees: number; base: number; net: number; advance: number; fine: number; bonus: number }[];
+  trend: { month: string; label: string; net: number; fine: number; advance: number; closed: boolean }[];
+};
+
+export function FinancePage() {
+  const [month, setMonth] = useState(thisMonth());
+  const { data, loading, error } = useApi<Summary>(`/finance/summary?month=${month}`);
+  const max = Math.max(1, ...(data?.trend || []).map((t) => t.net));
+  const alerts = data
+    ? [
+        data.advances.pendingCount ? { to: "/payroll", text: `${data.advances.pendingCount} ta avans so‘rovi ko‘rib chiqilmagan (${money(data.advances.requested)})` } : null,
+        data.advances.unpaidCount ? { to: "/advances", text: `${data.advances.unpaidCount} ta tasdiqlangan avans hali to‘lanmagan` } : null,
+        data.pendingFines ? { to: "/fines", text: `${data.pendingFines} ta jarima taklifi tasdiq kutmoqda` } : null,
+        data.noSalary ? { to: "/payroll", text: `${data.noSalary} ta xodimning oyligi kiritilmagan` } : null,
+      ].filter((a): a is { to: string; text: string } => Boolean(a))
+    : [];
+  return (
+    <div className="page">
+      <PageHeader
+        title="Moliya xulosasi"
+        subtitle={`${monthYearUz(`${month}-15`)}${data?.closed ? " · oy yopilgan, raqamlar muzlatilgan" : " · bugungacha hisob (taxminiy)"}`}
+        actions={
+          <>
+            <MonthPicker value={month} onChange={setMonth} />
+            <a className="btn" href={`/api/reports/payroll.xlsx?month=${month}`} download>
+              <Download size={16} /> Vedomost (Excel)
+            </a>
+          </>
+        }
+      />
+      {loading && !data ? (
+        <Loading />
+      ) : error ? (
+        <ErrorBox message={error} />
+      ) : data ? (
+        <>
+          <div className="stat-grid">
+            <StatCard label="Qo‘lga beriladi" value={money(data.net)} note={`${data.employees} xodim · oklad ${money(data.base)}`} icon={Wallet} tone="green" />
+            <StatCard label="Avans berilgan" value={money(data.advance)} note={`to‘langan ${money(data.advances.paid)}`} icon={HandCoins} tone="blue" />
+            <StatCard label="Ushlanmalar" value={money(data.deductions + data.fine)} note={`jarima ${money(data.fine)} · kechikish/kelmaslik ${money(data.deductions)}`} icon={Gavel} tone="amber" />
+            <StatCard label="Bonus va qo‘shimcha" value={money(data.bonus + data.overtime)} note={`rag‘batlantirish: ${data.rewards.count} ta · ${money(data.rewards.amount)}`} icon={Trophy} tone="violet" />
+          </div>
+          {alerts.length > 0 && (
+            <section className="card fin-alerts">
+              {alerts.map((a) => (
+                <Link key={a.text} to={a.to} className="fin-alert">
+                  <Banknote size={16} />
+                  <span>{a.text}</span>
+                  <b>→</b>
+                </Link>
+              ))}
+            </section>
+          )}
+          <div className="reward-grid">
+            <section className="card">
+              <div className="card-head">
+                <h3 className="reward-h">Filiallar kesimi</h3>
+              </div>
+              {!data.branches.length ? (
+                <Empty icon={Wallet} title="Ma’lumot yo‘q" />
+              ) : (
+                <div className="table-wrap">
+                  <table className="table money-table">
+                    <thead>
+                      <tr>
+                        <th>Filial</th>
+                        <th className="num">Xodim</th>
+                        <th className="num">Qo‘lga</th>
+                        <th className="num">Avans</th>
+                        <th className="num">Jarima</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.branches.map((b) => (
+                        <tr key={b.id}>
+                          <td>
+                            <b>{b.name}</b>
+                          </td>
+                          <td className="num">{b.employees}</td>
+                          <td className="num">
+                            <b>{money(b.net)}</b>
+                          </td>
+                          <td className="num">{b.advance ? money(b.advance) : "—"}</td>
+                          <td className="num minus">{b.fine ? `− ${money(b.fine)}` : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+            <section className="card card-body">
+              <h3 className="reward-h">Qo‘lga beriladigan — 6 oy</h3>
+              <div className="fin-trend">
+                {data.trend.map((t) => (
+                  <div key={t.month} className={`fin-bar ${t.month === month ? "on" : ""}`} title={`${t.label}: ${money(t.net)}`}>
+                    <small>{t.net ? `${Math.round(t.net / 1_000_000)} mln` : "—"}</small>
+                    <i style={{ height: `${Math.max(2, (t.net / max) * 100)}%` }} />
+                    <span>{t.label.split(" ")[0].slice(0, 3)}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="hint">Yopilgan oylar — muzlatilgan vedomost bo‘yicha; joriy oy — bugungacha.</p>
+            </section>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

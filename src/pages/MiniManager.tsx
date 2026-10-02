@@ -152,7 +152,8 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   // Jarima: HR / direktor / moliya — darhol; filial rahbari — taklif (HR tasdiqlaydi).
   const fineDirect = can(role, "employees.edit") || can(role, "payroll.edit");
   const canFine = fineDirect || role === "BRANCH_MANAGER";
-  const canMoney = canAdvances || fineDirect;
+  // «Moliya» ko‘rinishi — faqat moliya va direktor (HR moliyani ko‘rmaydi).
+  const canMoney = can(role, "payroll.view") || can(role, "payroll.edit");
   useEffect(() => {
     if (!canAttendance && view === "today") setView(canMoney ? "money" : "requests");
   }, [canAttendance, canMoney, view]);
@@ -738,7 +739,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           onChanged={() => void load()}
         />
       )}
-      {view === "money" && canMoney && <MoneyView call={call} canAdvances={canAdvances} canFines={fineDirect} onError={onToast} />}
+      {view === "money" && canMoney && <MoneyView call={call} canAdvances={canMoney} canFines={canMoney} onError={onToast} />}
       {fining && (
         <FineSheet
           call={call}

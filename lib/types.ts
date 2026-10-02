@@ -185,6 +185,10 @@ export interface Schedule {
   overtimeEnabled: boolean;
   days: ScheduleDay[];
 }
+export interface ReminderRule {
+  enabled: boolean;
+  offset: number;
+}
 export interface Employee {
   id: string;
   companyId: string;
@@ -243,6 +247,11 @@ export interface Employee {
   customFields?: Record<string, string>;
   /** Mini App va bot tili. */
   language?: "uz" | "ru";
+  /**
+   * Ish boshlanishi / tugashi haqida eslatma (xodim o‘zi sozlaydi). offset — daqiqa:
+   * manfiy — oldin («Avval 10 min»), musbat — keyin («Keyin 10 min»).
+   */
+  reminders?: { start: ReminderRule; end: ReminderRule };
   createdAt: string;
   updatedAt: string;
 }

@@ -5,6 +5,51 @@ import { dayPlan } from "../lib/schedule";
 import { isPracticeDay } from "../lib/counting";
 import { notifyManagers } from "./mini-extra";
 import { pushToEmployee } from "./push";
+import { Router, type NextFunction, type Request, type Response } from "express";
+import { z } from "zod";
+import { updateDb } from "../lib/store";
+import type { Employee } from "../lib/types";
+import type { EmployeeSession } from "./auth";
+
+/** Standart: kelmagan bo‘lsa — boshlanishdan 15 daqiqa keyin; chiqmagan bo‘lsa — tugashdan 20 daqiqa keyin. */
+export const DEFAULT_REMINDERS = { start: { enabled: true, offset: 15 }, end: { enabled: true, offset: 20 } };
+export const reminderPrefs = (employee: Pick<Employee, "reminders">) => ({
+  start: { ...DEFAULT_REMINDERS.start, ...employee.reminders?.start },
+  end: { ...DEFAULT_REMINDERS.end, ...employee.reminders?.end },
+});
+
+/** Mini App / ilova: eslatma sozlamasi. */
+export function createMiniReminderRouter() {
+  const router = Router();
+  const sessionOf = (req: Request) => (req as unknown as { employeeSession?: EmployeeSession }).employeeSession!;
+  const route = (handler: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, next: NextFunction) => Promise.resolve(handler(req, res)).catch(next);
+  router.get(
+    "/mini/reminders",
+    route(async (req, res) => {
+      const auth = sessionOf(req);
+      const db = await readDb();
+      const employee = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId);
+      if (!employee) return res.status(404).json({ message: "Xodim topilmadi." });
+      res.json(reminderPrefs(employee));
+    }),
+  );
+  router.put(
+    "/mini/reminders",
+    route(async (req, res) => {
+      const auth = sessionOf(req);
+      const rule = z.object({ enabled: z.boolean(), offset: z.coerce.number().int().min(-120).max(180) });
+      const input = z.object({ start: rule, end: rule }).parse(req.body);
+      const saved = await updateDb((db) => {
+        const employee = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId);
+        if (!employee) throw Object.assign(new Error("Xodim topilmadi."), { status: 404 });
+        employee.reminders = input;
+        return reminderPrefs(employee);
+      });
+      res.json(saved);
+    }),
+  );
+  return router;
+}
 
 const toMinutes = (value: string) => {
   const [hour, minute] = value.split(":").map(Number);
@@ -80,45 +125,45 @@ export function startAttendanceReminders() {
         const pushable = process.env.MOBILE_PUSH !== "false" && withPush.has(employee.id);
         if (!reachable && !pushable) continue;
         const start = toMinutes(day.start);
-        const end = toMinutes(day.end);
+        let end = toMinutes(day.end);
+        // Tungi smena (masalan 14:00–00:00): tugash ertasi kunga o‘tadi.
+        if (end <= start) end += 24 * 60;
+        const prefs = reminderPrefs(employee);
         const inKey = `${employee.id}:in`;
         const outKey = `${employee.id}:out`;
-        if (
-          !record?.checkIn &&
-          now >= start + 15 &&
-          now < start + 180 &&
-          !sent.has(inKey)
-        ) {
+        const inAt = start + prefs.start.offset;
+        if (prefs.start.enabled && !record?.checkIn && now >= inAt && now < inAt + 180 && now < end && !sent.has(inKey)) {
           sent.add(inKey);
-          if (reachable)
-            void notifyEmployee(
-              db,
-              employee,
-              "attendance",
-              `⏰ ${employee.firstName}, ish ${day.start} da boshlangan, lekin kelishingiz hali qayd etilmagan.\n\nFilialda bo‘lsangiz, Mini App orqali «Ishga keldim» tugmasini bosing.`,
-              { openButton: true, go: "checkin" },
-            ).catch(() => undefined);
+          const before = prefs.start.offset < 0;
+          const text = before
+            ? `⏰ ${employee.firstName}, ish ${day.start} da boshlanadi (${Math.abs(prefs.start.offset)} daqiqadan keyin).\n\nFilialga yetib kelgach, «Ishga keldim» tugmasini bosing.`
+            : `⏰ ${employee.firstName}, ish ${day.start} da boshlangan, lekin kelishingiz hali qayd etilmagan.\n\nFilialda bo‘lsangiz, «Ishga keldim» tugmasini bosing.`;
+          if (reachable) void notifyEmployee(db, employee, "attendance", text, { openButton: true, go: "checkin" }).catch(() => undefined);
           if (pushable)
-            void pushToEmployee(employee.id, { title: "⏰ Kelish qayd etilmagan", body: `Ish ${day.start} da boshlangan. Filialda bo‘lsangiz, «Ishga keldim»ni bosing.`, data: { go: "checkin" } }, db).catch(() => 0);
+            void pushToEmployee(
+              employee.id,
+              before
+                ? { title: `⏰ Ish ${day.start} da boshlanadi`, body: `${Math.abs(prefs.start.offset)} daqiqa qoldi. Kelganingizda «Ishga keldim»ni bosing.`, data: { go: "checkin" } }
+                : { title: "⏰ Kelish qayd etilmagan", body: `Ish ${day.start} da boshlangan. Filialda bo‘lsangiz, «Ishga keldim»ni bosing.`, data: { go: "checkin" } },
+              db,
+            ).catch(() => 0);
         }
-        if (
-          record?.checkIn &&
-          !record.checkOut &&
-          now >= end + 20 &&
-          now < end + 300 &&
-          !sent.has(outKey)
-        ) {
+        const outAt = end + prefs.end.offset;
+        if (prefs.end.enabled && record?.checkIn && !record.checkOut && now >= outAt && now < outAt + 300 && !sent.has(outKey)) {
           sent.add(outKey);
-          if (reachable)
-            void notifyEmployee(
-              db,
-              employee,
-              "attendance",
-              `🏁 ${employee.firstName}, ish vaqti ${day.end} da tugadi. Ketishni belgilashni unutmang.`,
-              { openButton: true, go: "checkout" },
-            ).catch(() => undefined);
+          const before = prefs.end.offset < 0;
+          const text = before
+            ? `🏁 ${employee.firstName}, ish ${day.end} da tugaydi (${Math.abs(prefs.end.offset)} daqiqadan keyin). Ketayotganda «Ishdan ketdim»ni bosishni unutmang.`
+            : `🏁 ${employee.firstName}, ish vaqti ${day.end} da tugadi. Ketishni belgilashni unutmang.`;
+          if (reachable) void notifyEmployee(db, employee, "attendance", text, { openButton: true, go: "checkout" }).catch(() => undefined);
           if (pushable)
-            void pushToEmployee(employee.id, { title: "🏁 Ish vaqti tugadi", body: `Ish ${day.end} da tugadi. Ketishni belgilashni unutmang.`, data: { go: "checkout" } }, db).catch(() => 0);
+            void pushToEmployee(
+              employee.id,
+              before
+                ? { title: `🏁 Ish ${day.end} da tugaydi`, body: `${Math.abs(prefs.end.offset)} daqiqa qoldi. Ketishni belgilashni unutmang.`, data: { go: "checkout" } }
+                : { title: "🏁 Ish vaqti tugadi", body: `Ish ${day.end} da tugadi. Ketishni belgilashni unutmang.`, data: { go: "checkout" } },
+              db,
+            ).catch(() => 0);
         }
       }
       for (const [key, group] of missing) {

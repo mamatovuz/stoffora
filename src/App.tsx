@@ -58,6 +58,7 @@ const AttendanceRequestsPage = lazy(() =>
   import("./pages/AttendanceRequests").then((m) => ({ default: m.AttendanceRequestsPage })),
 );
 const AdvancesPage = lazy(() => import("./pages/Money").then((m) => ({ default: m.AdvancesPage })));
+const FinancePage = lazy(() => import("./pages/Money").then((m) => ({ default: m.FinancePage })));
 const RewardsPage = lazy(() => import("./pages/Money").then((m) => ({ default: m.RewardsPage })));
 const FinesPage = lazy(() => import("./pages/Money").then((m) => ({ default: m.FinesPage })));
 const AuditPage = lazy(() =>
@@ -149,6 +150,7 @@ export default function App() {
           <Route path="/advances" element={<AdvancesPage />} />
           <Route path="/fines" element={<FinesPage />} />
           <Route path="/rewards" element={<RewardsPage />} />
+          <Route path="/finance" element={<FinancePage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/announcements" element={<AnnouncementsPage />} />
