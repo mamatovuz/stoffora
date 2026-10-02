@@ -1,4 +1,6 @@
 import { router, useLocalSearchParams } from "expo-router";
+import { mediaUri } from "@/lib/config";
+import { go } from "@/lib/nav";
 import { useEffect } from "react";
 import { Alert, Image, Linking, Platform, StyleSheet, Text, View } from "react-native";
 import { Card, Group, GroupTitle, Loading, Row, Screen } from "@/components/ui";
@@ -27,7 +29,7 @@ export default function Profile() {
   const { logout } = useSession();
   const { data, refreshing, reload } = useData<HomeData>("/mini/home");
   useEffect(() => {
-    if (params.section && ROUTES[params.section]) router.push(ROUTES[params.section]);
+    if (params.section && ROUTES[params.section]) go(ROUTES[params.section]);
   }, [params.section]);
 
   if (!data)
@@ -54,7 +56,7 @@ export default function Profile() {
     <Screen title="Profil" refreshing={refreshing} onRefresh={reload}>
       <Card style={st.head}>
         {e.photoDataUrl ? (
-          <Image source={{ uri: e.photoDataUrl }} style={st.avatar} />
+          <Image source={{ uri: mediaUri(e.photoDataUrl) }} style={st.avatar} />
         ) : (
           <View style={[st.avatar, { backgroundColor: `${c.accent}22`, alignItems: "center", justifyContent: "center" }]}>
             <Text style={{ color: c.accent, fontSize: 26, fontWeight: "700" }}>
@@ -76,7 +78,7 @@ export default function Profile() {
       <Group>
         <Row icon="business" label={data.company?.name || "Kompaniya"} />
         <Row icon="location" iconColor="#34C759" label={data.branch?.name || "Filial biriktirilmagan"} sub={data.branch?.address} onPress={data.branch ? openMap : undefined} />
-        <Row icon="people" iconColor="#5856D6" label="Hamkasblar ma’lumotnomasi" onPress={() => router.push("/directory")} last />
+        <Row icon="people" iconColor="#5856D6" label="Hamkasblar ma’lumotnomasi" onPress={() => go("/directory")} last />
       </Group>
 
       {data.schedule ? (
@@ -101,23 +103,23 @@ export default function Profile() {
 
       <GroupTitle>Hujjatlar va pul</GroupTitle>
       <Group>
-        <Row icon="wallet" iconColor="#34C759" label="Mening oyligim va avans" onPress={() => router.push("/salary")} />
-        <Row icon="receipt" iconColor="#FF9500" label="Hisob varaqalar" onPress={() => router.push("/payslips")} />
-        <Row icon="folder" iconColor="#0A84FF" label="Hujjatlarim" onPress={() => router.push("/documents")} last />
+        <Row icon="wallet" iconColor="#34C759" label="Mening oyligim va avans" onPress={() => go("/salary")} />
+        <Row icon="receipt" iconColor="#FF9500" label="Hisob varaqalar" onPress={() => go("/payslips")} />
+        <Row icon="folder" iconColor="#0A84FF" label="Hujjatlarim" onPress={() => go("/documents")} last />
       </Group>
 
       <GroupTitle>HR bilan aloqa</GroupTitle>
       <Group>
-        <Row icon="chatbubble-ellipses" label="HR’ga savol berish" onPress={() => router.push({ pathname: "/helpdesk", params: { view: "questions" } })} />
-        <Row icon="document-text" iconColor="#5AC8FA" label="Ma’lumotnoma (spravka) so‘rash" onPress={() => router.push({ pathname: "/helpdesk", params: { view: "certificates" } })} />
-        <Row icon="megaphone" iconColor="#FF9500" label="Taklif yoki shikoyat (anonim mumkin)" onPress={() => router.push({ pathname: "/helpdesk", params: { view: "feedback" } })} />
-        <Row icon="gift" iconColor="#FF2D55" label="Tug‘ilgan kunlar" onPress={() => router.push("/birthdays")} last />
+        <Row icon="chatbubble-ellipses" label="HR’ga savol berish" onPress={() => go({ pathname: "/helpdesk", params: { view: "questions" } })} />
+        <Row icon="document-text" iconColor="#5AC8FA" label="Ma’lumotnoma (spravka) so‘rash" onPress={() => go({ pathname: "/helpdesk", params: { view: "certificates" } })} />
+        <Row icon="megaphone" iconColor="#FF9500" label="Taklif yoki shikoyat (anonim mumkin)" onPress={() => go({ pathname: "/helpdesk", params: { view: "feedback" } })} />
+        <Row icon="gift" iconColor="#FF2D55" label="Tug‘ilgan kunlar" onPress={() => go("/birthdays")} last />
       </Group>
 
       <GroupTitle>Ilova</GroupTitle>
       <Group>
-        <Row icon="shield-checkmark" iconColor="#34C759" label="Xavfsizlik va qurilma" onPress={() => router.push("/security")} />
-        <Row icon="notifications" iconColor="#FF3B30" label="Bildirishnomalar" onPress={() => router.push("/notifications")} />
+        <Row icon="shield-checkmark" iconColor="#34C759" label="Xavfsizlik va qurilma" onPress={() => go("/security")} />
+        <Row icon="notifications" iconColor="#FF3B30" label="Bildirishnomalar" onPress={() => go("/notifications")} />
         <Row icon="log-out-outline" label="Chiqish" danger onPress={confirmLogout} last />
       </Group>
     </Screen>

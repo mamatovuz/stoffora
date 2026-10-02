@@ -87,6 +87,7 @@ import { createHelpdeskRouter } from "./helpdesk";
 import { createDayOffRouter } from "./dayoff";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
+import { createTileRouter } from "./tiles";
 import { startHrWorker, upcomingCelebrations } from "./hr-worker";
 import {
   createCompanyBotRouter,
@@ -202,6 +203,8 @@ app.use(
     },
   }),
 );
+// Xarita plitkalari (OSM, server keshi) — ochiq, o‘z limiti bilan.
+app.use("/api", createTileRouter());
 // Imzolangan rasm URL’lari — auth va umumiy limitdan oldin, uzoq keshlanadi.
 app.get("/api/media/:kind/:file", (req, res, next) => {
   Promise.resolve(serveMedia(req, res)).catch(next);

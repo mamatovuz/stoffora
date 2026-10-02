@@ -59,7 +59,8 @@ function isDark() {
  * ishlab chiqarishda o‘z xizmatingizni ulang: VITE_MAP_TILE_URL="https://…/{z}/{x}/{y}.png?key=…"
  * (serverda MAP_TILE_ORIGIN ham berilsin — CSP ruxsati uchun). Tungi mavzu CSS filtri bilan.
  */
-const TILE_TEMPLATE = (import.meta.env.VITE_MAP_TILE_URL as string | undefined) || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+// Standart — o‘z serverimiz orqali (keshlangan OSM): Telegram ichida ham, sekin tarmoqda ham ishonchli.
+const TILE_TEMPLATE = (import.meta.env.VITE_MAP_TILE_URL as string | undefined) || "/api/tiles/{z}/{x}/{y}.png";
 const TILE_ATTRIBUTION = (import.meta.env.VITE_MAP_ATTRIBUTION as string | undefined) || "© OpenStreetMap";
 /** Ixtiyoriy sputnik qatlami (masalan MapTiler satellite) — berilsa, qatlam tugmasi chiqadi. */
 const SATELLITE_TEMPLATE = import.meta.env.VITE_MAP_TILE_URL_SATELLITE as string | undefined;

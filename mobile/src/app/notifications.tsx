@@ -1,6 +1,6 @@
 import * as Notifications from "expo-notifications";
 import { router, useNavigation } from "expo-router";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { Badge, Button, Empty, ErrorBox, Icon, Loading, haptic, type IconName } from "@/components/ui";
 import { errorText, post } from "@/lib/api";
@@ -26,6 +26,7 @@ export default function NotificationsScreen() {
   const { data, error, loading, refreshing, reload, setData } = useData<{ items: Notification[]; unread: number }>("/mini/notifications", { maxAgeMs: 0 });
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
+  const navigating = useRef(false);
 
   const readAll = async () => {
     if (!data?.unread) return;
@@ -55,7 +56,12 @@ export default function NotificationsScreen() {
       void post("/mini/notifications/read", { ids: [n.id] }).catch(() => undefined);
       invalidate("/mini/home");
     }
-    if (n.go && !n.ackRequired && !n.options?.length) router.push(routeForGo(n.go));
+    // Bir bosish — bitta o‘tish: ikki marta bosilsa ekran ikki qavat ochilmaydi.
+    const target = !n.ackRequired && !n.options?.length ? routeForGo(n.go) : null;
+    if (!target || target === "/notifications" || navigating.current) return;
+    navigating.current = true;
+    router.navigate(target);
+    setTimeout(() => (navigating.current = false), 800);
   };
   const ack = async (n: Notification, answer?: string) => {
     setBusy(n.id);

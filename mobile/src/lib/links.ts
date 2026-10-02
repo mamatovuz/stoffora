@@ -1,24 +1,64 @@
-/** Push’dagi `go` qiymati → ilova ekrani (Mini App deep link’lari bilan bir xil nomlar). */
-export function routeForGo(go?: string) {
-  switch (go) {
+import type { Href } from "expo-router";
+
+/**
+ * Bildirishnoma / push’dagi `go` qiymati → ilova ekrani (Mini App deep link’lari bilan bir xil nomlar:
+ * salary, docs, dayoff, leave_<id>, payslip_<oy>, ticket_<id>, manager_requests …).
+ * Noma’lum qiymat — null (hech qayerga o‘tilmaydi; bildirishnomalar sahifasi o‘zini qayta ochmaydi).
+ */
+export function routeForGo(go?: string | null): Href | null {
+  if (!go) return null;
+  const value = go.trim().replace(/^go[_-]/, "");
+  const [head] = value.split("_");
+  switch (head) {
+    case "home":
     case "checkin":
     case "checkout":
-    case "home":
-      return "/(tabs)" as const;
+    case "late":
+      return "/(tabs)";
+    case "notifs":
+      return "/notifications";
+    case "salary":
+    case "advance":
+    case "advances":
+      return "/salary";
+    case "history":
+    case "calendar":
+      return { pathname: "/(tabs)/history", params: { view: "calendar" } };
+    case "schedule":
+      return { pathname: "/(tabs)/history", params: { view: "schedule" } };
+    case "stats":
+      return { pathname: "/(tabs)/history", params: { view: "stats" } };
     case "leave":
     case "requests":
-      return "/(tabs)/requests" as const;
-    case "salary":
-      return "/salary" as const;
-    case "history":
-    case "schedule":
-      return "/(tabs)/history" as const;
+      return { pathname: "/(tabs)/requests", params: { view: "leave" } };
+    case "swap":
+    case "swaps":
+      return { pathname: "/(tabs)/requests", params: { view: "swap" } };
+    case "dayoff":
+      return { pathname: "/(tabs)/requests", params: { view: "dayoff" } };
+    case "overtime":
+      return { pathname: "/(tabs)/requests", params: { view: "overtime" } };
     case "docs":
+      return "/documents";
+    case "payslip":
+    case "payslips":
+      return "/payslips";
+    case "ticket":
+    case "helpdesk":
+      return { pathname: "/helpdesk", params: { view: "questions" } };
+    case "certificate":
+    case "certificates":
+      return { pathname: "/helpdesk", params: { view: "certificates" } };
+    case "birthdays":
+      return "/birthdays";
+    case "directory":
+      return "/directory";
     case "profile":
-      return "/(tabs)/profile" as const;
+    case "settings":
+      return "/(tabs)/profile";
     case "manager":
-      return "/(tabs)/manager" as const;
+      return "/(tabs)/manager";
     default:
-      return "/notifications" as const;
+      return null;
   }
 }

@@ -1,8 +1,10 @@
 import { router } from "expo-router";
+import { go } from "@/lib/nav";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
-import { Badge, Button, Card, ErrorBox, Hint, Icon, Loading, Screen, Sheet, haptic, type IconName } from "@/components/ui";
+import { Badge, Button, Card, ErrorBox, GroupTitle, Hint, Icon, Loading, Screen, Sheet, haptic, type IconName } from "@/components/ui";
+import { mediaUri } from "@/lib/config";
 import { errorText, post } from "@/lib/api";
 import { clockDuration, dateLongUz, duration, minutesSince, som, tashkentClock, timeAgo, toMinutes } from "@/lib/format";
 import { elevation, ios, radius, useTheme } from "@/lib/theme";
@@ -62,8 +64,8 @@ export default function Home() {
 
   const start = (action: "CHECK_IN" | "CHECK_OUT") => {
     haptic.medium();
-    if (!data.employee.faceEnrolledAt) router.push({ pathname: "/face-enroll", params: { action } });
-    else router.push({ pathname: "/face-check", params: { action } });
+    if (!data.employee.faceEnrolledAt) go({ pathname: "/face-enroll", params: { action } });
+    else go({ pathname: "/face-check", params: { action } });
   };
   const refresh = () => {
     invalidate("/mini/");
@@ -73,54 +75,71 @@ export default function Home() {
   };
 
   return (
-    <Screen
-      title={`Salom, ${data.employee.firstName}`}
-      subtitle={data.company?.name}
-      refreshing={refreshing}
-      onRefresh={refresh}
-      right={
-        <Pressable onPress={() => router.push("/notifications")} hitSlop={10} style={[st.bell, { backgroundColor: c.card }, elevation]} accessibilityLabel="Bildirishnomalar">
-          <Icon name="notifications-outline" size={22} color={c.ink} />
+    <Screen refreshing={refreshing} onRefresh={refresh}>
+      {/* ------------------------------------------------------ sarlavha --- */}
+      <View style={st.header}>
+        <Pressable onPress={() => go("/(tabs)/profile")} accessibilityLabel="Profil">
+          {data.employee.photoDataUrl ? (
+            <Image source={{ uri: mediaUri(data.employee.photoDataUrl) }} style={st.avatar} />
+          ) : (
+            <View style={[st.avatar, { backgroundColor: `${c.accent}1F`, alignItems: "center", justifyContent: "center" }]}>
+              <Text style={{ color: c.accent, fontWeight: "700", fontSize: 16 }}>
+                {data.employee.firstName[0]}
+                {data.employee.lastName[0]}
+              </Text>
+            </View>
+          )}
+        </Pressable>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Text style={{ color: c.muted, fontSize: 13, fontWeight: "500" }} numberOfLines={1}>
+            {dateLongUz(now)}
+          </Text>
+          <Text style={{ color: c.ink, fontSize: 22, fontWeight: "700", letterSpacing: -0.3 }} numberOfLines={1}>
+            Salom, {data.employee.firstName}
+          </Text>
+        </View>
+        <Pressable onPress={() => go("/notifications")} hitSlop={10} style={[st.bell, { backgroundColor: c.card }]} accessibilityLabel="Bildirishnomalar">
+          <Icon name="notifications-outline" size={21} color={c.ink} />
           {(data.unreadNotifications || 0) > 0 ? (
-            <View style={[st.dot, { backgroundColor: c.danger }]}>
+            <View style={[st.dot, { backgroundColor: c.danger, borderColor: c.bg }]}>
               <Text style={st.dotText}>{Math.min(99, data.unreadNotifications || 0)}</Text>
             </View>
           ) : null}
         </Pressable>
-      }
-    >
+      </View>
       {/* ------------------------------------------------------ hero --- */}
       <Card style={{ padding: 18 }}>
-        {/* Holat rangidagi yumshoq nur (Mini App’dagi kabi) */}
-        <View pointerEvents="none" style={[st.glow, { backgroundColor: `${status.color}1A` }]} />
-        <View pointerEvents="none" style={[st.glow2, { backgroundColor: `${status.color}10` }]} />
         <View style={st.statusRow}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
-            <View style={[st.statusDot, { backgroundColor: status.color, shadowColor: status.color }]} />
-            <Text style={{ color: c.ink, fontWeight: "500", fontSize: 13.5 }}>{status.text}</Text>
+          <View style={[st.statusChip, { backgroundColor: `${status.color}17` }]}>
+            <View style={[st.statusDot, { backgroundColor: status.color }]} />
+            <Text style={{ color: status.color === c.muted ? c.ink : status.color, fontWeight: "600", fontSize: 13 }}>{status.text}</Text>
           </View>
-          <Text style={{ color: c.muted, fontSize: 13 }}>{dateLongUz(now)}</Text>
+          <View style={st.meta}>
+            <Icon name="location" size={13} color={c.muted} />
+            <Text style={{ color: c.muted, fontSize: 13 }} numberOfLines={1}>
+              {data.branch?.name || "Filial yo‘q"}
+            </Text>
+          </View>
         </View>
         <Text style={[st.clock, { color: c.ink }]}>{tashkentClock(now)}</Text>
-        <View style={st.meta}>
-          <Icon name="location-outline" size={14} color={c.muted} />
-          <Text style={{ color: c.muted, fontSize: 13.5 }} numberOfLines={1}>
-            {data.branch?.name || "Filial biriktirilmagan"} · {day?.enabled ? `${day.start}–${day.end}` : "Dam olish"}
-          </Text>
-        </View>
+        <Text style={{ color: c.muted, fontSize: 14, marginBottom: 16 }}>{day?.enabled ? `Ish vaqti ${day.start} – ${day.end}` : "Bugun dam olish kuni"}</Text>
 
-        <View style={[st.times, { borderColor: c.line }]}>
-          <View style={st.timeCell}>
+        <View style={st.times}>
+          <View style={[st.timeCell, { backgroundColor: c.tint }]}>
             <Text style={[st.timeLabel, { color: c.muted }]}>Keldi</Text>
-            <Text style={[st.timeValue, { color: a?.checkIn ? c.ink : c.muted, fontWeight: a?.checkIn ? "600" : "400" }]}>{a?.checkIn || "--:--"}</Text>
-            {a?.checkIn ? <Text style={{ color: a.lateMinutes ? c.warn : c.success, fontSize: 12, fontWeight: "500" }}>{a.lateMinutes ? `${a.lateMinutes} daq kech` : "vaqtida"}</Text> : null}
+            <Text style={[st.timeValue, { color: a?.checkIn ? c.ink : c.muted }]}>{a?.checkIn || "--:--"}</Text>
+            <Text style={{ color: a?.checkIn ? (a.lateMinutes ? c.warn : c.success) : c.muted, fontSize: 12, fontWeight: "600" }}>
+              {a?.checkIn ? (a.lateMinutes ? `${a.lateMinutes} daq kech` : "vaqtida") : "hali yo‘q"}
+            </Text>
           </View>
-          <View style={[st.timeCell, { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: c.line, paddingLeft: 16 }]}>
+          <View style={[st.timeCell, { backgroundColor: c.tint }]}>
             <Text style={[st.timeLabel, { color: c.muted }]}>{finished ? "Ketdi" : "Ishlangan"}</Text>
-            <Text style={[st.timeValue, { color: finished || working ? c.ink : c.muted, fontWeight: finished || working ? "600" : "400" }]}>
+            <Text style={[st.timeValue, { color: finished || working ? c.ink : c.muted }]}>
               {finished ? a?.checkOut : working && a?.checkIn ? clockDuration(minutesSince(a.checkIn, now)) : "--:--"}
             </Text>
-            {finished ? <Text style={{ color: c.success, fontSize: 12, fontWeight: "500" }}>{clockDuration(a?.workedMinutes || 0)} soat</Text> : null}
+            <Text style={{ color: finished ? c.success : c.muted, fontSize: 12, fontWeight: "600" }}>
+              {finished ? `${clockDuration(a?.workedMinutes || 0)} soat` : working ? "davom etmoqda" : "—"}
+            </Text>
           </View>
         </View>
 
@@ -189,11 +208,12 @@ export default function Home() {
       ) : null}
 
       {/* -------------------------------------------------- statistika --- */}
+      <GroupTitle>Shu oy</GroupTitle>
       <Card style={st.stats}>
         <Stat value={String(data.month.days)} label="kun keldi" />
         <Stat value={String(data.month.late)} label="kechikish" warn={data.month.late > 0} border />
         {streak > 0 ? (
-          <Stat value={`${stats.data?.streak.badge?.emoji || "🔥"} ${streak}`} label="kun vaqtida" border onPress={() => router.push("/(tabs)/history")} />
+          <Stat value={`${stats.data?.streak.badge?.emoji || "🔥"} ${streak}`} label="kun vaqtida" border onPress={() => go("/(tabs)/history")} />
         ) : (
           <Stat value={String(Math.round(data.month.workedMinutes / 60))} label="soat" border />
         )}
@@ -202,16 +222,17 @@ export default function Home() {
       {salary.data?.base ? <SalaryCard data={salary.data} /> : null}
 
       {/* ----------------------------------------------- tezkor bo‘limlar --- */}
-      <View style={st.quick}>
-        <Tile icon="calendar-outline" label="Grafigim" onPress={() => router.push({ pathname: "/(tabs)/history", params: { view: "schedule" } })} />
-        <Tile icon="trending-up-outline" label="Statistika" onPress={() => router.push({ pathname: "/(tabs)/history", params: { view: "stats" } })} />
-        <Tile icon="timer-outline" label="Qo‘shimcha" onPress={() => router.push({ pathname: "/(tabs)/requests", params: { view: "overtime" } })} />
-        <Tile icon="people-outline" label="Hamkasblar" onPress={() => router.push({ pathname: "/(tabs)/profile", params: { section: "directory" } })} />
-        <Tile icon="wallet-outline" label="Hisob varaqa" onPress={() => router.push({ pathname: "/(tabs)/profile", params: { section: "payslips" } })} />
-        <Tile icon="airplane-outline" label="Ta’til" onPress={() => router.push({ pathname: "/(tabs)/requests", params: { view: "leave" } })} />
-        <Tile icon="chatbubble-ellipses-outline" label="HR’ga savol" onPress={() => router.push({ pathname: "/(tabs)/profile", params: { section: "helpdesk" } })} />
-        <Tile icon="document-attach-outline" label="Spravka" onPress={() => router.push({ pathname: "/(tabs)/profile", params: { section: "certificates" } })} />
-      </View>
+      <GroupTitle>Tezkor bo‘limlar</GroupTitle>
+      <Card style={st.quick}>
+        <Tile icon="calendar" color="#FF3B30" label="Grafigim" onPress={() => go({ pathname: "/(tabs)/history", params: { view: "schedule" } })} />
+        <Tile icon="stats-chart" color="#5856D6" label="Statistika" onPress={() => go({ pathname: "/(tabs)/history", params: { view: "stats" } })} />
+        <Tile icon="timer" color="#FF9500" label="Qo‘shimcha" onPress={() => go({ pathname: "/(tabs)/requests", params: { view: "overtime" } })} />
+        <Tile icon="people" color="#34C759" label="Hamkasblar" onPress={() => go("/directory")} />
+        <Tile icon="receipt" color="#30B0C7" label="Hisob varaqa" onPress={() => go("/payslips")} />
+        <Tile icon="airplane" color="#007AFF" label="Ta’til" onPress={() => go({ pathname: "/(tabs)/requests", params: { view: "leave" } })} />
+        <Tile icon="chatbubble-ellipses" color="#AF52DE" label="HR’ga savol" onPress={() => go({ pathname: "/helpdesk", params: { view: "questions" } })} />
+        <Tile icon="document-text" color="#8E8E93" label="Spravka" onPress={() => go({ pathname: "/helpdesk", params: { view: "certificates" } })} />
+      </Card>
 
       {data.month.practiceUntil ? (
         <Hint icon="school-outline">{data.month.practiceUntil.split("-").reverse().join(".")} gacha mashq davri — kechikish va ushlanmalar hisoblanmaydi.</Hint>
@@ -223,7 +244,7 @@ export default function Home() {
       {!data.employee.faceEnrolledAt && !finished && !missingSetup ? <Hint icon="scan-outline">Birinchi marta Face ID sozlanadi (~15 soniya). Yorug‘ joyda turing.</Hint> : null}
 
       {data.notifications.length > 0 ? (
-        <Card style={{ paddingVertical: 6 }} onPress={() => router.push("/notifications")}>
+        <Card style={{ paddingVertical: 6 }} onPress={() => go("/notifications")}>
           <View style={st.notifHead}>
             <Text style={{ color: c.ink, fontWeight: "600", fontSize: 16 }}>Xabarlar</Text>
             {(data.unreadNotifications || 0) > 0 ? <Badge text={String(data.unreadNotifications)} tone="bad" /> : null}
@@ -260,7 +281,7 @@ function Stat({ value, label, warn, border, onPress }: { value: string; label: s
   );
 }
 
-function Tile({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+function Tile({ icon, color, label, onPress }: { icon: IconName; color: string; label: string; onPress: () => void }) {
   const { c } = useTheme();
   return (
     <Pressable
@@ -268,12 +289,12 @@ function Tile({ icon, label, onPress }: { icon: IconName; label: string; onPress
         haptic.select();
         onPress();
       }}
-      style={({ pressed }) => [st.tile, { backgroundColor: c.card, borderRadius: radius.tile }, elevation, pressed && { opacity: 0.7, transform: [{ scale: 0.97 }] }]}
+      style={({ pressed }) => [st.tile, pressed && { opacity: 0.6, transform: [{ scale: 0.95 }] }]}
     >
-      <View style={[st.tileIcon, { backgroundColor: `${c.accent}17` }]}>
-        <Icon name={icon} size={20} color={c.accent} />
+      <View style={[st.tileIcon, { backgroundColor: color }]}>
+        <Icon name={icon} size={21} color="#fff" />
       </View>
-      <Text style={{ color: c.ink, fontSize: 11.5, textAlign: "center" }} numberOfLines={1}>
+      <Text style={{ color: c.ink, fontSize: 11.5, textAlign: "center", fontWeight: "500" }} numberOfLines={1}>
         {label}
       </Text>
     </Pressable>
@@ -286,7 +307,7 @@ function SalaryCard({ data }: { data: Salary }) {
   const progress = data.base ? Math.min(100, Math.round((data.earnedToDate / data.base) * 100)) : 0;
   const deductions = data.lateDeduction + data.absenceDeduction + data.fine;
   return (
-    <Card onPress={() => router.push("/salary")} style={{ gap: 12 }}>
+    <Card onPress={() => go("/salary")} style={{ gap: 12 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
         <View style={[st.tileIcon, { backgroundColor: `${c.success}1C` }]}>
           <Icon name="wallet" size={19} color={c.success} />
@@ -413,26 +434,27 @@ function LateSheet({ visible, start, onClose, onSaved }: { visible: boolean; sta
 }
 
 const st = StyleSheet.create({
-  glow: { position: "absolute", width: 240, height: 240, borderRadius: 120, top: -120, right: -80 },
-  glow2: { position: "absolute", width: 140, height: 140, borderRadius: 70, top: -30, right: 10 },
-  bell: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", marginBottom: 4 },
-  dot: { position: "absolute", top: 4, right: 3, minWidth: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
+  header: { flexDirection: "row", alignItems: "center", gap: 12, paddingTop: 4, paddingBottom: 6 },
+  avatar: { width: 46, height: 46, borderRadius: 23 },
+  bell: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
+  dot: { position: "absolute", top: 2, right: 0, minWidth: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderWidth: 2 },
+  statusChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99 },
   dotText: { color: "#fff", fontSize: 10.5, fontWeight: "700" },
   statusRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  statusDot: { width: 8, height: 8, borderRadius: 4, shadowOpacity: 0.6, shadowRadius: 4, shadowOffset: { width: 0, height: 0 } },
-  clock: { fontSize: 60, fontWeight: "600", letterSpacing: -2.5, marginTop: 20, marginBottom: 4, fontVariant: ["tabular-nums"] },
-  meta: { flexDirection: "row", alignItems: "center", gap: 5 },
-  times: { flexDirection: "row", marginTop: 18, marginBottom: 16, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
-  timeCell: { flex: 1, paddingVertical: 12, gap: 2 },
-  timeLabel: { fontSize: 12 },
-  timeValue: { fontSize: 26, letterSpacing: -0.5, fontVariant: ["tabular-nums"] },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
+  clock: { fontSize: 56, fontWeight: "700", letterSpacing: -2, marginTop: 16, fontVariant: ["tabular-nums"] },
+  meta: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, maxWidth: "50%" },
+  times: { flexDirection: "row", gap: 10, marginBottom: 16 },
+  timeCell: { flex: 1, paddingVertical: 12, paddingHorizontal: 14, gap: 2, borderRadius: 14 },
+  timeLabel: { fontSize: 12, fontWeight: "500" },
+  timeValue: { fontSize: 24, fontWeight: "700", letterSpacing: -0.5, fontVariant: ["tabular-nums"] },
   done: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 54, borderRadius: radius.button },
   note: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 10 },
   lateCard: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
   stats: { flexDirection: "row", paddingVertical: 12, paddingHorizontal: 4 },
-  quick: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  tile: { width: "23.2%", flexGrow: 1, alignItems: "center", gap: 6, paddingTop: 12, paddingBottom: 10, paddingHorizontal: 4 },
-  tileIcon: { width: 38, height: 38, borderRadius: ios ? 11 : 12, alignItems: "center", justifyContent: "center" },
+  quick: { flexDirection: "row", flexWrap: "wrap", paddingVertical: 8, paddingHorizontal: 4 },
+  tile: { width: "25%", alignItems: "center", gap: 7, paddingVertical: 10 },
+  tileIcon: { width: 46, height: 46, borderRadius: ios ? 13 : 15, alignItems: "center", justifyContent: "center" },
   bar: { height: 6, borderRadius: 3, overflow: "hidden" },
   notifHead: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8 },
   unread: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },

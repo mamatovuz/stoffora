@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { mediaUri } from "@/lib/config";
 import { Alert, Image, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Button, Card, Empty, ErrorBox, Loading, haptic } from "@/components/ui";
 import { errorText, post } from "@/lib/api";
@@ -32,7 +33,7 @@ export default function Birthdays() {
       {!data?.length ? <Empty icon="gift-outline" title="Yaqin kunlarda tug‘ilgan kun yo‘q" /> : null}
       {data?.map((p) => (
         <Card key={p.id} style={[st.item, p.inDays === 0 && { borderWidth: 1.5, borderColor: "#FF2D55" }]}>
-          {p.photoDataUrl ? <Image source={{ uri: p.photoDataUrl }} style={st.avatar} /> : <View style={[st.avatar, { backgroundColor: "#FF2D5520", alignItems: "center", justifyContent: "center" }]}><Text style={{ fontSize: 22 }}>🎂</Text></View>}
+          {p.photoDataUrl ? <Image source={{ uri: mediaUri(p.photoDataUrl) }} style={st.avatar} /> : <View style={[st.avatar, { backgroundColor: "#FF2D5520", alignItems: "center", justifyContent: "center" }]}><Text style={{ fontSize: 22 }}>🎂</Text></View>}
           <View style={{ flex: 1, gap: 2 }}>
             <Text style={{ color: c.ink, fontWeight: "600", fontSize: 15.5 }}>
               {p.name}

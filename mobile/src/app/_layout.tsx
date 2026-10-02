@@ -13,6 +13,8 @@ import { SessionProvider, useSession } from "@/lib/session";
 import { ios, useTheme } from "@/lib/theme";
 import { invalidate } from "@/lib/useData";
 
+const handledPushes = new Set<string>();
+
 function Gate() {
   const { state, prefs } = useSession();
   const segments = useSegments();
@@ -31,10 +33,14 @@ function Gate() {
     void registerPush(false).catch(() => undefined);
     const stopWatch = watchPushToken();
     const open = (response: Notifications.NotificationResponse | null) => {
-      const go = response?.notification.request.content.data?.go as string | undefined;
       if (!response) return;
+      // Har bir push faqat bir marta ochiladi (ilova qayta ochilganda takrorlanmasin).
+      const id = response.notification.request.identifier;
+      if (handledPushes.has(id)) return;
+      handledPushes.add(id);
       invalidate("/mini/");
-      router.push(routeForGo(go));
+      const target = routeForGo(response.notification.request.content.data?.go as string | undefined) || "/notifications";
+      router.navigate(target);
     };
     open(Notifications.getLastNotificationResponse());
     const sub = Notifications.addNotificationResponseReceivedListener(open);

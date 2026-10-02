@@ -70,7 +70,8 @@ export default function Permissions() {
         color="#FF9500"
         title="Bildirishnomalar"
         text="So‘rovlaringiz javobi, e’lonlar, oylik va avans, smena eslatmalari — Telegram’siz, to‘g‘ridan-to‘g‘ri telefoningizga."
-        state={push}
+        // Ruxsat berilgan, lekin token xatosi — ruxsat kartasi uchun «yoqilgan» (xato Xavfsizlik ekranida ko‘rinadi).
+        state={push === "error" ? "granted" : push}
         onAllow={() => void registerPush(true).then(setPush).catch(() => setPush("denied"))}
       />
       {bio.available ? (

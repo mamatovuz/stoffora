@@ -4,7 +4,7 @@ import { Alert, Linking, ScrollView, Switch, Text } from "react-native";
 import { Group, GroupTitle, Hint, Row } from "@/components/ui";
 import { API_URL, APP_VERSION } from "@/lib/config";
 import { dateUz } from "@/lib/format";
-import { pushPermission, registerPush, type PushState } from "@/lib/push";
+import { lastPushError, pushPermission, registerPush, type PushState } from "@/lib/push";
 import { useSession } from "@/lib/session";
 import { ios, useTheme } from "@/lib/theme";
 import { useData } from "@/lib/useData";
@@ -22,7 +22,8 @@ export default function Security() {
   const [push, setPush] = useState<PushState>("undetermined");
   const [bio, setBio] = useState({ available: false, label: ios ? "Face ID" : "Barmoq izi" });
   useEffect(() => {
-    void pushPermission().then(setPush);
+    // Ruxsat bo‘lsa — tokenni darhol (qayta) ro‘yxatdan o‘tkazamiz va natijani ko‘rsatamiz.
+    void pushPermission().then((p) => (p === "granted" ? registerPush(false).then(setPush) : setPush(p)));
     void (async () => {
       const [has, enrolled, types] = await Promise.all([LocalAuthentication.hasHardwareAsync(), LocalAuthentication.isEnrolledAsync(), LocalAuthentication.supportedAuthenticationTypesAsync()]);
       const face = types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION);
@@ -35,7 +36,7 @@ export default function Security() {
     if (r.success) await setPrefs({ appLock: next });
   };
   const enablePush = async () => {
-    const state = await registerPush(true).catch(() => "denied" as const);
+    const state = await registerPush(true).catch(() => "error" as const);
     setPush(state);
     if (state === "denied") Linking.openSettings();
   };
@@ -65,13 +66,14 @@ export default function Security() {
           icon="notifications"
           iconColor="#FF3B30"
           label="Push xabarnomalar"
-          value={push === "granted" ? (data?.push ? "Yoqilgan" : "Ruxsat bor") : push === "unavailable" ? "Mavjud emas" : "O‘chiq"}
+          value={push === "granted" ? "Yoqilgan" : push === "error" ? "Xato" : push === "unavailable" ? "Mavjud emas" : "O‘chiq"}
           onPress={push === "granted" ? undefined : () => void enablePush()}
         />
         <Row icon="document-lock" iconColor="#0A84FF" label="Maxfiylik siyosati" onPress={() => void Linking.openURL(`${API_URL.replace(/\/api$/, "")}/privacy.html`)} />
         <Row icon="trash-outline" iconColor="#FF3B30" label="Hisobni o‘chirish" onPress={() => void Linking.openURL(`${API_URL.replace(/\/api$/, "")}/delete-account.html`)} />
         <Row icon="information-circle" iconColor="#8E8E93" label="Ilova versiyasi" value={APP_VERSION} last />
       </Group>
+      {push === "error" || (push === "unavailable" && lastPushError) ? <Hint tone="warn" icon="notifications-off-outline">{lastPushError}</Hint> : null}
       {bio.available ? <Text style={{ color: c.muted, fontSize: 12.5, paddingHorizontal: 4 }}>Ilova qulfi davomat Face ID’sidan alohida: ishga kelishda yuzingiz baribir tekshiriladi.</Text> : null}
 
       <Group>

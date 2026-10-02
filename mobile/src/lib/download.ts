@@ -1,6 +1,6 @@
 import { Linking } from "react-native";
 import { post } from "./api";
-import { API_URL } from "./config";
+import { SERVER_ORIGIN } from "./config";
 
 /**
  * Fayl (hisob varaqa, hujjat): server qisqa muddatli bir martalik havola beradi —
@@ -8,6 +8,5 @@ import { API_URL } from "./config";
  */
 export async function openFile(body: { kind: "payslip"; month: string } | { kind: "document"; id: string }) {
   const { path } = await post<{ path: string; fileName: string }>("/mini/download", body);
-  const origin = API_URL.replace(/\/api$/, "");
-  await Linking.openURL(origin + path);
+  await Linking.openURL(SERVER_ORIGIN + path);
 }

@@ -24,7 +24,10 @@ export async function ensureChannel() {
   });
 }
 
-export type PushState = "granted" | "denied" | "undetermined" | "unavailable";
+export type PushState = "granted" | "denied" | "undetermined" | "unavailable" | "error";
+
+/** Oxirgi ro‘yxatdan o‘tish xatosi (Xavfsizlik ekranida ko‘rsatiladi — jim yutilmaydi). */
+export let lastPushError = "";
 
 export async function pushPermission(): Promise<PushState> {
   if (!Device.isDevice) return "unavailable";
@@ -42,10 +45,23 @@ export async function registerPush(ask: boolean): Promise<PushState> {
     state = answer.granted ? "granted" : "denied";
   }
   if (state !== "granted") return state;
-  if (!EAS_PROJECT_ID) return "unavailable";
-  const token = await Notifications.getExpoPushTokenAsync({ projectId: EAS_PROJECT_ID });
-  await post("/mobile/push-token", { token: token.data, platform: Platform.OS === "ios" ? "ios" : "android" });
-  return "granted";
+  if (!EAS_PROJECT_ID) {
+    lastPushError = "Ilova EAS loyihasiga ulanmagan (projectId yo‘q).";
+    return "unavailable";
+  }
+  try {
+    const token = await Notifications.getExpoPushTokenAsync({ projectId: EAS_PROJECT_ID });
+    await post("/mobile/push-token", { token: token.data, platform: Platform.OS === "ios" ? "ios" : "android" });
+    lastPushError = "";
+    return "granted";
+  } catch (error) {
+    const text = error instanceof Error ? error.message : String(error);
+    // Android: Firebase (FCM) sozlanmagan bo‘lsa token olinmaydi.
+    lastPushError = /firebase|fcm|google-services/i.test(text)
+      ? "Android push uchun Firebase (FCM) sozlanmagan — administratorga xabar bering."
+      : `Push ulanmadi: ${text.slice(0, 160)}`;
+    return "error";
+  }
 }
 
 /** OS push tokenini almashtirsa — yangisini serverga yuboramiz. */

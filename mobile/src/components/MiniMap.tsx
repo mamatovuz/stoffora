@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { Image, StyleSheet, View, type LayoutChangeEvent } from "react-native";
 import Svg, { Circle } from "react-native-svg";
+import { SERVER_ORIGIN } from "@/lib/config";
 import { distanceMeters } from "@/lib/location";
 import { useTheme } from "@/lib/theme";
 import { Icon } from "./ui";
@@ -9,7 +10,9 @@ import { Icon } from "./ui";
  * Yengil xarita (Mini App’dagi TileMap kabi): OpenStreetMap plitkalari, filial radiusi va
  * xodim turgan joy. Google/Apple Maps kaliti kerak emas. Plitka manzili: EXPO_PUBLIC_MAP_TILE_URL.
  */
-const TILE_URL = process.env.EXPO_PUBLIC_MAP_TILE_URL || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+// Standart — o‘z serverimiz orqali (keshlangan OSM); mobil tarmoqda OSM sekin/bloklangan bo‘lsa ham ishlaydi.
+const TILE_URL = process.env.EXPO_PUBLIC_MAP_TILE_URL || `${SERVER_ORIGIN}/api/tiles/{z}/{x}/{y}.png`;
+const FALLBACK_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE = 256;
 
 const project = (lat: number, lng: number, z: number) => {
@@ -36,6 +39,8 @@ export function MiniMap({
 }) {
   const { c, dark } = useTheme();
   const [width, setWidth] = useState(0);
+  // Server plitkasi ochilmasa — to‘g‘ridan-to‘g‘ri OSM’dan.
+  const [failed, setFailed] = useState<Set<string>>(() => new Set());
   const onLayout = (e: LayoutChangeEvent) => setWidth(Math.round(e.nativeEvent.layout.width));
 
   let body: ReactNode = null;
@@ -53,7 +58,9 @@ export function MiniMap({
       for (let ty = Math.floor(top / TILE); ty <= Math.floor((top + height) / TILE); ty += 1) {
         if (ty < 0 || ty >= max) continue;
         const wx = ((tx % max) + max) % max;
-        tiles.push({ key: `${z}/${tx}/${ty}`, x: tx * TILE - left, y: ty * TILE - top, uri: TILE_URL.replace("{z}", String(z)).replace("{x}", String(wx)).replace("{y}", String(ty)) });
+        const key = `${z}/${wx}/${ty}`;
+        const template = failed.has(key) ? FALLBACK_URL : TILE_URL;
+        tiles.push({ key, x: tx * TILE - left, y: ty * TILE - top, uri: template.replace("{z}", String(z)).replace("{x}", String(wx)).replace("{y}", String(ty)) });
       }
     const at = (p: MapCenter) => {
       const q = project(p.latitude, p.longitude, z);
@@ -68,6 +75,7 @@ export function MiniMap({
           <Image
             key={t.key}
             source={{ uri: t.uri, headers: { "User-Agent": "StafforaMobile/1.0" }, cache: "force-cache" }}
+            onError={() => setFailed((prev) => (prev.has(t.key) ? prev : new Set(prev).add(t.key)))}
             style={{ position: "absolute", left: t.x, top: t.y, width: TILE, height: TILE, opacity: dark ? 0.75 : 1 }}
           />
         ))}

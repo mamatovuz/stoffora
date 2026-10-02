@@ -1,4 +1,5 @@
 import { useFocusEffect } from "expo-router";
+import { mediaUri } from "@/lib/config";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { MiniMap } from "@/components/MiniMap";
@@ -411,7 +412,7 @@ function RosterLine({ row, last }: { row: RosterRow; last: boolean }) {
   return (
     <View style={[st.row, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
       {r.employee.photoDataUrl ? (
-        <Image source={{ uri: r.employee.photoDataUrl }} style={st.avatar} />
+        <Image source={{ uri: mediaUri(r.employee.photoDataUrl) }} style={st.avatar} />
       ) : (
         <View style={[st.avatar, { backgroundColor: `${c.accent}1A`, alignItems: "center", justifyContent: "center" }]}>
           <Text style={{ color: c.accent, fontWeight: "700", fontSize: 12 }}>

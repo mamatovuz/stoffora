@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { mediaUri } from "@/lib/config";
 import { FlatList, Image, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { Empty, ErrorBox, Icon, Loading } from "@/components/ui";
 import { radius, useTheme } from "@/lib/theme";
@@ -37,7 +38,7 @@ export default function Directory() {
       renderItem={({ item: p }) => (
         <View style={[st.item, { backgroundColor: c.card, borderRadius: radius.card }]}>
           {p.photoDataUrl ? (
-            <Image source={{ uri: p.photoDataUrl }} style={st.avatar} />
+            <Image source={{ uri: mediaUri(p.photoDataUrl) }} style={st.avatar} />
           ) : (
             <View style={[st.avatar, { backgroundColor: `${c.accent}1C`, alignItems: "center", justifyContent: "center" }]}>
               <Text style={{ color: c.accent, fontWeight: "700" }}>{p.name.split(" ").map((x) => x[0]).slice(0, 2).join("")}</Text>
