@@ -14,7 +14,8 @@ import { existsSync } from "node:fs";
 type FaceApi = typeof import("@vladmandic/face-api");
 type Tf = typeof import("@tensorflow/tfjs");
 
-const require = createRequire(import.meta.url);
+// Build (tsup) `import.meta.url`ni bo‘sh qoldiradi — require loyiha ildizidan (node_modules) olinadi.
+const require = createRequire(path.join(process.cwd(), "package.json"));
 let ready: Promise<{ faceapi: FaceApi; tf: Tf }> | null = null;
 
 function modelDir() {
