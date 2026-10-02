@@ -138,18 +138,26 @@ async function takeMotion() {
 
 export function AttendanceFlow({
   flow,
-  branch,
+  branch: homeBranch,
+  branches,
   onClose,
   onSuccess,
   onOffline,
 }: {
   flow: Flow;
   branch: Branch;
+  /** «Istalgan filialdan» lavozimi: ruxsat etilgan filiallar (xodim turgan joyga qarab tanlanadi). */
+  branches?: Branch[];
   onClose: () => void;
   onSuccess: (row: Attendance, message: string) => void;
   onOffline?: (gps: { lat: number; lng: number; accuracy: number }) => void;
 }) {
   const [gps, setGps] = useState<Gps | null>(null);
+  // Bir nechta filial bo‘lsa — joylashuvga eng mos (hududi ichidagi, eng yaqin) filial ko‘rsatiladi.
+  // Yakuniy qaror serverda: u ham joylashuv/QR bo‘yicha o‘zi aniqlaydi.
+  const [branch, setBranch] = useState<Branch>(homeBranch);
+  const multi = Boolean(branches && branches.length > 1);
+  const needQr = multi ? (branch.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE" : flow.requiresQr;
   const [gpsState, setGpsState] = useState<"loading" | "ok" | "far" | "error">("loading");
   const [gpsError, setGpsError] = useState("");
   const [qrToken, setQrToken] = useState<string | null>(null);
@@ -178,7 +186,13 @@ export function AttendanceFlow({
         }
       }
       const { latitude, longitude, accuracy } = position.coords;
-      const distance = haversineDistance(latitude, longitude, branch.latitude, branch.longitude);
+      const candidates = multi ? branches! : [homeBranch];
+      const ranked = candidates
+        .map((b) => ({ b, d: haversineDistance(latitude, longitude, b.latitude, b.longitude) }))
+        .sort((x, y) => x.d - Math.min(35, accuracy) - x.b.radiusMeters - (y.d - Math.min(35, accuracy) - y.b.radiusMeters));
+      const branch = ranked[0].b;
+      setBranch(branch);
+      const distance = Math.round(ranked[0].d);
       const value = { lat: latitude, lng: longitude, accuracy: Math.round(accuracy), distance, takenAt: position.timestamp || Date.now() };
       setGps(value);
       try {
@@ -203,7 +217,7 @@ export function AttendanceFlow({
       haptic.error();
       reportError("gps", text, `code=${code ?? "?"}`);
     }
-  }, [branch]);
+  }, [homeBranch, branches, multi]);
 
   useEffect(() => {
     void locate();
@@ -250,20 +264,20 @@ export function AttendanceFlow({
 
   // GPS tayyor va QR kerak bo‘lmasa — darhol yuboramiz.
   useEffect(() => {
-    if (gpsState === "ok" && !flow.requiresQr && !committed.current && !error) void commit(null);
-  }, [gpsState, flow.requiresQr, commit, error]);
+    if (gpsState === "ok" && !needQr && !committed.current && !error) void commit(null);
+  }, [gpsState, needQr, commit, error]);
   useEffect(() => {
     if (qrToken && gpsState === "ok") void commit(qrToken);
   }, [qrToken, gpsState, commit]);
   // QR kerak bo‘lsa — Telegram skanerini avtomatik ochamiz (bir bosish kam).
   const autoScanned = useRef(false);
   useEffect(() => {
-    if (gpsState === "ok" && flow.requiresQr && nativeQr && !autoScanned.current && !qrToken) {
+    if (gpsState === "ok" && needQr && nativeQr && !autoScanned.current && !qrToken) {
       autoScanned.current = true;
       scanNative();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gpsState, flow.requiresQr, nativeQr, qrToken]);
+  }, [gpsState, needQr, nativeQr, qrToken]);
 
   const onQr = (text: string) => {
     const value = text.trim();
@@ -290,7 +304,7 @@ export function AttendanceFlow({
   const steps = [
     { label: flow.method === "BIOMETRIC" ? "Biometriya" : "Face ID", state: "done" },
     { label: "GPS", state: gpsState === "ok" ? "done" : gpsState === "loading" ? "active" : "" },
-    ...(flow.requiresQr ? [{ label: "QR", state: qrToken ? "done" : gpsState === "ok" ? "active" : "" }] : []),
+    ...(needQr ? [{ label: "QR", state: qrToken ? "done" : gpsState === "ok" ? "active" : "" }] : []),
     { label: "Tasdiq", state: busy ? "active" : "" },
   ];
   const mapsUrl = `https://maps.google.com/?q=${branch.latitude},${branch.longitude}`;
@@ -340,7 +354,7 @@ export function AttendanceFlow({
           )}
         </div>
 
-        {flow.requiresQr && gpsState === "ok" && !busy && (
+        {needQr && gpsState === "ok" && !busy && (
           <>
             {cameraOpen ? <QrCamera onResult={(text) => onQr(text) && setCameraOpen(false)} /> : null}
             <div style={{ display: "grid", gap: 8 }}>
@@ -376,7 +390,7 @@ export function AttendanceFlow({
             <span>{error}</span>
           </div>
         )}
-        {error && !flow.requiresQr && gpsState === "ok" && !busy && (
+        {error && !needQr && gpsState === "ok" && !busy && (
           <button className="mini-btn" style={{ marginTop: 10 }} onClick={() => void commit(null)}>
             <RotateCcw size={17} /> Qayta yuborish
           </button>

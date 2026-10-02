@@ -22,6 +22,8 @@ export type HomeData = {
   employee: Employee;
   company?: Company;
   branch: Branch | null;
+  /** «Istalgan filialdan» lavozimi: keldi-ketdi mumkin bo‘lgan filiallar (bittadan ko‘p bo‘lsa). */
+  branches?: Branch[];
   department: Department | null;
   position: Position | null;
   schedule: Schedule | null;

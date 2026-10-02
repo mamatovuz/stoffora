@@ -1,3 +1,4 @@
+import { allowedBranches, branchAt } from "../lib/branches";
 import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
@@ -93,13 +94,16 @@ export function createMiniOfflineRouter() {
               fail("Yuz profildagi Face ID bilan mos kelmadi.");
               continue;
             }
-            const branch = db.branches.find((b) => b.id === employee.branchId && b.companyId === auth.companyId);
-            if (!branch || branch.status !== "ACTIVE") {
+            const allowance = Math.min(GPS_ACCURACY_ALLOWANCE, Math.max(0, item.accuracy || 0));
+            // «Istalgan filialdan» lavozimi — belgi qilingan joydagi ruxsat etilgan filial.
+            const allowed = allowedBranches(db, employee);
+            const spot = branchAt(allowed, item.latitude, item.longitude, allowance);
+            const branch = spot.inside?.branch || allowed[0];
+            if (!branch) {
               fail("Faol filial biriktirilmagan.");
               continue;
             }
             const distance = haversineDistance(branch.latitude, branch.longitude, item.latitude, item.longitude);
-            const allowance = Math.min(GPS_ACCURACY_ALLOWANCE, Math.max(0, item.accuracy || 0));
             if (distance - allowance > branch.radiusMeters) {
               fail(`Belgi filial hududidan ${Math.round(distance - branch.radiusMeters)} m tashqarida qilingan.`);
               continue;

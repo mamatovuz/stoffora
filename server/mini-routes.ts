@@ -11,6 +11,7 @@ import {
   haversineDistance,
 } from "../lib/attendance";
 import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
+import { allowedBranches, branchAt } from "../lib/branches";
 import { audit, dataIndexes, readDb, updateDb } from "../lib/store";
 import {
   adaptProfile,
@@ -127,6 +128,11 @@ function buildHome(db: Database, employee: Employee) {
     month: monthSummary(db, employee.id),
     // Bugungi reja: smena almashish, dam kunini ko‘chirish va shaxsiy dam kuni hisobga olingan.
     todayPlan: dayPlan(db, employee, date),
+    // «Istalgan filialdan» lavozimi: keldi-ketdi qilish mumkin bo‘lgan barcha filiallar (xaritada).
+    branches: (() => {
+      const list = allowedBranches(db, employee);
+      return list.length > 1 ? list : undefined;
+    })(),
     features: miniFeatures(db, employee),
     lateNotice: db.lateNotices.find((n) => n.employeeId === employee.id && n.date === date) || null,
     serverTime: new Date().toISOString(),
@@ -753,11 +759,10 @@ export function createMiniRouter() {
         );
         if (!employee || employee.status !== "ACTIVE")
           throw httpError("Xodim faol emas.", 403);
-        const branch = db.branches.find(
-          (item) =>
-            item.id === employee.branchId && item.companyId === auth.companyId,
-        );
-        if (!branch || branch.status !== "ACTIVE")
+        // «Istalgan filialdan» lavozimi bo‘lsa — ruxsat etilgan filiallardan biri (aniq filial commit’da joylashuv/QR bo‘yicha).
+        const allowed = allowedBranches(db, employee);
+        const branch = allowed[0];
+        if (!branch)
           throw httpError(
             "Sizga faol filial biriktirilmagan. HR bilan bog‘laning.",
             422,
@@ -788,6 +793,10 @@ export function createMiniRouter() {
         return {
           ...value,
           requiresQr: (branch.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE",
+          // Bir nechta filial: mijoz joylashuvga qarab QR kerakmi-yo‘qligini ko‘rsatadi (qaror baribir serverda).
+          branches: allowed.length > 1
+            ? allowed.map((b) => ({ id: b.id, name: b.name, latitude: b.latitude, longitude: b.longitude, radiusMeters: b.radiusMeters, attendanceMode: b.attendanceMode || "QR_GPS_FACE" }))
+            : undefined,
         };
       });
       return res.status(201).json(session);
@@ -861,16 +870,23 @@ export function createMiniRouter() {
             "Davomat sessiyasi muddati tugagan. Qaytadan boshlang.",
             410,
           );
-        const branch = db.branches.find(
-          (item) =>
-            item.id === session.branchId && item.companyId === auth.companyId,
-        );
         const employee = db.employees.find(
           (item) =>
             item.id === auth.employeeId && item.companyId === auth.companyId,
         );
-        if (!branch || !employee)
-          throw httpError("Filial yoki xodim topilmadi.", 404);
+        if (!employee) throw httpError("Filial yoki xodim topilmadi.", 404);
+        // Qaysi filial: QR bo‘lsa — QR’dagi filial (ruxsat etilganlardan bo‘lishi shart),
+        // aks holda — joylashuv bo‘yicha hududi ichidagi eng yaqin ruxsat etilgan filial.
+        const allowed = allowedBranches(db, employee);
+        const allowanceMeters = Math.min(GPS_ACCURACY_ALLOWANCE, Math.max(0, input.accuracy || 0));
+        let branch = qrPayload ? allowed.find((b) => b.id === qrPayload!.branchId) : undefined;
+        if (qrPayload && !branch)
+          throw httpError("Bu filialda keldi-ketdi qilishga ruxsatingiz yo‘q. O‘z filialingiz QR kodini skanerlang.", 403);
+        if (!branch) {
+          const spot = branchAt(allowed, input.latitude, input.longitude, allowanceMeters);
+          branch = spot.inside?.branch || allowed.find((b) => b.id === session.branchId) || spot.nearest?.branch;
+        }
+        if (!branch) throw httpError("Filial yoki xodim topilmadi.", 404);
         const requiresQr =
           (branch.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE";
         let qrNonce: Database["qrNonces"][number] | undefined;
@@ -879,13 +895,13 @@ export function createMiniRouter() {
             throw httpError("Filial ekranidagi QR kodni skanerlang.", 400);
           assertQrScope(qrPayload, {
             companyId: auth.companyId,
-            branchId: session.branchId,
+            branchId: branch.id,
           });
           qrNonce = db.qrNonces.find(
             (item) =>
               item.nonce === qrPayload!.nonce &&
               item.companyId === auth.companyId &&
-              item.branchId === session.branchId,
+              item.branchId === branch!.id,
           );
           assertQrNonceUsable(qrNonce, `${auth.employeeId}:${session.action}`);
         }
@@ -895,13 +911,11 @@ export function createMiniRouter() {
           input.latitude,
           input.longitude,
         );
-        const allowance = Math.min(
-          GPS_ACCURACY_ALLOWANCE,
-          Math.max(0, input.accuracy || 0),
-        );
-        if (distanceMeters - allowance > branch.radiusMeters)
+        if (distanceMeters - allowanceMeters > branch.radiusMeters)
           throw httpError(
-            `Siz filial hududidan ${Math.round(distanceMeters - branch.radiusMeters)} metr tashqaridasiz. Filialga yaqinroq keling.`,
+            allowed.length > 1
+              ? `Siz ruxsat etilgan filiallarning birortasi hududida emassiz (eng yaqini — ${branch.name}, ${Math.round(distanceMeters - branch.radiusMeters)} m). Filialga yaqinroq keling.`
+              : `Siz filial hududidan ${Math.round(distanceMeters - branch.radiusMeters)} metr tashqaridasiz. Filialga yaqinroq keling.`,
             422,
           );
         const schedule = db.schedules.find(

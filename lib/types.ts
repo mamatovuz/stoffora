@@ -137,6 +137,10 @@ export interface Position {
   companyId: string;
   name: string;
   departmentId: string;
+  /** Shu lavozimdagi xodimlar istalgan filialda keldi-ketdi qila oladi (masalan, HR). */
+  anyBranch?: boolean;
+  /** anyBranch bo‘lsa — ruxsat etilgan filiallar; bo‘sh bo‘lsa — barcha faol filiallar. */
+  branchIds?: string[];
 }
 export interface ScheduleDay {
   day: number;

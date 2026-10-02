@@ -8377,9 +8377,9 @@ html[data-tg-scheme="dark"] .rc-card, html[data-mini-theme="dark"] .rc-card { bo
 .fc { --fc-ok: #22c55e; --fc-bad: #ef4444; --fc-idle: rgba(255, 255, 255, 0.85);
   position: fixed; inset: 0; z-index: 600; display: flex; flex-direction: column; background: #07090c; color: #fff;
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; animation: faceid-in 0.22s ease; user-select: none; -webkit-user-select: none; }
-.fc-stage { position: relative; flex: 1; min-height: 52vh; overflow: hidden; display: grid; place-items: center; padding: calc(64px + var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)) 0 64px; }
+.fc-stage { position: relative; flex: 1; min-height: 52vh; overflow: hidden; display: grid; place-items: center; padding: calc(64px + var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)) 0 18px; }
 /* Kamera oynasi: video nisbatida, kesilmaydi (zoom yo‘q) — iOS uslubidagi yumaloq burchaklar */
-.fc-view { position: relative; width: calc(100% - 24px); aspect-ratio: 3 / 4; max-height: 100%; border-radius: 28px; overflow: hidden; background: #111;
+.fc-view { position: relative; height: 100%; width: auto; max-width: calc(100% - 24px); aspect-ratio: 3 / 4; border-radius: 28px; overflow: hidden; background: #111;
   box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 18px 50px rgba(0,0,0,0.5); transform: translateZ(0); }
 .fc-view video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
 .fc-shade { position: absolute; inset: 0; pointer-events: none;
@@ -8696,5 +8696,213 @@ html[data-tg-scheme="dark"] .rc-card, html[data-mini-theme="dark"] .rc-card { bo
   .mdev-request,
   .mdev-head {
     flex-wrap: wrap;
+  }
+}
+
+/* ---------- Lavozim: istalgan filialdan keldi-ketdi ---------- */
+.pos-any {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--violet-bg);
+  color: var(--violet);
+  font-size: 11.5px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.pos-access {
+  display: grid;
+  gap: 12px;
+  margin: 4px 0 14px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.pos-access.on {
+  border-color: color-mix(in srgb, var(--brand-600) 45%, var(--line));
+  background: var(--brand-50);
+}
+.pos-switch {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.pos-switch input {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--brand-600);
+  flex: none;
+}
+.pos-switch b {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+}
+.pos-switch small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.pos-scope {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.pos-access .branch-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+/* Face ID: ramka tashqarisi xira (iOS uslubi), qidiruvda skaner chizig‘i, yashilda porlash */
+.fc-frame::before { content: ""; position: absolute; inset: 2px; border-radius: 20px; box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.34); transition: box-shadow 0.3s ease; }
+.fc-frame.ok::before { box-shadow: 0 0 0 999px rgba(0, 0, 0, 0.22), inset 0 0 40px rgba(34, 197, 94, 0.28); }
+.fc-frame i { border-width: 4px; }
+.fc-frame.ok i { filter: drop-shadow(0 0 10px rgba(34, 197, 94, 0.85)); }
+.fc-scan { position: absolute; left: 8%; right: 8%; top: 10%; height: 2px; border-radius: 2px;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.9), transparent); box-shadow: 0 0 12px rgba(255, 255, 255, 0.6);
+  animation: fc-scan 2.2s ease-in-out infinite; }
+.fc-frame.bad .fc-scan { background: linear-gradient(90deg, transparent, rgba(248, 113, 113, 0.95), transparent); box-shadow: 0 0 12px rgba(248, 113, 113, 0.7); }
+@keyframes fc-scan { 0% { top: 10%; opacity: 0; } 15% { opacity: 1; } 85% { opacity: 1; } 100% { top: 88%; opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .fc-scan { animation: none; display: none; } }
+/* Holat yozuvi kamera oynasining ichida, pastda — bo‘sh joy qolmaydi */
+.fc-view .fc-pill { bottom: 14px; z-index: 3; }
+.fc-view .fc-need { bottom: 58px; z-index: 3; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+.fc-view .fc-pill.idle { background: rgba(15, 23, 42, 0.62); }
+
+/* ---------- Mini App: suzuvchi pastki menyu (iOS 26 / Telegram / Instagram uslubi) ---------- */
+.mini-tabbar {
+  left: 12px;
+  right: 12px;
+  bottom: calc(10px + var(--m-safe-bottom, env(safe-area-inset-bottom)));
+  max-width: 496px;
+  margin: 0 auto;
+  padding: 6px;
+  border: 0.5px solid color-mix(in srgb, var(--m-ink) 10%, transparent);
+  border-radius: 30px;
+  background: color-mix(in srgb, var(--m-card) 80%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.06), inset 0 0.5px 0 rgba(255, 255, 255, 0.5);
+  isolation: isolate;
+}
+.mini-tabbar::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 6px;
+  bottom: 6px;
+  left: 6px;
+  width: calc((100% - 12px) / var(--n, 4));
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--m-accent) 14%, transparent);
+  transform: translateX(calc(var(--i, 0) * 100%));
+  transition: transform 0.38s cubic-bezier(0.3, 1.25, 0.5, 1);
+}
+.mini-tabbar button {
+  position: relative;
+  padding: 7px 0 6px;
+  border-radius: 24px;
+}
+.mini-tabbar button span {
+  font-size: 10.5px;
+}
+.mini-tabbar button.active span {
+  font-weight: 700;
+}
+.mini-app {
+  padding-bottom: calc(100px + var(--m-safe-bottom, env(safe-area-inset-bottom)));
+}
+@media (prefers-reduced-motion: reduce) {
+  .mini-tabbar::before { transition: none; }
+}
+
+/* ---------- Sozlamalar → Ilovalar ---------- */
+.apps-search {
+  position: relative;
+  display: block;
+}
+.apps-search svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--muted);
+}
+.apps-search .input {
+  padding-left: 36px;
+}
+.apps-list {
+  display: grid;
+  gap: 8px;
+}
+.apps-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.apps-row:hover {
+  border-color: color-mix(in srgb, var(--brand-600) 30%, var(--line));
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+}
+.apps-row.off {
+  background: var(--surface-2);
+}
+.apps-main {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+.apps-name {
+  color: var(--ink);
+  font-weight: 650;
+  text-decoration: none;
+}
+.apps-name small {
+  color: var(--muted);
+  font-weight: 500;
+}
+.apps-device {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.apps-meta {
+  color: var(--muted);
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.apps-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+@media (max-width: 640px) {
+  .apps-row {
+    flex-wrap: wrap;
+  }
+  .apps-meta {
+    white-space: normal;
   }
 }

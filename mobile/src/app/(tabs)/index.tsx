@@ -91,6 +91,9 @@ export default function Home() {
     >
       {/* ------------------------------------------------------ hero --- */}
       <Card style={{ padding: 18 }}>
+        {/* Holat rangidagi yumshoq nur (Mini App’dagi kabi) */}
+        <View pointerEvents="none" style={[st.glow, { backgroundColor: `${status.color}1A` }]} />
+        <View pointerEvents="none" style={[st.glow2, { backgroundColor: `${status.color}10` }]} />
         <View style={st.statusRow}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 7 }}>
             <View style={[st.statusDot, { backgroundColor: status.color, shadowColor: status.color }]} />
@@ -410,6 +413,8 @@ function LateSheet({ visible, start, onClose, onSaved }: { visible: boolean; sta
 }
 
 const st = StyleSheet.create({
+  glow: { position: "absolute", width: 240, height: 240, borderRadius: 120, top: -120, right: -80 },
+  glow2: { position: "absolute", width: 140, height: 140, borderRadius: 70, top: -30, right: 10 },
   bell: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   dot: { position: "absolute", top: 4, right: 3, minWidth: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 4 },
   dotText: { color: "#fff", fontSize: 10.5, fontWeight: "700" },

@@ -676,6 +676,37 @@ export function createMobileAdminRouter() {
     }),
   );
 
+  /** Sozlamalar → Ilovalar: kompaniyadagi barcha ulangan (va yaqinda o‘chirilgan) telefonlar. */
+  router.get(
+    "/mobile-devices",
+    permit("employees.view"),
+    route(async (req, res) => {
+      const auth = req as AuthedRequest;
+      const tenant = tenantOf(auth);
+      const db = await readDb();
+      const status = String(req.query.status || "ACTIVE");
+      const rows = db.mobileDevices
+        .filter((d) => d.companyId === tenant && (status === "ALL" || d.status === status))
+        .map((d) => ({ d, employee: db.employees.find((e) => e.id === d.employeeId) }))
+        .filter(({ employee }) => employee && scopeOk(auth, db, employee))
+        .sort((a, b) => (b.d.lastSeenAt || b.d.createdAt).localeCompare(a.d.lastSeenAt || a.d.createdAt))
+        .slice(0, 500)
+        .map(({ d, employee }) => ({
+          ...publicDevice(db, d),
+          employeeId: employee!.id,
+          employeeName: nameOf(employee),
+          employeeNo: employee!.employeeNo,
+          branch: db.branches.find((b) => b.id === employee!.branchId)?.name,
+          photoDataUrl: employee!.photoDataUrl,
+          sessions: db.mobileSessions.filter((x) => x.deviceId === d.id && !x.revokedAt && x.expiresAt > new Date().toISOString()).length,
+        }));
+      res.json({
+        rows,
+        pendingRequests: db.deviceChangeRequests.filter((r) => r.companyId === tenant && r.status === "PENDING").length,
+      });
+    }),
+  );
+
   router.post(
     "/mobile-devices/:id/revoke",
     permit("employees.edit"),

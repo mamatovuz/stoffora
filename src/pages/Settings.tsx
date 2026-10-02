@@ -25,10 +25,12 @@ import { CountingStartCard, IntegrationCenter } from "./Integrations";
 import { CompanyBotSection } from "./Registrations";
 import { FormBuilder } from "./FormBuilder";
 import { CountdownConfirm } from "../components/CountdownConfirm";
+import { MobileAppsSection } from "../components/MobileAppsSection";
 import { canAny } from "@/lib/permissions";
 
 /** Har bir tab uchun kerakli ruxsat (bo‘sh — hamma panel foydalanuvchisi). */
 const tabPermissions: Partial<Record<Tab, string[]>> = {
+  apps: ["employees.view"],
   company: ["settings.manage"],
   payroll: ["settings.manage", "payroll.edit"],
   channel: ["settings.manage"],
@@ -54,12 +56,13 @@ import { calculatePayroll, defaultPayrollSettings } from "@/lib/payroll";
 import { dateUz, money } from "@/lib/format";
 import { resizePhoto } from "./Employees";
 
-type Tab = "profile" | "security" | "lock" | "devices" | "company" | "payroll" | "channel" | "bot" | "miniapp" | "regbot" | "integrations";
+type Tab = "profile" | "security" | "lock" | "devices" | "apps" | "company" | "payroll" | "channel" | "bot" | "miniapp" | "regbot" | "integrations";
 const tabs: [Tab, string, typeof UserRound][] = [
   ["profile", "Profil", UserRound],
   ["security", "Xavfsizlik", ShieldCheck],
   ["lock", "Ekran qulfi", Lock],
   ["devices", "Qurilmalar", Laptop],
+  ["apps", "Ilovalar", Smartphone],
   ["company", "Kompaniya", Building2],
   ["payroll", "Ish haqi va jarima", Banknote],
   ["channel", "Rasm kanali", Camera],
@@ -94,6 +97,7 @@ export function SettingsPage() {
           {tab === "profile" && <ProfileSection />}
           {tab === "security" && <SecuritySection />}
           {tab === "devices" && <DevicesSection />}
+          {tab === "apps" && <MobileAppsSection />}
           {tab === "company" && (
             <>
               <CompanySection />

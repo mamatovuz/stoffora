@@ -4,6 +4,7 @@ import { type ComponentProps, type ReactNode } from "react";
 import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { elevation, ios, radius, useTheme } from "@/lib/theme";
+import { TAB_BAR_SPACE } from "./FloatingTabBar";
 
 export type IconName = ComponentProps<typeof Ionicons>["name"];
 export const Icon = ({ name, size = 20, color, style }: { name: IconName; size?: number; color?: string; style?: StyleProp<TextStyle> }) => {
@@ -65,7 +66,7 @@ export function Screen({
   return (
     <ScrollView
       style={{ flex: 1, backgroundColor: c.bg }}
-      contentContainerStyle={[padded && s.pad, { paddingBottom: 32, gap: 12 }]}
+      contentContainerStyle={[padded && s.pad, { paddingBottom: insets.bottom + TAB_BAR_SPACE + 12, gap: 12 }]}
       contentInsetAdjustmentBehavior="never"
       refreshControl={onRefresh ? <RefreshControl refreshing={Boolean(refreshing)} onRefresh={onRefresh} tintColor={c.muted} colors={[c.accent]} /> : undefined}
     >
@@ -194,6 +195,7 @@ export function Button({
         s.button,
         { backgroundColor: bg, height: big ? 56 : 50, borderRadius: radius.button },
         tone === "ghost" && { borderWidth: StyleSheet.hairlineWidth, borderColor: c.line, backgroundColor: c.card },
+        big && (tone === "primary" || tone === "success") && !disabled && { shadowColor: bg, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
         (disabled || busy) && { opacity: 0.55 },
         pressed && { transform: [{ scale: 0.98 }], opacity: 0.85 },
         style,

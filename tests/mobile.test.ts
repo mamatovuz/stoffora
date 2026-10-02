@@ -311,3 +311,30 @@ describe("mobil ilova: push dispetcheri", () => {
     expect(db.mobilePushTokens.find((t) => t.token === token)?.active).toBe(false);
   });
 });
+
+describe("mobil ilova: Sozlamalar → Ilovalar", () => {
+  it("ro‘yxat ko‘rinadi; uzilgan telefonga boshqa xodim kira oladi", async () => {
+    await store.updateDb((db) => {
+      db.employees.push(employee("q"), employee("r"));
+    });
+    panelRole = "HR_MANAGER";
+    panelCompany = "c1";
+    const shared = phone();
+    const q = await activate(shared, await newCode("q"));
+    expect(q.status).toBe(201);
+    // Hozircha boshqa xodim shu telefonga kira olmaydi.
+    expect((await activate(shared, await newCode("r"))).body.code).toBe("DEVICE_BOUND_OTHER");
+    const list = await call("GET", "/api/mobile-devices");
+    const row = list.body.rows.find((x: { id: string }) => x.id === q.body.deviceId);
+    expect(row.employeeName).toBe("Q Test");
+    expect(row.sessions).toBe(1);
+    // Uzish → Q ning ilovasi chiqadi, R shu telefonga kira oladi.
+    expect((await call("POST", `/api/mobile-devices/${q.body.deviceId}/revoke`, {})).status).toBe(200);
+    expect((await call("GET", "/api/mobile/me", undefined, q.body.accessToken)).status).toBe(401);
+    const r = await activate(shared, await newCode("r"));
+    expect(r.status).toBe(201);
+    expect(r.body.employee.id).toBe("r");
+    const revoked = await call("GET", "/api/mobile-devices?status=REVOKED");
+    expect(revoked.body.rows.some((x: { id: string }) => x.id === q.body.deviceId)).toBe(true);
+  });
+});

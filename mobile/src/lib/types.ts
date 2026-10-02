@@ -36,6 +36,8 @@ export type HomeData = {
   employee: Employee;
   company?: { id: string; name: string };
   branch: Branch | null;
+  /** «Istalgan filialdan» lavozimi — ruxsat etilgan filiallar. */
+  branches?: Branch[];
   department: { name: string } | null;
   position: { name: string } | null;
   schedule: { id: string; name: string; days: ScheduleDay[] } | null;

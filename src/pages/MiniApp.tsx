@@ -710,7 +710,10 @@ export function MiniAppPage() {
           )}
         </Suspense>
       </main>
-      <nav className="mini-tabbar">
+      <nav
+        className="mini-tabbar"
+        style={{ "--n": manager ? 5 : 4, "--i": Math.max(0, ["home", "history", "leave", "profile", "manager"].indexOf(nav.tab)) } as React.CSSProperties}
+      >
         {(
           [
             ["home", Home, "Asosiy"],
@@ -738,6 +741,7 @@ export function MiniAppPage() {
         <FaceCheck
           action={faceAction}
           branch={home.branch}
+          branches={home.branches}
           onClose={() => setFaceAction(null)}
           onVerified={onVerified}
           onCapture={(capture) => {
@@ -775,6 +779,7 @@ export function MiniAppPage() {
         <AttendanceFlow
           flow={flow}
           branch={home.branch}
+          branches={home.branches}
           onClose={() => setFlow(null)}
           onOffline={(gps) => void saveOffline(flow.action, gps)}
           onSuccess={(row, message) => void onAttendanceSuccess(row, message, flow.method)}

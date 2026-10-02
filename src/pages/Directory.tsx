@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   BriefcaseBusiness,
+  MapPinned,
   Camera,
   CheckCircle2,
   KeyRound,
@@ -96,6 +97,12 @@ export function DirectoryPage({ type }: { type: "departments" | "positions" }) {
                   <tr key={row.id}>
                     <td>
                       <b>{row.name}</b>
+                      {!isDept && (row as Position).anyBranch && (
+                        <span className="pos-any" title="Istalgan filialdan keldi-ketdi qila oladi">
+                          <MapPinned size={12} />
+                          {(row as Position).branchIds?.length ? `${(row as Position).branchIds!.length} ta filial` : "Barcha filiallar"}
+                        </span>
+                      )}
                     </td>
                     <td className="muted">
                       {isDept
@@ -123,6 +130,7 @@ export function DirectoryPage({ type }: { type: "departments" | "positions" }) {
           type={type}
           row={editing === "new" ? undefined : editing}
           departments={data?.departments || []}
+          branches={data?.branches || []}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -153,12 +161,14 @@ function DirectoryForm({
   type,
   row,
   departments,
+  branches,
   onClose,
   onSaved,
 }: {
   type: "departments" | "positions";
   row?: Department | Position;
   departments: Department[];
+  branches: { id: string; name: string }[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -168,14 +178,18 @@ function DirectoryForm({
   const [departmentId, setDepartmentId] = useState(
     (row as Position)?.departmentId || departments[0]?.id || "",
   );
+  const [anyBranch, setAnyBranch] = useState(Boolean((row as Position)?.anyBranch));
+  const [branchIds, setBranchIds] = useState<string[]>((row as Position)?.branchIds || []);
+  const [limit, setLimit] = useState(Boolean((row as Position)?.branchIds?.length));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (!isDept && anyBranch && limit && !branchIds.length) return setError("Kamida bitta filialni tanlang yoki «barcha filiallar»ni qoldiring.");
     setSaving(true);
     setError("");
     try {
-      const body = isDept ? { name, manager } : { name, departmentId };
+      const body = isDept ? { name, manager } : { name, departmentId, anyBranch, branchIds: anyBranch && limit ? branchIds : [] };
       if (row) await put(`/${type}/${row.id}`, body);
       else await post(`/${type}`, body);
       onSaved();
@@ -205,6 +219,44 @@ function DirectoryForm({
               ))}
             </select>
           </Field>
+        )}
+        {!isDept && (
+          <div className={`pos-access ${anyBranch ? "on" : ""}`}>
+            <label className="pos-switch">
+              <input type="checkbox" checked={anyBranch} onChange={(e) => setAnyBranch(e.target.checked)} />
+              <span>
+                <b>
+                  <MapPinned size={15} /> Istalgan filialdan keldi-ketdi qila oladi
+                </b>
+                <small>Masalan, HR yoki tekshiruvchi: bosh ofisda ham, Qo‘rg‘ontepa filialida ham belgilaydi. Qaysi filial ekanini tizim joylashuv yoki QR kod bo‘yicha o‘zi aniqlaydi.</small>
+              </span>
+            </label>
+            {anyBranch && (
+              <>
+                <div className="pos-scope">
+                  <label className={`ic-check ${!limit ? "on" : ""}`}>
+                    <input type="radio" checked={!limit} onChange={() => setLimit(false)} />
+                    Barcha filiallar
+                  </label>
+                  <label className={`ic-check ${limit ? "on" : ""}`}>
+                    <input type="radio" checked={limit} onChange={() => setLimit(true)} />
+                    Faqat tanlanganlar
+                  </label>
+                </div>
+                {limit && (
+                  <div className="branch-picks">
+                    {branches.map((b) => (
+                      <label key={b.id} className={`ic-check ${branchIds.includes(b.id) ? "on" : ""}`}>
+                        <input type="checkbox" checked={branchIds.includes(b.id)} onChange={() => setBranchIds((v) => (v.includes(b.id) ? v.filter((x) => x !== b.id) : [...v, b.id]))} />
+                        {b.name}
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <span className="hint">Xodimning o‘z filiali har doim ruxsat etilgan. Davomatda qaysi filialda belgilagani ko‘rinadi.</span>
+              </>
+            )}
+          </div>
         )}
         <ErrorBox message={error} />
         <div className="form-actions">

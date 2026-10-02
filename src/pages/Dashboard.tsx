@@ -21,10 +21,12 @@ import {
   X,
 } from "lucide-react";
 import {
+  Area,
   Bar,
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -183,9 +185,12 @@ export function DashboardPage() {
   const setupDone = steps.filter((step) => step.done).length;
   const canSetup = user?.role === "COMPANY_OWNER" || user?.role === "HR_ADMIN";
   const hideSetup = hiddenAt !== null && hiddenAt >= setupDone;
+  const todayIso = data.weekly[data.weekly.length - 1]?.date;
   const chart = data.weekly.map((item) => ({
     ...item,
-    day: days === "7" ? weekdayShortUz(item.date) : String(Number(item.date.slice(8))),
+    day: item.date === todayIso ? "Bugun" : days === "7" ? weekdayShortUz(item.date) : String(Number(item.date.slice(8))),
+    // Ustunning eng yuqori (nolga teng bo‘lmagan) qismi — faqat u yumaloqlanadi.
+    top: item.absent ? "absent" : item.late ? "late" : "present",
   }));
   const rated = data.weekly.filter((d) => d.rate !== null);
   const avgRate = rated.length
@@ -387,24 +392,70 @@ export function DashboardPage() {
           </div>
           <div className="chart-box">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chart} margin={{ left: -18, right: -10, top: 10 }} barCategoryGap={days === "30" ? "18%" : "32%"}>
-                <CartesianGrid stroke="#eef2f6" vertical={false} />
-                <XAxis dataKey="day" axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "#94a3b8" }} interval={days === "30" ? 2 : 0} />
+              <ComposedChart data={chart} margin={{ left: -18, right: 0, top: 12 }} barCategoryGap={days === "30" ? "18%" : "34%"}>
+                <defs>
+                  <linearGradient id="g-present" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#2fbf6c" />
+                    <stop offset="100%" stopColor="#1d9150" />
+                  </linearGradient>
+                  <linearGradient id="g-late" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f2a93b" />
+                    <stop offset="100%" stopColor="#d9861d" />
+                  </linearGradient>
+                  <linearGradient id="g-absent" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f0595e" />
+                    <stop offset="100%" stopColor="#d63c41" />
+                  </linearGradient>
+                  <linearGradient id="g-rate" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#2563eb" stopOpacity={0.16} />
+                    <stop offset="100%" stopColor="#2563eb" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid stroke="#eef2f6" strokeDasharray="3 4" vertical={false} />
+                <XAxis
+                  dataKey="day"
+                  axisLine={false}
+                  tickLine={false}
+                  fontSize={11}
+                  tick={(props: { x: number; y: number; payload: { value: string } }) => (
+                    <text x={props.x} y={props.y + 12} textAnchor="middle" fontSize={11} fontWeight={props.payload.value === "Bugun" ? 700 : 400} fill={props.payload.value === "Bugun" ? "#2563eb" : "#94a3b8"}>
+                      {props.payload.value}
+                    </text>
+                  )}
+                  interval={days === "30" ? 2 : 0}
+                />
                 <YAxis yAxisId="count" allowDecimals={false} axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "#94a3b8" }} />
-                <YAxis yAxisId="rate" orientation="right" domain={[0, 100]} hide />
-                <Tooltip cursor={{ fill: "rgba(37,99,235,0.04)" }} content={<ChartTooltip />} />
-                <Bar yAxisId="count" dataKey="present" name="Vaqtida" stackId="a" fill="#22a05a" maxBarSize={28} />
-                <Bar yAxisId="count" dataKey="late" name="Kechikkan" stackId="a" fill="#e5962b" maxBarSize={28} />
-                <Bar yAxisId="count" dataKey="absent" name="Kelmagan" stackId="a" fill="#e5484d" radius={[5, 5, 0, 0]} maxBarSize={28} />
+                <YAxis yAxisId="rate" orientation="right" domain={[0, 100]} ticks={[0, 50, 100]} axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "#93b0f0" }} tickFormatter={(v: number) => `${v}%`} width={40} />
+                <Tooltip cursor={{ fill: "rgba(37,99,235,0.05)", radius: 8 } as object} content={<ChartTooltip />} />
+                <Area yAxisId="rate" dataKey="rate" type="monotone" stroke="none" fill="url(#g-rate)" connectNulls isAnimationActive={false} />
+                {rated.length > 1 && <ReferenceLine yAxisId="rate" y={avgRate} stroke="#93b0f0" strokeDasharray="4 4" label={{ value: `o‘rtacha ${avgRate}%`, position: "insideTopLeft", fill: "#7c97d6", fontSize: 10.5 }} />}
+                {(["present", "late", "absent"] as const).map((key) => (
+                  <Bar
+                    key={key}
+                    yAxisId="count"
+                    dataKey={key}
+                    name={key === "present" ? "Vaqtida" : key === "late" ? "Kechikkan" : "Kelmagan"}
+                    stackId="a"
+                    fill={`url(#g-${key})`}
+                    maxBarSize={30}
+                    shape={(raw: unknown) => {
+                      const { x, y, width, height, fill, payload } = raw as { x: number; y: number; width: number; height: number; fill: string; payload: { top: string } };
+                      if (!height || height <= 0) return <g />;
+                      const r = payload.top === key ? Math.min(6, width / 2, height) : 0;
+                      return <path d={`M${x},${y + height} V${y + r} Q${x},${y} ${x + r},${y} H${x + width - r} Q${x + width},${y} ${x + width},${y + r} V${y + height} Z`} fill={fill} />;
+                    }}
+                  />
+                ))}
                 <Line
                   yAxisId="rate"
                   dataKey="rate"
                   name="Davomat"
                   type="monotone"
                   stroke="#2563eb"
-                  strokeWidth={2}
-                  dot={days === "30" ? false : { r: 3, strokeWidth: 2, fill: "#fff" }}
-                  activeDot={{ r: 4 }}
+                  strokeWidth={2.5}
+                  strokeLinecap="round"
+                  dot={days === "30" ? false : { r: 3.5, strokeWidth: 2, fill: "#fff", stroke: "#2563eb" }}
+                  activeDot={{ r: 5, strokeWidth: 2, fill: "#fff", stroke: "#2563eb" }}
                   connectNulls
                 />
               </ComposedChart>

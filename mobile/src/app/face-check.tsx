@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { router, useLocalSearchParams } from "expo-router";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Rect } from "react-native-svg";
@@ -30,7 +30,10 @@ export default function FaceCheck() {
   const insets = useSafeAreaInsets();
   const { action = "CHECK_IN" } = useLocalSearchParams<{ action?: "CHECK_IN" | "CHECK_OUT" }>();
   const { data: home } = useData<HomeData>("/mini/home", { refetchOnFocus: false });
-  const branch = home?.branch || null;
+  const [fix, setFix] = useState<Fix | null>(null);
+  // «Istalgan filialdan» lavozimi: xodim turgan joyga eng mos ruxsat etilgan filial (yakuniy qaror — serverda).
+  const branchList = useMemo(() => (home?.branches?.length ? home.branches : home?.branch ? [home.branch] : []), [home]);
+  const branch = useMemo(() => pickBranch(branchList, fix), [branchList, fix]);
   const [permission, requestPermission] = useCameraPermissions();
   const camera = useRef<CameraView>(null);
   const [ready, setReady] = useState(false);
@@ -41,7 +44,6 @@ export default function FaceCheck() {
   const [green, setGreen] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<Attendance | null>(null);
-  const [fix, setFix] = useState<Fix | null>(null);
   const [gpsError, setGpsError] = useState("");
   const alive = useRef(true);
   const active = useRef(true);
@@ -169,8 +171,11 @@ export default function FaceCheck() {
   const afterFace = async () => {
     try {
       setPhase("locating");
-      await locate(true);
-      if (session.current?.requiresQr) setPhase("qr");
+      const point = await locate(true);
+      // Bir nechta filial: QR kerakmi — turgan joydagi filial rejimiga qarab.
+      const here = pickBranch(branchList, point);
+      const needQr = branchList.length > 1 ? (here?.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE" : session.current?.requiresQr;
+      if (needQr) setPhase("qr");
       else await commit();
     } catch (reason) {
       setError(errorText(reason));
@@ -300,6 +305,7 @@ export default function FaceCheck() {
               <View key={i} style={[cornerStyle(i), { borderColor: color }]} />
             ))}
             {phase === "face" && green ? <HoldRing progress={holdValue} /> : null}
+            {phase === "face" && !green ? <ScanLine color={tone === "bad" ? "#FF6B6B" : "#FFFFFF"} /> : null}
           </View>
           {phase !== "face" && phase !== "qr" && phase !== "error" ? (
             <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.35)", alignItems: "center", justifyContent: "center" }]}>
@@ -357,6 +363,15 @@ export default function FaceCheck() {
   );
 }
 
+/** Joylashuvga eng mos filial: hududi ichida (aniqlik hisobga olingan) va eng yaqini. */
+function pickBranch<T extends { latitude: number; longitude: number; radiusMeters: number }>(list: T[], fix: Fix | null): T | null {
+  if (!list.length) return null;
+  if (!fix || list.length === 1) return list[0];
+  const slack = Math.min(35, fix.accuracy);
+  const outside = (b: T) => distanceMeters(fix.latitude, fix.longitude, b.latitude, b.longitude) - b.radiusMeters - slack;
+  return [...list].sort((a, b) => outside(a) - outside(b))[0];
+}
+
 function cornerStyle(i: number) {
   const r = 18;
   const base = { position: "absolute" as const, width: "26%" as const, height: "26%" as const, borderWidth: 3.5 };
@@ -368,6 +383,35 @@ function cornerStyle(i: number) {
 
 /** Yumaloq to‘rtburchak perimetri (97×97, rx 14) — progress chizig‘i uchun. */
 const PERIMETER = 4 * (97 - 28) + 2 * Math.PI * 14;
+/** Qidiruv paytida ramka ichida yuqoridan pastga yuradigan yumshoq chiziq. */
+function ScanLine({ color }: { color: string }) {
+  const y = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.timing(y, { toValue: 1, duration: 2100, useNativeDriver: true }));
+    loop.start();
+    return () => loop.stop();
+  }, [y]);
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <Animated.View
+        style={{
+          position: "absolute",
+          left: "10%",
+          right: "10%",
+          height: 2,
+          borderRadius: 2,
+          backgroundColor: color,
+          shadowColor: color,
+          shadowOpacity: 0.9,
+          shadowRadius: 8,
+          opacity: y.interpolate({ inputRange: [0, 0.12, 0.88, 1], outputRange: [0, 0.9, 0.9, 0] }),
+          transform: [{ translateY: y.interpolate({ inputRange: [0, 1], outputRange: [12, 200] }) }],
+        }}
+      />
+    </View>
+  );
+}
+
 function HoldRing({ progress }: { progress: number }) {
   return (
     <Svg style={{ position: "absolute", left: -7, top: -7, right: -7, bottom: -7 }} viewBox="0 0 100 100" preserveAspectRatio="none">

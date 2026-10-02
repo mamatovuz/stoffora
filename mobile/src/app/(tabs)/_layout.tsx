@@ -1,5 +1,5 @@
 import { Tabs } from "expo-router";
-import { Platform, StyleSheet } from "react-native";
+import { FloatingTabBar } from "@/components/FloatingTabBar";
 import { Icon, type IconName } from "@/components/ui";
 import { ios, useTheme } from "@/lib/theme";
 import { useData } from "@/lib/useData";
@@ -16,17 +16,12 @@ export default function TabsLayout() {
     };
   return (
     <Tabs
+      tabBar={(props) => <FloatingTabBar {...(props as unknown as Parameters<typeof FloatingTabBar>[0])} />}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: c.accent,
         tabBarInactiveTintColor: ios ? "#8E8E93" : c.muted,
         tabBarLabelStyle: { fontSize: ios ? 10.5 : 12, fontWeight: ios ? "500" : "600" },
-        tabBarStyle: {
-          backgroundColor: c.card,
-          borderTopColor: c.line,
-          borderTopWidth: ios ? StyleSheet.hairlineWidth : 0,
-          ...(Platform.OS === "android" ? { elevation: 8, height: 64, paddingBottom: 8, paddingTop: 6 } : {}),
-        },
         sceneStyle: { backgroundColor: c.bg },
       }}
     >

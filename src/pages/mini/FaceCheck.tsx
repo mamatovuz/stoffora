@@ -63,7 +63,8 @@ const messages: Record<Status, string> = {
 
 export function FaceCheck({
   action,
-  branch,
+  branch: homeBranch,
+  branches,
   onClose,
   onVerified,
   onCapture,
@@ -71,6 +72,8 @@ export function FaceCheck({
 }: {
   action: "CHECK_IN" | "CHECK_OUT";
   branch: Branch | null;
+  /** «Istalgan filialdan» lavozimi — ruxsat etilgan filiallar. */
+  branches?: Branch[];
   onClose: () => void;
   onVerified: (proof: string, score: number, photo?: string) => Promise<void> | void;
   onCapture?: (capture: FaceCapture) => void;
@@ -115,6 +118,15 @@ export function FaceCheck({
   useEffect(() => {
     void locate();
   }, [locate]);
+  // Bir nechta filial bo‘lsa — xodim turgan joyga eng mos filial xaritada.
+  const branch = useMemo(() => {
+    const list = branches?.length ? branches : homeBranch ? [homeBranch] : [];
+    if (!list.length) return null;
+    if (!gps || list.length === 1) return list[0];
+    const slack = Math.min(35, gps.accuracy);
+    const outside = (b: Branch) => haversineDistance(gps.lat, gps.lng, b.latitude, b.longitude) - b.radiusMeters - slack;
+    return [...list].sort((a, b) => outside(a) - outside(b))[0];
+  }, [branches, homeBranch, gps]);
   const gapMeters = gps && branch ? Math.round(haversineDistance(gps.lat, gps.lng, branch.latitude, branch.longitude)) : null;
   const inside = gapMeters !== null && branch ? gapMeters - Math.min(35, gps!.accuracy) <= branch.radiusMeters : null;
   const points = useMemo<MapPoint[]>(
@@ -396,6 +408,7 @@ export function FaceCheck({
           <i />
           <i />
           <i />
+          {status !== "ok" && status !== "sending" && status !== "done" && status !== "fail" && <b className="fc-scan" />}
           {status === "ok" && (
             <svg className="fc-hold" viewBox="0 0 100 100">
               <rect x="2" y="2" width="96" height="96" rx="14" pathLength={100} strokeDasharray={`${hold * 100} 100`} />
@@ -403,6 +416,11 @@ export function FaceCheck({
           )}
           </div>
           {flash && <div className="fc-flash" aria-hidden />}
+          <div className={`fc-pill ${tone}`} aria-live="polite">
+            {status === "sending" ? <LoaderCircle size={15} className="spin" /> : status === "done" ? <Check size={15} /> : status === "loading" ? <ScanFace size={15} /> : null}
+            {pill}
+          </div>
+          {status !== "ok" && status !== "sending" && status !== "done" && percent !== null && status === "low" && <small className="fc-need">Kerak: {pass}% dan yuqori</small>}
         </div>
         <header className="fc-top">
           <button onClick={onClose} aria-label="Orqaga">
@@ -416,11 +434,6 @@ export function FaceCheck({
           </span>
           {percent !== null && <em className={tone}>{percent}%</em>}
         </header>
-        <div className={`fc-pill ${tone}`} aria-live="polite">
-          {status === "sending" ? <LoaderCircle size={15} className="spin" /> : status === "done" ? <Check size={15} /> : status === "loading" ? <ScanFace size={15} /> : null}
-          {pill}
-        </div>
-        {status !== "ok" && status !== "sending" && status !== "done" && percent !== null && status === "low" && <small className="fc-need">Kerak: {pass}% dan yuqori</small>}
       </div>
 
       <section className="fc-panel">

@@ -1035,7 +1035,13 @@ app.delete(
 const positionSchema = z.object({
   name: z.string().trim().min(2),
   departmentId: z.string().min(1),
+  /** Istalgan (yoki tanlangan) filialda keldi-ketdi qilish. */
+  anyBranch: z.boolean().optional(),
+  branchIds: z.array(z.string()).max(200).optional(),
 });
+/** Lavozimdagi filiallar faqat shu kompaniyaniki bo‘lsin. */
+const cleanBranchIds = (db: Database, tenant: string, ids?: string[]) =>
+  ids ? [...new Set(ids)].filter((bid) => db.branches.some((b) => b.id === bid && b.companyId === tenant)) : undefined;
 app.post(
   "/api/positions",
   requirePermission("employees.edit"),
@@ -1049,7 +1055,7 @@ app.post(
         )
       )
         throw httpError("Bo‘lim topilmadi.", 404);
-      const value = { id: id(), companyId: tenant, ...input };
+      const value = { id: id(), companyId: tenant, ...input, branchIds: cleanBranchIds(db, tenant, input.branchIds) };
       db.positions.push(value);
       db.auditLogs.unshift(
         audit(tenant, req.session!.name, "Lavozim yaratildi", "position", value.id),
@@ -1077,7 +1083,12 @@ app.put(
         )
       )
         throw httpError("Bo‘lim topilmadi.", 404);
-      Object.assign(value, input);
+      const changedAccess = (input.anyBranch !== undefined && input.anyBranch !== Boolean(value.anyBranch)) || input.branchIds !== undefined;
+      Object.assign(value, input, input.branchIds !== undefined ? { branchIds: cleanBranchIds(db, tenant, input.branchIds) } : {});
+      if (changedAccess)
+        db.auditLogs.unshift(
+          audit(tenant, req.session!.name, value.anyBranch ? `Lavozim «${value.name}»: istalgan filialdan keldi-ketdi yoqildi` : `Lavozim «${value.name}»: faqat o‘z filiali`, "position", value.id),
+        );
       // Lavozim boshqa bo‘limga o‘tsa — shu lavozimdagi xodimlar ham o‘sha bo‘limga.
       for (const employee of db.employees)
         if (employee.companyId === tenant && employee.positionId === value.id) alignDepartment(db, employee);
