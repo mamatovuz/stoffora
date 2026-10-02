@@ -22,6 +22,7 @@ type Emp = {
   employeeNo?: string;
   birthDate?: string;
   gender?: string;
+  pinfl?: string;
   phone?: string;
   email?: string;
   address?: string;
@@ -168,6 +169,7 @@ export default function EmployeeProfile() {
             {showSalary ? <Field label="Oklad" value={som(e.baseSalary || 0)} last /> : null}
           </Section>
           <Section icon="list-outline" title="Hisob raqamlari">
+            <Field label="JShShIR" value={e.pinfl} copy />
             <Field label="Xodim raqami" value={e.employeeNo} copy last />
           </Section>
         </>

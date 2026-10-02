@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
-import { Api, Bot, GrammyError, InlineKeyboard, webhookCallback, type Context } from "grammy";
+import { Api, Bot, GrammyError, InlineKeyboard, InputFile, webhookCallback, type Context } from "grammy";
 import { z } from "zod";
-import { audit, readDb, updateDb } from "../lib/store";
+import { audit, documentFiles, readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
 import type { Company, CompanyBotSettings, Database, Employee, RegistrationForm, RegistrationQuestion, RegistrationRequest } from "../lib/types";
 import type { AuthedRequest } from "./auth";
@@ -306,6 +306,9 @@ async function cancelDraft(requestId: string) {
   });
 }
 
+/** Anketaga yuboriladigan hujjat rasmi chegarasi (hujjatlar bilan bir xil). */
+const MAX_DOC_BYTES = 1_400_000;
+
 export function attachHandlers(bot: Bot, companyId: string) {
   bot.command("id", async (ctx) => {
     if (!ctx.from) return;
@@ -525,6 +528,61 @@ export function attachHandlers(bot: Bot, companyId: string) {
     if (updated) await ask(ctx, companyId, updated.id);
   });
 
+  // Pasport / ID karta rasmi (anketadagi «Rasm» savoli): rasm yoki rasm/PDF fayl sifatida yuborilishi mumkin.
+  bot.on(["message:photo", "message:document"], async (ctx, next) => {
+    const draft = await activeDraft(companyId, String(ctx.from.id));
+    if (!draft) return next();
+    const db = await readDb();
+    const form = companyForm(db.companies.find((c) => c.id === companyId));
+    const question = findQuestion(form, draft.step);
+    if (!question || question.type !== "photo") {
+      await ctx.reply("👇 Hozir rasm so‘ralmayapti — yuqoridagi savolga javob bering.");
+      return;
+    }
+    const doc = ctx.message.document;
+    const photo = ctx.message.photo ? [...ctx.message.photo].sort((a, b) => (b.file_size || 0) - (a.file_size || 0)).find((p) => (p.file_size || 0) <= MAX_DOC_BYTES) : undefined;
+    const mime = doc ? doc.mime_type || "" : "image/jpeg";
+    if (doc && !/^(image\/(jpeg|png|webp)|application\/pdf)$/.test(mime)) {
+      await ctx.reply("⚠️ Faqat rasm (JPG, PNG) yoki PDF yuboring.");
+      return;
+    }
+    const fileId = doc ? doc.file_id : photo?.file_id;
+    if (!fileId || (doc?.file_size || 0) > MAX_DOC_BYTES) {
+      await ctx.reply("⚠️ Fayl juda katta — 1,4 MB gacha bo‘lsin. Oddiy rasm sifatida yuboring.");
+      return;
+    }
+    try {
+      const file = await ctx.api.getFile(fileId);
+      const response = await fetch(`https://api.telegram.org/file/bot${bot.token}/${file.file_path}`, { signal: AbortSignal.timeout(20_000) });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const buffer = Buffer.from(await response.arrayBuffer());
+      if (buffer.length > MAX_DOC_BYTES) {
+        await ctx.reply("⚠️ Fayl juda katta — 1,4 MB gacha bo‘lsin.");
+        return;
+      }
+      const id = randomUUID();
+      await (await documentFiles()).putFile(id, companyId, mime, buffer, new Date().toISOString());
+      const previous = draft.data.idDocument;
+      const updated = await updateDb((next) => {
+        const row = next.registrations.find((r) => r.id === draft.id && r.status === "DRAFT");
+        if (row) {
+          row.data.idDocumentMime = mime;
+          row.data.idDocumentSize = buffer.length;
+        }
+        return row ? { ...row } : undefined;
+      });
+      if (!updated) return;
+      const saved = await answer(draft.id, question.id, id);
+      // Qayta yuborilgan bo‘lsa — eski rasm o‘chiriladi.
+      if (previous && previous !== id) await (await documentFiles()).deleteFile(previous).catch(() => undefined);
+      await ctx.reply("✅ Rasm qabul qilindi.");
+      if (saved) await ask(ctx, companyId, saved.id);
+    } catch (error) {
+      console.warn("Anketa rasmi yuklanmadi:", (error as Error).message);
+      await ctx.reply("⚠️ Rasmni qabul qilib bo‘lmadi. Qaytadan yuboring.");
+    }
+  });
+
   bot.on("message", async (ctx) => {
     const draft = ctx.from ? await activeDraft(companyId, String(ctx.from.id)) : undefined;
     await ctx.reply(draft ? "✍️ Iltimos, javobni matn ko‘rinishida yozing yoki tugmani tanlang." : "Boshlash uchun /start bosing.");
@@ -588,6 +646,16 @@ async function notifyApprovers(companyId: string, requestId: string) {
       console.warn(`HR ga anketa yuborilmadi (${chatId}):`, (error as Error).message);
     }
   }
+  // Pasport / ID karta rasmi — HR’ga alohida xabar bo‘lib.
+  const file = request.data.idDocument ? await (await documentFiles()).getFile(request.data.idDocument).catch(() => undefined) : undefined;
+  if (file)
+    for (const { chatId } of messages) {
+      const caption = `🪪 ${request.data.fullName || "Xodim"} — pasport / ID karta`;
+      const input = new InputFile(file.data, file.mime === "application/pdf" ? "pasport.pdf" : "pasport.jpg");
+      await (file.mime.startsWith("image/") ? current.bot.api.sendPhoto(chatId, input, { caption }) : current.bot.api.sendDocument(chatId, input, { caption })).catch((error) =>
+        console.warn(`HR ga pasport rasmi yuborilmadi (${chatId}):`, (error as Error).message),
+      );
+    }
   if (messages.length)
     await updateDb((next) => {
       const row = next.registrations.find((r) => r.id === requestId);
@@ -906,6 +974,23 @@ export function createCompanyBotRouter() {
         DRAFT: db.registrations.filter((r) => r.companyId === tenant && r.status === "DRAFT").length,
       };
       res.json({ items: rows, counts });
+    }),
+  );
+
+  // Anketadagi pasport / ID karta rasmi (faqat arizani ko‘ra oladiganlar uchun).
+  router.get(
+    "/registrations/:id/document",
+    permit("registrations.view"),
+    route(async (req, res) => {
+      const tenant = tenantOf(req);
+      const db = await readDb();
+      const request = db.registrations.find((r) => r.id === req.params.id && r.companyId === tenant);
+      const fileId = request?.data.idDocument;
+      const row = fileId ? await (await documentFiles()).getFile(fileId) : undefined;
+      if (!row) return res.status(404).json({ message: "Hujjat rasmi topilmadi." });
+      res.setHeader("Content-Type", row.mime);
+      res.setHeader("Cache-Control", "private, max-age=300");
+      res.send(row.data);
     }),
   );
 

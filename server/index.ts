@@ -1344,6 +1344,15 @@ const employeeSchema = z.object({
   firstName: z.string().trim().min(2, "Ism kamida 2 harf."),
   lastName: z.string().trim().min(2, "Familiya kamida 2 harf."),
   middleName: z.string().trim().optional(),
+  gender: z.union([z.enum(["MALE", "FEMALE"]), z.literal("")]).optional().transform((v) => v || undefined),
+  birthDate: z.union([dateSchema, z.literal("")]).optional().transform((v) => v || undefined),
+  pinfl: z
+    .string()
+    .trim()
+    .transform((v) => v.replace(/\s/g, ""))
+    .refine((v) => v === "" || /^\d{14}$/.test(v), "JShShIR 14 ta raqamdan iborat bo‘lishi kerak.")
+    .optional()
+    .transform((v) => v || undefined),
   phone: z
     .string()
     .trim()

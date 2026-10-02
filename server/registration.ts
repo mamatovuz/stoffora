@@ -44,7 +44,16 @@ export const BUILTINS: Record<
   { type: QuestionType; title: string; hint?: string; locked: boolean; enabled: boolean; options?: string[]; label: string }
 > = {
   fullName: { type: "name", label: "Ism-familiya", title: "👤 Ism va familiyangizni yozing.", hint: "Misol: Ali Valiyev", locked: true, enabled: true },
+  gender: { type: "gender", label: "Jinsi", title: "🚻 Jinsingiz?", hint: "Pastdan tanlang", locked: false, enabled: true },
   birthDate: { type: "birthdate", label: "Tug‘ilgan sana", title: "📅 Tug‘ilgan sanangiz.", hint: "Faqat kun.oy.yil — misol: 29.08.1995", locked: false, enabled: true },
+  pinfl: {
+    type: "pinfl",
+    label: "JShShIR",
+    title: "🪪 JShShIR (shaxsiy raqam) ni yozing.",
+    hint: "Pasport yoki ID kartadagi 14 xonali raqam. Misol: 31508951234567",
+    locked: false,
+    enabled: true,
+  },
   phone: { type: "phone", label: "Telefon", title: "📱 Telefon raqamingizni yozing.", hint: "+998 bilan, bo‘sh joysiz. Misol: +998932303410", locked: true, enabled: true },
   parentPhone: { type: "phone", label: "Ota-ona telefoni", title: "👪 Ota yoki onangizning telefon raqami.", hint: "Misol: +998901234567", locked: false, enabled: true },
   positionId: { type: "position", label: "Lavozim", title: "💼 Qaysi lavozimda ishlaysiz?", hint: "Pastdan tanlang", locked: true, enabled: true },
@@ -70,7 +79,17 @@ export const BUILTINS: Record<
     enabled: true,
     options: ["Oliy", "Tugallanmagan oliy", "O‘rta maxsus", "Tugallanmagan o‘rta maxsus", "Umumiy o‘rta (diplom yo‘q)"],
   },
+  idDocument: {
+    type: "photo",
+    label: "Pasport / ID karta",
+    title: "📷 Pasport yoki ID kartangiz rasmini yuboring.",
+    hint: "Rasm aniq, yorug‘ joyda va to‘liq ko‘rinsin (ma’lumotlar sahifasi yoki ID kartaning old tomoni).",
+    locked: false,
+    enabled: true,
+  },
 };
+/** Keyinroq qo‘shilgan tizim maydonlari: saqlangan anketada yo‘q bo‘lsa — yoqilgan holda shu savoldan keyin qo‘shiladi. */
+const ADDED_FIELDS: Partial<Record<BuiltinField, BuiltinField | "end">> = { gender: "fullName", pinfl: "birthDate", idDocument: "end" };
 const BUILTIN_ORDER = Object.keys(BUILTINS) as BuiltinField[];
 
 export const CUSTOM_TYPES: QuestionType[] = ["text", "number", "date", "phone", "money", "choice", "yesno"];
@@ -89,6 +108,9 @@ export const TYPE_LABELS: Record<QuestionType, string> = {
   shift: "Smena",
   workHours: "Ish vaqti",
   weekday: "Hafta kuni",
+  gender: "Jins (Erkak / Ayol)",
+  pinfl: "JShShIR",
+  photo: "Rasm (hujjat)",
 };
 
 export const DEFAULT_TEXTS = {
@@ -146,11 +168,15 @@ export function normalizeForm(form?: RegistrationForm): RegistrationForm {
       enabled: builtin?.locked ? true : raw.enabled !== false,
     });
   }
-  // Yo‘qolgan tizim maydonlari (majburiylar) qo‘shiladi.
+  // Yo‘qolgan tizim maydonlari qo‘shiladi: majburiylari va yangi qo‘shilganlari (jins, JShShIR, hujjat) — yoqilgan.
   for (const field of BUILTIN_ORDER)
     if (!seen.has(field)) {
       const base = defaultForm().questions.find((q) => q.field === field)!;
-      questions.push({ ...base, enabled: BUILTINS[field].locked });
+      const after = ADDED_FIELDS[field];
+      const row = { ...base, enabled: BUILTINS[field].locked || Boolean(after) };
+      const index = after && after !== "end" ? questions.findIndex((q) => q.field === after) : -1;
+      if (index >= 0) questions.splice(index + 1, 0, row);
+      else questions.push(row);
     }
   return {
     questions,
@@ -245,6 +271,13 @@ export function checkWorkHours(text: string): Check<string> {
   return { ok: true, value: `${start} - ${end}` };
 }
 
+/** JShShIR (PINFL) — 14 raqam (bo‘sh joylar olib tashlanadi). */
+export function checkPinfl(text: string): Check<string> {
+  const value = text.replace(/[\s-]/g, "");
+  if (!/^\d{14}$/.test(value)) return { ok: false, error: "JShShIR 14 ta raqamdan iborat bo‘lishi kerak. Misol: 31508951234567" };
+  return { ok: true, value };
+}
+
 export function checkSalary(text: string): Check<number> {
   const value = parseSalary(text);
   if (!value || value < 1_000 || value > 10_000_000_000) return { ok: false, error: "Summani so‘mda raqam bilan yozing. Misol: 4 000 000" };
@@ -268,6 +301,10 @@ export function validateText(question: RegistrationQuestion, text: string): Chec
       return checkNumber(text);
     case "workHours":
       return checkWorkHours(text);
+    case "pinfl":
+      return checkPinfl(text);
+    case "photo":
+      return { ok: false, error: "Bu savolga javob sifatida rasm yuboring (📎 → Rasm)." };
     case "text":
       return question.field === "address" ? checkAddress(text) : checkText(text);
     default:
@@ -319,6 +356,10 @@ export function describe(question: RegistrationQuestion, data: RegistrationData,
       return money(Number(value));
     case "weekday":
       return Number(value) < 0 ? "Dam olishsiz" : WEEKDAYS[Number(value)];
+    case "gender":
+      return value === "MALE" ? "Erkak" : value === "FEMALE" ? "Ayol" : String(value);
+    case "photo":
+      return "✅ Rasm yuklandi";
     default:
       return String(value);
   }
@@ -378,6 +419,8 @@ export function buttonsFor(question: RegistrationQuestion, db: Database, company
       return (question.options || []).map((option, i) => [{ label: option.slice(0, 60), value: String(i) }]);
     case "yesno":
       return [[{ label: "✅ Ha", value: "Ha" }, { label: "❌ Yo‘q", value: "Yo‘q" }]];
+    case "gender":
+      return [[{ label: "👨 Erkak", value: "MALE" }, { label: "👩 Ayol", value: "FEMALE" }]];
     default:
       return null;
   }
@@ -405,6 +448,8 @@ export function parseButton(question: RegistrationQuestion, value: string, db: D
     }
     case "yesno":
       return value === "Ha" || value === "Yo‘q" ? { ok: true, value } : bad;
+    case "gender":
+      return value === "MALE" || value === "FEMALE" ? { ok: true, value } : bad;
     default:
       return bad;
   }
@@ -527,6 +572,8 @@ export function approveRegistration(db: Database, request: RegistrationRequest, 
     firstName,
     lastName: rest.join(" "),
     birthDate: data.birthDate,
+    gender: data.gender,
+    pinfl: data.pinfl,
     phone: data.phone,
     parentPhone: data.parentPhone,
     address: data.address,
@@ -582,6 +629,19 @@ export function approveRegistration(db: Database, request: RegistrationRequest, 
     db.employees.push(employee);
     db.auditLogs.unshift(audit(tenant, actor, "Botdagi anketa tasdiqlandi — xodim qo‘shildi", "employee", employee.id, undefined, employee));
   }
+  // Anketadagi pasport / ID karta rasmi — xodim hujjatlariga (fayl o‘sha, nusxa olinmaydi).
+  if (data.idDocument && !db.documents.some((d) => d.id === data.idDocument))
+    db.documents.push({
+      id: data.idDocument,
+      companyId: tenant,
+      employeeId: employee.id,
+      type: "PASSPORT",
+      title: "Pasport / ID karta (anketa)",
+      mime: data.idDocumentMime || "image/jpeg",
+      size: data.idDocumentSize || 0,
+      uploadedBy: "Bot anketasi",
+      createdAt: now,
+    });
   request.status = "APPROVED";
   request.employeeId = employee.id;
   request.decidedBy = actor;

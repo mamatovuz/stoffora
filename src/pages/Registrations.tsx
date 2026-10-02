@@ -93,13 +93,23 @@ export function RegistrationsPage() {
                 </span>
               </header>
               <dl className="reg-grid">
-                {(row.answers || []).filter((a) => a.field !== "fullName").map((a) => (
+                {(row.answers || []).filter((a) => a.field !== "fullName" && a.field !== "idDocument").map((a) => (
                   <div key={a.id} className={a.value.length > 28 || a.field === "address" ? "wide" : ""}>
                     <dt>{a.label}</dt>
                     <dd>{a.value}</dd>
                   </div>
                 ))}
               </dl>
+              {row.data.idDocument ? (
+                <a className="reg-doc" href={`/api/registrations/${row.id}/document`} target="_blank" rel="noreferrer" title="Kattaroq ochish">
+                  {row.data.idDocumentMime === "application/pdf" ? (
+                    <span className="reg-doc-pdf">📄 Pasport / ID karta (PDF) — ochish</span>
+                  ) : (
+                    <img src={`/api/registrations/${row.id}/document`} alt="Pasport / ID karta" loading="lazy" />
+                  )}
+                  <small>🪪 Pasport / ID karta</small>
+                </a>
+              ) : null}
               {row.status === "PENDING" ? (
                 <footer className="reg-actions">
                   <button className="btn btn-danger" disabled={busy === row.id} onClick={() => setReject(row)}>

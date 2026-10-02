@@ -349,6 +349,9 @@ export function EmployeesPage() {
 type FormState = {
   firstName: string;
   lastName: string;
+  gender?: string;
+  birthDate?: string;
+  pinfl?: string;
   phone: string;
   email: string;
   employeeNo: string;
@@ -396,6 +399,24 @@ function EmployeeFields({
         </Field>
         <Field label="Familiya *">
           <input className="input" value={form.lastName} onChange={(e) => set("lastName", e.target.value)} required minLength={2} />
+        </Field>
+        <Field label="Jinsi">
+          <div className="gender-pick" role="radiogroup" aria-label="Jinsi">
+            {[
+              ["MALE", "👨 Erkak"],
+              ["FEMALE", "👩 Ayol"],
+            ].map(([value, label]) => (
+              <button type="button" key={value} role="radio" aria-checked={form.gender === value} className={form.gender === value ? "on" : ""} onClick={() => set("gender", form.gender === value ? "" : value)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Tug‘ilgan sana">
+          <input className="input" type="date" value={form.birthDate || ""} onChange={(e) => set("birthDate", e.target.value)} />
+        </Field>
+        <Field label="JShShIR" hint="Pasport / ID kartadagi 14 xonali shaxsiy raqam">
+          <input className="input" inputMode="numeric" maxLength={17} value={form.pinfl || ""} placeholder="31508951234567" onChange={(e) => set("pinfl", e.target.value.replace(/[^\d\s]/g, ""))} />
         </Field>
         <Field label="Telefon *" hint="Xodim botda shu raqamni yuborib ulanadi">
           <input
@@ -852,6 +873,8 @@ export function EmployeeProfilePage() {
                   <Field2 label="Telegram" value={e.telegramUsername ? `@${e.telegramUsername}` : e.telegramConnected ? "Ulangan" : undefined} href={e.telegramUsername ? `https://t.me/${e.telegramUsername}` : undefined} />
                   <Field2 label="Email" value={e.email} href={e.email ? `mailto:${e.email}` : undefined} />
                   <Field2 label="Tug‘ilgan sana" value={e.birthDate ? `${e.birthDate.split("-").reverse().join(".")} · ${ageOf(e.birthDate)} yosh` : undefined} />
+                  <Field2 label="Jinsi" value={genderLabel(e.gender)} />
+                  <Field2 label="JShShIR" value={e.pinfl} copy />
                   <Field2 label="Manzil" value={e.address} wide />
                 </ProfileSection>
                 <ProfileSection icon={Building2} title="Ish joyi">
@@ -1310,6 +1333,9 @@ function EditEmployee({
   const [form, setForm] = useState<FormState>({
     firstName: employee.firstName,
     lastName: employee.lastName,
+    gender: employee.gender === "male" ? "MALE" : employee.gender === "female" ? "FEMALE" : employee.gender || "",
+    birthDate: employee.birthDate || "",
+    pinfl: employee.pinfl || "",
     phone: employee.phone,
     email: employee.email || "",
     employeeNo: employee.employeeNo,
@@ -1411,6 +1437,11 @@ function Field2({ label, value, href, copy, wide }: { label: string; value?: str
       )}
     </div>
   );
+}
+
+function genderLabel(gender?: string) {
+  const g = (gender || "").toUpperCase();
+  return g === "MALE" ? "Erkak" : g === "FEMALE" ? "Ayol" : undefined;
 }
 
 function ageOf(birthDate: string) {

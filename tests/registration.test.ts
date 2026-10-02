@@ -7,6 +7,7 @@ import {
   checkBirthDate,
   checkFullName,
   checkPhone,
+  checkPinfl,
   checkSalary,
   checkWorkHours,
 } from "../server/registration";
@@ -30,6 +31,11 @@ describe("anketa tekshiruvlari", () => {
     expect(checkPhone("932303410").ok).toBe(false);
     expect(checkPhone("salom").ok).toBe(false);
     expect(checkPhone("+99893230341").ok).toBe(false);
+  });
+  it("JShShIR — 14 raqam", () => {
+    expect(checkPinfl("315 0895 1234567")).toEqual({ ok: true, value: "31508951234567" });
+    expect(checkPinfl("12345").ok).toBe(false);
+    expect(checkPinfl("3150895123456a").ok).toBe(false);
   });
   it("ism, ish vaqti, oylik", () => {
     expect(checkFullName("ali valiyev")).toEqual({ ok: true, value: "Ali Valiyev" });
@@ -83,7 +89,12 @@ async function setup() {
   bot.botInfo = { id: 1, is_bot: true, first_name: "Test", username: "gulnora_test_bot", can_join_groups: false, can_read_all_group_messages: false, supports_inline_queries: false, can_connect_to_business: false, has_main_web_app: false };
   bot.api.config.use(async (_prev, method, payload) => {
     calls.push({ method, payload: payload as Record<string, unknown> });
-    const result = method === "sendMessage" ? { message_id: ++messageId, date: 0, chat: { id: 1, type: "private" } } : true;
+    const result =
+      method === "sendMessage" || method === "sendPhoto"
+        ? { message_id: ++messageId, date: 0, chat: { id: 1, type: "private" } }
+        : method === "getFile"
+          ? { file_id: "f1", file_unique_id: "u1", file_path: "photos/passport.jpg" }
+          : true;
     return { ok: true, result } as never;
   });
   bots.attachHandlers(bot, "c1");
@@ -102,6 +113,20 @@ async function setup() {
         ...(value.startsWith("/") ? { entities: [{ type: "bot_command", offset: 0, length: value.split(" ")[0].length }] } : {}),
       },
     } as never);
+  const photo = (from: number) =>
+    bot.handleUpdate({
+      update_id: updateId++,
+      message: {
+        message_id: updateId,
+        date: 0,
+        chat: { id: from, type: "private", first_name: "x" },
+        from: user(from),
+        photo: [
+          { file_id: "small", file_unique_id: "s", width: 90, height: 60, file_size: 2_000 },
+          { file_id: "big", file_unique_id: "b", width: 1280, height: 853, file_size: 90_000 },
+        ],
+      },
+    } as never);
   const press = (from: number, data: string) =>
     bot.handleUpdate({
       update_id: updateId++,
@@ -109,7 +134,7 @@ async function setup() {
     } as never);
   const lastText = () => [...calls].reverse().find((c) => c.method === "sendMessage")?.payload.text as string;
   const draft = async () => (await store.readDb()).registrations.find((r) => r.telegramId === "555");
-  return { store, bots, calls, text, press, lastText, draft };
+  return { store, bots, calls, text, press, photo, lastText, draft };
 }
 
 describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
@@ -120,9 +145,15 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     expect(t.lastText()).toContain("Ism va familiyangizni");
 
     await t.text(555, "ali valiyev");
+    expect((await t.draft())?.step).toBe("gender");
+    await t.press(555, "rg:a:gender:MALE");
     await t.text(555, "1995-08-29"); // noto‘g‘ri format
     expect(t.lastText()).toContain("kun.oy.yil");
     await t.text(555, "29.08.1995");
+    expect((await t.draft())?.step).toBe("pinfl");
+    await t.text(555, "12345");
+    expect(t.lastText()).toContain("14 ta raqam");
+    await t.text(555, "31508951234567");
     await t.text(555, "salom"); // telefon emas
     expect(t.lastText()).toContain("Faqat telefon raqam");
     await t.text(555, "+998932303410");
@@ -141,7 +172,16 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     await t.press(555, "rg:ok");
     await t.press(555, "rg:a:restDay:0");
     await t.press(555, "rg:a:education:0");
+    expect((await t.draft())?.step).toBe("idDocument");
+    await t.text(555, "pasportim bor"); // rasm o‘rniga matn
+    expect(t.lastText()).toContain("rasm yuboring");
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(Buffer.from("fake-jpeg-bytes"), { status: 200 }));
+    await t.photo(555);
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain("photos/passport.jpg");
+    fetchSpy.mockRestore();
+    expect(t.calls.find((c) => c.method === "getFile")?.payload.file_id).toBe("big");
     let draft = await t.draft();
+    expect(draft?.data.idDocument).toBeTruthy();
     expect(draft?.step).toBe("summary");
     expect(t.lastText()).toContain("Ali Valiyev");
 
@@ -160,6 +200,8 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     expect(hrMessage?.payload.text).toContain("Yangi xodim anketasi");
     expect(JSON.stringify(hrMessage?.payload.reply_markup)).toContain(`hr:a:${draft!.id}`);
 
+    // Pasport rasmi HR’ga ham boradi
+    expect(t.calls.some((c) => c.method === "sendPhoto" && c.payload.chat_id === "900")).toBe(true);
     // Begona odam tasdiqlay olmaydi
     await t.press(777, `hr:a:${draft!.id}`);
     expect((await t.draft())?.status).toBe("PENDING");
@@ -182,7 +224,13 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
       telegramChannel: "COMPANY_BOT",
       status: "ACTIVE",
       shift: "DAY",
+      gender: "MALE",
+      pinfl: "31508951234567",
     });
+    // Pasport rasmi xodim hujjatlariga tushadi (fayl saqlangan)
+    const passport = db.documents.find((d) => d.employeeId === employee.id && d.type === "PASSPORT")!;
+    expect(passport.id).toBe(draft!.data.idDocument);
+    expect((await (await t.store.documentFiles()).getFile(passport.id))?.data.toString()).toBe("fake-jpeg-bytes");
     const schedule = db.schedules.find((s) => s.id === employee.scheduleId)!;
     expect(schedule.days.find((d) => d.day === 1)).toMatchObject({ enabled: true, start: "09:00", end: "18:00" });
     expect(schedule.days.find((d) => d.day === 0)?.enabled).toBe(false);
@@ -230,6 +278,9 @@ describe("kompaniya o‘zi sozlagan anketa", () => {
           { id: "lic1", type: "yesno", title: "Haydovchilik guvohnomangiz bormi?", required: true, enabled: true },
           { id: "note1", type: "text", title: "Qo‘shimcha izoh", required: false, enabled: true },
           { id: "parentPhone", field: "parentPhone", type: "phone", title: "x", required: true, enabled: false },
+          { id: "gender", field: "gender", type: "gender", title: "x", required: true, enabled: false },
+          { id: "pinfl", field: "pinfl", type: "pinfl", title: "x", required: true, enabled: false },
+          { id: "idDocument", field: "idDocument", type: "photo", title: "x", required: true, enabled: false },
         ],
         intro: "Salom! {company} jamoasiga xush kelibsiz <script>",
       });
@@ -268,6 +319,11 @@ describe("kompaniya o‘zi sozlagan anketa", () => {
     expect(byId.phone.enabled).toBe(true);
     expect(byId.positionId.enabled).toBe(true);
     expect(byId.branchId.enabled).toBe(true);
+    // Eski (saqlangan) anketa: yangi maydonlar yoqilgan holda kerakli joyga qo‘shiladi.
+    const ids = form.questions.filter((q) => q.enabled).map((q) => q.id);
+    expect(ids.indexOf("gender")).toBe(ids.indexOf("fullName") + 1);
+    expect(ids).toContain("pinfl");
+    expect(ids.at(-1)).toBe("idDocument");
     const custom = normalizeForm({ questions: [{ id: "abcd1", type: "choice", title: "Tanlang", options: [], required: true, enabled: true }] });
     expect(custom.questions.find((q) => q.id === "abcd1")?.options).toEqual(["Ha", "Yo‘q"]);
   });

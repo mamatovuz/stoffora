@@ -22,6 +22,9 @@ import {
   X,
   Briefcase,
   LoaderCircle,
+  Users,
+  IdCard,
+  Camera,
 } from "lucide-react";
 import { api, errorText, put } from "../api";
 import { useApi } from "../hooks";
@@ -58,6 +61,9 @@ const typeMeta: Record<QuestionType, { label: string; icon: typeof Type; example
   shift: { label: "Smena", icon: Shuffle },
   workHours: { label: "Ish vaqti", icon: Clock3 },
   weekday: { label: "Hafta kuni", icon: Calendar },
+  gender: { label: "Jins (Erkak / Ayol)", icon: Users },
+  pinfl: { label: "JShShIR", icon: IdCard, example: "31508951234567" },
+  photo: { label: "Rasm (pasport / ID karta)", icon: Camera },
 };
 
 const WEEK = ["Dushanba", "Seshanba", "Chorshanba", "Payshanba", "Juma", "Shanba", "Yakshanba"];
@@ -430,6 +436,9 @@ function Preview({ question, index, total, data }: { question: RegistrationQuest
       break;
     case "yesno":
       buttons = [["✅ Ha", "❌ Yo‘q"]];
+      break;
+    case "gender":
+      buttons = [["👨 Erkak", "👩 Ayol"]];
       break;
   }
   const nav: string[][] = [];

@@ -68,7 +68,8 @@ export async function saveDocument(companyId: string, employeeId: string, input:
 /** O‘chirilgan xodim/hujjatlardan qolgan fayllarni tozalaydi. */
 export async function cleanupDocumentFiles() {
   const db = await readDb();
-  const alive = new Set(db.documents.map((d) => d.id));
+  // Hali tasdiqlanmagan anketalardagi pasport rasmlari ham saqlanadi.
+  const alive = new Set([...db.documents.map((d) => d.id), ...db.registrations.map((r) => r.data.idDocument).filter((id): id is string => Boolean(id))]);
   const conn = await files();
   let removed = 0;
   for (const id of await conn.fileIds())

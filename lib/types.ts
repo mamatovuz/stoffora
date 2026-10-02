@@ -166,7 +166,10 @@ export interface Employee {
   lastName: string;
   middleName?: string;
   birthDate?: string;
+  /** MALE | FEMALE. */
   gender?: string;
+  /** JShShIR (PINFL) — 14 raqamli shaxsiy identifikatsiya raqami. */
+  pinfl?: string;
   phone: string;
   email: string;
   address?: string;
@@ -861,7 +864,10 @@ export type BuiltinField =
   | "workHours"
   | "salary"
   | "restDay"
-  | "education";
+  | "education"
+  | "gender"
+  | "pinfl"
+  | "idDocument";
 export type QuestionType =
   | "name"
   | "text"
@@ -876,7 +882,10 @@ export type QuestionType =
   | "branch"
   | "shift"
   | "workHours"
-  | "weekday";
+  | "weekday"
+  | "gender"
+  | "pinfl"
+  | "photo";
 /** Anketa savoli — kompaniya panelda qo‘shadi, o‘chiradi, tahrirlaydi. */
 export interface RegistrationQuestion {
   id: string;
@@ -916,6 +925,13 @@ export interface RegistrationData {
   /** 0–6 (yakshanba=0) yoki -1 — dam olishsiz. */
   restDay?: number;
   education?: string;
+  gender?: "MALE" | "FEMALE";
+  /** JShShIR (PINFL) — 14 raqam. */
+  pinfl?: string;
+  /** Pasport / ID karta rasmi — document_files dagi fayl ID si (tasdiqlangach xodim hujjatiga aylanadi). */
+  idDocument?: string;
+  idDocumentMime?: string;
+  idDocumentSize?: number;
   /** Kompaniya qo‘shgan savollar javoblari (savol ID → javob). */
   custom?: Record<string, string>;
 }
