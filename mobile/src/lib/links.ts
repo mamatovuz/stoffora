@@ -1,6 +1,10 @@
 /** Push’dagi `go` qiymati → ilova ekrani (Mini App deep link’lari bilan bir xil nomlar). */
 export function routeForGo(go?: string) {
   switch (go) {
+    case "checkin":
+    case "checkout":
+    case "home":
+      return "/(tabs)" as const;
     case "leave":
     case "requests":
       return "/(tabs)/requests" as const;

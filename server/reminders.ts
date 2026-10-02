@@ -4,6 +4,7 @@ import { notifyEmployee } from "./integrations/hooks";
 import { dayPlan } from "../lib/schedule";
 import { isPracticeDay } from "../lib/counting";
 import { notifyManagers } from "./mini-extra";
+import { pushToEmployee } from "./push";
 
 const toMinutes = (value: string) => {
   const [hour, minute] = value.split(":").map(Number);
@@ -13,11 +14,11 @@ const toMinutes = (value: string) => {
 /**
  * Har daqiqada tekshiradi: ish boshlanganidan 15 daqiqa o‘tib hali kelmagan
  * yoki ish tugaganidan 20 daqiqa o‘tib ketishni belgilamagan xodimlarga
- * Telegram orqali bir martalik eslatma yuboradi.
+ * Telegram orqali (va mobil ilova o‘rnatilgan bo‘lsa — push bilan) bir martalik eslatma yuboradi.
  */
 export function startAttendanceReminders() {
   if (process.env.ATTENDANCE_REMINDERS === "false") return;
-  if (!process.env.TELEGRAM_BOT_TOKEN) return;
+  if (!process.env.TELEGRAM_BOT_TOKEN && process.env.MOBILE_PUSH === "false") return;
   const sent = new Set<string>();
   let currentDate = "";
   let running = false;
@@ -41,6 +42,8 @@ export function startAttendanceReminders() {
           .map((m) => `${m.companyId}|${m.localId}`),
       );
       const hasBotLink = (employeeId: string, companyId: string) => linked.has(`${companyId}|${employeeId}`);
+      const activeDevices = new Set(db.mobileDevices.filter((d) => d.status === "ACTIVE").map((d) => d.id));
+      const withPush = new Set(db.mobilePushTokens.filter((t) => t.active && activeDevices.has(t.deviceId)).map((t) => t.employeeId));
       // Rahbar xulosasi: filial bo‘yicha, ish boshlanib 20 daqiqa o‘tgach hali kelmaganlar.
       const missing = new Map<string, { companyId: string; branchId: string; start: string; names: string[]; noticed: number }>();
       for (const employee of db.employees) {
@@ -71,9 +74,11 @@ export function startAttendanceReminders() {
           missing.set(digestKey, group);
         }
         const reachable =
-          (employee.telegramConnected && employee.telegramId && !employee.telegramId.startsWith("dev")) ||
-          hasBotLink(employee.id, employee.companyId);
-        if (!reachable) continue;
+          Boolean(process.env.TELEGRAM_BOT_TOKEN) &&
+          ((employee.telegramConnected && employee.telegramId && !employee.telegramId.startsWith("dev")) || hasBotLink(employee.id, employee.companyId));
+        // Mobil ilova: faol (ishonchli qurilmadagi) push tokeni bor xodim.
+        const pushable = process.env.MOBILE_PUSH !== "false" && withPush.has(employee.id);
+        if (!reachable && !pushable) continue;
         const start = toMinutes(day.start);
         const end = toMinutes(day.end);
         const inKey = `${employee.id}:in`;
@@ -85,13 +90,16 @@ export function startAttendanceReminders() {
           !sent.has(inKey)
         ) {
           sent.add(inKey);
-          void notifyEmployee(
-            db,
-            employee,
-            "attendance",
-            `⏰ ${employee.firstName}, ish ${day.start} da boshlangan, lekin kelishingiz hali qayd etilmagan.\n\nFilialda bo‘lsangiz, Mini App orqali «Ishga keldim» tugmasini bosing.`,
-            { openButton: true, go: "checkin" },
-          ).catch(() => undefined);
+          if (reachable)
+            void notifyEmployee(
+              db,
+              employee,
+              "attendance",
+              `⏰ ${employee.firstName}, ish ${day.start} da boshlangan, lekin kelishingiz hali qayd etilmagan.\n\nFilialda bo‘lsangiz, Mini App orqali «Ishga keldim» tugmasini bosing.`,
+              { openButton: true, go: "checkin" },
+            ).catch(() => undefined);
+          if (pushable)
+            void pushToEmployee(employee.id, { title: "⏰ Kelish qayd etilmagan", body: `Ish ${day.start} da boshlangan. Filialda bo‘lsangiz, «Ishga keldim»ni bosing.`, data: { go: "checkin" } }, db).catch(() => 0);
         }
         if (
           record?.checkIn &&
@@ -101,13 +109,16 @@ export function startAttendanceReminders() {
           !sent.has(outKey)
         ) {
           sent.add(outKey);
-          void notifyEmployee(
-            db,
-            employee,
-            "attendance",
-            `🏁 ${employee.firstName}, ish vaqti ${day.end} da tugadi. Ketishni belgilashni unutmang.`,
-            { openButton: true, go: "checkout" },
-          ).catch(() => undefined);
+          if (reachable)
+            void notifyEmployee(
+              db,
+              employee,
+              "attendance",
+              `🏁 ${employee.firstName}, ish vaqti ${day.end} da tugadi. Ketishni belgilashni unutmang.`,
+              { openButton: true, go: "checkout" },
+            ).catch(() => undefined);
+          if (pushable)
+            void pushToEmployee(employee.id, { title: "🏁 Ish vaqti tugadi", body: `Ish ${day.end} da tugadi. Ketishni belgilashni unutmang.`, data: { go: "checkout" } }, db).catch(() => 0);
         }
       }
       for (const [key, group] of missing) {
@@ -115,7 +126,8 @@ export function startAttendanceReminders() {
         const branch = db.branches.find((b) => b.id === group.branchId);
         const list = group.names.slice(0, 15).map((name) => `• ${name}`).join("\n");
         const more = group.names.length > 15 ? `\n… yana ${group.names.length - 15} kishi` : "";
-        void notifyManagers(
+        if (process.env.TELEGRAM_BOT_TOKEN)
+          void notifyManagers(
           db,
           group.companyId,
           group.branchId,

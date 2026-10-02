@@ -5,8 +5,8 @@ import { z } from "zod";
 import { audit, readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
 import { adaptProfile, assertConsistentSamples, faceMatchThreshold, isReplayedDescriptor, matchFace, matchPassPercent, matchPercent } from "../lib/face";
-import type { Database, DeviceChangeRequest, Employee, MobileDevice, MobileSession } from "../lib/types";
-import { MOBILE_ACCESS_TTL_SECONDS, requireEmployee, signMobileAccess, type AuthedRequest, type EmployeeSession } from "./auth";
+import type { Database, DeviceChangeRequest, Employee, MobileDevice, MobileSession, PanelSession, User } from "../lib/types";
+import { MOBILE_ACCESS_TTL_SECONDS, requireEmployee, signMobileAccess, signSession, type AuthedRequest, type EmployeeSession, type Session } from "./auth";
 import { signFaceProof } from "./face-proof";
 import { describeFace } from "./face-server";
 import {
@@ -94,6 +94,16 @@ function revokeDevice(db: Database, device: MobileDevice, actor: string, reason:
   device.revokeReason = reason;
   for (const s of db.mobileSessions) if (s.deviceId === device.id && !s.revokedAt) Object.assign(s, { revokedAt: now, revokeReason: reason });
   for (const t of db.mobilePushTokens) if (t.deviceId === device.id) t.active = false;
+  // Shu telefondan ochilgan rahbar (panel) sessiyalari ham yopiladi.
+  for (const s of db.panelSessions) if (!s.revokedAt && s.userAgent.startsWith(managerAgent(device.id))) s.revokedAt = now;
+}
+/** Rahbar sessiyasi qaysi telefonga tegishli ekanini bildiruvchi belgi (panel «Kirgan qurilmalar»da ko‘rinadi). */
+const managerAgent = (deviceId: string) => `Staffora mobil ilova · ${deviceId}`;
+const MANAGER_ROLES = new Set(["COMPANY_OWNER", "HR_ADMIN", "HR_MANAGER", "BRANCH_MANAGER", "FINANCE"]);
+/** Xodimning Telegram hisobi bilan bog‘langan panel hisobi (rahbar) — shu kompaniyada. */
+function managerUserOf(db: Database, employee: Employee): User | undefined {
+  if (!employee.telegramId || employee.telegramId.startsWith("dev")) return undefined;
+  return db.users.find((u) => u.telegramId === employee.telegramId && u.companyId === employee.companyId && MANAGER_ROLES.has(u.role));
 }
 const securityLog = (db: Database, companyId: string, actor: string, action: string, employeeId: string, meta?: Record<string, unknown>) =>
   db.auditLogs.unshift(audit(companyId, actor, action, "mobile-device", employeeId, undefined, meta));
@@ -350,6 +360,58 @@ export function createMobileRouter() {
   router.use("/mobile/me", requireEmployee, mobileOnly);
   router.use("/mobile/push-token", requireEmployee, mobileOnly);
   router.use("/mobile/face", requireEmployee, mobileOnly);
+  router.use("/mobile/manager", requireEmployee, mobileOnly);
+
+  /** Bu xodim rahbarmi (panel hisobi Telegram orqali bog‘langan) — «Rahbar» bo‘limini ko‘rsatish uchun. */
+  router.get(
+    "/mobile/manager/check",
+    route(async (req, res) => {
+      const auth = employeeSessionOf(req);
+      const db = await readDb();
+      const employee = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId && e.status === "ACTIVE");
+      const user = employee && managerUserOf(db, employee);
+      res.json({ allowed: Boolean(user), role: user?.role });
+    }),
+  );
+  /**
+   * Rahbar sessiyasi: ishonchli telefon + bog‘langan panel hisobi. Panelning o‘z API’lari ishlatiladi
+   * (huquq, filial chegarasi, audit — paneldagidek). Sessiya «Kirgan qurilmalar»da ko‘rinadi va
+   * telefon bekor qilinsa avtomatik yopiladi.
+   */
+  router.post(
+    "/mobile/manager/session",
+    rateLimit({ windowMs: 60_000, limit: 20, keyGenerator: (req) => `mmgr:${employeeSessionOf(req)?.employeeId || req.ip}` }),
+    route(async (req, res) => {
+      const auth = employeeSessionOf(req);
+      const out = await updateDb((db) => {
+        const employee = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId && e.status === "ACTIVE");
+        const user = employee && managerUserOf(db, employee);
+        const company = user && db.companies.find((c) => c.id === user.companyId);
+        if (!employee || !user || !company || company.status === "SUSPENDED") throw httpError("Rahbar huquqi topilmadi.", 403, "NOT_MANAGER");
+        const now = new Date().toISOString();
+        const agent = managerAgent(auth.mdid!);
+        for (const s of db.panelSessions) if (s.userId === user.id && !s.revokedAt && s.userAgent.startsWith(agent)) s.revokedAt = now;
+        const device = db.mobileDevices.find((d) => d.id === auth.mdid);
+        const row: PanelSession = {
+          id: randomUUID(),
+          userId: user.id,
+          userAgent: `${agent} · ${device?.model || device?.platform || ""}`.trim(),
+          ip: String(req.ip || "").replace(/^::ffff:/, ""),
+          createdAt: now,
+          lastSeenAt: now,
+        };
+        db.panelSessions.push(row);
+        db.auditLogs.unshift(audit(user.companyId!, user.name, "Rahbar mobil ilova orqali kirdi", "user", user.id, undefined, { deviceId: auth.mdid }));
+        const session: Session = { sid: row.id, userId: user.id, companyId: user.companyId, name: user.name, email: user.email, role: user.role };
+        return {
+          token: signSession(session),
+          user: { id: user.id, name: user.name, role: user.role, branchIds: user.branchIds || [], photoDataUrl: user.photoDataUrl },
+          company: { id: company.id, name: company.name },
+        };
+      });
+      res.json(out);
+    }),
+  );
 
   router.get(
     "/mobile/me",

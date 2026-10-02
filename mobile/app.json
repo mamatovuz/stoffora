@@ -8,11 +8,6 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#F2F3F5",
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#F2F3F5"
-    },
     "ios": {
       "bundleIdentifier": "uz.staffora.app",
       "supportsTablet": false,
@@ -94,6 +89,18 @@
           "photosPermission": "Staffora ta’til yoki kasallik varaqasi kabi hujjat rasmini biriktirish uchun galereyangizdan foydalanadi.",
           "cameraPermission": "Staffora ishga kelish va ketishda yuzingizni (Face ID) tekshirish hamda filial QR kodini skanerlash uchun kameradan foydalanadi.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "backgroundColor": "#F2F3F5",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
         }
       ]
     ],

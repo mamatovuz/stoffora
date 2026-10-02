@@ -120,6 +120,11 @@ function Shell() {
         <Stack.Screen name="notifications" options={{ headerShown: true, title: "Bildirishnomalar", headerLargeTitle: ios }} />
         <Stack.Screen name="salary" options={{ headerShown: true, title: "Mening oyligim" }} />
         <Stack.Screen name="security" options={{ headerShown: true, title: "Xavfsizlik" }} />
+        <Stack.Screen name="directory" options={{ headerShown: true, title: "Hamkasblar" }} />
+        <Stack.Screen name="payslips" options={{ headerShown: true, title: "Hisob varaqalar" }} />
+        <Stack.Screen name="documents" options={{ headerShown: true, title: "Hujjatlarim" }} />
+        <Stack.Screen name="helpdesk" options={{ headerShown: true, title: "HR bilan aloqa" }} />
+        <Stack.Screen name="birthdays" options={{ headerShown: true, title: "Tug‘ilgan kunlar" }} />
       </Stack>
       <Gate />
       <AppLock />

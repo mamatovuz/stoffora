@@ -247,3 +247,67 @@ describe("mobil ilova: faollashtirish va ishonchli qurilma", () => {
     expect((await call("GET", "/api/mobile/me", undefined, forged)).status).toBe(401);
   });
 });
+
+describe("mobil ilova: rahbar rejimi", () => {
+  it("faqat bog‘langan panel hisobi bo‘lsa rahbar sessiyasi beriladi; telefon bekor qilinsa — yopiladi", async () => {
+    await store.updateDb((db) => {
+      db.employees.push({ ...employee("m"), telegramId: "777000" } as Employee);
+      db.users.push({ id: "u-m", companyId: "c1", name: "Rahbar", email: "m@t", role: "BRANCH_MANAGER", telegramId: "777000", branchIds: ["b1"] } as unknown as Database["users"][number]);
+    });
+    const phoneM = phone();
+    const login = await activate(phoneM, await newCode("m"));
+    expect(login.status).toBe(201);
+    expect((await call("GET", "/api/mobile/manager/check", undefined, login.body.accessToken)).body.allowed).toBe(true);
+    const mgr = await call("POST", "/api/mobile/manager/session", {}, login.body.accessToken);
+    expect(mgr.status).toBe(200);
+    expect(mgr.body.user.role).toBe("BRANCH_MANAGER");
+    const decoded = jwt.decode(mgr.body.token) as { sid: string };
+    // Oddiy xodim (rahbar emas) — rad.
+    const other = await activate(phone(), await newCode("b"));
+    expect((await call("GET", "/api/mobile/manager/check", undefined, other.body.accessToken)).body.allowed).toBe(false);
+    expect((await call("POST", "/api/mobile/manager/session", {}, other.body.accessToken)).status).toBe(403);
+    // Telegram tokeni bilan — rad (faqat ishonchli telefon).
+    const tg = auth.signEmployeeSession({ employeeId: "m", companyId: "c1", telegramId: "777000", kind: "employee" });
+    expect((await call("POST", "/api/mobile/manager/session", {}, tg)).status).toBe(403);
+    // HR telefonni bekor qiladi — rahbar panel sessiyasi ham yopiladi.
+    panelRole = "HR_MANAGER";
+    panelCompany = "c1";
+    expect((await call("POST", `/api/mobile-devices/${login.body.deviceId}/revoke`, {})).status).toBe(200);
+    const db = await store.readDb();
+    expect(db.panelSessions.find((s) => s.id === decoded.sid)?.revokedAt).toBeTruthy();
+  });
+});
+
+describe("mobil ilova: push dispetcheri", () => {
+  it("yangi bildirishnoma bir marta push bo‘ladi; DeviceNotRegistered token o‘chiriladi", async () => {
+    const push = await import("../server/push");
+    await store.updateDb((db) => {
+      db.employees.push(employee("p"));
+    });
+    const phoneP = phone();
+    const login = await activate(phoneP, await newCode("p"));
+    expect(login.status).toBe(201);
+    const token = "ExponentPushToken[pppppppppppppppppppppp]";
+    expect((await call("POST", "/api/mobile/push-token", { token, platform: "android" }, login.body.accessToken)).status).toBe(200);
+    await store.updateDb((db) => {
+      db.notifications.unshift({ id: "n-push", companyId: "c1", employeeId: "p", title: "Ta’til tasdiqlandi", body: "<b>Dam oling</b>", type: "LEAVE", read: false, createdAt: new Date().toISOString() });
+    });
+    const realFetch = globalThis.fetch;
+    const sent: { to: string; title: string; body: string; data: Record<string, string> }[][] = [];
+    globalThis.fetch = (async (_url: string, init: { body: string }) => {
+      sent.push(JSON.parse(init.body));
+      return new Response(JSON.stringify({ data: [{ status: "error", details: { error: "DeviceNotRegistered" } }] }), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      await push.dispatchPendingPushes();
+      await push.dispatchPendingPushes();
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+    expect(sent).toHaveLength(1);
+    expect(sent[0][0]).toMatchObject({ to: token, title: "Ta’til tasdiqlandi", body: "Dam oling", data: { go: "leave", notificationId: "n-push" } });
+    const db = await store.readDb();
+    expect(db.notifications.find((n) => n.id === "n-push")?.pushedAt).toBeTruthy();
+    expect(db.mobilePushTokens.find((t) => t.token === token)?.active).toBe(false);
+  });
+});
