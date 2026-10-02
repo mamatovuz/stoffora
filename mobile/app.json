@@ -34,7 +34,8 @@
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.USE_BIOMETRIC",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.USE_FINGERPRINT"
       ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
@@ -108,10 +109,12 @@
       "typedRoutes": true
     },
     "extra": {
-      "apiUrl": "",
+      "apiUrl": "https://staffora.up.railway.app/api",
       "eas": {
-        "projectId": ""
-      }
-    }
+        "projectId": "29ac9320-9df4-4c30-9351-df4f5dbdf0db"
+      },
+      "router": {}
+    },
+    "owner": "mamatovuz"
   }
 }
