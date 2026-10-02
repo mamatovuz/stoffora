@@ -2,7 +2,7 @@ import * as LocalAuthentication from "expo-local-authentication";
 import { useEffect, useState } from "react";
 import { Alert, Linking, ScrollView, Switch, Text } from "react-native";
 import { Group, GroupTitle, Hint, Row } from "@/components/ui";
-import { APP_VERSION } from "@/lib/config";
+import { API_URL, APP_VERSION } from "@/lib/config";
 import { dateUz } from "@/lib/format";
 import { pushPermission, registerPush, type PushState } from "@/lib/push";
 import { useSession } from "@/lib/session";
@@ -68,6 +68,8 @@ export default function Security() {
           value={push === "granted" ? (data?.push ? "Yoqilgan" : "Ruxsat bor") : push === "unavailable" ? "Mavjud emas" : "O‘chiq"}
           onPress={push === "granted" ? undefined : () => void enablePush()}
         />
+        <Row icon="document-lock" iconColor="#0A84FF" label="Maxfiylik siyosati" onPress={() => void Linking.openURL(`${API_URL.replace(/\/api$/, "")}/privacy.html`)} />
+        <Row icon="trash-outline" iconColor="#FF3B30" label="Hisobni o‘chirish" onPress={() => void Linking.openURL(`${API_URL.replace(/\/api$/, "")}/delete-account.html`)} />
         <Row icon="information-circle" iconColor="#8E8E93" label="Ilova versiyasi" value={APP_VERSION} last />
       </Group>
       {bio.available ? <Text style={{ color: c.muted, fontSize: 12.5, paddingHorizontal: 4 }}>Ilova qulfi davomat Face ID’sidan alohida: ishga kelishda yuzingiz baribir tekshiriladi.</Text> : null}

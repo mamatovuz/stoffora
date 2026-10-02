@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Staffora — Maxfiylik siyosati</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f5f7fa; --card: #fff; --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --accent: #2563eb; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0e1013; --card: #181b20; --ink: #f1f5f9; --muted: #94a3b8; --line: #2a2f37; --accent: #60a5fa; } }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 64px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 20px 22px; margin-top: 16px; }
+  h1 { font-size: 28px; margin: 0 0 4px; } h2 { font-size: 18px; margin: 0 0 8px; }
+  p, li { color: var(--ink); } small, .muted { color: var(--muted); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Staffora — Maxfiylik siyosati</h1>
+  <p class="muted">Amal qiladi: Staffora mobil ilovasi (iOS, Android) va Telegram Mini App. Oxirgi yangilanish: 2026-yil 2-oktabr.</p>
+
+  <section>
+    <h2>Ilova nima qiladi</h2>
+    <p>Staffora — kompaniyalar uchun xodimlar davomati va HR tizimi. Ilovadan faqat ish beruvchisi Staffora’dan foydalanadigan xodimlar foydalanadi. Hisobni ish beruvchingizning HR bo‘limi yaratadi; ilova bir martalik ulash kodi bilan sizning profilingizga bog‘lanadi.</p>
+  </section>
+
+  <section>
+    <h2>Qanday ma’lumotlar to‘planadi va nima uchun</h2>
+    <ul>
+      <li><b>Yuz tasviri (kamera)</b> — faqat «Ishga keldim / ketdim» paytida shaxsingizni tasdiqlash (Face ID) uchun. Kadrlar serverga yuboriladi, yuz belgilari (raqamli shablon) hisoblanadi; davomat rasmi davomat yozuviga biriktiriladi. Kamera fonda ishlamaydi.</li>
+      <li><b>Joylashuv</b> — faqat belgilash paytida, filial hududida ekaningizni tekshirish uchun. Fonda kuzatilmaydi.</li>
+      <li><b>Filial QR kodi</b> — kamera orqali skanerlanadi, faqat davomatni tasdiqlash uchun.</li>
+      <li><b>Qurilma ma’lumotlari</b> — telefon modeli, operatsion tizim va ilova versiyasi, qurilmaning ochiq kriptografik kaliti. IMEI, MAC manzil yoki telefon raqami yig‘ilmaydi.</li>
+      <li><b>Push token</b> — sizga so‘rov javoblari, e’lonlar va eslatmalarni yuborish uchun.</li>
+      <li><b>Siz yuborgan ma’lumotlar</b> — ta’til va boshqa so‘rovlar, biriktirilgan hujjat rasmlari, HR’ga xabarlar, avans uchun karta raqami va qabul qiluvchi ismi.</li>
+    </ul>
+    <p>Telefon biometriyasi (Face ID / barmoq izi) bilan ilova qulfi qurilmaning o‘zida ishlaydi — biometrik ma’lumot bizga yuborilmaydi.</p>
+  </section>
+
+  <section>
+    <h2>Ma’lumotlardan kim foydalanadi</h2>
+    <p>Ma’lumotlarni faqat ish beruvchingizning vakolatli xodimlari (HR, rahbar, moliya — o‘z huquqlari doirasida) ko‘radi. Ma’lumotlar sotilmaydi va reklama uchun ishlatilmaydi. Push xabarnomalar Expo Push Service, Apple (APNs) va Google (FCM) orqali yetkaziladi.</p>
+  </section>
+
+  <section>
+    <h2>Xavfsizlik</h2>
+    <p>Aloqa HTTPS orqali shifrlanadi. Kirish kalitlari telefonning himoyalangan xotirasida (iOS Keychain / Android Keystore) saqlanadi. Har bir xodimda bitta ishonchli telefon bo‘ladi; barcha muhim amallar audit jurnaliga yoziladi.</p>
+  </section>
+
+  <section>
+    <h2>Saqlash muddati va o‘chirish</h2>
+    <p>Ma’lumotlar mehnat munosabatlari davomida va ish beruvchi qonun bo‘yicha saqlashi shart bo‘lgan muddat davomida saqlanadi. Hisobingiz va ma’lumotlaringizni o‘chirish tartibi: <a href="/delete-account.html">hisobni o‘chirish</a>.</p>
+  </section>
+
+  <section>
+    <h2>Bog‘lanish</h2>
+    <p>Savollar bo‘yicha ilovadagi «HR’ga savol» bo‘limi orqali ish beruvchingizga yoki ilova sahifasidagi (App Store / Google Play) dasturchi aloqa manziliga murojaat qiling.</p>
+  </section>
+</main>
+</body>
+</html>
