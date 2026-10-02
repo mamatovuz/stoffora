@@ -8,6 +8,7 @@ import { lastPushError, pushPermission, registerPush, type PushState } from "@/l
 import { useSession } from "@/lib/session";
 import { ios, useTheme } from "@/lib/theme";
 import { useData } from "@/lib/useData";
+import { go } from "@/lib/nav";
 
 type Me = { device?: { id: string; platform: string; model?: string; status: string; createdAt: string; lastSeenAt?: string }; push: boolean; faceEnrolled: boolean; passPercent: number };
 
@@ -59,9 +60,26 @@ export default function Security() {
         Har bir xodimda bitta ishonchli telefon. Telefon kaliti qurilmadan chiqmaydi. Yangi telefonga o‘tsangiz, Mini App’dan kod olib yangi telefonda kiriting — HR tasdiqlagach shu telefon o‘chiriladi.
       </Hint>
 
+      <GroupTitle>Maxfiylik va xavfsizlik</GroupTitle>
+      <Group>
+        <Row
+          icon="keypad"
+          iconColor="#0A84FF"
+          label="PIN-kod bilan kirish"
+          sub={prefs.pinLock ? "Ilovani ochishda 4 xonali PIN so‘raladi" : "Ilovani ochishda 4 xonali PIN"}
+          right={<Switch value={Boolean(prefs.pinLock)} onValueChange={(v) => go({ pathname: "/pin", params: { mode: v ? "set" : "disable" } })} />}
+        />
+        {prefs.pinLock ? <Row icon="refresh" iconColor="#8E8E93" label="PIN-kodni o‘zgartirish" onPress={() => go({ pathname: "/pin", params: { mode: "change" } })} /> : null}
+        {bio.available ? (
+          <Row icon="lock-closed" iconColor="#5856D6" label={`${bio.label} bilan ochish`} right={<Switch value={Boolean(prefs.appLock)} onValueChange={(v) => void toggleLock(v)} />} last />
+        ) : null}
+      </Group>
+      <Text style={{ color: c.muted, fontSize: 12.5, paddingHorizontal: 4 }}>
+        PIN faqat shu telefonda saqlanadi. Unutsangiz — kirish ekranidagi «PIN-kodni unutdingizmi?» orqali Telegram’ga kelgan kod bilan yangisini o‘rnatasiz.
+      </Text>
+
       <GroupTitle>Ilova</GroupTitle>
       <Group>
-        {bio.available ? <Row icon="lock-closed" iconColor="#5856D6" label={`${bio.label} bilan qulflash`} right={<Switch value={Boolean(prefs.appLock)} onValueChange={(v) => void toggleLock(v)} />} /> : null}
         <Row
           icon="notifications"
           iconColor="#FF3B30"
@@ -74,7 +92,6 @@ export default function Security() {
         <Row icon="information-circle" iconColor="#8E8E93" label="Ilova versiyasi" value={APP_VERSION} last />
       </Group>
       {push === "error" || (push === "unavailable" && lastPushError) ? <Hint tone="warn" icon="notifications-off-outline">{lastPushError}</Hint> : null}
-      {bio.available ? <Text style={{ color: c.muted, fontSize: 12.5, paddingHorizontal: 4 }}>Ilova qulfi davomat Face ID’sidan alohida: ishga kelishda yuzingiz baribir tekshiriladi.</Text> : null}
 
       <Group>
         <Row icon="log-out-outline" label="Chiqish" danger onPress={confirmLogout} last />

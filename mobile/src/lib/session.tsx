@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiError, accessToken, activate as activateApi, loadSession, logout as logoutApi, onSignedOut, replacementStatus, type Employee } from "./api";
+import { removePin } from "./pin";
 import { KEYS, secureGet, secureSet } from "./secure";
 
 export type Prefs = {
@@ -7,6 +8,8 @@ export type Prefs = {
   onboarded?: boolean;
   /** Ilovani ochishda telefon biometriyasi (Face ID / barmoq izi) bilan qulf. */
   appLock?: boolean;
+  /** Ilovaga kirishda 4 xonali PIN-kod (xeshi Keychain/Keystore’da, lib/pin.ts). */
+  pinLock?: boolean;
   /** Yangi telefon so‘rovi (HR tasdig‘ini kutish). */
   pendingRequestId?: string;
 };
@@ -51,6 +54,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       } else setState(savedPrefs?.pendingRequestId ? "pending" : "signedOut");
     })();
     const off = onSignedOut((reason) => {
+      // Sessiya tugasa — PIN ham o‘chadi (telefon boshqa xodimga berilishi mumkin).
+      void removePin();
+      prefsRef.current = { ...prefsRef.current, pinLock: false, appLock: false };
+      setPrefsState(prefsRef.current);
+      void secureSet(KEYS.prefs, prefsRef.current);
       setEmployee(null);
       setReason(reason);
       setState("signedOut");

@@ -118,7 +118,7 @@ export default function Profile() {
 
       <GroupTitle>Ilova</GroupTitle>
       <Group>
-        <Row icon="shield-checkmark" iconColor="#34C759" label="Xavfsizlik va qurilma" onPress={() => go("/security")} />
+        <Row icon="shield-checkmark" iconColor="#34C759" label="Maxfiylik va xavfsizlik" onPress={() => go("/security")} />
         <Row icon="notifications" iconColor="#FF3B30" label="Bildirishnomalar" onPress={() => go("/notifications")} />
         <Row icon="log-out-outline" label="Chiqish" danger onPress={confirmLogout} last />
       </Group>

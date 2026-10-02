@@ -338,3 +338,24 @@ describe("mobil ilova: Sozlamalar → Ilovalar", () => {
     expect(revoked.body.rows.some((x: { id: string }) => x.id === q.body.deviceId)).toBe(true);
   });
 });
+
+describe("mobil ilova: PIN-kodni tiklash", () => {
+  it("5 xonali kod bildirishnomaga keladi, faqat bir marta ishlaydi; Telegram tokeni bilan — rad", async () => {
+    await store.updateDb((db) => {
+      db.employees.push(employee("pinx"));
+    });
+    const login = await activate(phone(), await newCode("pinx"));
+    expect(login.status).toBe(201);
+    const tg = auth.signEmployeeSession({ employeeId: "pinx", companyId: "c1", telegramId: "dev-pinx", kind: "employee" });
+    expect((await call("POST", "/api/mobile/pin/reset-code", {}, tg)).status).toBe(403);
+    expect((await call("POST", "/api/mobile/pin/reset-code", {}, login.body.accessToken)).status).toBe(200);
+    const db = await store.readDb();
+    const note = db.notifications.find((n) => n.employeeId === "pinx" && n.title === "PIN-kodni tiklash")!;
+    expect(note.pushedAt).toBeTruthy();
+    const code = /(\d{5})/.exec(note.body)![1];
+    const wrong = code === "00000" ? "11111" : "00000";
+    expect((await call("POST", "/api/mobile/pin/reset-verify", { code: wrong }, login.body.accessToken)).body.code).toBe("PIN_CODE_INVALID");
+    expect((await call("POST", "/api/mobile/pin/reset-verify", { code }, login.body.accessToken)).status).toBe(200);
+    expect((await call("POST", "/api/mobile/pin/reset-verify", { code }, login.body.accessToken)).body.code).toBe("PIN_CODE_EXPIRED");
+  });
+});

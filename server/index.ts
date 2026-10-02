@@ -88,6 +88,7 @@ import { createDayOffRouter } from "./dayoff";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
 import { createTileRouter } from "./tiles";
+import { startWatchdog } from "./watchdog";
 import { applyPanelReference, referenceFromPhoto } from "./face-reference";
 import { startHrWorker, upcomingCelebrations } from "./hr-worker";
 import {
@@ -3168,6 +3169,7 @@ startPhotoChannelWorker();
 startIntegrationWorker();
 startHrWorker();
 startPushDispatcher();
+startWatchdog();
 void startCompanyBots();
 void updateDb((db) => {
   const fixed = new Map<string, number>();

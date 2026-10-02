@@ -2,7 +2,7 @@ import * as Application from "expo-application";
 import * as Device from "expo-device";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, KeyboardAvoidingView, Pressable, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Hint, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
@@ -16,7 +16,6 @@ import { ios, useTheme } from "@/lib/theme";
  * Telefon raqamini yozish yetarli emas — kod faqat Telegram orqali tasdiqlangan xodimga beriladi.
  */
 const clean = (value: string) => value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "").slice(0, 8);
-const pretty = (value: string) => (value.length > 4 ? `${value.slice(0, 4)}-${value.slice(4)}` : value);
 
 const REASONS: Record<string, string> = {
   DEVICE_REVOKED: "Bu telefon HR tomonidan o‘chirildi yoki boshqa telefon tasdiqlandi. Yangi kod bilan qayta ulang.",
@@ -33,6 +32,8 @@ export default function Activate() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const tried = useRef(false);
+  const input = useRef<TextInput>(null);
+  const [focused, setFocused] = useState(false);
 
   const submit = async (value = code) => {
     if (value.length !== 8 || busy) return;
@@ -75,23 +76,39 @@ export default function Activate() {
         {signedOutReason && REASONS[signedOutReason] ? <Hint tone="warn" icon="shield-half">{REASONS[signedOutReason]}</Hint> : null}
 
         <View style={{ gap: 10 }}>
+          {/* 8 ta katak: yozilgan matn yashirin maydonda, ko‘rinishi — kataklarda (kursor chetga chiqmaydi). */}
+          <Pressable onPress={() => input.current?.focus()} style={st.cells} accessibilityLabel="Ulash kodi">
+            {Array.from({ length: 8 }, (_, i) => {
+              const active = focused && (i === code.length || (code.length === 8 && i === 7));
+              return (
+                <View key={i} style={{ flexDirection: "row", alignItems: "center" }}>
+                  {i === 4 ? <Text style={{ color: c.muted, fontSize: 22, marginHorizontal: 4 }}>–</Text> : null}
+                  <View style={[st.cell, { backgroundColor: c.card, borderColor: error ? c.danger : active ? c.accent : "transparent" }]}>
+                    <Text style={[st.cellText, { color: c.ink }]}>{code[i] || ""}</Text>
+                  </View>
+                </View>
+              );
+            })}
+          </Pressable>
           <TextInput
-            value={pretty(code)}
+            ref={input}
+            value={code}
             onChangeText={(text) => {
               setError("");
               const next = clean(text);
               setCode(next);
               if (next.length === 8) void submit(next);
             }}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            autoFocus
             autoCapitalize="characters"
             autoCorrect={false}
             autoComplete="one-time-code"
             textContentType="oneTimeCode"
-            placeholder="XXXX-XXXX"
-            placeholderTextColor={c.muted}
             maxLength={9}
-            style={[st.input, { color: c.ink, borderColor: error ? c.danger : "transparent", backgroundColor: c.card }]}
-            accessibilityLabel="Ulash kodi"
+            caretHidden
+            style={st.hidden}
           />
           {error ? <Text style={{ color: c.danger, fontSize: 13.5, textAlign: "center" }}>{error}</Text> : null}
         </View>
@@ -111,5 +128,8 @@ const st = StyleSheet.create({
   logo: { width: 64, height: 64, borderRadius: 16, alignSelf: "center" },
   title: { fontSize: 26, fontWeight: "700", textAlign: "center", letterSpacing: -0.3 },
   lead: { fontSize: 15, textAlign: "center", lineHeight: 21 },
-  input: { height: 64, borderWidth: 1.5, borderRadius: 14, textAlign: "center", fontSize: 28, fontWeight: "700", letterSpacing: 4, fontFamily: ios ? "Menlo" : "monospace" },
+  cells: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6 },
+  cell: { width: 36, height: 50, borderRadius: 10, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  cellText: { fontSize: 22, fontWeight: "600", fontFamily: ios ? "Menlo" : "monospace" },
+  hidden: { position: "absolute", width: 1, height: 1, opacity: 0 },
 });

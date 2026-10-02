@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
@@ -47,6 +47,8 @@ const nameOf = (e?: Pick<Employee, "firstName" | "lastName">) => (e ? `${e.first
 const employeeSessionOf = (req: Request) => (req as unknown as { employeeSession?: EmployeeSession }).employeeSession!;
 
 const REFRESH_TTL_MS = 30 * 86_400_000;
+/** PIN tiklash kodlari (qurilma bo‘yicha, faqat xesh) — qisqa muddatli, xotirada. */
+const pinCodes = new Map<string, { hash: string; expiresAt: number; attempts: number }>();
 export const MINI_CODE_TTL_MS = 15 * 60_000;
 export const HR_CODE_TTL_MS = 72 * 3_600_000;
 const MAX_CODE_ATTEMPTS = 5;
@@ -361,6 +363,74 @@ export function createMobileRouter() {
   router.use("/mobile/push-token", requireEmployee, mobileOnly);
   router.use("/mobile/face", requireEmployee, mobileOnly);
   router.use("/mobile/manager", requireEmployee, mobileOnly);
+  router.use("/mobile/pin", requireEmployee, mobileOnly);
+
+  /**
+   * «PIN-kodni unutdingizmi?»: 5 xonali bir martalik kod Telegram (Mini App boti) va bildirishnoma
+   * orqali yuboriladi. Kod faqat shu telefon uchun, 10 daqiqa, 5 urinish. PIN’ning o‘zi serverga
+   * yuborilmaydi — u faqat telefonda (Keychain/Keystore) xeshlangan holda saqlanadi.
+   */
+  router.post(
+    "/mobile/pin/reset-code",
+    rateLimit({ windowMs: 10 * 60_000, limit: 3, keyGenerator: (req) => `mpin:${employeeSessionOf(req)?.mdid || req.ip}`, message: { message: "Kod juda ko‘p so‘raldi. 10 daqiqadan keyin urinib ko‘ring." } }),
+    route(async (req, res) => {
+      const auth = employeeSessionOf(req);
+      const code = String(randomInt(0, 100_000)).padStart(5, "0");
+      pinCodes.set(auth.mdid!, { hash: sha256(`staffora-pin-reset:${auth.mdid}:${code}`), expiresAt: Date.now() + 10 * 60_000, attempts: 0 });
+      const out = await updateDb((db) => {
+        const employee = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId);
+        if (!employee) throw httpError("Xodim topilmadi.", 404);
+        db.notifications.unshift({
+          id: randomUUID(),
+          companyId: employee.companyId,
+          employeeId: employee.id,
+          title: "PIN-kodni tiklash",
+          body: `Staffora ilovasi PIN-kodini tiklash kodi: ${code}. 10 daqiqa amal qiladi. Siz so‘ramagan bo‘lsangiz — e’tibor bermang.`,
+          type: "SECURITY",
+          read: false,
+          createdAt: new Date().toISOString(),
+          // Push sifatida yuborilmaydi: kod qulflangan telefonning ekraniga chiqmasin.
+          pushedAt: new Date().toISOString(),
+        });
+        securityLog(db, employee.companyId, nameOf(employee), "Ilova PIN-kodini tiklash kodi so‘raldi", employee.id, { deviceId: auth.mdid });
+        return { telegramId: employee.telegramConnected ? employee.telegramId : undefined, name: employee.firstName };
+      });
+      let sentToTelegram = false;
+      if (out.telegramId && !out.telegramId.startsWith("dev"))
+        sentToTelegram = await sendTelegramMessage(
+          out.telegramId,
+          `🔐 <b>Staffora ilovasi</b>
+
+${out.name}, PIN-kodni tiklash kodi:
+
+<code>${code}</code>
+
+10 daqiqa amal qiladi. Siz so‘ramagan bo‘lsangiz — e’tibor bermang va kodni hech kimga bermang.`,
+        )
+          .then(() => true)
+          .catch(() => false);
+      res.json({ ok: true, sentToTelegram });
+    }),
+  );
+  router.post(
+    "/mobile/pin/reset-verify",
+    rateLimit({ windowMs: 10 * 60_000, limit: 10, keyGenerator: (req) => `mpinv:${employeeSessionOf(req)?.mdid || req.ip}` }),
+    route(async (req, res) => {
+      const auth = employeeSessionOf(req);
+      const { code } = z.object({ code: z.string().regex(/^\d{5}$/, "5 xonali kodni kiriting.") }).parse(req.body);
+      const row = pinCodes.get(auth.mdid!);
+      if (!row || row.expiresAt < Date.now()) throw httpError("Kod muddati tugagan. Yangi kod so‘rang.", 410, "PIN_CODE_EXPIRED");
+      row.attempts += 1;
+      if (row.attempts > 5) {
+        pinCodes.delete(auth.mdid!);
+        throw httpError("Urinishlar soni tugadi. Yangi kod so‘rang.", 429, "PIN_CODE_LOCKED");
+      }
+      if (row.hash !== sha256(`staffora-pin-reset:${auth.mdid}:${code}`)) throw httpError("Kod noto‘g‘ri.", 400, "PIN_CODE_INVALID");
+      pinCodes.delete(auth.mdid!);
+      await updateDb((db) => securityLog(db, auth.companyId, "Xodim", "Ilova PIN-kodi tiklandi", auth.employeeId, { deviceId: auth.mdid }));
+      res.json({ ok: true });
+    }),
+  );
 
   /** Bu xodim rahbarmi (panel hisobi Telegram orqali bog‘langan) — «Rahbar» bo‘limini ko‘rsatish uchun. */
   router.get(

@@ -6,6 +6,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import { PinFlow } from "@/components/PinFlow";
 import { Icon } from "@/components/ui";
 import { routeForGo } from "@/lib/links";
 import { registerPush, watchPushToken } from "@/lib/push";
@@ -54,40 +55,57 @@ function Gate() {
   return null;
 }
 
-/** Ilova qulfi: yoqilgan bo‘lsa, ochilganda va 1 daqiqadan ko‘p fonda turgandan keyin telefon biometriyasi. */
+/**
+ * Ilova qulfi: PIN-kod va/yoki telefon biometriyasi. Ochilganda va 1 daqiqadan ko‘p fonda
+ * turgandan keyin so‘raladi. PIN yoqilgan bo‘lsa — biometriya PIN ekranidagi tugma bo‘ladi.
+ */
 function AppLock() {
   const { prefs, state } = useSession();
-  const { c } = useTheme();
   const [locked, setLocked] = useState(false);
   const leftAt = useRef<number | null>(null);
-  const enabled = Boolean(prefs.appLock) && state === "signedIn";
+  const pin = Boolean(prefs.pinLock);
+  const bio = Boolean(prefs.appLock);
+  const enabled = (pin || bio) && state === "signedIn";
 
-  const unlock = async () => {
-    const result = await LocalAuthentication.authenticateAsync({ promptMessage: "Staffora’ni ochish", cancelLabel: "Bekor qilish", disableDeviceFallback: false });
+  const biometric = async () => {
+    const result = await LocalAuthentication.authenticateAsync({ promptMessage: "Staffora’ni ochish", cancelLabel: pin ? "PIN-kod" : "Bekor qilish", disableDeviceFallback: pin });
     if (result.success) setLocked(false);
+  };
+  const lock = () => {
+    setLocked(true);
+    if (bio) void biometric();
   };
   useEffect(() => {
     if (!enabled) return setLocked(false);
-    setLocked(true);
-    void unlock();
+    lock();
     const sub = AppState.addEventListener("change", (next) => {
       if (next === "background") leftAt.current = Date.now();
-      if (next === "active" && leftAt.current && Date.now() - leftAt.current > 60_000) {
-        setLocked(true);
-        void unlock();
-      }
+      if (next === "active" && leftAt.current && Date.now() - leftAt.current > 60_000) lock();
     });
     return () => sub.remove();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
   if (!locked) return null;
   return (
-    <View style={[StyleSheet.absoluteFill, { backgroundColor: c.bg, alignItems: "center", justifyContent: "center", gap: 16, zIndex: 100 }]}>
-      <View style={{ width: 72, height: 72, borderRadius: 22, backgroundColor: c.accent, alignItems: "center", justifyContent: "center" }}>
-        <Icon name="lock-closed" size={32} color="#fff" />
+    <View style={[StyleSheet.absoluteFill, { zIndex: 100 }]}>
+      {pin ? (
+        <PinFlow mode="unlock" onDone={() => setLocked(false)} biometric={bio ? { label: ios ? "Face ID" : "Barmoq izi", run: () => void biometric() } : undefined} />
+      ) : (
+        <BioLock onUnlock={() => void biometric()} />
+      )}
+    </View>
+  );
+}
+
+function BioLock({ onUnlock }: { onUnlock: () => void }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ flex: 1, backgroundColor: c.bg, alignItems: "center", justifyContent: "center", gap: 16 }}>
+      <View style={{ width: 64, height: 64, borderRadius: 32, backgroundColor: `${c.accent}14`, alignItems: "center", justifyContent: "center" }}>
+        <Icon name="lock-closed" size={28} color={c.accent} />
       </View>
-      <Text style={{ color: c.ink, fontSize: 20, fontWeight: "700" }}>Staffora qulflangan</Text>
-      <Pressable onPress={() => void unlock()} style={{ paddingHorizontal: 22, paddingVertical: 12, borderRadius: 14, backgroundColor: `${c.accent}1A` }}>
+      <Text style={{ color: c.ink, fontSize: 20, fontWeight: "600" }}>Staffora qulflangan</Text>
+      <Pressable onPress={onUnlock} style={{ paddingHorizontal: 22, paddingVertical: 12, borderRadius: 14, backgroundColor: `${c.accent}14` }}>
         <Text style={{ color: c.accent, fontWeight: "600", fontSize: 16 }}>{ios ? "Face ID bilan ochish" : "Barmoq izi bilan ochish"}</Text>
       </Pressable>
     </View>
@@ -125,11 +143,12 @@ function Shell() {
         <Stack.Screen name="face-enroll" options={{ presentation: "fullScreenModal", contentStyle: { backgroundColor: "#000" } }} />
         <Stack.Screen name="notifications" options={{ headerShown: true, title: "Bildirishnomalar", headerLargeTitle: ios }} />
         <Stack.Screen name="salary" options={{ headerShown: true, title: "Mening oyligim" }} />
-        <Stack.Screen name="security" options={{ headerShown: true, title: "Xavfsizlik" }} />
+        <Stack.Screen name="security" options={{ headerShown: true, title: "Maxfiylik va xavfsizlik" }} />
         <Stack.Screen name="directory" options={{ headerShown: true, title: "Hamkasblar" }} />
         <Stack.Screen name="payslips" options={{ headerShown: true, title: "Hisob varaqalar" }} />
         <Stack.Screen name="documents" options={{ headerShown: true, title: "Hujjatlarim" }} />
         <Stack.Screen name="helpdesk" options={{ headerShown: true, title: "HR bilan aloqa" }} />
+        <Stack.Screen name="pin" options={{ presentation: "modal", gestureEnabled: false }} />
         <Stack.Screen name="birthdays" options={{ headerShown: true, title: "Tug‘ilgan kunlar" }} />
       </Stack>
       <Gate />
