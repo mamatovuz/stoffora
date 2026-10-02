@@ -588,9 +588,13 @@ export function createMiniRouter() {
           enrolledAt: now,
           updatedAt: now,
         });
-        row.photoDataUrl = input.photoDataUrl;
-        row.photoQuality = input.photoQuality;
-        row.photoUpdatedAt = now;
+        // Saytda yuklangan rasm bo‘lsa — u saqlanadi (Face ID kadri almashtirmaydi).
+        if (row.photoSource !== "PANEL" || !row.photoDataUrl) {
+          row.photoDataUrl = input.photoDataUrl;
+          row.photoQuality = input.photoQuality;
+          row.photoUpdatedAt = now;
+          row.photoSource = "FACE";
+        }
         row.faceEnrolledAt = now;
         row.updatedAt = now;
         db.auditLogs.unshift(
@@ -684,6 +688,7 @@ export function createMiniRouter() {
           // Sifatliroq kadr bo‘lsa — profil rasmi yangilanadi (birinchi rasm noqulay chiqqan bo‘lsa ham tuzaladi).
           if (
             photoDataUrl &&
+            employee.photoSource !== "PANEL" &&
             shouldRefreshPhoto({ distance: front.distance, quality: photoQuality, currentQuality: employee.photoQuality, photoUpdatedAt: employee.photoUpdatedAt ?? employee.faceEnrolledAt })
           ) {
             employee.photoDataUrl = photoDataUrl;

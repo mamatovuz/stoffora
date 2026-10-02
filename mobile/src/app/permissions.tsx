@@ -2,13 +2,13 @@ import { useCameraPermissions } from "expo-camera";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Icon, type IconName } from "@/components/ui";
 import { locationPermission } from "@/lib/location";
 import { pushPermission, registerPush, type PushState } from "@/lib/push";
 import { useSession } from "@/lib/session";
-import { ios, radius, useTheme } from "@/lib/theme";
+import { ios, useTheme } from "@/lib/theme";
 
 /*
  * Ruxsatlar bilan tanishtiruv: har biri nima uchun kerakligi tushuntiriladi va faqat xodim
@@ -43,43 +43,40 @@ export default function Permissions() {
   };
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: c.bg }} contentContainerStyle={{ paddingTop: insets.top + 28, paddingBottom: insets.bottom + 24, paddingHorizontal: 18, gap: 14 }}>
-      <Text style={{ color: c.ink, fontSize: ios ? 32 : 26, fontWeight: "800" }}>Ruxsatlar</Text>
-      <Text style={{ color: c.muted, fontSize: 15, lineHeight: 21, marginBottom: 4 }}>
-        Staffora faqat kerakli paytda va faqat shu maqsadlar uchun foydalanadi. Istalgan vaqtda telefon sozlamalaridan o‘zgartirishingiz mumkin.
-      </Text>
+    <ScrollView style={{ flex: 1, backgroundColor: c.bg }} contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + 56, paddingBottom: insets.bottom + 20, paddingHorizontal: 20, gap: 8 }}>
+      <Text style={{ color: c.ink, fontSize: 28, fontWeight: "700", letterSpacing: -0.4 }}>Ruxsatlar</Text>
+      <Text style={{ color: c.muted, fontSize: 15, lineHeight: 21, marginBottom: 20 }}>Faqat kerakli paytda ishlatiladi. Keyin sozlamalardan o‘zgartirish mumkin.</Text>
+      <View style={[st.list, { backgroundColor: c.card }]}>
 
       <PermCard
         icon="camera"
-        color="#0A84FF"
         title="Kamera"
-        text="Ishga kelish/ketishda yuzingizni tekshirish (Face ID) va filial QR kodini skanerlash uchun. Rasm faqat tekshiruv uchun serverga yuboriladi."
+        text="Face ID va filial QR kodi uchun"
         state={cameraState}
         onAllow={() => void requestCamera()}
       />
       <PermCard
         icon="location"
-        color="#34C759"
-        title="Joylashuv (faqat ilova ochiqligida)"
-        text="Belgilash paytida filial hududida ekaningizni tekshirish uchun. Fonda kuzatilmaydi, hudud hisobini server qiladi."
+        title="Joylashuv"
+        text="Faqat belgilash paytida, fonda emas"
         state={location}
         onAllow={() => void locationPermission(true).then(setLocation)}
       />
       <PermCard
         icon="notifications"
-        color="#FF9500"
         title="Bildirishnomalar"
-        text="So‘rovlaringiz javobi, e’lonlar, oylik va avans, smena eslatmalari — Telegram’siz, to‘g‘ridan-to‘g‘ri telefoningizga."
+        text="So‘rov javoblari, e’lonlar, eslatmalar"
         // Ruxsat berilgan, lekin token xatosi — ruxsat kartasi uchun «yoqilgan» (xato Xavfsizlik ekranida ko‘rinadi).
         state={push === "error" ? "granted" : push}
+        last={!bio.available}
         onAllow={() => void registerPush(true).then(setPush).catch(() => setPush("denied"))}
       />
       {bio.available ? (
         <PermCard
           icon={ios ? "scan" : "finger-print"}
-          color="#8B5CF6"
-          title={`${bio.label} bilan qulflash (ixtiyoriy)`}
-          text="Ilovani ochishda telefoningiz biometriyasi so‘raladi. Bu davomat Face ID’sidan alohida — ishga kelishda yuz baribir tekshiriladi."
+          title={`${bio.label} bilan qulflash`}
+          text="Ixtiyoriy · ilovani ochishda"
+          last
           state={prefs.appLock ? "granted" : "undetermined"}
           allowText="Yoqish"
           onAllow={() =>
@@ -89,43 +86,42 @@ export default function Permissions() {
           }
         />
       ) : null}
-
-      <Button title="Davom etish" onPress={() => void finish()} big style={{ marginTop: 8 }} />
+      </View>
+      <View style={{ flex: 1, minHeight: 24 }} />
+      <Button title="Davom etish" onPress={() => void finish()} big />
     </ScrollView>
   );
 }
 
-function PermCard({ icon, color, title, text, state, onAllow, allowText = "Ruxsat berish" }: { icon: IconName; color: string; title: string; text: string; state: Perm; onAllow: () => void; allowText?: string }) {
+function PermCard({ icon, title, text, state, onAllow, allowText = "Ruxsat", last }: { icon: IconName; title: string; text: string; state: Perm; onAllow: () => void; allowText?: string; last?: boolean }) {
   const { c } = useTheme();
+  const action =
+    state === "granted" ? (
+      <Icon name="checkmark-circle" size={24} color={c.success} />
+    ) : state === "unavailable" ? (
+      <Text style={{ color: c.muted, fontSize: 13 }}>Yo‘q</Text>
+    ) : (
+      <Pressable onPress={state === "denied" ? () => void Linking.openSettings() : onAllow} style={({ pressed }) => [st.pill, { backgroundColor: `${c.accent}14` }, pressed && { opacity: 0.6 }]}>
+        <Text style={{ color: c.accent, fontWeight: "600", fontSize: 14 }}>{state === "denied" ? "Sozlamalar" : allowText}</Text>
+      </Pressable>
+    );
   return (
-    <View style={[st.card, { backgroundColor: c.card, borderRadius: radius.card }]}>
-      <View style={{ flexDirection: "row", gap: 12, alignItems: "flex-start" }}>
-        <View style={[st.icon, { backgroundColor: color }]}>
-          <Icon name={icon} size={20} color="#fff" />
+    <View style={st.row}>
+      <Icon name={`${icon}-outline` as IconName} size={22} color={c.ink} />
+      <View style={[st.body, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ color: c.ink, fontSize: 16, fontWeight: "500" }}>{title}</Text>
+          <Text style={{ color: c.muted, fontSize: 13 }}>{text}</Text>
         </View>
-        <View style={{ flex: 1, gap: 4 }}>
-          <Text style={{ color: c.ink, fontSize: 16, fontWeight: "600" }}>{title}</Text>
-          <Text style={{ color: c.muted, fontSize: 13.5, lineHeight: 19 }}>{text}</Text>
-        </View>
+        {action}
       </View>
-      {state === "granted" ? (
-        <View style={st.state}>
-          <Icon name="checkmark-circle" size={18} color={c.success} />
-          <Text style={{ color: c.success, fontWeight: "600" }}>Yoqilgan</Text>
-        </View>
-      ) : state === "denied" ? (
-        <Button title="Sozlamalarni ochish" tone="soft" icon="settings-outline" onPress={() => void Linking.openSettings()} />
-      ) : state === "unavailable" ? (
-        <Text style={{ color: c.muted, fontSize: 13 }}>Bu qurilmada mavjud emas (emulyator yoki sozlanmagan).</Text>
-      ) : (
-        <Button title={allowText} tone="soft" onPress={onAllow} />
-      )}
     </View>
   );
 }
 
 const st = StyleSheet.create({
-  card: { padding: 16, gap: 14 },
-  icon: { width: 38, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  state: { flexDirection: "row", gap: 6, alignItems: "center" },
+  list: { borderRadius: 16, overflow: "hidden" },
+  row: { flexDirection: "row", alignItems: "center", gap: 14, paddingLeft: 16 },
+  body: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 14, paddingRight: 16 },
+  pill: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: 99 },
 });

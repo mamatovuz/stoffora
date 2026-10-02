@@ -186,6 +186,8 @@ export interface Employee {
   photoDataUrl?: string;
   /** Profil rasmining sifati (0–1, Face ID kadridan) va yangilangan vaqti. */
   photoQuality?: number;
+  /** Rasm manbai: PANEL — saytda yuklangan (Face ID namunasi, Face ID kadrlari almashtirmaydi). */
+  photoSource?: "PANEL" | "FACE";
   photoUpdatedAt?: string;
   faceEnrolledAt?: string;
   status: EmployeeStatus;
@@ -433,6 +435,8 @@ export interface FaceProfile {
    * (soqol, soch, yorug‘lik, yosh o‘zgarishiga moslashish uchun). Ko‘pi bilan 6 ta.
    */
   adaptiveSamples?: number[][];
+  /** PANEL — saytda yuklangan rasmdan olingan namuna. */
+  source?: "PANEL" | "FACE";
   lastVerifiedAt?: string;
   enrolledAt: string;
   updatedAt: string;

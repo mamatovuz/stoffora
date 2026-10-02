@@ -560,8 +560,11 @@ export function createMobileRouter() {
         if (duplicate) throw httpError("Bu yuz boshqa xodim profiliga biriktirilgan. HR bilan bog‘laning.", 409, "FACE_DUPLICATE");
         const now = new Date().toISOString();
         db.faceProfiles.push({ companyId: employee.companyId, employeeId: employee.id, descriptor: center, samples, lastDescriptor: samples[samples.length - 1], lastVerifiedAt: now, enrolledAt: now, updatedAt: now });
-        employee.photoDataUrl = photo.startsWith("data:") ? photo : `data:image/jpeg;base64,${photo}`;
-        employee.photoUpdatedAt = now;
+        if (employee.photoSource !== "PANEL" || !employee.photoDataUrl) {
+          employee.photoDataUrl = photo.startsWith("data:") ? photo : `data:image/jpeg;base64,${photo}`;
+          employee.photoUpdatedAt = now;
+          employee.photoSource = "FACE";
+        }
         employee.faceEnrolledAt = now;
         employee.updatedAt = now;
         db.auditLogs.unshift(audit(employee.companyId, nameOf(employee), `Face ID sozlandi (mobil ilova, ${samples.length} namuna)`, "employee", employee.id));

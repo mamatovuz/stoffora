@@ -204,7 +204,7 @@ export default function Manager() {
           <>
             <Card style={{ gap: 12 }}>
               <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
-                <Text style={{ color: c.ink, fontSize: 34, fontWeight: "800" }}>{rate}%</Text>
+                <Text style={{ color: c.ink, fontSize: 34, fontWeight: "700", letterSpacing: -1 }}>{rate}%</Text>
                 <Text style={{ color: c.muted }}>
                   ishda: {stats.in}/{stats.expected}
                 </Text>
@@ -227,9 +227,9 @@ export default function Manager() {
                       haptic.select();
                       setFilter(filter === key ? "ALL" : key);
                     }}
-                    style={[st.tile, { backgroundColor: filter === key ? `${color}22` : c.tint, borderColor: filter === key ? color : "transparent" }]}
+                    style={[st.tile, { backgroundColor: c.tint, borderColor: filter === key ? c.accent : "transparent" }]}
                   >
-                    <Text style={{ color, fontSize: 22, fontWeight: "800" }}>{value}</Text>
+                    <Text style={{ color: value ? color : c.muted, fontSize: 22, fontWeight: "700" }}>{value}</Text>
                     <Text style={{ color: c.muted, fontSize: 11.5 }}>{label}</Text>
                   </Pressable>
                 ))}

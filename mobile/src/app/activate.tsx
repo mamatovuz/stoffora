@@ -2,13 +2,13 @@ import * as Application from "expo-application";
 import * as Device from "expo-device";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Button, Hint, Icon, haptic } from "@/components/ui";
+import { Button, Hint, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
 import { APP_VERSION } from "@/lib/config";
 import { useSession } from "@/lib/session";
-import { ios, radius, useTheme } from "@/lib/theme";
+import { ios, useTheme } from "@/lib/theme";
 
 /*
  * Faollashtirish: xodim Mini App (Profil → Telefon ilovasi) yoki HR’dan bir martalik kod oladi.
@@ -65,17 +65,16 @@ export default function Activate() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1, backgroundColor: c.bg }} behavior={ios ? "padding" : undefined}>
-      <ScrollView contentContainerStyle={[st.wrap, { paddingTop: insets.top + 48, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
-        <View style={[st.logo, { backgroundColor: c.accent }]}>
-          <Icon name="finger-print" size={40} color="#fff" />
+      <ScrollView contentContainerStyle={[st.wrap, { paddingTop: insets.top + 72, paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled">
+        <Image source={require("../../assets/icon.png")} style={st.logo} />
+        <View style={{ gap: 6 }}>
+          <Text style={[st.title, { color: c.ink }]}>Staffora’ga kirish</Text>
+          <Text style={[st.lead, { color: c.muted }]}>Mini App → Profil → «Telefon ilovasi» bo‘limidan olingan kodni kiriting.</Text>
         </View>
-        <Text style={[st.title, { color: c.ink }]}>Staffora</Text>
-        <Text style={[st.lead, { color: c.muted }]}>Ishga kelish-ketish, oylik va so‘rovlar — endi telefon ilovasida.</Text>
 
         {signedOutReason && REASONS[signedOutReason] ? <Hint tone="warn" icon="shield-half">{REASONS[signedOutReason]}</Hint> : null}
 
-        <View style={[st.card, { backgroundColor: c.card, borderRadius: radius.card }]}>
-          <Text style={{ color: c.ink, fontSize: 17, fontWeight: "600" }}>Ulash kodi</Text>
+        <View style={{ gap: 10 }}>
           <TextInput
             value={pretty(code)}
             onChangeText={(text) => {
@@ -91,43 +90,26 @@ export default function Activate() {
             placeholder="XXXX-XXXX"
             placeholderTextColor={c.muted}
             maxLength={9}
-            style={[st.input, { color: c.ink, borderColor: error ? c.danger : c.line, backgroundColor: c.bg }]}
+            style={[st.input, { color: c.ink, borderColor: error ? c.danger : "transparent", backgroundColor: c.card }]}
             accessibilityLabel="Ulash kodi"
           />
-          {error ? <Text style={{ color: c.danger, fontSize: 13.5 }}>{error}</Text> : null}
-          <Button title="Ulash" icon="link" onPress={() => void submit()} busy={busy} disabled={code.length !== 8} big />
+          {error ? <Text style={{ color: c.danger, fontSize: 13.5, textAlign: "center" }}>{error}</Text> : null}
         </View>
+        <Button title="Davom etish" onPress={() => void submit()} busy={busy} disabled={code.length !== 8} big />
 
-        <View style={{ gap: 12 }}>
-          <Step n={1} text="Telegram’da Staffora Mini App’ni oching." />
-          <Step n={2} text="Profil → «Telefon ilovasi» → «Ulash kodini olish»." />
-          <Step n={3} text="Kodni shu yerga kiriting. Kod 15 daqiqa amal qiladi va faqat bir marta ishlaydi." />
-        </View>
+        <View style={{ flex: 1 }} />
         <Text style={{ color: c.muted, fontSize: 12.5, textAlign: "center", lineHeight: 18 }}>
-          Telefon faqat sizga bog‘lanadi. Bir xodimda bitta ishonchli telefon bo‘ladi — yangi telefonga o‘tsangiz, HR tasdiqlaydi.
+          Kod 15 daqiqa amal qiladi va bir marta ishlaydi.{"\n"}Telefon faqat sizga bog‘lanadi.
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
-function Step({ n, text }: { n: number; text: string }) {
-  const { c } = useTheme();
-  return (
-    <View style={{ flexDirection: "row", gap: 12, alignItems: "flex-start" }}>
-      <View style={{ width: 26, height: 26, borderRadius: 13, backgroundColor: `${c.accent}1A`, alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ color: c.accent, fontWeight: "700" }}>{n}</Text>
-      </View>
-      <Text style={{ flex: 1, color: c.ink, fontSize: 14.5, lineHeight: 20 }}>{text}</Text>
-    </View>
-  );
-}
-
 const st = StyleSheet.create({
   wrap: { paddingHorizontal: 20, gap: 20, flexGrow: 1 },
-  logo: { width: 84, height: 84, borderRadius: 24, alignSelf: "center", alignItems: "center", justifyContent: "center" },
-  title: { fontSize: 32, fontWeight: "800", textAlign: "center", marginTop: -4 },
-  lead: { fontSize: 15.5, textAlign: "center", lineHeight: 22, marginTop: -10 },
-  card: { padding: 18, gap: 14 },
+  logo: { width: 64, height: 64, borderRadius: 16, alignSelf: "center" },
+  title: { fontSize: 26, fontWeight: "700", textAlign: "center", letterSpacing: -0.3 },
+  lead: { fontSize: 15, textAlign: "center", lineHeight: 21 },
   input: { height: 64, borderWidth: 1.5, borderRadius: 14, textAlign: "center", fontSize: 28, fontWeight: "700", letterSpacing: 4, fontFamily: ios ? "Menlo" : "monospace" },
 });

@@ -1459,7 +1459,7 @@ export function PhotoPicker({
       <Avatar first={first} last={last} photo={value} size="lg" />
       <div>
         <b>Profil rasmi</b>
-        <small>JPG, PNG yoki WEBP · avtomatik 512px gacha siqiladi</small>
+        <small>3×4 rasm, yuz to‘g‘ri va aniq ko‘rinsin. Bu rasm Face ID namunasi bo‘ladi — keldi-ketdi shu rasm bilan solishtiriladi.</small>
         <div className="toolbar">
           <label className="btn btn-sm" htmlFor={id}>
             <Camera size={14} /> {value ? "Almashtirish" : "Yuklash"}

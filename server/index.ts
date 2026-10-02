@@ -88,6 +88,7 @@ import { createDayOffRouter } from "./dayoff";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
 import { createTileRouter } from "./tiles";
+import { applyPanelReference, referenceFromPhoto } from "./face-reference";
 import { startHrWorker, upcomingCelebrations } from "./hr-worker";
 import {
   createCompanyBotRouter,
@@ -1438,6 +1439,8 @@ app.post(
   asyncRoute(async (req, res) => {
     const input = employeeSchema.parse(req.body),
       tenant = companyId(req);
+    // Saytda yuklangan rasm — Face ID namunasi (yuz topilmasa xodim saqlanmaydi).
+    const reference = input.photoDataUrl ? await referenceFromPhoto(input.photoDataUrl) : undefined;
     const created = await updateDb((db) => {
       assertEmployeeRefs(db, tenant, input);
       if ((input.status || "ACTIVE") === "ACTIVE") assertEmployeeCapacity(db, tenant);
@@ -1464,8 +1467,9 @@ app.post(
       };
       alignDepartment(db, row);
       db.employees.push(row);
+      if (reference && input.photoDataUrl) applyPanelReference(db, row, input.photoDataUrl, reference, req.session!.name);
       db.auditLogs.unshift(
-        audit(tenant, req.session!.name, "Xodim yaratildi", "employee", row.id),
+        audit(tenant, req.session!.name, reference ? "Xodim yaratildi (rasm — Face ID namunasi)" : "Xodim yaratildi", "employee", row.id),
       );
       return row;
     });
@@ -1544,6 +1548,10 @@ app.put(
     const input = employeeSchema.partial().parse(req.body),
       tenant = companyId(req),
       employeeId = String(req.params.id);
+    // Yangi rasm yuklangan bo‘lsa — Face ID namunasi shu rasmdan (bir xil rasm qayta kelsa — hisoblanmaydi).
+    const current = (await readDb()).employees.find((e) => e.id === employeeId && e.companyId === tenant);
+    const newPhoto = input.photoDataUrl && input.photoDataUrl !== current?.photoDataUrl && !input.photoDataUrl.startsWith("/api/") ? input.photoDataUrl : undefined;
+    const reference = newPhoto ? await referenceFromPhoto(newPhoto) : undefined;
     const row = await updateDb((db) => {
       const index = db.employees.findIndex(
         (e) => e.id === employeeId && e.companyId === tenant,
@@ -1568,12 +1576,21 @@ app.put(
         ),
         updatedAt: new Date().toISOString(),
       } as Employee;
-      if (input.photoDataUrl === "") next.photoDataUrl = undefined;
+      if (input.photoDataUrl === "") {
+        next.photoDataUrl = undefined;
+        next.photoSource = undefined;
+      }
+      // Rasm o‘zgarmagan bo‘lsa (panel eski rasmni qaytarib yuborgan) — avvalgisi qoladi.
+      if (input.photoDataUrl && !newPhoto) next.photoDataUrl = before.photoDataUrl;
       if (!next.employeeNo) next.employeeNo = before.employeeNo;
       alignDepartment(db, next);
       // Faol bo‘lmagan xodimni qayta faollashtirish ham tarif chegarasiga kiradi.
       if (next.status === "ACTIVE" && before.status !== "ACTIVE") assertEmployeeCapacity(db, tenant);
       db.employees[index] = next;
+      if (reference && newPhoto) {
+        applyPanelReference(db, next, newPhoto, reference, req.session!.name);
+        db.auditLogs.unshift(audit(tenant, req.session!.name, "Xodim rasmi yangilandi — Face ID namunasi shu rasmdan", "employee", employeeId));
+      }
       const { photoDataUrl: _p1, ...beforeLog } = before;
       const { photoDataUrl: _p2, ...afterLog } = next;
       db.auditLogs.unshift(
