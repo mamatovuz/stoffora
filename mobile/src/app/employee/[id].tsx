@@ -42,7 +42,8 @@ type Att = { id: string; date: string; checkIn?: string; checkOut?: string; sche
 type Leave = { id: string; type: string; startDate: string; endDate: string; status: string };
 type Detail = { employee: Emp; attendance: Att[]; leave: Leave[] };
 type Named = { id: string; name: string };
-type View3 = "main" | "attendance" | "requests" | "docs";
+type View3 = "main" | "attendance" | "requests" | "docs" | "history";
+type Lifecycle = { onboarding: { steps: { key: string; label: string; done: boolean }[]; done: number; total: number }; timeline: { date: string; text: string }[] };
 type EmpDoc = { id: string; type: string; title: string; expiresAt?: string; createdAt: string; status: "OK" | "SOON" | "EXPIRED" };
 
 const LEAVE: Record<string, string> = { VACATION: "Mehnat ta’tili", SICK: "Kasallik", PERMISSION: "Ruxsat", UNPAID: "Haq to‘lanmaydigan", OTHER: "Boshqa" };
@@ -66,14 +67,16 @@ export default function EmployeeProfile() {
   const [view, setView] = useState<View3>("main");
   const [docs, setDocs] = useState<EmpDoc[] | null>(null);
   const [fining, setFining] = useState(false);
+  const [life, setLife] = useState<Lifecycle | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [a, detail, , branches, departments, positions] = await Promise.all([
+      const [a, detail, , , branches, departments, positions] = await Promise.all([
         managerAuth(),
         mcall<Detail>(`/employees/${id}`),
         mcall<EmpDoc[]>(`/employees/${id}/documents`).then(setDocs).catch(() => setDocs([])),
+        mcall<Lifecycle>(`/workspace/employees/${id}/lifecycle`).then(setLife).catch(() => setLife(null)),
         mcall<Named[]>("/branches").catch(() => []),
         mcall<Named[]>("/departments").catch(() => []),
         mcall<Named[]>("/positions").catch(() => []),
@@ -154,6 +157,7 @@ export default function EmployeeProfile() {
           ["attendance", "Qaydnoma"],
           ["requests", "So‘rovlar"],
           ["docs", `Hujjatlar${docs?.length ? ` · ${docs.length}` : ""}`],
+          ["history", "Tarix"],
         ]}
       />
 
@@ -203,6 +207,30 @@ export default function EmployeeProfile() {
             </View>
           ))}
         </Section>
+      ) : null}
+
+      {view === "history" ? (
+        <>
+          {life ? (
+            <Section icon="checkmark-done-outline" title={`Onboarding · ${life.onboarding.done}/${life.onboarding.total}`}>
+              {life.onboarding.steps.map((st2) => (
+                <View key={st2.key} style={{ flexDirection: "row", gap: 8, paddingVertical: 5 }}>
+                  <Icon name={st2.done ? "checkmark-circle" : "ellipse-outline"} size={18} color={st2.done ? c.success : c.muted} />
+                  <Text style={{ flex: 1, color: st2.done ? c.ink : c.muted, fontSize: 14.5 }}>{st2.label}</Text>
+                </View>
+              ))}
+            </Section>
+          ) : null}
+          <Section icon="time-outline" title="Xodim tarixi">
+            {!life ? <Text style={{ color: c.muted, paddingVertical: 10 }}>Yuklanmoqda…</Text> : null}
+            {(life?.timeline || []).map((ev, i) => (
+              <View key={i} style={{ flexDirection: "row", gap: 10, paddingVertical: 6 }}>
+                <Text style={{ width: 82, color: c.muted, fontVariant: ["tabular-nums"] }}>{ev.date.slice(0, 10).split("-").reverse().join(".")}</Text>
+                <Text style={{ flex: 1, color: c.ink, fontSize: 14.5 }}>{ev.text}</Text>
+              </View>
+            ))}
+          </Section>
+        </>
       ) : null}
 
       {view === "docs" ? (

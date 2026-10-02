@@ -42,6 +42,7 @@ import {
   HandCoins,
   Gavel,
   Trophy,
+  Inbox,
   Wallet,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
@@ -59,6 +60,8 @@ const sections: { label: string; items: NavItem[] }[] = [
   {
     label: "Asosiy",
     items: [
+      ["/workspace", "Ish stoli", ClipboardCheck],
+      ["/inbox", "Tasdiqlashlar", Inbox, "inbox"],
       ["/dashboard", "Bosh sahifa", LayoutDashboard],
       ["/attendance", "Keldi-ketdi", Clock3],
       ["/map", "Xarita", MapPinned],
@@ -182,6 +185,8 @@ export function Shell() {
       window.removeEventListener("staffora:notifications", on);
     };
   }, [reloadCorrections]);
+  const { data: workspace, reload: reloadWorkspace } = useApi<{ inbox: { total: number } }>(user ? "/workspace/actions" : null);
+  usePolling(() => void reloadWorkspace(true), 60_000);
   const { data: pendingFines, reload: reloadFines } = useApi<{ id: string }[]>(
     user && canAny(user.role, ["employees.edit", "payroll.edit"]) ? "/fines?status=PENDING" : null,
   );
@@ -196,6 +201,7 @@ export function Shell() {
     leave: leave?.filter((item) => item.status === "PENDING").length || 0,
     corrections: corrections?.length || 0,
     fines: pendingFines?.length || 0,
+    inbox: workspace?.inbox.total || 0,
   };
   const pageTitle = useMemo(() => {
     const exact = pageNames[location.pathname];

@@ -93,6 +93,6 @@ export function canOpenPage(role: Role, path: string) {
 
 /** Kirgandan keyingi birinchi sahifa — rolga mos. */
 export function homePage(role: Role) {
-  const order = ["/dashboard", "/finance", "/payroll", "/attendance", "/employees", "/reports", "/notifications"];
+  const order = ["/workspace", "/dashboard", "/finance", "/payroll", "/attendance", "/employees", "/reports", "/notifications"];
   return order.find((path) => canOpenPage(role, path)) || "/settings";
 }

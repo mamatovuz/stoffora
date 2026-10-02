@@ -8,7 +8,7 @@ describe("Mini App: chuqur havolalar", () => {
     expect(parseDeepLink("go_payslip_2026-09")).toEqual({ tab: "profile", section: "payslips", id: "2026-09" });
     expect(parseDeepLink("checkin")).toEqual({ tab: "home", action: "checkin" });
     expect(parseDeepLink("manager_requests")).toEqual({ tab: "manager", view: "requests" });
-    expect(parseDeepLink("manager")).toEqual({ tab: "manager", view: "today" });
+    expect(parseDeepLink("manager")).toEqual({ tab: "manager", view: "desk" });
     expect(parseDeepLink("schedule")).toEqual({ tab: "history", view: "schedule" });
   });
 

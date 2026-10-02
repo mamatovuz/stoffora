@@ -726,6 +726,7 @@ export function EmployeeProfilePage() {
     ["leave", `Ta’til (${data.leave.length})`],
     ["documents", "Hujjatlar"],
     ["connect", "Telegram, Face ID, telefon"],
+    ["lifecycle", "Tarix va onboarding"],
     ["activity", "Faoliyat"],
   ];
 
@@ -923,6 +924,7 @@ export function EmployeeProfilePage() {
             )}
             {tab === "attendance" && <AttendanceTable rows={data.attendance} />}
             {tab === "documents" && <DocumentsPanel employeeId={e.id} canEdit={canEditDocs} />}
+            {tab === "lifecycle" && <LifecyclePanel employeeId={e.id} />}
             {tab === "leave" &&
               (data.leave.length ? (
                 <div className="table-wrap">
@@ -1826,6 +1828,48 @@ export function DismissedPage() {
           <p className="muted">Qaytarib bo‘lmaydi.</p>
         </CountdownConfirm>
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------- tarix va onboarding --- */
+type Lifecycle = {
+  onboarding: { steps: { key: string; label: string; done: boolean }[]; done: number; total: number };
+  timeline: { date: string; icon: string; text: string }[];
+};
+function LifecyclePanel({ employeeId }: { employeeId: string }) {
+  const { data, loading, error } = useApi<Lifecycle>(`/workspace/employees/${employeeId}/lifecycle`);
+  if (loading && !data) return <Loading />;
+  if (error || !data) return <ErrorBox message={error || "Ma’lumot yo‘q"} />;
+  const pct = Math.round((data.onboarding.done / data.onboarding.total) * 100);
+  return (
+    <div className="lc-grid">
+      <section>
+        <h3 className="lc-h">
+          Onboarding · {data.onboarding.done}/{data.onboarding.total}
+        </h3>
+        <div className="lc-progress">
+          <i style={{ width: `${pct}%` }} />
+        </div>
+        <ul className="lc-steps">
+          {data.onboarding.steps.map((st) => (
+            <li key={st.key} className={st.done ? "done" : ""}>
+              <span>{st.done ? "✓" : "○"}</span> {st.label}
+            </li>
+          ))}
+        </ul>
+      </section>
+      <section>
+        <h3 className="lc-h">Xodim tarixi</h3>
+        <ol className="lc-timeline">
+          {data.timeline.map((ev, i) => (
+            <li key={i}>
+              <time>{ev.date.slice(0, 10).split("-").reverse().join(".")}</time>
+              <span>{ev.text}</span>
+            </li>
+          ))}
+        </ol>
+      </section>
     </div>
   );
 }

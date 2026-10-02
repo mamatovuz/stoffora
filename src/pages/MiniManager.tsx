@@ -31,6 +31,7 @@ import { can } from "@/lib/permissions";
 import { dateLongUz, dateUz, tashkentIsoDate } from "@/lib/format";
 import { FineSheet, MoneyView } from "./mini/MoneyTools";
 import { DevicesView } from "./mini/DevicesView";
+import { MiniDesk } from "./mini/Desk";
 import type { Attendance, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../types";
 import { SkeletonList } from "./mini/shared";
@@ -114,7 +115,7 @@ type Filter = "ALL" | "IN" | "LATE" | "ABSENT" | "NOT_YET" | "ON_LEAVE" | "FLAGG
 export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: ManagerAuth; onToast: Toast; onExpired: () => void; initialView?: ManagerView }) {
   const call = useMemo(() => client(auth.token), [auth.token]);
   const role = auth.user.role;
-  const [view, setView] = useState<ManagerView>(initialView || "today");
+  const [view, setView] = useState<ManagerView>(initialView || "desk");
   const [day, setDay] = useState<Day | null>(null);
   const [leaves, setLeaves] = useState<LeaveRow[]>([]);
   const [swaps, setSwaps] = useState<SwapRow[]>([]);
@@ -369,9 +370,10 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           </button>
         </span>
       </div>
-      <div className={`mini-seg ${["", "one", "", "three", "four", "five", "six"][[canAttendance, canRequests, canAttendance, canAnalytics, canMoney, canDevices].filter(Boolean).length] || "four"}`} role="tablist">
+      <div className={`mini-seg ${["", "one", "", "three", "four", "five", "six", "seven"][[true, canAttendance, canRequests, canAttendance, canAnalytics, canMoney, canDevices].filter(Boolean).length] || "four"}`} role="tablist">
         {(
           [
+            ["desk", "Ish stoli", 0] as const,
             ...(canAttendance ? ([["today", "Bugun", 0]] as const) : []),
             ...(canRequests ? ([["requests", "So‘rovlar", pendingCount]] as const) : []),
             ...(canAttendance ? ([["map", "Xarita", 0]] as const) : []),
@@ -770,6 +772,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           onChanged={() => void load()}
         />
       )}
+      {view === "desk" && <MiniDesk call={call} role={role} canAttendance={canAttendance} onOpen={(v) => setView(v as ManagerView)} onEmployee={setCardFor} />}
       {view === "devices" && canDevices && <DevicesView call={call} onToast={onToast} />}
       {view === "money" && canMoney && <MoneyView call={call} canAdvances={canMoney} canFines={canMoney} onError={onToast} />}
       {fining && (

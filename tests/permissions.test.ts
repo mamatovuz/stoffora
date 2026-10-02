@@ -6,7 +6,7 @@ describe("rollar va sahifalar", () => {
     for (const page of ["/finance", "/payroll", "/advances", "/fines", "/rewards", "/notifications", "/settings"]) expect(canOpenPage("FINANCE", page), page).toBe(true);
     for (const page of ["/reports", "/dashboard", "/employees", "/employees/abc", "/attendance", "/leave", "/branches", "/users", "/audit", "/registrations", "/announcements"])
       expect(canOpenPage("FINANCE", page), page).toBe(false);
-    expect(homePage("FINANCE")).toBe("/finance");
+    expect(homePage("FINANCE")).toBe("/workspace");
     expect(can("FINANCE", "payroll.edit")).toBe(true);
     expect(can("FINANCE", "employees.view")).toBe(false);
     expect(can("FINANCE", "settings.manage")).toBe(false);
@@ -16,7 +16,7 @@ describe("rollar va sahifalar", () => {
     expect(canOpenPage("BRANCH_MANAGER", "/attendance")).toBe(true);
     expect(canOpenPage("BRANCH_MANAGER", "/payroll")).toBe(false);
     expect(canOpenPage("BRANCH_MANAGER", "/users")).toBe(false);
-    expect(homePage("BRANCH_MANAGER")).toBe("/dashboard");
+    expect(homePage("BRANCH_MANAGER")).toBe("/workspace");
   });
 
   it("HR arizalarni ko‘radi, egasi hammasini", () => {

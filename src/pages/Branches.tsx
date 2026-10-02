@@ -186,6 +186,7 @@ function BranchForm({
     scheduleId: branch?.scheduleId || schedules[0]?.id || "",
     status: branch?.status || "ACTIVE",
     attendanceMode: branch?.attendanceMode || "QR_GPS_FACE",
+    requiredStaff: branch?.requiredStaff || 0,
   });
   // Filial rahbarlari (xodimlar): nomlar «manager» matnidan (server shu tartibda yozadi).
   const [managers, setManagers] = useState<Picked[]>(() => {
@@ -253,6 +254,9 @@ function BranchForm({
         <div className="form-grid">
           <Field label="Filial nomi *">
             <input className="input" value={form.name} onChange={(e) => set("name", e.target.value)} required minLength={2} placeholder="Bosh ofis" />
+          </Field>
+          <Field label="Smenaga kerakli xodimlar soni" hint="Ertangi smena tayyorligini tekshirish uchun (0 — belgilanmagan)">
+            <input className="input" type="number" min={0} max={1000} value={form.requiredStaff || ""} onChange={(e) => set("requiredStaff", Number(e.target.value) || 0)} placeholder="Masalan: 22" />
           </Field>
           <Field label="Filial rahbari" hint="Tanlangan xodim filial rahbari bo‘ladi: ilova va Mini App’da o‘z filiali xodimlarini, davomatini ko‘radi, jarima taklif qiladi">
             <ManagerPicker value={managers} onChange={setManagers} />

@@ -150,6 +150,8 @@ export interface Branch {
   attendanceMode?: "QR_GPS_FACE" | "GPS_FACE";
   /** Filial rahbarlari (xodimlar) — avtomatik «Filial rahbari» huquqini oladi. */
   managerEmployeeIds?: string[];
+  /** Smenaga kerakli xodimlar soni (ertangi tayyorlikni tekshirish uchun). */
+  requiredStaff?: number;
 }
 export interface Department {
   id: string;

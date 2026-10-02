@@ -90,6 +90,7 @@ import { createDayOffRouter } from "./dayoff";
 import { createCorrectionRouter } from "./corrections";
 import { createFinanceRouter } from "./finance";
 import { createRewardsRouter } from "./rewards";
+import { createWorkspaceRouter } from "./workspace";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
@@ -521,7 +522,7 @@ app.post(
     const session = await startPanelSession(req, res, user);
     return res.json({
       user: session,
-      redirect: user.role === "SUPER_ADMIN" ? "/super-admin" : "/dashboard",
+      redirect: user.role === "SUPER_ADMIN" ? "/super-admin" : "/workspace",
     });
   }),
 );
@@ -594,7 +595,7 @@ app.post(
     const session = await startPanelSession(req, res, user);
     res.json({
       user: session,
-      redirect: user.role === "SUPER_ADMIN" ? "/super-admin" : "/dashboard",
+      redirect: user.role === "SUPER_ADMIN" ? "/super-admin" : "/workspace",
     });
   }),
 );
@@ -676,6 +677,7 @@ app.use("/api", createDayOffRouter());
 app.use("/api", createCorrectionRouter());
 app.use("/api", createFinanceRouter());
 app.use("/api", createRewardsRouter());
+app.use("/api", createWorkspaceRouter());
 app.use("/api", createMobileAdminRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
@@ -2164,6 +2166,8 @@ const branchSchema = z.object({
   attendanceMode: z.enum(["QR_GPS_FACE", "GPS_FACE"]).default("QR_GPS_FACE"),
   /** Filial rahbarlari (xodimlar). */
   managerEmployeeIds: z.array(z.string()).max(20).optional(),
+  /** Smenaga kerakli xodimlar soni (0 — belgilanmagan). */
+  requiredStaff: z.coerce.number().int().min(0).max(1000).optional(),
 });
 /** Filial rahbarlari faqat shu kompaniyaning faol xodimlari bo‘lsin. */
 const cleanManagers = (db: Database, tenant: string, ids?: string[]) =>

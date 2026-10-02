@@ -113,7 +113,7 @@ export function LoginPage() {
   if (user)
     return (
       <Navigate
-        to={user.role === "SUPER_ADMIN" ? "/super-admin" : "/dashboard"}
+        to={user.role === "SUPER_ADMIN" ? "/super-admin" : "/workspace"}
         replace
       />
     );

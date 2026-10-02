@@ -5,13 +5,14 @@ import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } fr
 import { BranchMap } from "@/components/BranchMap";
 import { FineSheet, MoneyView } from "@/components/MoneyTools";
 import { DevicesView } from "@/components/DevicesView";
+import { DeskView } from "@/components/DeskView";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
 import { dateUz, dayTitle, som, tashkentIsoDate, timeAgo } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
 
-type MView = "today" | "requests" | "map" | "week" | "money" | "devices";
+type MView = "desk" | "today" | "requests" | "map" | "week" | "money" | "devices";
 type Emp = { id: string; firstName: string; lastName: string; photoDataUrl?: string; branchId: string };
 type RosterRow = {
   employee: Emp;
@@ -23,7 +24,22 @@ type RosterRow = {
 };
 type Day = { date: string; rows: RosterRow[] };
 type Branch = { id: string; name: string; latitude: number; longitude: number; radiusMeters: number };
-type Pending = { kind: "leave" | "swap" | "dayoff" | "advance" | "overtime" | "mark" | "fine"; id: string; title: string; sub: string; extra?: string; date?: string; employeeId?: string; markKind?: "IN" | "OUT"; time?: string; branch?: string; photo?: string };
+type DecideSpec = { method: "POST" | "PATCH"; path: string; rejectPath?: string; approve: Record<string, unknown>; reject: Record<string, unknown> };
+type InboxItem = {
+  kind: "correction" | "leave" | "swap" | "dayoff" | "advance" | "fine" | "overtime" | "device" | "registration";
+  id: string;
+  label: string;
+  title: string;
+  sub: string;
+  detail?: string;
+  urgent: boolean;
+  stage?: string;
+  employeeId?: string;
+  photoDataUrl?: string;
+  decide: DecideSpec;
+  meta?: { date?: string; time?: string; markKind?: "IN" | "OUT"; branch?: string };
+};
+type Pending = { spec: DecideSpec; urgent?: boolean; kind: "leave" | "swap" | "dayoff" | "advance" | "overtime" | "mark" | "fine" | "device" | "registration"; id: string; title: string; sub: string; extra?: string; date?: string; employeeId?: string; markKind?: "IN" | "OUT"; time?: string; branch?: string; photo?: string };
 type MarkRow = { id: string; employeeId: string; employeeName: string; photoDataUrl?: string; date: string; time: string; kind: "IN" | "OUT"; branchName: string; comment: string };
 type LateNotice = { id: string; employeeName: string; minutes: number; reason: string; createdAt: string };
 type Analytics = {
@@ -42,7 +58,7 @@ export default function Manager() {
   const { c } = useTheme();
   const [auth, setAuth] = useState<ManagerAuth | null>(null);
   const params = useLocalSearchParams<{ view?: MView; t?: string }>();
-  const [view, setView] = useState<MView>(params.view || "today");
+  const [view, setView] = useState<MView>(params.view || "desk");
   useEffect(() => {
     if (params.view) setView(params.view);
   }, [params.view, params.t]);
@@ -70,57 +86,30 @@ export default function Manager() {
       setAuth(a);
       const role = a.user.role;
       const canAtt = can(role, "attendance.view");
-      const canLeave = can(role, "leave.approve");
-      const canSwaps = canLeave || can(role, "attendance.edit");
-      const advHr = canLeave || can(role, "employees.edit");
-      const advFin = can(role, "payroll.edit");
-      const canOt = can(role, "attendance.edit") || advFin;
       const month = tashkentIsoDate().slice(0, 7);
       const safe = <T,>(p: Promise<T>, fallback: T) => p.catch((e) => (e instanceof ApiError && e.status === 403 ? fallback : Promise.reject(e)));
-      const fineDirect = can(role, "employees.edit") || can(role, "payroll.edit");
-      const [d, leaves, swaps, dayoffs, advances, company, ot, n, b, marks, fines] = await Promise.all([
+      // Yagona Inbox: barcha tasdiqlashlar (rol va filial chegarasi serverda).
+      const [d, inbox, n, b] = await Promise.all([
         canAtt ? safe(mcall<Day>(`/attendance/day?date=${tashkentIsoDate()}`), null) : null,
-        canLeave ? safe(mcall<{ id: string; type: string; startDate: string; endDate: string; reason?: string; status: string; employee?: Emp }[]>("/leave"), []) : [],
-        canSwaps ? safe(mcall<{ id: string; requesterName: string; colleagueName: string; giveDate: string; takeDate?: string; reason?: string; status: string }[]>("/shift-swaps"), []) : [],
-        canSwaps ? safe(mcall<{ id: string; employeeName: string; fromDate: string; toDate: string; fromWeekday: string; toWeekday: string; reason?: string }[]>("/dayoff-moves?status=PENDING"), []) : [],
-        advHr || advFin ? safe(mcall<{ id: string; employeeName: string; amount: number; reason?: string; status: string; payout?: { method: string; cardMask?: string } }[]>("/payroll/advances?status=PENDING,HR_APPROVED"), []) : [],
-        advHr || advFin ? mcall<{ payroll?: { advanceHrApproval?: boolean } }>("/company").catch(() => ({ payroll: undefined })) : { payroll: undefined },
-        canOt ? mcall<{ rows: { id: string; date: string; name: string; checkIn?: string; checkOut?: string; scheduledEnd: string; overtimeMinutes: number; approved?: boolean; note?: string }[] }>(`/overtime?month=${month}`).catch(() => ({ rows: [] })) : { rows: [] },
+        mcall<InboxItem[]>("/workspace/inbox").catch(() => [] as InboxItem[]),
         canAtt ? mcall<LateNotice[]>("/late-notices").catch(() => []) : [],
         canAtt ? mcall<Branch[]>("/branches").catch(() => []) : [],
-        canSwaps ? safe(mcall<MarkRow[]>("/attendance-corrections?status=PENDING"), []) : [],
-        fineDirect ? safe(mcall<{ id: string; employeeName: string; branchName: string; amount: number; reason: string; proposedBy?: string }[]>("/fines?status=PENDING"), []) : [],
       ]);
-      const twoStep = company.payroll?.advanceHrApproval !== false;
-      const list: Pending[] = [
-        ...fines.map((f) => ({
-          kind: "fine" as const,
-          id: f.id,
-          title: `Jarima taklifi: ${f.employeeName}`,
-          sub: `${som(f.amount)} · ${f.branchName} · taklif: ${f.proposedBy || "—"}`,
-          extra: f.reason,
-        })),
-        ...marks.map((m) => ({
-          kind: "mark" as const,
-          id: m.id,
-          title: m.employeeName,
-          sub: `${m.kind === "IN" ? "Kirish" : "Chiqish"} ${m.time}`,
-          extra: m.comment,
-          date: m.date,
-          employeeId: m.employeeId,
-          markKind: m.kind,
-          time: m.time,
-          branch: m.branchName,
-          photo: m.photoDataUrl,
-        })),
-        ...leaves.filter((l) => l.status === "PENDING").map((l) => ({ kind: "leave" as const, id: l.id, title: `${l.employee ? name(l.employee) : "Xodim"} · ${LEAVE[l.type] || l.type}`, sub: `${dateUz(l.startDate)} – ${dateUz(l.endDate)}`, extra: l.reason })),
-        ...swaps.filter((s) => s.status === "PENDING_MANAGER").map((s) => ({ kind: "swap" as const, id: s.id, title: `Smena: ${s.requesterName} → ${s.colleagueName}`, sub: `${dateUz(s.giveDate)}${s.takeDate ? ` ↔ ${dateUz(s.takeDate)}` : ""}`, extra: s.reason })),
-        ...dayoffs.map((m) => ({ kind: "dayoff" as const, id: m.id, title: `Dam kuni: ${m.employeeName}`, sub: `${m.fromWeekday} ${dateUz(m.fromDate)} ishlaydi → ${m.toWeekday} ${dateUz(m.toDate)} dam`, extra: m.reason })),
-        ...advances
-          .filter((x) => (x.status === "PENDING" ? (twoStep ? advHr : advFin) : x.status === "HR_APPROVED" && advFin))
-          .map((x) => ({ kind: "advance" as const, id: x.id, title: `Avans: ${x.employeeName}`, sub: `${som(x.amount)}${x.status === "HR_APPROVED" ? " · HR tasdiqladi" : ""}${x.payout?.cardMask ? ` · ${x.payout.cardMask}` : x.payout?.method === "CASH" ? " · naqd" : ""}`, extra: x.reason })),
-        ...ot.rows.filter((r) => r.approved === undefined).map((r) => ({ kind: "overtime" as const, id: r.id, title: `Qo‘shimcha ish: ${r.name}`, sub: `${dateUz(r.date)} · +${r.overtimeMinutes} daq (${r.checkOut || "…"} / grafik ${r.scheduledEnd})`, extra: r.note })),
-      ];
+      const list: Pending[] = inbox.map((i) => ({
+        kind: i.kind === "correction" ? ("mark" as const) : i.kind,
+        id: i.id,
+        title: i.kind === "correction" ? i.title : `${i.label}: ${i.title}`,
+        sub: i.stage ? `${i.sub} · ${i.stage}` : i.sub,
+        extra: i.detail,
+        urgent: i.urgent,
+        date: i.meta?.date,
+        employeeId: i.employeeId,
+        markKind: i.meta?.markKind,
+        time: i.meta?.time,
+        branch: i.meta?.branch,
+        photo: i.photoDataUrl,
+        spec: i.decide,
+      }));
       setDay(d);
       setPending(list);
       setNotices(n);
@@ -158,13 +147,7 @@ export default function Manager() {
     }
     setBusy(item.id);
     try {
-      if (item.kind === "leave") await mcall(`/leave/${item.id}`, { status: approve ? "APPROVED" : "REJECTED" }, "PATCH");
-      else if (item.kind === "swap") await mcall(`/shift-swaps/${item.id}/decide`, { approve });
-      else if (item.kind === "dayoff") await mcall(`/dayoff-moves/${item.id}/decide`, { approve });
-      else if (item.kind === "mark") await mcall(`/attendance-corrections/${item.id}/decide`, { approve });
-      else if (item.kind === "fine") await mcall(`/fines/${item.id}/decide`, { approve });
-      else if (item.kind === "advance") await mcall(`/payroll/advances/${item.id}/decide`, { approve });
-      else await mcall(`/attendance/${item.id}/overtime`, { approved: approve });
+      await mcall(!approve && item.spec.rejectPath ? item.spec.rejectPath : item.spec.path, approve ? item.spec.approve : item.spec.reject, item.spec.method);
       haptic.success();
       setPending((list) => list.filter((p) => p.id !== item.id));
     } catch (e) {
@@ -252,6 +235,7 @@ export default function Manager() {
         onChange={setView}
         options={[
           // Faqat rolga tegishli bo‘limlar (moliya va IT uchun bo‘sh «Bugun/Xarita» ko‘rinmaydi).
+          ["desk", "Ish stoli"],
           ...(canAttendanceView ? ([["today", "Bugun"]] as [MView, string][]) : []),
           ...(canRequests ? ([["requests", "So‘rovlar", pending.length]] as [MView, string, number][]) : []),
           ...(canAttendanceView ? ([["map", "Xarita"]] as [MView, string][]) : []),
@@ -473,6 +457,7 @@ export default function Manager() {
         )
       ) : null}
 
+      {view === "desk" && auth ? <DeskView role={auth.user.role} reloadKey={moneyKey + pending.length} onOpen={(v) => setView(v as MView)} /> : null}
       {view === "devices" && canDevices ? <DevicesView /> : null}
       {view === "money" && canMoney ? <MoneyView canAdvances={canMoneyAdvances} canFines={canMoneyAdvances} reloadKey={moneyKey} /> : null}
       <FineSheet
