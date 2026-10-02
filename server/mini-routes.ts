@@ -42,6 +42,7 @@ import { signFaceProof, verifyFaceProof } from "./face-proof";
 import { createMiniExtraRouter, miniFeatures } from "./mini-extra";
 import { createMiniHelpdeskRouter } from "./helpdesk";
 import { createMiniDayOffRouter } from "./dayoff";
+import { createMiniCorrectionRouter } from "./corrections";
 import { deviceFlags, isDeepLinkParam } from "../lib/mini";
 import { documentInputSchema, saveDocument } from "./documents";
 import {
@@ -323,6 +324,7 @@ export function createMiniRouter() {
   router.use(createMiniExtraRouter());
   router.use(createMiniHelpdeskRouter());
   router.use(createMiniDayOffRouter());
+  router.use(createMiniCorrectionRouter());
   router.use(createMiniMobileRouter());
   router.get(
     "/mini/home",

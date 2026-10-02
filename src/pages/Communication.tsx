@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Bell, CheckCheck, Clock3, Megaphone, Plane, Plus, ScrollText, Send } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Bell, CheckCheck, ClockAlert, Clock3, Megaphone, Plane, Plus, ScrollText, Send } from "lucide-react";
 import { api, errorText, notifyChange, patch, post } from "../api";
 import { useApi } from "../hooks";
 import {
@@ -321,6 +322,7 @@ const notifMeta: Record<string, { icon: typeof Bell; tone: string; label: string
   ATTENDANCE: { icon: Clock3, tone: "amber", label: "Davomat" },
   LEAVE: { icon: Plane, tone: "blue", label: "Ta’til" },
   ANNOUNCEMENT: { icon: Megaphone, tone: "green", label: "E’lon" },
+  ATTENDANCE_REQUEST: { icon: ClockAlert, tone: "blue", label: "Davomat so‘rovi" },
 };
 function dayLabel(iso: string) {
   const day = tashkentIsoDate(new Date(iso));
@@ -333,8 +335,9 @@ export function NotificationsPage() {
   const { data, loading, error, setData } = useApi<Notification[]>("/notifications");
   const [filter, setFilter] = useState<NotifFilter>("ALL");
   const toast = useToast();
+  const navigate = useNavigate();
   const rows = (data || []).filter((n) =>
-    filter === "ALL" ? true : filter === "UNREAD" ? !n.read : n.type === filter,
+    filter === "ALL" ? true : filter === "UNREAD" ? !n.read : filter === "ATTENDANCE" ? n.type.startsWith("ATTENDANCE") : n.type === filter,
   );
   const unread = data?.filter((n) => !n.read).length || 0;
   const groups = rows.reduce<[string, Notification[]][]>((acc, n) => {
@@ -417,8 +420,13 @@ export function NotificationsPage() {
                     <button
                       key={n.id}
                       className={`notif-item ${n.read ? "" : "unread"}`}
-                      onClick={() => !n.read && void markRead(n.id)}
-                      title={n.read ? undefined : "O‘qilgan deb belgilash"}
+                      onClick={() => {
+                        if (!n.read) void markRead(n.id);
+                        // So‘rov bildirishnomasi — so‘rovning o‘ziga (tasdiqlash / rad etish).
+                        if (n.go?.startsWith("/")) navigate(n.go);
+                      }}
+                      style={n.go?.startsWith("/") ? { cursor: "pointer" } : undefined}
+                      title={n.go?.startsWith("/") ? "Ochish" : n.read ? undefined : "O‘qilgan deb belgilash"}
                     >
                       <span className={`feed-icon ${meta.tone}`}>
                         <meta.icon size={15} />

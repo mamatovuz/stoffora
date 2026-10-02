@@ -143,13 +143,15 @@ function Shell() {
         <Stack.Screen name="face-enroll" options={{ presentation: "fullScreenModal", contentStyle: { backgroundColor: "#000" } }} />
         <Stack.Screen name="notifications" options={{ headerShown: true, title: "Bildirishnomalar", headerLargeTitle: ios }} />
         <Stack.Screen name="salary" options={{ headerShown: true, title: "Mening oyligim" }} />
-        <Stack.Screen name="security" options={{ headerShown: true, title: "Maxfiylik va xavfsizlik" }} />
+        <Stack.Screen name="security" options={{ headerShown: true, title: "Sozlamalar" }} />
         <Stack.Screen name="directory" options={{ headerShown: true, title: "Hamkasblar" }} />
         <Stack.Screen name="payslips" options={{ headerShown: true, title: "Hisob varaqalar" }} />
         <Stack.Screen name="documents" options={{ headerShown: true, title: "Hujjatlarim" }} />
         <Stack.Screen name="helpdesk" options={{ headerShown: true, title: "HR bilan aloqa" }} />
         <Stack.Screen name="pin" options={{ presentation: "modal", gestureEnabled: false }} />
         <Stack.Screen name="birthdays" options={{ headerShown: true, title: "Tug‘ilgan kunlar" }} />
+        <Stack.Screen name="mark-request" options={{ headerShown: true, title: "Belgilash so‘rovi" }} />
+        <Stack.Screen name="employee/[id]" options={{ headerShown: true, title: "Xodimning profili" }} />
       </Stack>
       <Gate />
       <AppLock />

@@ -86,6 +86,7 @@ import { createManagerAuthRouter } from "./manager";
 import { createManagerExtraRouter, createMiniPublicRouter } from "./mini-extra";
 import { createHelpdeskRouter } from "./helpdesk";
 import { createDayOffRouter } from "./dayoff";
+import { createCorrectionRouter } from "./corrections";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
 import { createTileRouter } from "./tiles";
@@ -613,6 +614,7 @@ app.use("/api", createAdvanceRouter());
 app.use("/api", createManagerExtraRouter());
 app.use("/api", createHelpdeskRouter());
 app.use("/api", createDayOffRouter());
+app.use("/api", createCorrectionRouter());
 app.use("/api", createMobileAdminRouter());
 
 app.get("/api/telegram/status", (_req, res) => {

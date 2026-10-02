@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { ApiError } from "../api";
 import { can } from "@/lib/permissions";
-import { dateUz, tashkentIsoDate } from "@/lib/format";
+import { dateLongUz, dateUz, tashkentIsoDate } from "@/lib/format";
 import type { Attendance, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../types";
 import { SkeletonList } from "./mini/shared";
@@ -99,7 +99,8 @@ type Analytics = {
   daily: { date: string; rate: number; late: number; absent: number }[];
   branches: { id: string; name: string; employees: number; attendanceRate: number; punctuality: number; lateMinutes: number; absent: number; score: number | null }[];
 };
-type Pending = { kind: "leave" | "swap" | "advance" | "overtime" | "dayoff"; id: string };
+type Pending = { kind: "leave" | "swap" | "advance" | "overtime" | "dayoff" | "mark"; id: string };
+type MarkRow = { id: string; employeeName: string; position?: string; date: string; time: string; kind: "IN" | "OUT"; branchName: string; comment: string };
 type DayOffRow = { id: string; employeeName: string; fromDate: string; toDate: string; fromWeekday: string; toWeekday: string; reason?: string };
 
 const som = (value: number) => `${Math.round(value).toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m`;
@@ -113,6 +114,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const [leaves, setLeaves] = useState<LeaveRow[]>([]);
   const [swaps, setSwaps] = useState<SwapRow[]>([]);
   const [dayoffs, setDayoffs] = useState<DayOffRow[]>([]);
+  const [marks, setMarks] = useState<MarkRow[]>([]);
   const [advances, setAdvances] = useState<AdvanceRow[]>([]);
   const [overtime, setOvertime] = useState<OvertimeRow[]>([]);
   const [notices, setNotices] = useState<LateNotice[]>([]);
@@ -192,6 +194,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
       setLeaves(l.filter((x) => x.status === "PENDING"));
       setSwaps(s.filter((x) => x.status === "PENDING_MANAGER"));
       if (canSwaps) void call<DayOffRow[]>("/dayoff-moves?status=PENDING").then(setDayoffs).catch(() => setDayoffs([]));
+      if (canSwaps) void call<MarkRow[]>("/attendance-corrections?status=PENDING").then(setMarks).catch(() => setMarks([]));
       setAdvances(a);
       setOvertime(o.rows.filter((r) => r.approved === undefined));
       setNotices(n);
@@ -228,6 +231,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
     if (item.kind === "leave") return call(`/leave/${item.id}`, { status: approve ? "APPROVED" : "REJECTED" }, "PATCH");
     if (item.kind === "swap") return call(`/shift-swaps/${item.id}/decide`, { approve });
     if (item.kind === "dayoff") return call(`/dayoff-moves/${item.id}/decide`, { approve });
+    if (item.kind === "mark") return call(`/attendance-corrections/${item.id}/decide`, { approve });
     if (item.kind === "advance") return call(`/payroll/advances/${item.id}/decide`, { approve });
     return call(`/attendance/${item.id}/overtime`, { approved: approve });
   };
@@ -292,7 +296,8 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               : r.state === filter,
     )
     .sort((a, b) => order(a) - order(b) || `${a.employee.firstName}`.localeCompare(`${b.employee.firstName}`));
-  const pendingCount = leaves.length + swaps.length + dayoffs.length + advances.length + overtime.length;
+  const pendingCount = marks.length + leaves.length + swaps.length + dayoffs.length + advances.length + overtime.length;
+  const markDays = [...new Set(marks.map((m) => m.date))].sort((a, b) => b.localeCompare(a));
   const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
 
   // Pastki Telegram tugmalari: ommaviy tasdiqlash rejimida.
@@ -481,6 +486,38 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               Hamma so‘rovlar ko‘rib chiqilgan
             </div>
           )}
+          {marks.length > 0 && <div className="mp-group-title">Belgilash so‘rovlari (unutilgan kirish/chiqish)</div>}
+          {markDays.map((date) => (
+            <div key={date} className="mg-day">
+              <div className="mg-day-title">{dateLongUz(date, true)}</div>
+              {marks
+                .filter((m) => m.date === date)
+                .map((m) => {
+                  const item = { kind: "mark" as const, id: m.id };
+                  return (
+                    <article className={`mg-req ${isSelected(item) ? "picked" : ""}`} key={m.id}>
+                      <div className="mg-req-head">
+                        {pick(item) || <span className={`mini-ico ${m.kind === "IN" ? "ok" : "bad"}`}>{m.kind === "IN" ? <LogIn size={17} /> : <LogOut size={17} />}</span>}
+                        <span>
+                          <b>{m.employeeName}</b>
+                          <small>
+                            {m.kind === "IN" ? "Kirish" : "Chiqish"} · {m.time} · {m.branchName}
+                          </small>
+                        </span>
+                      </div>
+                      <p>«{m.comment}»</p>
+                      {!selecting && (
+                        <Actions
+                          busy={busy === m.id}
+                          onApprove={() => act(m.id, () => decide(item, true), `${m.kind === "IN" ? "Kirish" : "Chiqish"} ${m.time} davomatga yozildi`)}
+                          onReject={() => void reject(item, `${m.employeeName} — ${m.kind === "IN" ? "kirish" : "chiqish"} ${m.time}`)}
+                        />
+                      )}
+                    </article>
+                  );
+                })}
+            </div>
+          ))}
           {leaves.length > 0 && <div className="mp-group-title">Ta’til so‘rovlari</div>}
           {leaves.map((l) => {
             const item = { kind: "leave" as const, id: l.id };

@@ -1,11 +1,11 @@
-import { useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { mediaUri } from "@/lib/config";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { MiniMap } from "@/components/MiniMap";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
-import { dateUz, som, tashkentIsoDate, timeAgo } from "@/lib/format";
+import { dateUz, dayTitle, som, tashkentIsoDate, timeAgo } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
 
@@ -21,7 +21,8 @@ type RosterRow = {
 };
 type Day = { date: string; rows: RosterRow[] };
 type Branch = { id: string; name: string; latitude: number; longitude: number; radiusMeters: number };
-type Pending = { kind: "leave" | "swap" | "dayoff" | "advance" | "overtime"; id: string; title: string; sub: string; extra?: string };
+type Pending = { kind: "leave" | "swap" | "dayoff" | "advance" | "overtime" | "mark"; id: string; title: string; sub: string; extra?: string; date?: string; employeeId?: string; markKind?: "IN" | "OUT"; time?: string; branch?: string; photo?: string };
+type MarkRow = { id: string; employeeId: string; employeeName: string; photoDataUrl?: string; date: string; time: string; kind: "IN" | "OUT"; branchName: string; comment: string };
 type LateNotice = { id: string; employeeName: string; minutes: number; reason: string; createdAt: string };
 type Analytics = {
   current: { attendanceRate: number; punctuality: number; lateMinutes: number; absent: number; score: number | null };
@@ -38,7 +39,11 @@ const name = (e: { firstName: string; lastName: string }) => `${e.firstName} ${e
 export default function Manager() {
   const { c } = useTheme();
   const [auth, setAuth] = useState<ManagerAuth | null>(null);
-  const [view, setView] = useState<MView>("today");
+  const params = useLocalSearchParams<{ view?: MView; t?: string }>();
+  const [view, setView] = useState<MView>(params.view || "today");
+  useEffect(() => {
+    if (params.view) setView(params.view);
+  }, [params.view, params.t]);
   const [day, setDay] = useState<Day | null>(null);
   const [pending, setPending] = useState<Pending[]>([]);
   const [notices, setNotices] = useState<LateNotice[]>([]);
@@ -67,7 +72,7 @@ export default function Manager() {
       const canOt = can(role, "attendance.edit") || advFin;
       const month = tashkentIsoDate().slice(0, 7);
       const safe = <T,>(p: Promise<T>, fallback: T) => p.catch((e) => (e instanceof ApiError && e.status === 403 ? fallback : Promise.reject(e)));
-      const [d, leaves, swaps, dayoffs, advances, company, ot, n, b] = await Promise.all([
+      const [d, leaves, swaps, dayoffs, advances, company, ot, n, b, marks] = await Promise.all([
         canAtt ? safe(mcall<Day>(`/attendance/day?date=${tashkentIsoDate()}`), null) : null,
         canLeave ? safe(mcall<{ id: string; type: string; startDate: string; endDate: string; reason?: string; status: string; employee?: Emp }[]>("/leave"), []) : [],
         canSwaps ? safe(mcall<{ id: string; requesterName: string; colleagueName: string; giveDate: string; takeDate?: string; reason?: string; status: string }[]>("/shift-swaps"), []) : [],
@@ -77,9 +82,23 @@ export default function Manager() {
         canOt ? mcall<{ rows: { id: string; date: string; name: string; checkIn?: string; checkOut?: string; scheduledEnd: string; overtimeMinutes: number; approved?: boolean; note?: string }[] }>(`/overtime?month=${month}`).catch(() => ({ rows: [] })) : { rows: [] },
         canAtt ? mcall<LateNotice[]>("/late-notices").catch(() => []) : [],
         canAtt ? mcall<Branch[]>("/branches").catch(() => []) : [],
+        canSwaps ? safe(mcall<MarkRow[]>("/attendance-corrections?status=PENDING"), []) : [],
       ]);
       const twoStep = company.payroll?.advanceHrApproval !== false;
       const list: Pending[] = [
+        ...marks.map((m) => ({
+          kind: "mark" as const,
+          id: m.id,
+          title: m.employeeName,
+          sub: `${m.kind === "IN" ? "Kirish" : "Chiqish"} ${m.time}`,
+          extra: m.comment,
+          date: m.date,
+          employeeId: m.employeeId,
+          markKind: m.kind,
+          time: m.time,
+          branch: m.branchName,
+          photo: m.photoDataUrl,
+        })),
         ...leaves.filter((l) => l.status === "PENDING").map((l) => ({ kind: "leave" as const, id: l.id, title: `${l.employee ? name(l.employee) : "Xodim"} · ${LEAVE[l.type] || l.type}`, sub: `${dateUz(l.startDate)} – ${dateUz(l.endDate)}`, extra: l.reason })),
         ...swaps.filter((s) => s.status === "PENDING_MANAGER").map((s) => ({ kind: "swap" as const, id: s.id, title: `Smena: ${s.requesterName} → ${s.colleagueName}`, sub: `${dateUz(s.giveDate)}${s.takeDate ? ` ↔ ${dateUz(s.takeDate)}` : ""}`, extra: s.reason })),
         ...dayoffs.map((m) => ({ kind: "dayoff" as const, id: m.id, title: `Dam kuni: ${m.employeeName}`, sub: `${m.fromWeekday} ${dateUz(m.fromDate)} ishlaydi → ${m.toWeekday} ${dateUz(m.toDate)} dam`, extra: m.reason })),
@@ -127,6 +146,7 @@ export default function Manager() {
       if (item.kind === "leave") await mcall(`/leave/${item.id}`, { status: approve ? "APPROVED" : "REJECTED" }, "PATCH");
       else if (item.kind === "swap") await mcall(`/shift-swaps/${item.id}/decide`, { approve });
       else if (item.kind === "dayoff") await mcall(`/dayoff-moves/${item.id}/decide`, { approve });
+      else if (item.kind === "mark") await mcall(`/attendance-corrections/${item.id}/decide`, { approve });
       else if (item.kind === "advance") await mcall(`/payroll/advances/${item.id}/decide`, { approve });
       else await mcall(`/attendance/${item.id}/overtime`, { approved: approve });
       haptic.success();
@@ -157,6 +177,9 @@ export default function Manager() {
       (!query.trim() || name(r.employee).toLowerCase().includes(query.trim().toLowerCase())),
   );
   const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
+  const marks = pending.filter((p) => p.kind === "mark");
+  const others = pending.filter((p) => p.kind !== "mark");
+  const markDays = [...new Set(marks.map((p) => p.date!))].sort((a, b) => b.localeCompare(a));
 
   if (!auth && loading)
     return (
@@ -275,19 +298,33 @@ export default function Manager() {
 
       {view === "requests" ? (
         !pending.length ? (
-          <Empty icon="checkmark-done-outline" title="Kutilayotgan so‘rov yo‘q" text="Ta’til, smena, dam kuni, avans va qo‘shimcha ish so‘rovlari shu yerda paydo bo‘ladi." />
+          <Empty icon="checkmark-done-outline" title="Kutilayotgan so‘rov yo‘q" text="Belgilash, ta’til, smena, dam kuni, avans va qo‘shimcha ish so‘rovlari shu yerda paydo bo‘ladi." />
         ) : (
-          pending.map((p) => (
-            <Card key={`${p.kind}-${p.id}`} style={{ gap: 8 }}>
-              <Text style={{ color: c.ink, fontWeight: "700", fontSize: 15.5 }}>{p.title}</Text>
-              <Text style={{ color: c.muted, fontSize: 13.5 }}>{p.sub}</Text>
-              {p.extra ? <Text style={{ color: c.ink, fontSize: 13.5 }}>«{p.extra}»</Text> : null}
-              <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
-                <Button title="Tasdiqlash" icon="checkmark" busy={busy === p.id} onPress={() => void decide(p, true)} style={{ flex: 1, height: 44 }} />
-                <Button title="Rad" tone="danger" disabled={busy === p.id} onPress={() => void decide(p, false)} style={{ flex: 0, minWidth: 90, height: 44 }} />
+          <>
+            {marks.length ? <GroupTitle>Belgilash so‘rovlari</GroupTitle> : null}
+            {markDays.map((date) => (
+              <View key={date} style={{ gap: 8 }}>
+                <Text style={{ color: c.muted, fontSize: 13, fontWeight: "600", marginLeft: 4 }}>{dayTitle(date)}</Text>
+                {marks
+                  .filter((p) => p.date === date)
+                  .map((p) => (
+                    <MarkCard key={p.id} item={p} busy={busy === p.id} onDecide={(ok) => void decide(p, ok)} />
+                  ))}
               </View>
-            </Card>
-          ))
+            ))}
+            {others.length && marks.length ? <GroupTitle>Boshqa so‘rovlar</GroupTitle> : null}
+            {others.map((p) => (
+              <Card key={`${p.kind}-${p.id}`} style={{ gap: 8 }}>
+                <Text style={{ color: c.ink, fontWeight: "700", fontSize: 15.5 }}>{p.title}</Text>
+                <Text style={{ color: c.muted, fontSize: 13.5 }}>{p.sub}</Text>
+                {p.extra ? <Text style={{ color: c.ink, fontSize: 13.5 }}>«{p.extra}»</Text> : null}
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
+                  <Button title="Tasdiqlash" icon="checkmark" busy={busy === p.id} onPress={() => void decide(p, true)} style={{ flex: 1, height: 44 }} />
+                  <Button title="Rad" tone="danger" disabled={busy === p.id} onPress={() => void decide(p, false)} style={{ flex: 0, minWidth: 90, height: 44 }} />
+                </View>
+              </Card>
+            ))}
+          </>
         )
       ) : null}
 
@@ -410,7 +447,10 @@ function RosterLine({ row, last }: { row: RosterRow; last: boolean }) {
   };
   const [label, tone] = state[r.state];
   return (
-    <View style={[st.row, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
+    <Pressable
+      onPress={() => router.push({ pathname: "/employee/[id]", params: { id: r.employee.id } })}
+      style={({ pressed }) => [st.row, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }, pressed && { opacity: 0.6 }]}
+    >
       {r.employee.photoDataUrl ? (
         <Image source={{ uri: mediaUri(r.employee.photoDataUrl) }} style={st.avatar} />
       ) : (
@@ -429,7 +469,47 @@ function RosterLine({ row, last }: { row: RosterRow; last: boolean }) {
         {r.branch ? <Text style={{ color: c.muted, fontSize: 12 }}>{r.branch}</Text> : null}
       </View>
       <Badge text={label} tone={tone} />
-    </View>
+      <Icon name="chevron-forward" size={16} color={c.muted} />
+    </Pressable>
+  );
+}
+
+/** Belgilash so‘rovi kartasi: xodim, Kirish/Chiqish, vaqt, filial, izoh — Rad etish / Qabul qilish. */
+function MarkCard({ item, busy, onDecide }: { item: Pending; busy: boolean; onDecide: (approve: boolean) => void }) {
+  const { c } = useTheme();
+  const tone = item.markKind === "IN" ? c.success : c.danger;
+  return (
+    <Card style={{ gap: 10 }}>
+      <Pressable onPress={() => item.employeeId && router.push({ pathname: "/employee/[id]", params: { id: item.employeeId } })} style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        {item.photo ? (
+          <Image source={{ uri: mediaUri(item.photo) }} style={st.avatar} />
+        ) : (
+          <View style={[st.avatar, { backgroundColor: `${c.accent}1A`, alignItems: "center", justifyContent: "center" }]}>
+            <Icon name="person" size={18} color={c.accent} />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: c.ink, fontWeight: "700", fontSize: 15.5 }} numberOfLines={2}>
+            {item.title}
+          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Icon name="business-outline" size={13} color={c.muted} />
+            <Text style={{ color: c.muted, fontSize: 13 }} numberOfLines={1}>
+              {item.branch}
+            </Text>
+          </View>
+        </View>
+        <View style={{ alignItems: "flex-end" }}>
+          <Text style={{ color: tone, fontSize: 12, fontWeight: "700" }}>{item.markKind === "IN" ? "KIRISH" : "CHIQISH"}</Text>
+          <Text style={{ color: c.ink, fontSize: 20, fontWeight: "700", fontVariant: ["tabular-nums"] }}>{item.time}</Text>
+        </View>
+      </Pressable>
+      {item.extra ? <Text style={{ color: c.ink, fontSize: 14, lineHeight: 20 }}>«{item.extra}»</Text> : null}
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Button title="Rad etish" icon="close" tone="danger" disabled={busy} onPress={() => onDecide(false)} style={{ flex: 1, height: 44 }} />
+        <Button title="Qabul qilish" icon="checkmark" busy={busy} onPress={() => onDecide(true)} style={{ flex: 1, height: 44 }} />
+      </View>
+    </Card>
   );
 }
 

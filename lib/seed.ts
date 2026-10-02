@@ -41,6 +41,7 @@ export function emptyDatabase(): Database {
     certificateRequests: [],
     payoutCards: [],
     dayOffMoves: [],
+    attendanceCorrections: [],
     mobileDevices: [],
     mobileSessions: [],
     mobileActivationCodes: [],

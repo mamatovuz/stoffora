@@ -38,6 +38,7 @@ import {
   Lock,
   ClipboardCheck,
   TrendingUp,
+  ClockAlert,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -60,6 +61,7 @@ const sections: { label: string; items: NavItem[] }[] = [
       ["/employees", "Xodimlar", Users],
       ["/calendar", "Kalendar", CalendarDays],
       ["/leave", "Ta’til va yo‘qlik", Plane, "leave"],
+      ["/attendance-requests", "Davomat so‘rovlari", ClockAlert, "corrections"],
       ["/registrations", "Arizalar", ClipboardCheck, "registrations"],
       ["/dismissed", "Ishdan bo‘shaganlar", UserMinus],
     ],
@@ -154,6 +156,19 @@ export function Shell() {
     };
   }, [reloadNotifications, reloadLeave]);
 
+  const { data: corrections, reload: reloadCorrections } = useApi<{ status: string }[]>(
+    user && canOpenPage(user.role, "/attendance-requests") ? "/attendance-corrections?status=PENDING" : null,
+  );
+  usePolling(() => void reloadCorrections(true), 30_000);
+  useEffect(() => {
+    const on = () => void reloadCorrections(true);
+    window.addEventListener("staffora:leave", on);
+    window.addEventListener("staffora:notifications", on);
+    return () => {
+      window.removeEventListener("staffora:leave", on);
+      window.removeEventListener("staffora:notifications", on);
+    };
+  }, [reloadCorrections]);
   const { data: registrations, reload: reloadRegistrations } = useApi<{ counts: { PENDING: number } }>(
     user && canOpenPage(user.role, "/registrations") ? "/registrations?status=PENDING" : null,
   );
@@ -162,6 +177,7 @@ export function Shell() {
     registrations: registrations?.counts.PENDING || 0,
     notifications: notifications?.filter((item) => !item.read).length || 0,
     leave: leave?.filter((item) => item.status === "PENDING").length || 0,
+    corrections: corrections?.length || 0,
   };
   const pageTitle = useMemo(() => {
     const exact = pageNames[location.pathname];

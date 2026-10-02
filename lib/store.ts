@@ -89,6 +89,7 @@ function normalizeDatabase(database: Database): Database {
   database.certificateRequests ||= [];
   database.payoutCards ||= [];
   database.dayOffMoves ||= [];
+  database.attendanceCorrections ||= [];
   database.mobileDevices ||= [];
   database.mobileSessions ||= [];
   database.mobileActivationCodes ||= [];
@@ -299,6 +300,7 @@ function trimCollections(db: Database) {
   if (db.mobileActivationCodes.length > 200)
     db.mobileActivationCodes = db.mobileActivationCodes.filter((c) => c.expiresAt > cutoff);
   if (db.lateNotices.length > 5000) db.lateNotices = db.lateNotices.slice(0, 5000);
+  if (db.attendanceCorrections.length > 20000) db.attendanceCorrections = db.attendanceCorrections.slice(0, 20000);
   if (db.sentGreetings.length > 5000) db.sentGreetings = db.sentGreetings.slice(-3000);
   // Tugallanmagan anketalar 14 kundan keyin o‘chadi; ko‘rib chiqilganlar tarixda qoladi.
   if (db.registrations.length > 200) {

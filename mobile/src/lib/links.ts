@@ -38,6 +38,9 @@ export function routeForGo(go?: string | null): Href | null {
       return { pathname: "/(tabs)/requests", params: { view: "dayoff" } };
     case "overtime":
       return { pathname: "/(tabs)/requests", params: { view: "overtime" } };
+    case "marks":
+    case "correction":
+      return { pathname: "/(tabs)/requests", params: { view: "marks" } };
     case "docs":
       return "/documents";
     case "payslip":
@@ -57,7 +60,7 @@ export function routeForGo(go?: string | null): Href | null {
     case "settings":
       return "/(tabs)/profile";
     case "manager":
-      return "/(tabs)/manager";
+      return value === "manager_requests" ? { pathname: "/(tabs)/manager", params: { view: "requests", t: String(Date.now()) } } : "/(tabs)/manager";
     default:
       return null;
   }

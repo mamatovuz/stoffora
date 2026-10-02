@@ -8906,3 +8906,44 @@ html[data-tg-scheme="dark"] .rc-card, html[data-mini-theme="dark"] .rc-card { bo
     white-space: normal;
   }
 }
+
+/* ------------------------------------------------ davomat so‘rovlari --- */
+.corr-list { padding-bottom: 8px; }
+.corr-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--line-2);
+  transition: background 0.3s var(--ease);
+}
+.corr-row.focus { background: var(--brand-50); box-shadow: inset 3px 0 0 var(--brand); }
+.corr-main { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.corr-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.corr-head b { font-size: 14.5px; }
+.corr-head small { color: var(--muted); }
+.corr-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.corr-kind {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 99px; font-size: 12.5px; font-weight: 600;
+}
+.corr-kind.in { background: var(--green-bg); color: var(--green); }
+.corr-kind.out { background: var(--red-bg); color: var(--red); }
+.corr-time { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.corr-branch { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); font-size: 13px; }
+.corr-comment { display: flex; gap: 6px; margin: 0; color: var(--ink-2); font-size: 13.5px; line-height: 1.45; }
+.corr-comment svg { flex: none; margin-top: 2px; color: var(--faint); }
+.corr-decided { color: var(--muted); }
+.corr-side { display: flex; flex-direction: column; gap: 6px; align-items: stretch; flex: none; }
+.corr-side .btn { justify-content: center; min-width: 128px; }
+@media (max-width: 640px) {
+  .corr-row { flex-wrap: wrap; padding: 14px 16px; }
+  .corr-side { flex-direction: row; width: 100%; }
+  .corr-side .btn { flex: 1; min-width: 0; }
+}
+.mini-seg.five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.mini-seg.five button { padding-left: 1px; padding-right: 1px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-ico.ok { color: var(--m-success, #16a34a); }
+.mini-ico.bad { color: var(--m-danger, #dc2626); }
+.mg-day { display: grid; gap: 8px; }
+.mg-day-title { margin: 4px 2px 0; font-size: 12.5px; font-weight: 600; color: var(--m-muted, #8a8f98); }

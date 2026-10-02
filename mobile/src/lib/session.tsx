@@ -1,3 +1,4 @@
+import { Appearance } from "react-native";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ApiError, accessToken, activate as activateApi, loadSession, logout as logoutApi, onSignedOut, replacementStatus, type Employee } from "./api";
 import { removePin } from "./pin";
@@ -12,7 +13,13 @@ export type Prefs = {
   pinLock?: boolean;
   /** Yangi telefon so‘rovi (HR tasdig‘ini kutish). */
   pendingRequestId?: string;
+  /** Mavzu: tizimdagi kabi (standart), yorug‘ yoki qorong‘i. */
+  theme?: "system" | "light" | "dark";
 };
+/** Ilova mavzusini qo‘llaydi (tizimdagi kabi — «unspecified»). */
+export function applyTheme(theme?: Prefs["theme"]) {
+  Appearance.setColorScheme(theme === "light" || theme === "dark" ? theme : "unspecified");
+}
 type State = "loading" | "signedOut" | "pending" | "signedIn";
 type Ctx = {
   state: State;
@@ -42,6 +49,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       if (!alive) return;
       prefsRef.current = savedPrefs || {};
       setPrefsState(prefsRef.current);
+      applyTheme(prefsRef.current.theme);
       if (stored) {
         setEmployee(stored.employee);
         try {
@@ -70,6 +78,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setPrefs = useCallback(async (patch: Partial<Prefs>) => {
+    if ("theme" in patch) applyTheme(patch.theme);
     prefsRef.current = { ...prefsRef.current, ...patch };
     setPrefsState(prefsRef.current);
     await secureSet(KEYS.prefs, prefsRef.current);

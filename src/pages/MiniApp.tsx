@@ -669,7 +669,7 @@ export function MiniAppPage() {
             />
           )}
           {nav.tab === "history" && <MiniHistory key={nav.key} home={home} initialView={nav.view as "calendar" | "schedule" | "stats" | undefined} />}
-          {nav.tab === "leave" && <MiniRequests key={nav.key} onToast={showToast} initialView={nav.view as "leave" | "swap" | "dayoff" | "overtime" | undefined} focusId={nav.id} />}
+          {nav.tab === "leave" && <MiniRequests key={nav.key} onToast={showToast} initialView={nav.view as "leave" | "marks" | "swap" | "dayoff" | "overtime" | undefined} focusId={nav.id} />}
           {nav.tab === "manager" && manager && (
             <ManagerHome key={nav.key} auth={manager} onToast={showToast} onExpired={() => void checkManager()} initialView={nav.view as ManagerView | undefined} />
           )}

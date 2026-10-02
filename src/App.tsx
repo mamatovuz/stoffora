@@ -54,6 +54,9 @@ const NotificationsPage = lazy(() =>
     default: m.NotificationsPage,
   })),
 );
+const AttendanceRequestsPage = lazy(() =>
+  import("./pages/AttendanceRequests").then((m) => ({ default: m.AttendanceRequestsPage })),
+);
 const AuditPage = lazy(() =>
   import("./pages/Communication").then((m) => ({ default: m.AuditPage })),
 );
@@ -137,6 +140,7 @@ export default function App() {
           <Route path="/branches" element={<BranchesPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
           <Route path="/leave" element={<LeavePage />} />
+          <Route path="/attendance-requests" element={<AttendanceRequestsPage />} />
           <Route path="/helpdesk" element={<HelpdeskPage />} />
           <Route path="/payroll" element={<PayrollPage />} />
           <Route path="/reports" element={<ReportsPage />} />

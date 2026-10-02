@@ -1,6 +1,6 @@
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { DateStrip, addDays } from "@/components/DateStrip";
@@ -10,7 +10,7 @@ import { WEEKDAYS, WEEKDAYS_SHORT, dateUz, tashkentIsoDate } from "@/lib/format"
 import { useTheme } from "@/lib/theme";
 import { invalidate, useData } from "@/lib/useData";
 
-type Tab = "leave" | "swap" | "dayoff" | "overtime";
+type Tab = "leave" | "marks" | "swap" | "dayoff" | "overtime";
 const LEAVE_TYPES: [string, string][] = [
   ["VACATION", "Mehnat ta’tili"],
   ["SICK", "Kasallik"],
@@ -35,27 +35,132 @@ const confirm = (title: string, message: string, ok = "Ha") =>
     ]),
   );
 
-/** So‘rovlar — Mini App’dagi «So‘rovlar» bo‘limi: ta’til, smena almashish, dam kuni, qo‘shimcha ish. */
+/** So‘rov turlari (Verifix uslubida «So‘rov turini tanlang»). */
+const KINDS: { key: Tab; icon: IconName; title: string; sub: string }[] = [
+  { key: "leave", icon: "walk-outline", title: "Ish joyida yo‘qlik", sub: "Ta’til, kasallik, ruxsat" },
+  { key: "marks", icon: "finger-print-outline", title: "Belgilash", sub: "Unutilgan kirish yoki chiqish" },
+  { key: "dayoff", icon: "shuffle-outline", title: "Kun almashinuvi", sub: "Dam olish kunini ko‘chirish" },
+  { key: "swap", icon: "swap-horizontal-outline", title: "Smena almashish", sub: "Hamkasb bilan almashish" },
+  { key: "overtime", icon: "briefcase-outline", title: "Qo‘shimcha ish vaqti", sub: "Izoh yozib rahbarga yuborish" },
+];
+
+/** So‘rovlar — Mini App’dagi «So‘rovlar» bo‘limi: ta’til, belgilash, smena, dam kuni, qo‘shimcha ish. */
 export default function Requests() {
-  const params = useLocalSearchParams<{ view?: Tab }>();
+  const params = useLocalSearchParams<{ view?: Tab; create?: string }>();
   const [tab, setTab] = useState<Tab>(params.view || "leave");
+  const [picking, setPicking] = useState(false);
+  const [createLeave, setCreateLeave] = useState(0);
   useEffect(() => {
     if (params.view) setTab(params.view);
   }, [params.view]);
+  useEffect(() => {
+    if (params.create) setPicking(true);
+  }, [params.create]);
+  const start = (key: Tab) => {
+    setPicking(false);
+    setTab(key);
+    if (key === "marks") setTimeout(() => router.push("/mark-request"), 250);
+    if (key === "leave") setTimeout(() => setCreateLeave((n) => n + 1), 350);
+  };
   return (
-    <Screen title="So‘rovlar">
+    <Screen title="So‘rovlar" right={<NewButton onPress={() => setPicking(true)} />}>
       <Segmented<Tab>
         value={tab}
         onChange={setTab}
         options={[
           ["leave", "Ta’til"],
+          ["marks", "Belgilash"],
           ["swap", "Smena"],
           ["dayoff", "Dam kuni"],
           ["overtime", "Qo‘shimcha"],
         ]}
       />
-      {tab === "leave" ? <LeaveTab /> : tab === "swap" ? <SwapTab /> : tab === "dayoff" ? <DayOffTab /> : <OvertimeTab />}
+      {tab === "leave" ? <LeaveTab create={createLeave} /> : tab === "marks" ? <MarksTab /> : tab === "swap" ? <SwapTab /> : tab === "dayoff" ? <DayOffTab /> : <OvertimeTab />}
+      <KindSheet visible={picking} onClose={() => setPicking(false)} onPick={start} />
     </Screen>
+  );
+}
+
+function NewButton({ onPress }: { onPress: () => void }) {
+  const { c } = useTheme();
+  return (
+    <Pressable onPress={onPress} hitSlop={8} style={[st.newBtn, { backgroundColor: c.accent }]} accessibilityLabel="So‘rov yaratish">
+      <Icon name="add" size={22} color="#fff" />
+    </Pressable>
+  );
+}
+
+function KindSheet({ visible, onClose, onPick }: { visible: boolean; onClose: () => void; onPick: (key: Tab) => void }) {
+  const { c } = useTheme();
+  return (
+    <Sheet visible={visible} title="So‘rov turini tanlang" onClose={onClose}>
+      <Group>
+        {KINDS.map((k, i) => (
+          <Pressable
+            key={k.key}
+            onPress={() => {
+              haptic.select();
+              onPick(k.key);
+            }}
+            style={({ pressed }) => [st.kind, i < KINDS.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }, pressed && { opacity: 0.6 }]}
+          >
+            <View style={[st.rowIcon, { backgroundColor: `${c.accent}14` }]}>
+              <Icon name={k.icon} size={19} color={c.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: c.ink, fontSize: 16, fontWeight: "500" }}>{k.title}</Text>
+              <Text style={{ color: c.muted, fontSize: 13 }}>{k.sub}</Text>
+            </View>
+            <Icon name="chevron-forward" size={18} color={c.muted} />
+          </Pressable>
+        ))}
+      </Group>
+    </Sheet>
+  );
+}
+
+/* ------------------------------------------------------------ belgilash --- */
+type Mark = { id: string; date: string; time: string; kind: "IN" | "OUT"; branchName: string; comment: string; status: string; decidedBy?: string; decidedNote?: string };
+
+function MarksTab() {
+  const { data, error, reload } = useData<{ items: Mark[] }>("/mini/corrections");
+  const cancel = async (m: Mark) => {
+    if (!(await confirm("Bekor qilish", `${dateUz(m.date)} · ${m.kind === "IN" ? "Kirish" : "Chiqish"} ${m.time} so‘rovini bekor qilasizmi?`, "Bekor qilish"))) return;
+    try {
+      await post(`/mini/corrections/${m.id}/cancel`, {});
+      haptic.success();
+      void reload();
+    } catch (e) {
+      Alert.alert("Xatolik", errorText(e));
+    }
+  };
+  return (
+    <>
+      <Button title="Belgilash so‘rovi" icon="finger-print-outline" onPress={() => router.push("/mark-request")} />
+      <Hint icon="information-circle-outline">Kirish yoki chiqishni belgilash esdan chiqdimi? Vaqtini va sababini yozing — HR tasdiqlasa, davomatga yoziladi.</Hint>
+      {error ? <ErrorBox text={error} onRetry={reload} /> : null}
+      {!data ? (
+        <Loading />
+      ) : !data.items.length ? (
+        <Empty icon="finger-print-outline" title="Belgilash so‘rovlari yo‘q" />
+      ) : (
+        <Group>
+          {data.items.map((m, i) => (
+            <ListRow
+              key={m.id}
+              icon={m.kind === "IN" ? "log-in-outline" : "log-out-outline"}
+              title={`${m.kind === "IN" ? "Kirish" : "Chiqish"} · ${m.time}`}
+              sub={`${dateUz(m.date)} · ${m.branchName}`}
+              extra={`«${m.comment}»${m.status !== "PENDING" && m.decidedBy ? `
+${m.decidedBy}${m.decidedNote ? ` — ${m.decidedNote}` : ""}` : ""}`}
+              badge={m.status}
+              onCancel={m.status === "PENDING" ? () => void cancel(m) : undefined}
+              last={i === data.items.length - 1}
+            />
+          ))}
+        </Group>
+      )}
+    </>
   );
 }
 
@@ -85,9 +190,12 @@ function ListRow({ icon, title, sub, extra, badge, onCancel, last }: { icon: Ico
 /* --------------------------------------------------------------- ta’til --- */
 type Leave = { id: string; type: string; startDate: string; endDate: string; status: string; decidedBy?: string; documentId?: string; reason?: string };
 
-function LeaveTab() {
+function LeaveTab({ create = 0 }: { create?: number }) {
   const { data, error, reload } = useData<Leave[]>("/mini/leave");
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (create) setOpen(true);
+  }, [create]);
   const cancel = async (item: Leave) => {
     if (!(await confirm("So‘rovni bekor qilish", `${dateUz(item.startDate)} – ${dateUz(item.endDate)} so‘rovini bekor qilasizmi?`, "Bekor qilish"))) return;
     try {
@@ -539,6 +647,8 @@ function OvertimeTab() {
 }
 
 const st = StyleSheet.create({
+  newBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  kind: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   row: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   rowIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   chip: { paddingHorizontal: 13, paddingVertical: 8, borderRadius: 99, borderWidth: 1 },

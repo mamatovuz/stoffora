@@ -70,6 +70,7 @@ export const pagePermissions: Record<string, string[]> = {
   "/dismissed": ["employees.view"],
   "/registrations": ["registrations.view"],
   "/leave": ["leave.view"],
+  "/attendance-requests": ["attendance.edit", "leave.approve"],
   "/branches": ["org.view"],
   "/schedules": ["org.view"],
   "/departments": ["org.view"],

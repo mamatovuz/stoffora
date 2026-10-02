@@ -24,6 +24,8 @@ export const dateLongUz = (date = new Date()) => {
   const iso = tashkentIsoDate(date);
   return `${Number(iso.slice(8))}-${MONTHS[Number(iso.slice(5, 7)) - 1]}, ${WEEKDAYS[weekdayOf(iso)].toLowerCase()}`;
 };
+/** «2-oktyabr, juma» — ISO sanadan. */
+export const dayTitle = (iso: string) => `${Number(iso.slice(8, 10))}-${MONTHS[Number(iso.slice(5, 7)) - 1]}, ${WEEKDAYS[weekdayOf(iso)].toLowerCase()}`;
 export const dateUz = (iso: string) => `${Number(iso.slice(8, 10))}-${MONTHS_SHORT[Number(iso.slice(5, 7)) - 1]}`;
 export const monthUz = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(0, 4)}`;
 export const weekday = (iso: string) => WEEKDAYS[weekdayOf(iso)];

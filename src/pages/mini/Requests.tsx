@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, CalendarDays, Camera, CheckCircle2, Paperclip, Plane, Timer, X } from "lucide-react";
 import { DayOffPanel } from "./DayOff";
+import { MarksList } from "./Marks";
 import { api, errorText, patch, post } from "../../api";
 import { dateUz, tashkentIsoDate } from "@/lib/format";
 import type { LeaveRequest } from "@/lib/types";
@@ -12,7 +13,7 @@ import { getCached, setCached } from "../miniCache";
 import { Seg, Sheet, type Toast } from "./shared";
 import { confirmNative, haptic } from "./tg";
 
-type View = "leave" | "swap" | "dayoff" | "overtime";
+type View = "leave" | "marks" | "swap" | "dayoff" | "overtime";
 
 export function MiniRequests({ onToast, initialView, focusId }: { onToast: Toast; initialView?: View; focusId?: string }) {
   const [view, setView] = useState<View>(initialView || "leave");
@@ -20,10 +21,10 @@ export function MiniRequests({ onToast, initialView, focusId }: { onToast: Toast
     <div className="mini-body">
       <div className="mini-title">
         <h1>So‘rovlar</h1>
-        <p>Ta’til, smena, dam olish kuni va qo‘shimcha ish</p>
+        <p>Ta’til, belgilash, smena, dam olish kuni va qo‘shimcha ish</p>
       </div>
       <Seg
-        className="four"
+        className="five"
         value={view}
         onChange={(next) => {
           haptic.select();
@@ -31,12 +32,14 @@ export function MiniRequests({ onToast, initialView, focusId }: { onToast: Toast
         }}
         options={[
           ["leave", "Ta’til"],
+          ["marks", "Belgilash"],
           ["swap", "Smena"],
           ["dayoff", "Dam kuni"],
-          ["overtime", "Qo‘shimcha"],
+          ["overtime", "Qo‘sh. ish"],
         ]}
       />
       {view === "leave" && <LeaveList onToast={onToast} focusId={focusId} />}
+      {view === "marks" && <MarksList onToast={onToast} focusId={focusId} />}
       {view === "swap" && <MiniSwaps onToast={onToast} />}
       {view === "dayoff" && <DayOffPanel onToast={onToast} />}
       {view === "overtime" && <OvertimeList onToast={onToast} />}

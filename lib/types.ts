@@ -491,6 +491,7 @@ export interface Database {
   /** Xodim avans uchun saqlagan karta (roziligi bilan). Xodim obyektidan alohida — tasodifan API’da chiqib ketmasin. */
   payoutCards: PayoutCard[];
   dayOffMoves: DayOffMove[];
+  attendanceCorrections: AttendanceCorrection[];
   /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
   mobileDevices: MobileDevice[];
   mobileSessions: MobileSession[];
@@ -803,6 +804,30 @@ export interface ShiftSwapRequest {
   reason?: string;
   status: "PENDING_COLLEAGUE" | "PENDING_MANAGER" | "APPROVED" | "REJECTED" | "CANCELLED";
   decidedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Belgilash so‘rovi: xodim kirish/chiqishni belgilashni unutgan (masalan, kechqurun chiqib ketib,
+ * «Chiqish»ni bosmagan). HR/rahbar tasdiqlasa — davomat qaydiga shu vaqt yoziladi.
+ */
+export interface AttendanceCorrection {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  date: string;
+  /** HH:MM (Toshkent vaqti). */
+  time: string;
+  kind: "IN" | "OUT";
+  branchId: string;
+  comment: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+  decidedBy?: string;
+  decidedNote?: string;
+  decidedAt?: string;
+  /** Tasdiqlangach yozilgan davomat qaydi. */
+  attendanceId?: string;
   createdAt: string;
   updatedAt: string;
 }
