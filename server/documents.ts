@@ -2,8 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
-import type BetterSqlite3 from "better-sqlite3";
-import { audit, readDb, sqliteConnection, updateDb } from "../lib/store";
+import { audit, documentFiles, readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
 import type { DocumentType, EmployeeDocument } from "../lib/types";
 import type { AuthedRequest, EmployeeSession } from "./auth";
@@ -26,20 +25,8 @@ export const DOCUMENT_TYPES: Record<DocumentType, string> = {
 const MAX_BYTES = 1_400_000;
 const ALLOWED = /^data:(image\/(jpeg|png|webp)|application\/pdf);base64,/;
 
-let ready: BetterSqlite3.Database | undefined;
-async function files() {
-  if (ready) return ready;
-  const db = await sqliteConnection();
-  db.exec(`CREATE TABLE IF NOT EXISTS document_files (
-    id TEXT PRIMARY KEY,
-    company_id TEXT NOT NULL,
-    mime TEXT NOT NULL,
-    data BLOB NOT NULL,
-    created_at TEXT NOT NULL
-  )`);
-  ready = db;
-  return db;
-}
+/** Fayllar joriy bazada (SQLite yoki PostgreSQL) — document_files jadvali. */
+const files = () => documentFiles();
 
 function parseDataUrl(dataUrl: string) {
   const match = /^data:([\w/.+-]+);base64,(.+)$/s.exec(dataUrl);
@@ -70,7 +57,7 @@ export async function saveDocument(companyId: string, employeeId: string, input:
     uploadedBy,
     createdAt: new Date().toISOString(),
   };
-  (await files()).prepare("INSERT INTO document_files (id, company_id, mime, data, created_at) VALUES (?,?,?,?,?)").run(doc.id, companyId, mime, buffer, doc.createdAt);
+  await (await files()).putFile(doc.id, companyId, mime, buffer, doc.createdAt);
   await updateDb((db) => {
     db.documents.push(doc);
     db.auditLogs.unshift(audit(companyId, uploadedBy, `Hujjat yuklandi: ${doc.title}`, "employee", employeeId));
@@ -83,12 +70,10 @@ export async function cleanupDocumentFiles() {
   const db = await readDb();
   const alive = new Set(db.documents.map((d) => d.id));
   const conn = await files();
-  const rows = conn.prepare("SELECT id FROM document_files").all() as { id: string }[];
-  const del = conn.prepare("DELETE FROM document_files WHERE id = ?");
   let removed = 0;
-  for (const row of rows)
-    if (!alive.has(row.id)) {
-      del.run(row.id);
+  for (const id of await conn.fileIds())
+    if (!alive.has(id)) {
+      await conn.deleteFile(id);
       removed += 1;
     }
   return removed;
@@ -150,7 +135,7 @@ export function createDocumentRouter() {
       const db = await readDb();
       const doc = db.documents.find((d) => d.id === req.params.id && d.companyId === tenant);
       if (!doc) throw httpError("Hujjat topilmadi.", 404);
-      const row = (await files()).prepare("SELECT mime, data FROM document_files WHERE id = ?").get(doc.id) as { mime: string; data: Buffer } | undefined;
+      const row = await (await files()).getFile(doc.id);
       if (!row) throw httpError("Fayl topilmadi.", 404);
       res.setHeader("Content-Type", row.mime);
       res.setHeader("Cache-Control", "private, max-age=300");
@@ -170,7 +155,7 @@ export function createDocumentRouter() {
         db.documents = db.documents.filter((d) => d.id !== doc.id);
         db.auditLogs.unshift(audit(tenant, req.session!.name, `Hujjat o‘chirildi: ${doc.title}`, "employee", doc.employeeId));
       });
-      (await files()).prepare("DELETE FROM document_files WHERE id = ?").run(String(req.params.id));
+      await (await files()).deleteFile(String(req.params.id));
       res.json({ ok: true });
     }),
   );
@@ -224,5 +209,5 @@ export function createMiniDocumentRouter() {
 
 /** Hujjat fayli (Mini App’dan yuklab olish uchun). */
 export async function readDocumentFile(id: string) {
-  return (await files()).prepare("SELECT mime, data FROM document_files WHERE id = ?").get(id) as { mime: string; data: Buffer } | undefined;
+  return (await files()).getFile(id);
 }

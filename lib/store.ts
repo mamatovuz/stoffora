@@ -1,6 +1,6 @@
-import { mkdirSync } from "node:fs";
 import path from "node:path";
-import BetterSqlite3 from "better-sqlite3";
+import type BetterSqlite3 from "better-sqlite3";
+import { PostgresBackend, SqliteBackend, type Backend, type Delta } from "./backend";
 import type {
   Attendance,
   AuditLog,
@@ -13,7 +13,8 @@ import { createSeed, createUser, purgeLegacyDemoData } from "./seed";
 /*
  * Saqlash qatlami.
  *
- * Ma’lumotlar xotirada (bitta jarayon) ushlab turiladi va SQLite’ga yoziladi:
+ * Ma’lumotlar xotirada (bitta jarayon) ushlab turiladi va bazaga yoziladi —
+ * DATABASE_URL bo‘lsa PostgreSQL, aks holda SQLite (lib/backend.ts):
  *   app_state   — kichik "yadro" (kompaniyalar, xodimlar, grafiklar…), bitta JSON
  *   attendance  — davomat qatorlari (faqat o‘zgargan qatorlar yoziladi)
  *   audit_logs  — audit jurnali (faqat yangi yozuvlar qo‘shiladi)
@@ -37,7 +38,7 @@ const PHOTO_QUEUE_LIMIT = 3000;
 const CHANNEL_POSTS_LIMIT = 50_000;
 const BATCH_SIZE = 100;
 
-let sqlite: BetterSqlite3.Database | undefined;
+let backend: Backend | undefined;
 let state: Database | undefined;
 let loading: Promise<Database> | undefined;
 let version = 0;
@@ -96,97 +97,42 @@ function normalizeDatabase(database: Database): Database {
   return database;
 }
 
-function connect() {
-  if (sqlite) return sqlite;
-  mkdirSync(path.dirname(sqlitePath), { recursive: true });
-  const db = new BetterSqlite3(sqlitePath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("synchronous = NORMAL");
-  db.pragma("busy_timeout = 5000");
-  db.pragma("temp_store = MEMORY");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS app_state (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      payload TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS attendance (
-      id TEXT PRIMARY KEY,
-      company_id TEXT NOT NULL,
-      employee_id TEXT NOT NULL,
-      date TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      payload TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS attendance_company_date ON attendance(company_id, date);
-    CREATE TABLE IF NOT EXISTS audit_logs (
-      id TEXT PRIMARY KEY,
-      company_id TEXT NOT NULL,
-      entity_id TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      payload TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS audit_company_created ON audit_logs(company_id, created_at DESC);
-    CREATE INDEX IF NOT EXISTS audit_company_entity ON audit_logs(company_id, entity_id, created_at DESC);
-    CREATE TABLE IF NOT EXISTS media (
-      key TEXT PRIMARY KEY,
-      data TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS photo_queue (
-      id TEXT PRIMARY KEY,
-      company_id TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      payload TEXT NOT NULL
-    );
-  `);
-  sqlite = db;
-  return db;
+/** Saqlash qatlami: DATABASE_URL bo‘lsa — PostgreSQL (eski SQLite’dan bir martalik ko‘chirish bilan). */
+function connect(): Backend {
+  if (backend) return backend;
+  const url = process.env.DATABASE_URL?.trim();
+  backend = url && /^postgres(ql)?:\/\//.test(url) ? new PostgresBackend(url, sqlitePath) : new SqliteBackend(sqlitePath);
+  return backend;
 }
 
 /* ------------------------------------------------------------ yuklash --- */
 
-function readSchemaVersion(db: BetterSqlite3.Database) {
-  const row = db.prepare("SELECT value FROM meta WHERE key = 'schema'").get() as
-    | { value: string }
-    | undefined;
-  return Number(row?.value || 1);
-}
-
 const queueStamp = (job: PhotoJob) => `${job.attempts}|${job.lastAttemptAt || ""}`;
 
-/** Diskdan to‘liq holatni o‘qiydi (xotiradagi obyektlarga tegmaydi). */
-function loadFromDisk(): Database {
-  const db = connect();
-  const row = db.prepare("SELECT payload FROM app_state WHERE id = 1").get() as
-    | { payload: string }
-    | undefined;
-  if (!row) throw new Error("SQLite app_state yozuvi topilmadi.");
-  const core = normalizeDatabase(JSON.parse(row.payload) as Database);
-  persistedCore = row.payload;
+/** Bazadan to‘liq holatni o‘qiydi (xotiradagi obyektlarga tegmaydi). */
+async function loadFromDisk(): Promise<Database> {
+  const snap = await connect().load(AUDIT_MEMORY_LIMIT);
+  if (!snap.core) throw new Error("app_state yozuvi topilmadi.");
+  const core = normalizeDatabase(JSON.parse(snap.core) as Database);
+  persistedCore = snap.core;
 
   core.attendance = [];
   persistedAttendance.clear();
-  for (const item of db.prepare("SELECT payload FROM attendance").iterate() as Iterable<{ payload: string }>) {
-    const record = JSON.parse(item.payload) as Attendance;
+  for (const payload of snap.attendance) {
+    const record = JSON.parse(payload) as Attendance;
     core.attendance.push(record);
     persistedAttendance.set(record.id, record.updatedAt);
   }
 
-  core.auditLogs = (
-    db
-      .prepare("SELECT payload FROM audit_logs ORDER BY created_at DESC LIMIT ?")
-      .all(AUDIT_MEMORY_LIMIT) as { payload: string }[]
-  ).map((item) => JSON.parse(item.payload) as AuditLog);
+  core.auditLogs = snap.audit.map((payload) => JSON.parse(payload) as AuditLog);
   persistedAudit.clear();
   for (const log of core.auditLogs) persistedAudit.add(log.id);
 
   persistedMedia.clear();
   const photos = new Map<string, string>();
-  for (const item of db.prepare("SELECT key, data FROM media").iterate() as Iterable<{ key: string; data: string }>) {
-    photos.set(item.key, item.data);
-    persistedMedia.set(item.key, item.data);
+  for (const [key, data] of snap.media) {
+    photos.set(key, data);
+    persistedMedia.set(key, data);
   }
   for (const employee of core.employees) {
     const photo = photos.get(`employee:${employee.id}`);
@@ -199,8 +145,8 @@ function loadFromDisk(): Database {
 
   core.photoQueue = [];
   persistedQueue.clear();
-  for (const item of db.prepare("SELECT payload FROM photo_queue ORDER BY created_at").iterate() as Iterable<{ payload: string }>) {
-    const job = JSON.parse(item.payload) as PhotoJob;
+  for (const payload of snap.queue) {
+    const job = JSON.parse(payload) as PhotoJob;
     core.photoQueue.push(job);
     persistedQueue.set(job.id, queueStamp(job));
   }
@@ -243,29 +189,22 @@ function migrateLegacy(db: BetterSqlite3.Database, legacy: Database) {
 }
 
 async function initialize(): Promise<Database> {
-  const db = connect();
-  const existing = db.prepare("SELECT payload FROM app_state WHERE id = 1").get() as
-    | { payload: string }
-    | undefined;
-  if (!existing) {
+  const store = connect();
+  await store.init();
+  const snap = await store.load(1);
+  if (!snap.core) {
     const seed = normalizeDatabase(await createSeed());
-    db.transaction(() => {
-      db.prepare("INSERT INTO app_state (id, payload, updated_at) VALUES (1, ?, ?)").run(
-        JSON.stringify(coreSnapshot(seed)),
-        new Date().toISOString(),
-      );
-      db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema', ?)").run(String(SCHEMA_VERSION));
-    })();
-  } else if (readSchemaVersion(db) < SCHEMA_VERSION) {
-    const legacy = normalizeDatabase(JSON.parse(existing.payload) as Database);
-    migrateLegacy(db, legacy);
+    await store.insertInitial(JSON.stringify(coreSnapshot(seed)), SCHEMA_VERSION);
+  } else if (snap.schema < SCHEMA_VERSION && store instanceof SqliteBackend) {
+    const legacy = normalizeDatabase(JSON.parse(snap.core) as Database);
+    migrateLegacy(store.db, legacy);
   }
 
-  const loaded = loadFromDisk();
+  const loaded = await loadFromDisk();
   // Bir martalik tozalash va bootstrap (demo yozuvlar, egasi yo‘q kompaniya, super admin).
-  if (await bootstrap(loaded)) persist(loaded);
+  if (await bootstrap(loaded)) await persist(loaded);
   state = loaded;
-  console.log(`SQLite ma’lumotlar bazasi: ${sqlitePath}`);
+  console.log(`Ma’lumotlar bazasi: ${store.label}`);
   return loaded;
 }
 
@@ -374,9 +313,8 @@ function trimCollections(db: Database) {
     db.channelPosts = db.channelPosts.slice(db.channelPosts.length - CHANNEL_POSTS_LIMIT);
 }
 
-/** Xotiradagi holatni diskka yozadi — faqat o‘zgargan qismlar. */
-function persist(db: Database) {
-  const conn = connect();
+/** Xotiradagi holatni bazaga yozadi — faqat o‘zgargan qismlar, bitta tranzaksiyada. */
+async function persist(db: Database) {
   trimCollections(db);
   const now = new Date().toISOString();
   const core = JSON.stringify(coreSnapshot(db));
@@ -421,46 +359,18 @@ function persist(db: Database) {
   )
     return;
 
-  conn.transaction(() => {
-    if (coreChanged)
-      conn.prepare("UPDATE app_state SET payload = ?, updated_at = ? WHERE id = 1").run(core, now);
-    if (attendanceUpserts.length) {
-      const stmt = conn.prepare(
-        "INSERT OR REPLACE INTO attendance (id, company_id, employee_id, date, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?)",
-      );
-      for (const a of attendanceUpserts)
-        stmt.run(a.id, a.companyId, a.employeeId, a.date, a.updatedAt, JSON.stringify(a));
-    }
-    if (attendanceDeletes.length) {
-      const stmt = conn.prepare("DELETE FROM attendance WHERE id = ?");
-      for (const id of attendanceDeletes) stmt.run(id);
-    }
-    if (auditInserts.length) {
-      const stmt = conn.prepare(
-        "INSERT OR IGNORE INTO audit_logs (id, company_id, entity_id, created_at, payload) VALUES (?, ?, ?, ?, ?)",
-      );
-      for (const log of auditInserts)
-        stmt.run(log.id, log.companyId, log.entityId || "", log.createdAt, JSON.stringify(log));
-    }
-    if (mediaUpserts.length) {
-      const stmt = conn.prepare("INSERT OR REPLACE INTO media (key, data, updated_at) VALUES (?, ?, ?)");
-      for (const [key, data] of mediaUpserts) stmt.run(key, data, now);
-    }
-    if (mediaDeletes.length) {
-      const stmt = conn.prepare("DELETE FROM media WHERE key = ?");
-      for (const key of mediaDeletes) stmt.run(key);
-    }
-    if (queueUpserts.length) {
-      const stmt = conn.prepare(
-        "INSERT OR REPLACE INTO photo_queue (id, company_id, created_at, payload) VALUES (?, ?, ?, ?)",
-      );
-      for (const job of queueUpserts) stmt.run(job.id, job.companyId, job.createdAt, JSON.stringify(job));
-    }
-    if (queueDeletes.length) {
-      const stmt = conn.prepare("DELETE FROM photo_queue WHERE id = ?");
-      for (const id of queueDeletes) stmt.run(id);
-    }
-  })();
+  const delta: Delta = {
+    now,
+    core: coreChanged ? core : undefined,
+    attendanceUpserts,
+    attendanceDeletes,
+    auditInserts,
+    mediaUpserts,
+    mediaDeletes,
+    queueUpserts,
+    queueDeletes,
+  };
+  await connect().write(delta);
 
   // Tranzaksiya muvaffaqiyatli — "diskdagi holat"ni yangilaymiz.
   persistedCore = core;
@@ -533,7 +443,7 @@ async function drain() {
         // Xato bergan amal xotirani qisman o‘zgartirgan bo‘lishi mumkin —
         // oxirgi saqlangan holatga qaytamiz va shu partiyadagi muvaffaqiyatli
         // amallarni qayta bajaramiz.
-        db = rollback();
+        db = await rollback();
         version += 1;
         const replayed: typeof done = [];
         for (const item of done) {
@@ -541,7 +451,7 @@ async function drain() {
             item.value = await item.job.operation(db);
             replayed.push(item);
           } catch (replayError) {
-            db = rollback();
+            db = await rollback();
             item.job.reject(replayError);
           }
         }
@@ -550,11 +460,11 @@ async function drain() {
       }
     }
     try {
-      persist(db);
+      await persist(db);
       for (const item of done) item.job.resolve(item.value);
     } catch (error) {
       console.error("Bazaga yozishda xato", error);
-      db = rollback();
+      db = await rollback();
       version += 1;
       for (const item of done) item.job.reject(error);
     }
@@ -565,9 +475,9 @@ async function drain() {
  * Xotirani diskdagi oxirgi holatga qaytaradi. Arzon: yadro oxirgi saqlangan
  * JSON’dan tiklanadi, katta to‘plamlardan faqat o‘zgargan qatorlar qayta o‘qiladi.
  */
-function rollback(): Database {
-  if (!state) return (state = loadFromDisk());
-  const conn = connect();
+async function rollback(): Promise<Database> {
+  if (!state) return (state = await loadFromDisk());
+  const store = connect();
   const core = normalizeDatabase(JSON.parse(persistedCore) as Database);
   for (const employee of core.employees) {
     const photo = persistedMedia.get(`employee:${employee.id}`);
@@ -578,7 +488,6 @@ function rollback(): Database {
     if (photo) user.photoDataUrl = photo;
   }
 
-  const readAttendance = conn.prepare("SELECT payload FROM attendance WHERE id = ?");
   const attendance: Attendance[] = [];
   const seen = new Set<string>();
   for (const record of state.attendance) {
@@ -587,26 +496,25 @@ function rollback(): Database {
     seen.add(record.id);
     if (saved === record.updatedAt) attendance.push(record);
     else {
-      const row = readAttendance.get(record.id) as { payload: string } | undefined;
-      if (row) attendance.push(JSON.parse(row.payload) as Attendance);
+      const payload = await store.readAttendance(record.id);
+      if (payload) attendance.push(JSON.parse(payload) as Attendance);
     }
   }
   // Xotiradan o‘chirilgan, lekin diskda bor qatorlar
   for (const id of persistedAttendance.keys())
     if (!seen.has(id)) {
-      const row = readAttendance.get(id) as { payload: string } | undefined;
-      if (row) attendance.push(JSON.parse(row.payload) as Attendance);
+      const payload = await store.readAttendance(id);
+      if (payload) attendance.push(JSON.parse(payload) as Attendance);
     }
 
-  const readQueue = conn.prepare("SELECT payload FROM photo_queue WHERE id = ?");
   const photoQueue: PhotoJob[] = [];
   const queueById = new Map(state.photoQueue.map((job) => [job.id, job]));
   for (const id of persistedQueue.keys()) {
     const current = queueById.get(id);
     if (current && queueStamp(current) === persistedQueue.get(id)) photoQueue.push(current);
     else {
-      const row = readQueue.get(id) as { payload: string } | undefined;
-      if (row) photoQueue.push(JSON.parse(row.payload) as PhotoJob);
+      const payload = await store.readQueue(id);
+      if (payload) photoQueue.push(JSON.parse(payload) as PhotoJob);
     }
   }
 
@@ -624,18 +532,29 @@ export async function flushDb() {
   }
 }
 
-/**
- * SQLite ulanishi — ko‘p yoziladigan yordamchi jadvallar (integratsiya jurnali,
- * webhook hodisalari, navbat) uchun. Asosiy holat bundan tashqarida saqlanadi.
- */
-export async function sqliteConnection() {
+/** Baza holati: health-check uchun (qulf kutilayotganda «starting»). */
+export function databaseStatus() {
+  return { kind: backend?.kind || (process.env.DATABASE_URL ? "postgres" : "sqlite"), waiting: PostgresBackend.waitingForLock, ready: Boolean(state) };
+}
+
+/** Bazani yopadi (testlar va to‘xtatish uchun): navbatni yozib bo‘lib, ulanishni bo‘shatadi. */
+export async function closeDb() {
+  await flushDb();
+  await backend?.close();
+  backend = undefined;
+  state = undefined;
+  loading = undefined;
+}
+
+/** Hujjat fayllari (document_files) — joriy bazada (SQLite yoki PostgreSQL). */
+export async function documentFiles() {
   await ensureLoaded();
   return connect();
 }
 
 export async function checkDatabaseHealth() {
   await ensureLoaded();
-  return connect().pragma("quick_check", { simple: true }) === "ok";
+  return connect().health();
 }
 
 /** Audit jurnalining to‘liq tarixi (xotirada faqat oxirgilari saqlanadi). */
@@ -646,18 +565,8 @@ export async function queryAuditLogs(
   await ensureLoaded();
   await flushDb();
   const limit = Math.min(1000, Math.max(1, options.limit || 300));
-  const rows = (
-    options.entityId
-      ? connect()
-          .prepare(
-            "SELECT payload FROM audit_logs WHERE company_id = ? AND entity_id = ? ORDER BY created_at DESC LIMIT ?",
-          )
-          .all(companyId, options.entityId, limit)
-      : connect()
-          .prepare("SELECT payload FROM audit_logs WHERE company_id = ? ORDER BY created_at DESC LIMIT ?")
-          .all(companyId, limit)
-  ) as { payload: string }[];
-  return rows.map((row) => JSON.parse(row.payload) as AuditLog);
+  const rows = await connect().queryAudit(companyId, options.entityId, limit);
+  return rows.map((payload) => JSON.parse(payload) as AuditLog);
 }
 
 /* ------------------------------------------------ o‘qish uchun indekslar --- */
@@ -714,21 +623,7 @@ export async function scrubAuditForEntities(companyId: string, entityIds: string
   if (!entityIds.length) return 0;
   await ensureLoaded();
   await flushDb();
-  const conn = connect();
-  const select = conn.prepare("SELECT id, payload FROM audit_logs WHERE company_id = ? AND entity_id = ?");
-  const update = conn.prepare("UPDATE audit_logs SET payload = ? WHERE id = ?");
-  let changed = 0;
-  conn.transaction(() => {
-    for (const entityId of entityIds)
-      for (const row of select.all(companyId, entityId) as { id: string; payload: string }[]) {
-        const clean = JSON.stringify(scrubSensitive(JSON.parse(row.payload)));
-        if (clean !== row.payload) {
-          update.run(clean, row.id);
-          changed += 1;
-        }
-      }
-  })();
-  return changed;
+  return connect().rewriteAudit(companyId, entityIds, (payload) => JSON.stringify(scrubSensitive(JSON.parse(payload))));
 }
 
 export function audit(

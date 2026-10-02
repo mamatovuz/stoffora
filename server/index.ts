@@ -20,6 +20,7 @@ import { existsSync } from "node:fs";
 import {
   audit,
   checkDatabaseHealth,
+  databaseStatus,
   dataIndexes,
   dataVersion,
   flushDb,
@@ -240,6 +241,15 @@ loopDelay.enable();
 setInterval(() => loopDelay.reset(), 60_000).unref();
 let integrity: { ok: boolean; at: number } | undefined;
 app.get("/health", async (_req, res) => {
+  // Deploy paytida yangi nusxa eski nusxa to‘xtashini (bazadagi yozuvchi qulfini) kutadi —
+  // bu holatda «sog‘lom» deymiz, aks holda Railway eskisini to‘xtatmaydi va ikkalasi kutib qoladi.
+  const status = databaseStatus();
+  if (!status.ready) {
+    const loadingNow = checkDatabaseHealth();
+    const settled = await Promise.race([loadingNow.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), 3000))]).catch(() => null);
+    if (settled === false && databaseStatus().waiting)
+      return res.json({ status: "starting", database: `${status.kind}-waiting-for-writer-lock`, uptimeSeconds: Math.round(process.uptime()) });
+  }
   try {
     // To‘liq tekshiruv og‘ir — 10 daqiqada bir marta.
     if (!integrity || Date.now() - integrity.at > 10 * 60_000)
@@ -249,7 +259,7 @@ app.get("/health", async (_req, res) => {
     const memory = process.memoryUsage();
     res.status(database ? 200 : 503).json({
       status: database ? "ok" : "degraded",
-      database: database ? "sqlite-ready" : "sqlite-error",
+      database: `${databaseStatus().kind}-${database ? "ready" : "error"}`,
       eventLoopLagMs: Math.round(loopDelay.percentile(99) / 1e6),
       memoryMb: Math.round(memory.rss / 1024 / 1024),
       telegram: telegram.state,
@@ -259,7 +269,7 @@ app.get("/health", async (_req, res) => {
       uptimeSeconds: Math.round(process.uptime()),
     });
   } catch {
-    res.status(503).json({ status: "error", database: "sqlite-unavailable" });
+    res.status(503).json({ status: "error", database: `${databaseStatus().kind}-unavailable` });
   }
 });
 
