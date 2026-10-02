@@ -16,6 +16,7 @@ import {
   Search,
   LogIn,
   Gavel,
+  FileWarning,
   LogOut,
   ShieldAlert,
   Square,
@@ -29,6 +30,7 @@ import { ApiError } from "../api";
 import { can } from "@/lib/permissions";
 import { dateLongUz, dateUz, tashkentIsoDate } from "@/lib/format";
 import { FineSheet, MoneyView } from "./mini/MoneyTools";
+import { DevicesView } from "./mini/DevicesView";
 import type { Attendance, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../types";
 import { SkeletonList } from "./mini/shared";
@@ -120,6 +122,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const [marks, setMarks] = useState<MarkRow[]>([]);
   const [fines, setFines] = useState<FineRow[]>([]);
   const [fining, setFining] = useState(false);
+  const [expiring, setExpiring] = useState<{ id: string; title: string; expiresAt: string; status: string; employeeId: string; employeeName: string; branchName: string }[]>([]);
   const [advances, setAdvances] = useState<AdvanceRow[]>([]);
   const [overtime, setOvertime] = useState<OvertimeRow[]>([]);
   const [notices, setNotices] = useState<LateNotice[]>([]);
@@ -154,9 +157,12 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const canFine = fineDirect || role === "BRANCH_MANAGER";
   // «Moliya» ko‘rinishi — faqat moliya va direktor (HR moliyani ko‘rmaydi).
   const canMoney = can(role, "payroll.view") || can(role, "payroll.edit");
+  // Qurilmalar — IT va HR; «So‘rovlar» — davomat/ta’til/moliya bilan ishlaydiganlar (IT — yo‘q).
+  const canDevices = can(role, "devices.manage") || can(role, "employees.edit");
+  const canRequests = canAttendance || canLeave || canAdvances || fineDirect;
   useEffect(() => {
-    if (!canAttendance && view === "today") setView(canMoney ? "money" : "requests");
-  }, [canAttendance, canMoney, view]);
+    if (!canAttendance && (view === "today" || view === "map")) setView(canMoney ? "money" : canDevices && !canRequests ? "devices" : "requests");
+  }, [canAttendance, canMoney, canDevices, canRequests, view]);
 
   const handle = useCallback(
     (reason: unknown) => {
@@ -209,6 +215,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
       if (canSwaps) void call<DayOffRow[]>("/dayoff-moves?status=PENDING").then(setDayoffs).catch(() => setDayoffs([]));
       if (canSwaps) void call<MarkRow[]>("/attendance-corrections?status=PENDING").then(setMarks).catch(() => setMarks([]));
       if (fineDirect) void call<FineRow[]>("/fines?status=PENDING").then(setFines).catch(() => setFines([]));
+      if (can(role, "employees.view")) void call<typeof expiring>("/documents/expiring").then(setExpiring).catch(() => setExpiring([]));
       setAdvances(a);
       setOvertime(o.rows.filter((r) => r.approved === undefined));
       setNotices(n);
@@ -362,14 +369,15 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           </button>
         </span>
       </div>
-      <div className={`mini-seg ${canMoney && canAttendance && canAnalytics ? "five" : "four"}`} role="tablist">
+      <div className={`mini-seg ${["", "one", "", "three", "four", "five", "six"][[canAttendance, canRequests, canAttendance, canAnalytics, canMoney, canDevices].filter(Boolean).length] || "four"}`} role="tablist">
         {(
           [
-            ["today", "Bugun", 0],
-            ["requests", "So‘rovlar", pendingCount],
+            ...(canAttendance ? ([["today", "Bugun", 0]] as const) : []),
+            ...(canRequests ? ([["requests", "So‘rovlar", pendingCount]] as const) : []),
             ...(canAttendance ? ([["map", "Xarita", 0]] as const) : []),
             ...(canAnalytics ? ([["week", "Xulosa", 0]] as const) : []),
             ...(canMoney ? ([["money", "Moliya", 0]] as const) : []),
+            ...(canDevices ? ([["devices", "Qurilma", 0]] as const) : []),
           ] as const
         ).map(([key, label, badge]) => (
           <button
@@ -506,6 +514,29 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               <Check size={28} />
               Hamma so‘rovlar ko‘rib chiqilgan
             </div>
+          )}
+          {expiring.length > 0 && (
+            <>
+              <div className="mp-group-title">Hujjat muddatlari · {expiring.length}</div>
+              <section className="mini-card">
+                <div className="mini-rows">
+                  {expiring.slice(0, 6).map((d) => (
+                    <button className="mini-row" key={d.id} onClick={() => setCardFor(d.employeeId)}>
+                      <span className={`mini-ico ${d.status === "EXPIRED" ? "bad" : ""}`}>
+                        <FileWarning size={17} />
+                      </span>
+                      <span>
+                        <b>{d.employeeName}</b>
+                        <small>
+                          {d.title} · {d.branchName}
+                        </small>
+                      </span>
+                      <span className={`mini-chip ${d.status === "EXPIRED" ? "bad" : "warn"}`}>{d.status === "EXPIRED" ? "O‘tgan" : `${dateUz(d.expiresAt)} gacha`}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </>
           )}
           {fines.length > 0 && <div className="mp-group-title">Jarima takliflari (filial rahbarlaridan)</div>}
           {fines.map((f) => {
@@ -739,6 +770,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           onChanged={() => void load()}
         />
       )}
+      {view === "devices" && canDevices && <DevicesView call={call} onToast={onToast} />}
       {view === "money" && canMoney && <MoneyView call={call} canAdvances={canMoney} canFines={canMoney} onError={onToast} />}
       {fining && (
         <FineSheet

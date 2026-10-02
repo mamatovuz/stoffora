@@ -1,5 +1,6 @@
+import * as Clipboard from "expo-clipboard";
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { mediaUri } from "@/lib/config";
 import { errorText } from "@/lib/api";
 import { som } from "@/lib/format";
@@ -159,7 +160,7 @@ export function FineSheet({ visible, direct, onClose, onDone, preset }: { visibl
   );
 }
 
-type AdvanceRow = { id: string; employeeName: string; branchName: string; baseSalary: number; amount: number; status: string; method?: string; cardMask?: string; paidAt?: string };
+type AdvanceRow = { id: string; source?: "REQUEST" | "MANUAL"; employeeName: string; branchName: string; baseSalary: number; amount: number; status: string; method?: string; cardMask?: string; holder?: string; paidAt?: string };
 type FineRow = { id: string; employeeName: string; branchName: string; amount: number; reason: string; status: string; createdBy: string; proposedBy?: string };
 
 /** «Moliya» ko‘rinishi: shu oy avans oluvchilar va qo‘llangan jarimalar. */
@@ -169,6 +170,39 @@ export function MoneyView({ canAdvances, canFines, reloadKey }: { canAdvances: b
   const [fines, setFines] = useState<FineRow[] | null>(null);
   const [summary, setSummary] = useState<{ net: number; employees: number; bonus: number; advances: { pendingCount: number; unpaidCount: number }; pendingFines: number } | null>(null);
   const [error, setError] = useState("");
+  const [cards, setCards] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
+  // Karta raqamini ochish (auditga yoziladi) va nusxalash — o‘tkazma uchun.
+  const reveal = async (r: AdvanceRow) => {
+    try {
+      const res = await mcall<{ number: string }>(`/payroll/advances/${r.id}/card`, {});
+      setCards((x) => ({ ...x, [r.id]: res.number }));
+      await Clipboard.setStringAsync(res.number.replace(/\s/g, ""));
+      haptic.success();
+    } catch (e) {
+      setError(errorText(e));
+    }
+  };
+  const markPaid = (r: AdvanceRow) =>
+    Alert.alert("To‘landi deb belgilash", `${r.employeeName} — ${som(r.amount)}${r.method === "CARD" ? ` → ${r.cardMask}` : " (naqd)"}. Xodimga xabar boradi.`, [
+      { text: "Bekor qilish", style: "cancel" },
+      {
+        text: "To‘landi",
+        onPress: async () => {
+          setBusy(r.id);
+          try {
+            await mcall(`/payroll/advances/${r.id}/paid`, {});
+            haptic.success();
+            setTick((t) => t + 1);
+          } catch (e) {
+            setError(errorText(e));
+          } finally {
+            setBusy(null);
+          }
+        },
+      },
+    ]);
   useEffect(() => {
     const month = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 7);
     if (canAdvances) mcall<NonNullable<typeof summary>>(`/finance/summary?month=${month}`).then(setSummary).catch(() => undefined);
@@ -176,7 +210,7 @@ export function MoneyView({ canAdvances, canFines, reloadKey }: { canAdvances: b
     else setAdvances([]);
     if (canFines) mcall<FineRow[]>(`/fines?month=${month}`).then((r) => setFines(r.filter((f) => f.status === "APPROVED"))).catch((e) => setError(errorText(e)));
     else setFines([]);
-  }, [canAdvances, canFines, reloadKey]);
+  }, [canAdvances, canFines, reloadKey, tick]);
   const advTotal = (advances || []).reduce((s, r) => s + r.amount, 0);
   const fineTotal = (fines || []).reduce((s, r) => s + r.amount, 0);
   return (
@@ -233,11 +267,28 @@ export function MoneyView({ canAdvances, canFines, reloadKey }: { canAdvances: b
                     <Text style={{ color: c.muted, fontSize: 12.5 }} numberOfLines={1}>
                       {r.branchName} · oylik {som(r.baseSalary)}
                     </Text>
-                    <Text style={{ color: c.muted, fontSize: 12.5 }}>{r.method === "CASH" ? "Naqd" : r.cardMask || "Karta yo‘q"}</Text>
+                    {r.method === "CASH" ? (
+                      <Text style={{ color: c.muted, fontSize: 12.5 }}>Naqd</Text>
+                    ) : r.cardMask ? (
+                      <Pressable onPress={() => (r.source === "REQUEST" && !cards[r.id] ? void reveal(r) : undefined)} hitSlop={6}>
+                        <Text style={{ color: cards[r.id] ? c.ink : c.muted, fontSize: 12.5, fontVariant: ["tabular-nums"] }}>
+                          {cards[r.id] || r.cardMask}
+                          {r.source === "REQUEST" && !cards[r.id] ? <Text style={{ color: c.accent }}>  ko‘rish</Text> : cards[r.id] ? <Text style={{ color: c.success }}>  nusxalandi</Text> : null}
+                        </Text>
+                      </Pressable>
+                    ) : (
+                      <Text style={{ color: c.muted, fontSize: 12.5 }}>Karta yo‘q</Text>
+                    )}
                   </View>
-                  <View style={{ alignItems: "flex-end" }}>
+                  <View style={{ alignItems: "flex-end", gap: 4 }}>
                     <Text style={{ color: c.ink, fontWeight: "700" }}>{som(r.amount)}</Text>
-                    <Text style={{ color: r.paidAt ? c.success : r.status === "APPROVED" ? c.muted : c.warn, fontSize: 12 }}>{r.paidAt ? "To‘landi" : r.status === "APPROVED" ? "Tasdiqlangan" : "Kutilmoqda"}</Text>
+                    {r.source === "REQUEST" && r.status === "APPROVED" && !r.paidAt ? (
+                      <Pressable onPress={() => markPaid(r)} disabled={busy === r.id} style={[st.paidBtn, { backgroundColor: c.accent }]}>
+                        <Text style={{ color: "#fff", fontSize: 12, fontWeight: "700" }}>{busy === r.id ? "…" : "To‘landi"}</Text>
+                      </Pressable>
+                    ) : (
+                      <Text style={{ color: r.paidAt ? c.success : r.status === "APPROVED" ? c.muted : c.warn, fontSize: 12 }}>{r.paidAt ? "To‘landi ✓" : r.status === "APPROVED" ? "Tasdiqlangan" : "Kutilmoqda"}</Text>
+                    )}
                   </View>
                 </View>
               ))}
@@ -285,4 +336,5 @@ const st = StyleSheet.create({
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16 },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 99, borderWidth: 1 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 10 },
+  paidBtn: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99 },
 });

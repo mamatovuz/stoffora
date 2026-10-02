@@ -102,6 +102,35 @@ export function createDocumentRouter() {
     return req.session.companyId;
   };
 
+  /** Muddati tugayotgan (30 kun) va o‘tgan hujjatlar — HR, direktor, filial rahbari (o‘z filiali). */
+  router.get(
+    "/documents/expiring",
+    permit("employees.view"),
+    route(async (req, res) => {
+      const tenant = tenantOf(req);
+      const db = await readDb();
+      const scope = req.session!.role === "BRANCH_MANAGER" ? db.users.find((u) => u.id === req.session!.userId)?.branchIds || [] : null;
+      const rows = db.documents
+        .filter((d) => d.companyId === tenant && d.expiresAt)
+        .map((d) => ({ d, status: documentStatus(d), employee: db.employees.find((e) => e.id === d.employeeId && e.status === "ACTIVE") }))
+        .filter(({ status, employee }) => status !== "OK" && employee && (!scope || scope.includes(employee.branchId)))
+        .sort((a, b) => (a.d.expiresAt || "").localeCompare(b.d.expiresAt || ""))
+        .slice(0, 200)
+        .map(({ d, status, employee }) => ({
+          id: d.id,
+          title: d.title,
+          type: d.type,
+          expiresAt: d.expiresAt,
+          status,
+          employeeId: employee!.id,
+          employeeName: `${employee!.firstName} ${employee!.lastName}`.trim(),
+          photoDataUrl: employee!.photoDataUrl,
+          branchName: db.branches.find((b) => b.id === employee!.branchId)?.name || "",
+        }));
+      res.json(rows);
+    }),
+  );
+
   router.get(
     "/employees/:id/documents",
     permit("employees.view"),

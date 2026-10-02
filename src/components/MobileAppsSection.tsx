@@ -4,7 +4,7 @@ import { Search, ShieldCheck, ShieldOff, Smartphone } from "lucide-react";
 import { post } from "../api";
 import { useAuth } from "../auth";
 import { useApi } from "../hooks";
-import { can } from "@/lib/permissions";
+import { canAny } from "@/lib/permissions";
 import { dateUz } from "@/lib/format";
 import { Avatar, Confirm, Empty, ErrorBox, Loading, Segmented, useToast } from "./ui";
 
@@ -45,7 +45,7 @@ export function MobileAppsSection() {
   const [query, setQuery] = useState("");
   const [revoking, setRevoking] = useState<Row | null>(null);
   const toast = useToast();
-  const canEdit = Boolean(user && can(user.role, "employees.edit"));
+  const canEdit = Boolean(user && canAny(user.role, ["employees.edit", "devices.manage"]));
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (data?.rows || []).filter((r) => !q || [r.employeeName, r.employeeNo, r.model, r.branch].some((v) => v?.toLowerCase().includes(q)));

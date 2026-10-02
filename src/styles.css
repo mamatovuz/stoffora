@@ -9081,3 +9081,11 @@ html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
 .fin-bar span { color: var(--ink-2); font-size: 12px; text-transform: capitalize; }
 .mr-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 14px 12px; }
 .mr-controls select { min-height: 40px; padding: 0 10px; border: 0; border-radius: 10px; background: var(--m-tint); color: var(--m-ink); font: inherit; }
+.mf-card { font-variant-numeric: tabular-nums; }
+.mf-card em { color: var(--m-success, #2fb26a); font-style: normal; }
+.mf-paid { padding: 4px 10px; border: 0; border-radius: 99px; background: var(--m-accent, #2563eb); color: #fff; font: inherit; font-size: 12px; font-weight: 700; }
+.mini-seg.one { grid-template-columns: 1fr; }
+.mini-seg.six { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+.mini-seg.six button { padding-left: 1px; padding-right: 1px; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-icon-btn { display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 10px; background: var(--m-tint); color: var(--m-muted, #8a8f98); }
+.mini-icon-btn.danger { color: var(--m-danger, #e5484d); }

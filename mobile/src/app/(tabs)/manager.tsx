@@ -58,6 +58,7 @@ export default function Manager() {
   const [query, setQuery] = useState("");
   const [announcing, setAnnouncing] = useState(false);
   const [fining, setFining] = useState(false);
+  const [expiring, setExpiring] = useState<{ id: string; title: string; expiresAt: string; status: string; employeeId: string; employeeName: string; branchName: string }[]>([]);
   const [moneyKey, setMoneyKey] = useState(0);
   const [updatedAt, setUpdatedAt] = useState("");
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -126,6 +127,7 @@ export default function Manager() {
       setBranches(b);
       setError("");
       setUpdatedAt(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tashkent" }));
+      if (can(role, "employees.view") || can(role, "attendance.view")) void mcall<typeof expiring>("/documents/expiring").then(setExpiring).catch(() => setExpiring([]));
       if (can(role, "dashboard.view")) void mcall<Analytics>(`/analytics?month=${month}`).then(setAnalytics).catch(() => undefined);
     } catch (e) {
       setError(e instanceof ApiError && e.code === "NOT_MANAGER" ? "Rahbar huquqi topilmadi." : errorText(e));
@@ -199,10 +201,13 @@ export default function Manager() {
   const canMoney = canMoneyAdvances;
   // Qurilmalar — IT va HR (direktor ham).
   const canDevices = can(role, "devices.manage") || can(role, "employees.edit");
+  const canAttendanceView = can(role, "attendance.view");
+  // So‘rovlar: davomat/ta’til/avans/jarima bilan ishlaydiganlar (IT — yo‘q).
+  const canRequests = canAttendanceView || can(role, "leave.approve") || can(role, "payroll.edit") || can(role, "employees.edit");
   // Davomatni ko‘rmaydigan rol (moliya) — darhol «Moliya».
   const noAttendance = Boolean(auth) && !can(role, "attendance.view");
   useEffect(() => {
-    if (noAttendance && view === "today") setView(canMoney ? "money" : canDevices ? "devices" : "requests");
+    if (noAttendance && (view === "today" || view === "map")) setView(canMoney ? "money" : canDevices && !canRequests ? "devices" : "requests");
   }, [noAttendance, view, canMoney, canDevices]);
   const marks = pending.filter((p) => p.kind === "mark");
   const others = pending.filter((p) => p.kind !== "mark");
@@ -246,10 +251,11 @@ export default function Manager() {
         value={view}
         onChange={setView}
         options={[
-          ["today", "Bugun"],
-          ["requests", "So‘rovlar", pending.length],
-          ["map", "Xarita"],
-          ["week", "Xulosa"],
+          // Faqat rolga tegishli bo‘limlar (moliya va IT uchun bo‘sh «Bugun/Xarita» ko‘rinmaydi).
+          ...(canAttendanceView ? ([["today", "Bugun"]] as [MView, string][]) : []),
+          ...(canRequests ? ([["requests", "So‘rovlar", pending.length]] as [MView, string, number][]) : []),
+          ...(canAttendanceView ? ([["map", "Xarita"]] as [MView, string][]) : []),
+          ...(can(role, "dashboard.view") ? ([["week", "Xulosa"]] as [MView, string][]) : []),
           ...(canMoney ? ([["money", "Moliya"]] as [MView, string][]) : []),
           ...(canDevices ? ([["devices", "Qurilmalar"]] as [MView, string][]) : []),
         ]}
@@ -332,6 +338,31 @@ export default function Manager() {
         )
       ) : null}
 
+      {view === "requests" && expiring.length ? (
+        <>
+          <GroupTitle>Hujjat muddatlari · {expiring.length}</GroupTitle>
+          <Group>
+            {expiring.slice(0, 6).map((d, i, list) => (
+              <Pressable
+                key={d.id}
+                onPress={() => router.push({ pathname: "/employee/[id]", params: { id: d.employeeId } })}
+                style={[st.row, i < list.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}
+              >
+                <Icon name="document-text-outline" size={18} color={d.status === "EXPIRED" ? c.danger : c.warn} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: c.ink, fontWeight: "600" }} numberOfLines={1}>
+                    {d.employeeName}
+                  </Text>
+                  <Text style={{ color: c.muted, fontSize: 12.5 }} numberOfLines={1}>
+                    {d.title} · {d.branchName}
+                  </Text>
+                </View>
+                <Badge text={d.status === "EXPIRED" ? "O‘tgan" : `${dateUz(d.expiresAt)} gacha`} tone={d.status === "EXPIRED" ? "bad" : "warn"} />
+              </Pressable>
+            ))}
+          </Group>
+        </>
+      ) : null}
       {view === "requests" ? (
         !pending.length ? (
           <Empty icon="checkmark-done-outline" title="Kutilayotgan so‘rov yo‘q" text="Belgilash, ta’til, smena, dam kuni, avans va qo‘shimcha ish so‘rovlari shu yerda paydo bo‘ladi." />

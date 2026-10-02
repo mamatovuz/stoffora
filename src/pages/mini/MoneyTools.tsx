@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, Download, Gavel, HandCoins, Search } from "lucide-react";
 import { PhotoAvatar, Sheet, SkeletonList } from "./shared";
-import { haptic } from "./tg";
+import { confirmNative, haptic } from "./tg";
 
 /*
  * Mini App rahbar rejimi — moliya vositalari:
@@ -139,7 +139,7 @@ export function FineSheet({ call, direct, onClose, onDone, onError }: { call: Ca
   );
 }
 
-type AdvanceRow = { id: string; employeeName: string; branchName: string; baseSalary: number; amount: number; status: string; method?: string; cardMask?: string; paidAt?: string };
+type AdvanceRow = { id: string; source?: "REQUEST" | "MANUAL"; employeeName: string; branchName: string; baseSalary: number; amount: number; status: string; method?: string; cardMask?: string; paidAt?: string };
 type FineRow = { id: string; employeeName: string; branchName: string; amount: number; reason: string; status: string; createdBy: string; proposedBy?: string; createdAt: string };
 
 /** «Moliya» ko‘rinishi: shu oy avans oluvchilar va jarimalar (Excel havolasi bilan). */
@@ -154,6 +154,30 @@ export function MoneyView({ call, canAdvances, canFines, onError }: { call: Call
     if (canAdvances) call<{ rows: AdvanceRow[] }>(`/advances/recipients?month=${month}`).then((r) => setAdvances(r.rows)).catch(fail);
     if (canFines) call<FineRow[]>(`/fines?month=${month}`).then((r) => setFines(r.filter((f) => f.status === "APPROVED"))).catch(fail);
   }, [call, canAdvances, canFines, month, onError]);
+  const [cards, setCards] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const fail = (e: unknown) => onError(e instanceof Error ? e.message : "Xatolik", "error");
+  const reveal = (r: AdvanceRow) =>
+    call<{ number: string }>(`/payroll/advances/${r.id}/card`, {})
+      .then((res) => {
+        setCards((x) => ({ ...x, [r.id]: res.number }));
+        void navigator.clipboard?.writeText(res.number.replace(/\s/g, "")).catch(() => undefined);
+        haptic.success();
+      })
+      .catch(fail);
+  const markPaid = async (r: AdvanceRow) => {
+    if (!(await confirmNative(`${r.employeeName} — ${som(r.amount)} to‘landi deb belgilansinmi? Xodimga xabar boradi.`, { ok: "To‘landi" }))) return;
+    setBusy(r.id);
+    try {
+      await call(`/payroll/advances/${r.id}/paid`, {});
+      haptic.success();
+      setAdvances((list) => list?.map((x) => (x.id === r.id ? { ...x, paidAt: new Date().toISOString() } : x)) || null);
+    } catch (e) {
+      fail(e);
+    } finally {
+      setBusy(null);
+    }
+  };
   const advTotal = (advances || []).reduce((s, r) => s + r.amount, 0);
   const fineTotal = (fines || []).reduce((s, r) => s + r.amount, 0);
   return (
@@ -218,11 +242,32 @@ export function MoneyView({ call, canAdvances, canFines, onError }: { call: Call
                       <small>
                         {r.branchName} · oylik {som(r.baseSalary)}
                       </small>
-                      <small>{r.method === "CASH" ? "Naqd" : r.cardMask || "Karta yo‘q"}</small>
+                      {r.method === "CASH" ? (
+                        <small>Naqd</small>
+                      ) : r.cardMask ? (
+                        <small className="mf-card">
+                          {cards[r.id] || r.cardMask}{" "}
+                          {r.source === "REQUEST" && !cards[r.id] ? (
+                            <button type="button" className="mini-link" onClick={() => void reveal(r)}>
+                              ko‘rish
+                            </button>
+                          ) : cards[r.id] ? (
+                            <em>nusxalandi</em>
+                          ) : null}
+                        </small>
+                      ) : (
+                        <small>Karta yo‘q</small>
+                      )}
                     </span>
                     <span className="mf-amount">
                       <b>{som(r.amount)}</b>
-                      <small className={r.paidAt ? "ok" : r.status === "APPROVED" ? "" : "warn"}>{r.paidAt ? "To‘landi" : r.status === "APPROVED" ? "Tasdiqlangan" : "Kutilmoqda"}</small>
+                      {r.source === "REQUEST" && r.status === "APPROVED" && !r.paidAt ? (
+                        <button type="button" className="mf-paid" disabled={busy === r.id} onClick={() => void markPaid(r)}>
+                          To‘landi
+                        </button>
+                      ) : (
+                        <small className={r.paidAt ? "ok" : r.status === "APPROVED" ? "" : "warn"}>{r.paidAt ? "To‘landi ✓" : r.status === "APPROVED" ? "Tasdiqlangan" : "Kutilmoqda"}</small>
+                      )}
                     </span>
                   </div>
                 ))}
