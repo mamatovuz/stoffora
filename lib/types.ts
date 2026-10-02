@@ -125,6 +125,8 @@ export interface Branch {
   scheduleId: string;
   /** QR_GPS_FACE — filial ekranidagi QR ham talab qilinadi; GPS_FACE — faqat yuz va GPS. */
   attendanceMode?: "QR_GPS_FACE" | "GPS_FACE";
+  /** Filial rahbarlari (xodimlar) — avtomatik «Filial rahbari» huquqini oladi. */
+  managerEmployeeIds?: string[];
 }
 export interface Department {
   id: string;
@@ -141,6 +143,8 @@ export interface Position {
   anyBranch?: boolean;
   /** anyBranch bo‘lsa — ruxsat etilgan filiallar; bo‘sh bo‘lsa — barcha faol filiallar. */
   branchIds?: string[];
+  /** Shu lavozimdagi xodimlarga avtomatik panel huquqi (HR, moliya, IT, filial rahbari). */
+  panelRole?: "HR_ADMIN" | "HR_MANAGER" | "FINANCE" | "IT_ADMIN" | "BRANCH_MANAGER";
 }
 export interface ScheduleDay {
   day: number;
@@ -362,6 +366,9 @@ export interface User {
   twoFactorEnabled?: boolean;
   /** Filial rahbari faqat shu filiallarni ko‘radi (bo‘sh — hech qaysi). */
   branchIds?: string[];
+  /** Xodimga bog‘langan hisob (lavozim/filial orqali avtomatik ochilgan bo‘lsa — autoRole). */
+  employeeId?: string;
+  autoRole?: boolean;
   /** Panel tili. */
   language?: "uz" | "ru";
   screenLock?: { enabled: boolean; minutes: number; passwordHash?: string };
@@ -609,6 +616,16 @@ export interface PayrollAdjustment {
   note?: string;
   createdBy: string;
   createdAt: string;
+  /**
+   * Jarima holati: yo‘q yoki APPROVED — oylikdan ushlanadi; PENDING — filial rahbari taklif qilgan,
+   * HR / direktor ko‘rib chiqadi; REJECTED — rad etilgan (hisobga olinmaydi).
+   */
+  status?: "PENDING" | "APPROVED" | "REJECTED";
+  /** Taklif qilgan filial rahbari (PENDING jarima uchun). */
+  proposedBy?: string;
+  decidedBy?: string;
+  decidedAt?: string;
+  decidedNote?: string;
 }
 /** Xodimning Mini App orqali yuborgan avans so‘rovi. */
 export interface AdvanceRequest {

@@ -34,6 +34,7 @@ import {
   dateParts,
   tashkentClock,
   tashkentIsoDate,
+  phoneKey,
 } from "../lib/format";
 import { can, canAny } from "../lib/permissions";
 import { isPracticeDay } from "../lib/counting";
@@ -87,6 +88,8 @@ import { createManagerExtraRouter, createMiniPublicRouter } from "./mini-extra";
 import { createHelpdeskRouter } from "./helpdesk";
 import { createDayOffRouter } from "./dayoff";
 import { createCorrectionRouter } from "./corrections";
+import { createFinanceRouter } from "./finance";
+import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
 import { createTileRouter } from "./tiles";
@@ -521,6 +524,43 @@ app.post(
     });
   }),
 );
+/**
+ * Telefon raqam + Telegram kodi bilan kirish: lavozim orqali avtomatik ochilgan (parolsiz) hisoblar
+ * va Telegram ulangan boshqa rahbarlar uchun. Kod xodimning Telegram’iga (Staffora boti) boradi.
+ */
+app.post(
+  "/api/auth/telegram-code",
+  rateLimit({ windowMs: 60_000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { message: "Juda ko‘p urinish. Bir daqiqadan keyin qayta urinib ko‘ring." } }),
+  asyncRoute(async (req, res) => {
+    const { phone } = z.object({ phone: z.string().trim().min(9).max(20) }).parse(req.body);
+    const key = phoneKey(phone);
+    if (key.length < 9) throw httpError("Telefon raqamini to‘liq kiriting.", 422);
+    const db = await readDb();
+    const employee = db.employees.find((e) => e.status === "ACTIVE" && phoneKey(e.phone) === key && e.telegramId && !e.telegramId.startsWith("dev"));
+    const user =
+      employee &&
+      db.users.find(
+        (u) => u.companyId === employee.companyId && u.role !== "SUPER_ADMIN" && u.role !== "EMPLOYEE" && (u.employeeId === employee.id || u.telegramId === employee.telegramId),
+      );
+    const company = user && db.companies.find((c) => c.id === user.companyId);
+    if (!employee || !user || !company)
+      throw httpError("Bu raqam bilan rahbar hisobi topilmadi yoki Telegram ulanmagan. HR bilan bog‘laning.", 404);
+    if (company.status === "SUSPENDED") throw httpError("Kompaniya hisobi to‘xtatilgan.", 403);
+    cleanupChallenges();
+    const code = String(randomInt(100000, 1000000));
+    const challengeId = id();
+    loginChallenges.set(challengeId, { userId: user.id, codeHash: hashCode(code), expires: Date.now() + 5 * 60_000, attempts: 0 });
+    const sent = await sendTelegramMessage(
+      employee.telegramId!,
+      `🔐 Staffora saytiga kirish kodi: ${code}\n\nKod 5 daqiqa amal qiladi. Uni hech kimga bermang.`,
+    ).catch(() => false);
+    if (!sent) {
+      loginChallenges.delete(challengeId);
+      throw httpError("Kodni Telegram’ga yuborib bo‘lmadi. Botni oching va /start bosing.", 503);
+    }
+    res.json({ requires2fa: true, challengeId, telegram: employee.telegramUsername ? `@${employee.telegramUsername}` : "Telegram" });
+  }),
+);
 app.post(
   "/api/auth/login/verify",
   rateLimit({ windowMs: 60_000, limit: 15 }),
@@ -615,6 +655,7 @@ app.use("/api", createManagerExtraRouter());
 app.use("/api", createHelpdeskRouter());
 app.use("/api", createDayOffRouter());
 app.use("/api", createCorrectionRouter());
+app.use("/api", createFinanceRouter());
 app.use("/api", createMobileAdminRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
@@ -1055,6 +1096,8 @@ const positionSchema = z.object({
   /** Istalgan (yoki tanlangan) filialda keldi-ketdi qilish. */
   anyBranch: z.boolean().optional(),
   branchIds: z.array(z.string()).max(200).optional(),
+  /** Shu lavozimdagilarga panel huquqi ("" — yo‘q). */
+  panelRole: z.union([z.enum(STAFF_ROLES), z.literal("")]).optional(),
 });
 /** Lavozimdagi filiallar faqat shu kompaniyaniki bo‘lsin. */
 const cleanBranchIds = (db: Database, tenant: string, ids?: string[]) =>
@@ -1072,8 +1115,9 @@ app.post(
         )
       )
         throw httpError("Bo‘lim topilmadi.", 404);
-      const value = { id: id(), companyId: tenant, ...input, branchIds: cleanBranchIds(db, tenant, input.branchIds) };
+      const value = { id: id(), companyId: tenant, ...input, branchIds: cleanBranchIds(db, tenant, input.branchIds), panelRole: input.panelRole || undefined };
       db.positions.push(value);
+      syncStaffRoles(db, tenant);
       db.auditLogs.unshift(
         audit(tenant, req.session!.name, "Lavozim yaratildi", "position", value.id),
       );
@@ -1101,7 +1145,12 @@ app.put(
       )
         throw httpError("Bo‘lim topilmadi.", 404);
       const changedAccess = (input.anyBranch !== undefined && input.anyBranch !== Boolean(value.anyBranch)) || input.branchIds !== undefined;
+      const roleBefore = value.panelRole;
       Object.assign(value, input, input.branchIds !== undefined ? { branchIds: cleanBranchIds(db, tenant, input.branchIds) } : {});
+      if (input.panelRole !== undefined) value.panelRole = input.panelRole || undefined;
+      if (value.panelRole !== roleBefore)
+        db.auditLogs.unshift(audit(tenant, req.session!.name, `Lavozim «${value.name}»: panel huquqi — ${value.panelRole || "yo‘q"}`, "position", value.id));
+      syncStaffRoles(db, tenant);
       if (changedAccess)
         db.auditLogs.unshift(
           audit(tenant, req.session!.name, value.anyBranch ? `Lavozim «${value.name}»: istalgan filialdan keldi-ketdi yoqildi` : `Lavozim «${value.name}»: faqat o‘z filiali`, "position", value.id),
@@ -1488,7 +1537,10 @@ app.post(
         updatedAt: now,
       };
       alignDepartment(db, row);
+      // Rahbari ko‘rsatilmagan bo‘lsa — filial rahbari(lari).
+      if (!row.manager) row.manager = branchManagerNames(db, row.branchId) || undefined;
       db.employees.push(row);
+      syncStaffRoles(db, tenant);
       if (reference && input.photoDataUrl) applyPanelReference(db, row, input.photoDataUrl, reference, req.session!.name);
       db.auditLogs.unshift(
         audit(tenant, req.session!.name, reference ? "Xodim yaratildi (rasm — Face ID namunasi)" : "Xodim yaratildi", "employee", row.id),
@@ -1609,6 +1661,9 @@ app.put(
       // Faol bo‘lmagan xodimni qayta faollashtirish ham tarif chegarasiga kiradi.
       if (next.status === "ACTIVE" && before.status !== "ACTIVE") assertEmployeeCapacity(db, tenant);
       db.employees[index] = next;
+      if (next.branchId !== before.branchId && (!next.manager || next.manager === branchManagerNames(db, before.branchId, next.id)))
+        next.manager = branchManagerNames(db, next.branchId, next.id) || undefined;
+      syncStaffRoles(db, tenant);
       if (reference && newPhoto) {
         applyPanelReference(db, next, newPhoto, reference, req.session!.name);
         db.auditLogs.unshift(audit(tenant, req.session!.name, "Xodim rasmi yangilandi — Face ID namunasi shu rasmdan", "employee", employeeId));
@@ -1758,6 +1813,8 @@ app.post(
       employee.dismissedAt = input.date;
       employee.dismissReason = input.reason || undefined;
       employee.updatedAt = new Date().toISOString();
+      // Ishdan ketgan xodimning panel huquqi (avtomatik) o‘chadi.
+      syncStaffRoles(db, tenant);
       db.auditLogs.unshift(
         audit(tenant, req.session!.name, `Xodim ishdan bo‘shatildi (${input.date})`, "employee", employee.id, undefined, { reason: input.reason }),
       );
@@ -1790,6 +1847,7 @@ app.post(
       for (const key of ["branchId", "departmentId", "positionId", "scheduleId"] as const)
         if (input[key]) employee[key] = input[key]!;
       alignDepartment(db, employee);
+      syncStaffRoles(db, tenant);
       assertEmployeeRefs(db, tenant, {
         branchId: employee.branchId,
         scheduleId: employee.scheduleId,
@@ -2084,7 +2142,12 @@ const branchSchema = z.object({
   scheduleId: z.string().default(""),
   status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
   attendanceMode: z.enum(["QR_GPS_FACE", "GPS_FACE"]).default("QR_GPS_FACE"),
+  /** Filial rahbarlari (xodimlar). */
+  managerEmployeeIds: z.array(z.string()).max(20).optional(),
 });
+/** Filial rahbarlari faqat shu kompaniyaning faol xodimlari bo‘lsin. */
+const cleanManagers = (db: Database, tenant: string, ids?: string[]) =>
+  ids ? [...new Set(ids)].filter((eid) => db.employees.some((e) => e.id === eid && e.companyId === tenant && e.status === "ACTIVE")) : undefined;
 app.get(
   "/api/branches",
   requireAnyPermission("org.view", "employees.view", "attendance.view"),
@@ -2115,8 +2178,9 @@ app.post(
     const input = branchSchema.parse(req.body),
       tenant = companyId(req);
     const row = await updateDb((db) => {
-      const branch: Branch = { id: id(), companyId: tenant, ...input };
+      const branch: Branch = { id: id(), companyId: tenant, ...input, managerEmployeeIds: cleanManagers(db, tenant, input.managerEmployeeIds) };
       db.branches.push(branch);
+      syncStaffRoles(db, tenant);
       db.auditLogs.unshift(
         audit(tenant, req.session!.name, "Filial yaratildi", "branch", branch.id),
       );
@@ -2137,7 +2201,10 @@ app.put(
       );
       if (!branch) throw httpError("Filial topilmadi.", 404);
       const before = { ...branch };
-      Object.assign(branch, input);
+      Object.assign(branch, input, input.managerEmployeeIds !== undefined ? { managerEmployeeIds: cleanManagers(db, tenant, input.managerEmployeeIds) } : {});
+      // Rahbarlar olib tashlansa — matn ham tozalanadi.
+      if (input.managerEmployeeIds !== undefined && !branch.managerEmployeeIds?.length && input.manager === undefined) branch.manager = "";
+      syncStaffRoles(db, tenant);
       db.auditLogs.unshift(
         audit(
           tenant,

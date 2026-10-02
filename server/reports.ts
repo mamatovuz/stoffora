@@ -28,7 +28,8 @@ export function payrollRows(db: Database, tenant: string, month: string) {
   const lastDay = monthEnd < today ? monthEnd : today;
   const days = `${month}-01` <= lastDay ? datesBetween(`${month}-01`, lastDay) : [];
   const index = dataIndexes(db);
-  const adjustments = db.payrollAdjustments.filter((a) => a.companyId === tenant && a.month === month);
+  // Kutilayotgan yoki rad etilgan jarimalar oylikka ta’sir qilmaydi.
+  const adjustments = db.payrollAdjustments.filter((a) => a.companyId === tenant && a.month === month && (!a.status || a.status === "APPROVED"));
   return db.employees
     .filter((e) => e.companyId === tenant && e.status === "ACTIVE")
     .map((e) => {

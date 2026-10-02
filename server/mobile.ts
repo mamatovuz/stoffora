@@ -2,6 +2,7 @@ import { randomInt, randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
+import { desiredStaffRole, syncStaffRoles } from "../lib/staff-roles";
 import { audit, readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
 import { adaptProfile, assertConsistentSamples, faceMatchThreshold, isReplayedDescriptor, matchFace, matchPassPercent, matchPercent } from "../lib/face";
@@ -104,8 +105,10 @@ const managerAgent = (deviceId: string) => `Staffora mobil ilova · ${deviceId}`
 const MANAGER_ROLES = new Set(["COMPANY_OWNER", "HR_ADMIN", "HR_MANAGER", "BRANCH_MANAGER", "FINANCE"]);
 /** Xodimning Telegram hisobi bilan bog‘langan panel hisobi (rahbar) — shu kompaniyada. */
 function managerUserOf(db: Database, employee: Employee): User | undefined {
-  if (!employee.telegramId || employee.telegramId.startsWith("dev")) return undefined;
-  return db.users.find((u) => u.telegramId === employee.telegramId && u.companyId === employee.companyId && MANAGER_ROLES.has(u.role));
+  const telegram = employee.telegramId && !employee.telegramId.startsWith("dev") ? employee.telegramId : undefined;
+  return db.users.find(
+    (u) => u.companyId === employee.companyId && MANAGER_ROLES.has(u.role) && ((u.autoRole && u.employeeId === employee.id) || (telegram && u.telegramId === telegram)),
+  );
 }
 const securityLog = (db: Database, companyId: string, actor: string, action: string, employeeId: string, meta?: Record<string, unknown>) =>
   db.auditLogs.unshift(audit(companyId, actor, action, "mobile-device", employeeId, undefined, meta));
@@ -439,7 +442,14 @@ ${out.name}, PIN-kodni tiklash kodi:
       const auth = employeeSessionOf(req);
       const db = await readDb();
       const employee = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId && e.status === "ACTIVE");
-      const user = employee && managerUserOf(db, employee);
+      let user = employee && managerUserOf(db, employee);
+      // Lavozim/filial orqali huquq berilgan, lekin hisob hali ochilmagan — moslab olamiz.
+      if (employee && !user && desiredStaffRole(db, employee))
+        user = await updateDb((next) => {
+          syncStaffRoles(next, employee.companyId);
+          const fresh = next.employees.find((e) => e.id === employee.id);
+          return fresh ? managerUserOf(next, fresh) : undefined;
+        });
       res.json({ allowed: Boolean(user), role: user?.role });
     }),
   );
@@ -454,6 +464,7 @@ ${out.name}, PIN-kodni tiklash kodi:
     route(async (req, res) => {
       const auth = employeeSessionOf(req);
       const out = await updateDb((db) => {
+        syncStaffRoles(db, auth.companyId);
         const employee = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId && e.status === "ACTIVE");
         const user = employee && managerUserOf(db, employee);
         const company = user && db.companies.find((c) => c.id === user.companyId);

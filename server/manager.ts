@@ -3,6 +3,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
 import { audit, readDb, updateDb } from "../lib/store";
+import { syncStaffRoles } from "../lib/staff-roles";
 import type { PanelSession } from "../lib/types";
 import { signSession, type Session } from "./auth";
 import { verifyTelegramInitData } from "./telegram";
@@ -48,6 +49,10 @@ export function createManagerAuthRouter() {
             }
           }
           if (!telegramId) return res.status(204).end();
+          // Lavozim/filial orqali berilgan huquqlar — shu Telegram egasi xodim bo‘lgan kompaniyalarda moslanadi.
+          const before = await readDb();
+          const companies = [...new Set(before.employees.filter((e) => e.telegramId === telegramId && e.status === "ACTIVE").map((e) => e.companyId))];
+          if (companies.length) await updateDb((next) => void companies.forEach((id) => syncStaffRoles(next, id)));
           const db = await readDb();
           // Kompaniya boti orqali kirilgan bo‘lsa — faqat shu kompaniyaning rahbari.
           const user = db.users.find(
