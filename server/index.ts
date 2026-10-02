@@ -91,6 +91,7 @@ import { createCorrectionRouter } from "./corrections";
 import { createFinanceRouter } from "./finance";
 import { createRewardsRouter } from "./rewards";
 import { createWorkspaceRouter } from "./workspace";
+import { assertMonthOpen, createPayrollWorkflowRouter } from "./payroll-workflow";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
@@ -678,6 +679,7 @@ app.use("/api", createCorrectionRouter());
 app.use("/api", createFinanceRouter());
 app.use("/api", createRewardsRouter());
 app.use("/api", createWorkspaceRouter());
+app.use("/api", createPayrollWorkflowRouter());
 app.use("/api", createMobileAdminRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
@@ -2010,6 +2012,7 @@ app.post(
         (e) => e.id === input.employeeId && e.companyId === tenant,
       );
       if (!employee || !inScope(branchScope(req, db), employee.branchId)) throw httpError("Xodim topilmadi.", 404);
+      assertMonthOpen(db, tenant, input.date);
       if (
         db.attendance.some(
           (a) => a.employeeId === employee.id && a.date === input.date,
@@ -2083,6 +2086,7 @@ app.put(
       const owner = record && db.employees.find((e) => e.id === record.employeeId);
       if (!record || !inScope(branchScope(req, db), owner?.branchId || record.branchId))
         throw httpError("Davomat yozuvi topilmadi.", 404);
+      assertMonthOpen(db, tenant, record.date);
       const before = { ...record },
         schedule = db.schedules.find(
           (s) =>
@@ -2137,6 +2141,7 @@ app.delete(
       const owner = record && db.employees.find((e) => e.id === record.employeeId);
       if (!record || !inScope(branchScope(req, db), owner?.branchId || record.branchId))
         throw httpError("Davomat yozuvi topilmadi.", 404);
+      assertMonthOpen(db, tenant, record.date);
       db.attendance = db.attendance.filter((a) => a.id !== record.id);
       db.auditLogs.unshift(
         audit(

@@ -43,6 +43,7 @@ export function emptyDatabase(): Database {
     dayOffMoves: [],
     attendanceCorrections: [],
     rewardAwards: [],
+    payrollWorkflows: [],
     mobileDevices: [],
     mobileSessions: [],
     mobileActivationCodes: [],

@@ -86,6 +86,7 @@ const sections: { label: string; items: NavItem[] }[] = [
     label: "Moliya",
     items: [
       ["/finance", "Moliya xulosasi", Wallet],
+      ["/timesheet", "Timesheet", ClipboardList],
       ["/payroll", "Ish haqi", Banknote],
       ["/advances", "Avans oluvchilar", HandCoins],
       ["/fines", "Jarimalar", Gavel, "fines"],

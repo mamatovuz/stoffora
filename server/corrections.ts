@@ -12,6 +12,7 @@ import type { Attendance, AttendanceCorrection, Database, Employee } from "../li
 import type { AuthedRequest, EmployeeSession } from "./auth";
 import { notifyEmployee } from "./integrations/hooks";
 import { notifyManagers } from "./mini-extra";
+import { assertMonthOpen } from "./payroll-workflow";
 
 /*
  * Belgilash so‘rovi (unutilgan kirish/chiqish):
@@ -287,7 +288,12 @@ export function createCorrectionRouter() {
         if (!employee || !inScope(scopeOf(auth, db), row, employee)) throw httpError("So‘rov topilmadi.", 404);
         if (row.status !== "PENDING") throw httpError("So‘rov allaqachon ko‘rib chiqilgan.", 409);
         const now = new Date().toISOString();
-        if (approve) row.attendanceId = applyCorrection(db, row, employee, auth.session!.name).id;
+        if (approve) {
+          assertMonthOpen(db, tenant, row.date);
+          const before = db.attendance.find((a) => a.employeeId === employee.id && a.date === row.date);
+          row.previous = before ? { checkIn: before.checkIn, checkOut: before.checkOut } : {};
+          row.attendanceId = applyCorrection(db, row, employee, auth.session!.name).id;
+        }
         row.status = approve ? "APPROVED" : "REJECTED";
         row.decidedBy = auth.session!.name;
         row.decidedNote = note || undefined;

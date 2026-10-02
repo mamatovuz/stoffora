@@ -7,6 +7,7 @@ import type { Database, PayrollPeriod, PayslipLine } from "../lib/types";
 import type { AuthedRequest } from "./auth";
 import { notifyEmployee } from "./integrations/hooks";
 import { payrollRows } from "./reports";
+import { freezeMonth, setStage } from "./payroll-workflow";
 
 /*
  * Ish haqi: avans / bonus / jarima, oyni yopish (raqamlar muzlatiladi),
@@ -113,37 +114,8 @@ export function createPayrollRouter() {
       const { sendPayslips } = z.object({ sendPayslips: z.boolean().default(true) }).parse(req.body || {});
       const period = await updateDb((db) => {
         assertOpen(db, tenant, month);
-        const positions = new Map(db.positions.map((p) => [p.id, p.name]));
-        const lines: PayslipLine[] = payrollRows(db, tenant, month).map((r) => ({
-          employeeId: r.employee.id,
-          employeeNo: r.employee.employeeNo,
-          name: `${r.employee.firstName} ${r.employee.lastName}`.trim(),
-          position: positions.get(r.employee.positionId),
-          base: r.base,
-          days: r.days,
-          expectedDays: r.expectedDays,
-          absentDays: r.absentDays,
-          lateMinutes: r.lateMinutes,
-          overtimeAmount: r.overtimeAmount,
-          bonus: r.bonus,
-          lateDeduction: r.deduction,
-          absenceDeduction: r.absenceDeduction,
-          fine: r.fine,
-          advance: r.advance,
-          net: r.net,
-          explanation: r.explanation,
-        }));
-        const value: PayrollPeriod = {
-          id: randomUUID(),
-          companyId: tenant,
-          month,
-          closedAt: new Date().toISOString(),
-          closedBy: req.session!.name,
-          lines,
-          total: lines.reduce((s, l) => s + l.net, 0),
-        };
-        db.payrollPeriods.push(value);
-        db.auditLogs.unshift(audit(tenant, req.session!.name, `${monthLabel(month)} ish haqi yopildi (${lines.length} xodim, ${som(value.total)})`, "payroll", value.id));
+        const value = freezeMonth(db, tenant, month, req.session!.name);
+        setStage(db, tenant, month, "APPROVED", req.session!.name, "To‘g‘ridan-to‘g‘ri yopildi");
         return value;
       });
       let sent = 0;
@@ -163,8 +135,11 @@ export function createPayrollRouter() {
       await updateDb((db) => {
         const period = closedPeriod(db, tenant, month);
         if (!period) throw httpError("Bu oy yopilmagan.", 404);
+        // To‘langan oy — faqat direktor qayta ochadi (Jarayon orqali, sabab bilan).
+        if (db.payrollWorkflows.some((w) => w.companyId === tenant && w.month === month && w.stage === "PAID") && req.session!.role !== "COMPANY_OWNER")
+          throw httpError("To‘langan oyni faqat direktor qayta ochadi.", 403);
         db.payrollPeriods = db.payrollPeriods.filter((p) => p.id !== period.id);
-        db.auditLogs.unshift(audit(tenant, req.session!.name, `${monthLabel(month)} ish haqi qayta ochildi`, "payroll", period.id));
+        setStage(db, tenant, month, "CALCULATING", req.session!.name, "Qayta ochildi");
       });
       res.json({ ok: true });
     }),

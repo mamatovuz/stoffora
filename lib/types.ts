@@ -537,6 +537,7 @@ export interface Database {
   dayOffMoves: DayOffMove[];
   attendanceCorrections: AttendanceCorrection[];
   rewardAwards: RewardAward[];
+  payrollWorkflows: PayrollWorkflow[];
   /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
   mobileDevices: MobileDevice[];
   mobileSessions: MobileSession[];
@@ -716,6 +717,16 @@ export interface PayslipLine {
   explanation: string;
 }
 /** Yopilgan oy — raqamlar o‘zgarmaydi. */
+/** Oyni yopish jarayoni: HR → Moliya → Direktor → To‘landi. */
+export interface PayrollWorkflow {
+  id: string;
+  companyId: string;
+  month: string;
+  stage: "CALCULATING" | "HR_CHECKED" | "FINANCE_CHECKED" | "APPROVED" | "PAID";
+  history: { stage: PayrollWorkflow["stage"]; by: string; at: string; note?: string }[];
+  paidAt?: string;
+  paidBy?: string;
+}
 export interface PayrollPeriod {
   id: string;
   companyId: string;
@@ -883,6 +894,8 @@ export interface AttendanceCorrection {
   decidedAt?: string;
   /** Tasdiqlangach yozilgan davomat qaydi. */
   attendanceId?: string;
+  /** Tasdiqlash paytidagi eski qiymat (audit uchun). */
+  previous?: { checkIn?: string; checkOut?: string };
   createdAt: string;
   updatedAt: string;
 }

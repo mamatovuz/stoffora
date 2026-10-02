@@ -1,3 +1,4 @@
+import { PayrollCompare, PayrollWorkflowBar, BankExportButton } from "../components/PayrollWorkspace";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -174,6 +175,7 @@ export function PayrollPage() {
             <a className="btn" href={`/api/reports/payroll.xlsx?month=${month}`} download>
               <Download size={16} /> Excel
             </a>
+            {closed && canEditPayroll && <BankExportButton month={month} />}
             {closed ? (
               <button className="btn" onClick={() => setReopenOpen(true)}>
                 <LockOpen size={16} /> Qayta ochish
@@ -186,6 +188,7 @@ export function PayrollPage() {
           </>
         }
       />
+      <PayrollWorkflowBar month={month} onChanged={() => void reload(true)} />
       {closed && (
         <div className="alert success" style={{ marginBottom: 16 }}>
           <Lock size={18} />
@@ -337,6 +340,7 @@ export function PayrollPage() {
           </div>
         )}
       </section>
+      {canEditPayroll && <div style={{ marginTop: 16 }}><PayrollCompare month={month} /></div>}
       {salaryOpen && (
         <SalaryModal
           employees={rows.map((x) => x.employee)}
