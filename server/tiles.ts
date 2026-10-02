@@ -10,7 +10,7 @@ import { rateLimit } from "express-rate-limit";
 
 const UPSTREAM = process.env.MAP_TILE_UPSTREAM || "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const AGENT = `Staffora/1.0 (${process.env.APP_URL || "staffora"})`;
-const MAX_CACHE = 3000;
+const MAX_CACHE = 600;
 const cache = new Map<string, { body: Buffer; type: string; at: number }>();
 const inflight = new Map<string, Promise<{ body: Buffer; type: string } | null>>();
 const TTL_MS = 7 * 86_400_000;

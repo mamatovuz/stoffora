@@ -10,7 +10,7 @@
     "dev:client": "vite",
     "dev:server": "tsx watch server/index.ts",
     "prepare:face-models": "node scripts/copy-face-models.mjs",
-    "build": "npm run prepare:face-models && vite build && tsup server/index.ts --format esm --out-dir dist-server --clean",
+    "build": "npm run prepare:face-models && vite build && tsup server/index.ts server/face-worker.ts --format esm --out-dir dist-server --clean",
     "start": "node dist-server/index.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test": "vitest run",

@@ -105,7 +105,7 @@ export default function FaceCheck() {
         } catch (reason) {
           if (stop || !alive.current) return;
           // Server rad etsa (masalan, Face ID sozlanmagan) — to‘xtaymiz; tarmoq/kadr xatosi — davom.
-          if (reason instanceof ApiError && reason.status >= 400 && reason.status !== 429) {
+          if (reason instanceof ApiError && reason.status >= 400 && reason.status !== 429 && reason.status !== 503) {
             setError(errorText(reason));
             setPhase("error");
             return;
@@ -113,6 +113,9 @@ export default function FaceCheck() {
           await new Promise((r) => setTimeout(r, 700));
           continue;
         }
+        if (stop) return;
+        // Serverni ortiqcha yuklamaslik: kadrlar orasida kamida ~0.6 soniya.
+        await new Promise((r) => setTimeout(r, 600));
         if (stop) return;
         setPass(probe.passPercent);
         const where = placement(probe.face);

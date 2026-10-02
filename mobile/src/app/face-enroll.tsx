@@ -68,7 +68,7 @@ export default function FaceEnroll() {
           setHint(STEPS[index]?.title || "Saqlanmoqda…");
         } catch (reason) {
           if (stop) return;
-          if (reason instanceof ApiError && reason.status >= 400 && reason.status !== 429) {
+          if (reason instanceof ApiError && reason.status >= 400 && reason.status !== 429 && reason.status !== 503) {
             setError(errorText(reason));
             return;
           }

@@ -1,124 +1,83 @@
-import { createRequire } from "node:module";
-import path from "node:path";
 import { existsSync } from "node:fs";
+import path from "node:path";
+import { Worker } from "node:worker_threads";
+import type { ServerFace } from "./face-engine";
+
+export type { ServerFace } from "./face-engine";
 
 /*
- * Server tomonida yuz deskriptori (native mobil ilova uchun).
- *
- * Mini App deskriptorni brauzerda hisoblaydi. Native ilova esa faqat JPEG kadr yuboradi —
- * deskriptorni server o‘zi hisoblaydi (mijoz soxta vektor yubora olmaydi). Mini App’dagi
- * bilan bir xil modellar (face-api: TinyFaceDetector + 68 nuqta + ResNet deskriptor), TF.js WASM.
- * Modellar birinchi so‘rovda bir marta yuklanadi.
+ * Server tomonidagi Face ID — alohida oqimda (worker_threads). Yuz hisoblash CPU’ni bir necha
+ * yuz millisoniya band qiladi; asosiy oqimda bo‘lsa, ilova kadrlari kelib turganda sayt va
+ * Mini App javob bermay qolardi. Navbat cheklangan: band bo‘lsa — darhol 503 (ilova qayta urinadi).
  */
 
-type FaceApi = typeof import("@vladmandic/face-api");
-type Tf = typeof import("@tensorflow/tfjs");
+const MAX_QUEUE = 4;
+const JOB_TIMEOUT_MS = 20_000;
+type Job = { id: number; photo: string; resolve: (face: ServerFace | null) => void; reject: (error: Error) => void; timer?: NodeJS.Timeout };
 
-// Build (tsup) `import.meta.url`ni bo‘sh qoldiradi — require loyiha ildizidan (node_modules) olinadi.
-const require = createRequire(path.join(process.cwd(), "package.json"));
-let ready: Promise<{ faceapi: FaceApi; tf: Tf }> | null = null;
+let worker: Worker | null = null;
+let current: Job | null = null;
+const queue: Job[] = [];
+let seq = 0;
 
-function modelDir() {
-  const candidates = [
-    path.join(process.cwd(), "public", "face-models"),
-    path.join(process.cwd(), "dist", "face-models"),
-    path.join(process.cwd(), "node_modules", "@vladmandic", "face-api", "model"),
-  ];
-  const found = candidates.find((dir) => existsSync(path.join(dir, "tiny_face_detector_model-weights_manifest.json")));
-  if (!found) throw new Error("Face ID modellari topilmadi (public/face-models).");
-  return found;
+function workerFile() {
+  const built = path.join(process.cwd(), "dist-server", "face-worker.mjs");
+  const fromDist = (process.argv[1] || "").includes("dist-server");
+  if (fromDist && existsSync(built)) return { file: built, execArgv: [] as string[] };
+  return { file: path.join(process.cwd(), "server", "face-worker.ts"), execArgv: ["--import", "tsx"] };
 }
 
-async function init() {
-  // face-api’ning Node/WASM varianti: @tensorflow/tfjs + wasm backend.
-  const faceapi = require("@vladmandic/face-api/dist/face-api.node-wasm.js") as FaceApi;
-  const tf = faceapi.tf as unknown as Tf & { setBackend: (name: string) => Promise<boolean>; ready: () => Promise<void> };
-  const wasm = require("@tensorflow/tfjs-backend-wasm") as { setWasmPaths: (prefix: string) => void };
-  wasm.setWasmPaths(`${path.dirname(require.resolve("@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm.wasm"))}${path.sep}`);
-  await tf.setBackend("wasm");
-  await tf.ready();
-  const dir = modelDir();
-  await Promise.all([
-    faceapi.nets.tinyFaceDetector.loadFromDisk(dir),
-    faceapi.nets.faceLandmark68TinyNet.loadFromDisk(dir),
-    faceapi.nets.faceRecognitionNet.loadFromDisk(dir),
-  ]);
-  return { faceapi, tf };
+function spawn() {
+  const { file, execArgv } = workerFile();
+  const next = new Worker(file, { execArgv, resourceLimits: { maxOldGenerationSizeMb: 384 } });
+  next.unref();
+  next.on("message", (msg: { id: number; face?: ServerFace | null; error?: string; status?: number }) => {
+    const job = current;
+    if (!job || job.id !== msg.id) return;
+    clearTimeout(job.timer);
+    current = null;
+    if (msg.error) job.reject(Object.assign(new Error(msg.error), { status: msg.status || 500 }));
+    else job.resolve(msg.face ?? null);
+    pump();
+  });
+  const fail = (reason: unknown) => {
+    if (worker === next) worker = null;
+    const job = current;
+    current = null;
+    if (job) {
+      clearTimeout(job.timer);
+      job.reject(Object.assign(new Error("Face ID hisoblashda xato. Qayta urinib ko‘ring."), { status: 503, cause: reason }));
+    }
+    pump();
+  };
+  next.on("error", fail);
+  next.on("exit", (code) => code !== 0 && fail(code));
+  return next;
 }
 
-export function faceEngine() {
-  if (!ready)
-    ready = init().catch((reason) => {
-      ready = null;
-      throw reason;
-    });
-  return ready;
-}
-
-export type ServerFace = {
-  descriptor: number[];
-  /** Yuz qutisi (kadr o‘lchamiga nisbatan 0–1) — ilovada ramka chizish uchun. */
-  box: { x: number; y: number; width: number; height: number };
-  score: number;
-  /** Bosh burilishi (yaw) va egilishi — «to‘g‘ri qarang» tekshiruvi uchun. */
-  yaw: number;
-  roll: number;
-  /** Yuz sohasining yorqinligi (0–255). */
-  light: number;
-};
-
-/** data:image/jpeg;base64,… yoki toza base64 → JPEG piksellar. */
-function decode(jpegBase64: string) {
-  const jpeg = require("jpeg-js") as { decode: (data: Buffer, opts: object) => { width: number; height: number; data: Uint8Array } };
-  const raw = Buffer.from(jpegBase64.replace(/^data:image\/\w+;base64,/, ""), "base64");
-  if (raw.length > 1_500_000) throw Object.assign(new Error("Rasm juda katta."), { status: 413 });
-  return jpeg.decode(raw, { useTArray: true, formatAsRGBA: false, maxMemoryUsageInMB: 64 });
+function pump() {
+  if (current || !queue.length) return;
+  worker ||= spawn();
+  const job = queue.shift()!;
+  current = job;
+  job.timer = setTimeout(() => {
+    // Osilib qolgan hisob — oqim qayta ishga tushiriladi.
+    const stuck = worker;
+    worker = null;
+    current = null;
+    job.reject(Object.assign(new Error("Face ID javob bermadi. Qayta urinib ko‘ring."), { status: 503 }));
+    void stuck?.terminate();
+    pump();
+  }, JOB_TIMEOUT_MS);
+  worker.postMessage({ id: job.id, photo: job.photo });
 }
 
 /** Kadrdan bitta yuzni topib, 128 o‘lchamli deskriptorini qaytaradi (yuz bo‘lmasa — null). */
-export async function describeFace(jpegBase64: string): Promise<ServerFace | null> {
-  const { faceapi, tf } = await faceEngine();
-  const image = decode(jpegBase64);
-  const tensor = tf.tensor3d(image.data, [image.height, image.width, 3], "int32");
-  try {
-    const result = await faceapi
-      .detectSingleFace(tensor as never, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
-      .withFaceLandmarks(true)
-      .withFaceDescriptor();
-    if (!result) return null;
-    const box = result.detection.box;
-    const p = result.landmarks.positions;
-    const avg = (from: number, to: number) => {
-      const slice = p.slice(from, to + 1);
-      return { x: slice.reduce((s, q) => s + q.x, 0) / slice.length, y: slice.reduce((s, q) => s + q.y, 0) / slice.length };
-    };
-    const left = avg(36, 41);
-    const right = avg(42, 47);
-    const eye = Math.hypot(right.x - left.x, right.y - left.y) || 1;
-    const yaw = (p[30].x - (left.x + right.x) / 2) / eye;
-    const roll = Math.atan2(right.y - left.y, right.x - left.x);
-    // Yuz sohasi yorqinligi (har 4-piksel — tez).
-    let sum = 0;
-    let n = 0;
-    const x0 = Math.max(0, Math.floor(box.x));
-    const y0 = Math.max(0, Math.floor(box.y));
-    const x1 = Math.min(image.width, Math.floor(box.x + box.width));
-    const y1 = Math.min(image.height, Math.floor(box.y + box.height));
-    for (let y = y0; y < y1; y += 4)
-      for (let x = x0; x < x1; x += 4) {
-        const i = (y * image.width + x) * 3;
-        sum += 0.299 * image.data[i] + 0.587 * image.data[i + 1] + 0.114 * image.data[i + 2];
-        n += 1;
-      }
-    return {
-      descriptor: Array.from(result.descriptor),
-      box: { x: box.x / image.width, y: box.y / image.height, width: box.width / image.width, height: box.height / image.height },
-      score: result.detection.score,
-      yaw,
-      roll,
-      light: n ? sum / n : 0,
-    };
-  } finally {
-    tensor.dispose();
-  }
+export function describeFace(jpegBase64: string): Promise<ServerFace | null> {
+  if (queue.length >= MAX_QUEUE)
+    return Promise.reject(Object.assign(new Error("Server band — bir soniyadan keyin qayta urinib ko‘ring."), { status: 503, code: "FACE_BUSY" }));
+  return new Promise((resolve, reject) => {
+    queue.push({ id: ++seq, photo: jpegBase64, resolve, reject });
+    pump();
+  });
 }
