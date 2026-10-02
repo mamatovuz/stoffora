@@ -16,7 +16,7 @@ import { Button, Card, Empty, Group, GroupTitle, Hint, Icon, Loading, Sheet, hap
 type Person = { id: string; firstName: string; lastName: string; photoDataUrl?: string; branchName?: string; baseSalary?: number };
 const parse = (v: string) => Number(v.replace(/[^\d]/g, "")) || 0;
 
-export function FineSheet({ visible, direct, onClose, onDone }: { visible: boolean; direct: boolean; onClose: () => void; onDone: (text: string) => void }) {
+export function FineSheet({ visible, direct, onClose, onDone, preset }: { visible: boolean; direct: boolean; onClose: () => void; onDone: (text: string) => void; preset?: Person }) {
   const { c } = useTheme();
   const [q, setQ] = useState("");
   const [people, setPeople] = useState<Person[] | null>(null);
@@ -35,6 +35,7 @@ export function FineSheet({ visible, direct, onClose, onDone }: { visible: boole
     return () => clearTimeout(timer);
   }, [q, picked, visible]);
   useEffect(() => {
+    if (visible && preset) setPicked(preset);
     if (!visible) {
       setPicked(null);
       setAmount("");
@@ -84,9 +85,11 @@ export function FineSheet({ visible, direct, onClose, onDone }: { visible: boole
               {picked.baseSalary ? ` · oylik ${som(picked.baseSalary)}` : ""}
             </Text>
           </View>
-          <Pressable onPress={() => setPicked(null)} hitSlop={8}>
-            <Text style={{ color: c.accent, fontWeight: "500" }}>O‘zgartirish</Text>
-          </Pressable>
+          {!preset ? (
+            <Pressable onPress={() => setPicked(null)} hitSlop={8}>
+              <Text style={{ color: c.accent, fontWeight: "500" }}>O‘zgartirish</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : (
         <>

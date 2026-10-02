@@ -108,6 +108,10 @@ export function createDocumentRouter() {
     route(async (req, res) => {
       const tenant = tenantOf(req);
       const db = await readDb();
+      // Filial rahbari — faqat o‘z filiali xodimlarining hujjatlari.
+      const employee = db.employees.find((e) => e.id === req.params.id && e.companyId === tenant);
+      const scope = req.session!.role === "BRANCH_MANAGER" ? db.users.find((u) => u.id === req.session!.userId)?.branchIds || [] : null;
+      if (!employee || (scope && !scope.includes(employee.branchId))) throw httpError("Xodim topilmadi.", 404);
       const docs = db.documents
         .filter((d) => d.companyId === tenant && d.employeeId === req.params.id)
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -135,7 +139,9 @@ export function createDocumentRouter() {
       const tenant = tenantOf(req);
       const db = await readDb();
       const doc = db.documents.find((d) => d.id === req.params.id && d.companyId === tenant);
-      if (!doc) throw httpError("Hujjat topilmadi.", 404);
+      const owner = doc && db.employees.find((e) => e.id === doc.employeeId);
+      const scope = req.session!.role === "BRANCH_MANAGER" ? db.users.find((u) => u.id === req.session!.userId)?.branchIds || [] : null;
+      if (!doc || (scope && !scope.includes(owner?.branchId || ""))) throw httpError("Hujjat topilmadi.", 404);
       const row = await (await files()).getFile(doc.id);
       if (!row) throw httpError("Fayl topilmadi.", 404);
       res.setHeader("Content-Type", row.mime);

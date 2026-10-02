@@ -273,20 +273,58 @@ export function MiniDocuments({ onToast }: { onToast: Toast }) {
       if (input.current) input.current.value = "";
     }
   }
+  const list = docs || [];
+  const expired = list.filter((d) => d.status === "EXPIRED").length;
+  const soon = list.filter((d) => d.status === "SOON").length;
+  const missing = (["PASSPORT", "MEDICAL", "SANITARY"] as DocumentType[]).filter((t) => docs && !list.some((d) => d.type === t));
+  const left = (iso: string) => Math.round((Date.parse(iso) - Date.parse(new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10))) / 86_400_000);
+  const uploadAs = (t: DocumentType) => {
+    setType(t);
+    window.setTimeout(() => input.current?.click(), 30);
+  };
   return (
     <>
       <div className="mp-group-title">Hujjatlarim</div>
+      {docs !== null && (
+        <div className="md-summary">
+          <span>
+            <b>{list.length}</b> hujjat
+          </span>
+          <span className={soon ? "warn" : ""}>
+            <b>{soon}</b> tugayapti
+          </span>
+          <span className={expired ? "bad" : ""}>
+            <b>{expired}</b> muddati o‘tgan
+          </span>
+        </div>
+      )}
+      {missing.length > 0 && (
+        <section className="mp-group">
+          {missing.map((t) => (
+            <button className="mp-row link" key={t} onClick={() => uploadAs(t)} disabled={busy}>
+              <span className="md-title">
+                <FileText size={15} /> {DOCUMENT_LABELS[t]}
+              </span>
+              <b className="warn">
+                Yuklanmagan · <Upload size={14} />
+              </b>
+            </button>
+          ))}
+        </section>
+      )}
       <section className="mp-group">
         {docs === null ? (
           <SkeletonList rows={3} />
+        ) : !list.length ? (
+          <div className="mini-empty">Hali hujjat yo‘q — pasport, tibbiy ma’lumotnoma va boshqalarni yuklang. HR ham ko‘radi.</div>
         ) : (
-          docs.map((d) => (
+          list.map((d) => (
             <button className="mp-row link" key={d.id} onClick={() => void download(d.id)} disabled={downloading === d.id}>
               <span className="md-title">
                 <FileText size={15} /> {d.title}
               </span>
               <b className={d.status === "EXPIRED" ? "bad" : d.status === "SOON" ? "warn" : ""}>
-                {d.expiresAt ? (d.status === "EXPIRED" ? "Muddati o‘tgan" : `${dateUz(d.expiresAt)} gacha`) : "✓"}
+                {d.expiresAt ? (d.status === "EXPIRED" ? "Muddati o‘tgan" : d.status === "SOON" ? `${left(d.expiresAt)} kun qoldi` : `${dateUz(d.expiresAt)} gacha`) : "✓"}
                 {downloading === d.id ? <LoaderCircle size={14} className="spin" /> : <Download size={14} />}
               </b>
             </button>

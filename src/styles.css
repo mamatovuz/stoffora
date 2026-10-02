@@ -9031,3 +9031,36 @@ html[data-tg-scheme="dark"] .rc-card, html[data-mini-theme="dark"] .rc-card { bo
 .reward-streak { display: grid; justify-items: end; white-space: nowrap; }
 .reward-streak small { color: var(--muted); font-size: 12px; }
 .reward-streak .plus { color: var(--green); }
+
+/* ====================================================================
+   Mini App — minimal uslub: dekorativ gradientlar, porlash va dog‘lar o‘chirildi.
+   Tekis fon, bitta urg‘u rangi; holat ranglari faqat ma’no uchun (ok / kechikish / xato).
+   (Skelet animatsiyasi, Face ID skaner chizig‘i va progress halqasi — funksional, qoldi.)
+   ==================================================================== */
+.mini .mh-hero,
+html[data-tg-scheme="dark"] .mini .mh-hero,
+html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
+.mini .mh-hero::after,
+.mini .mg-hero::after,
+.mini .mini-hero.working::before,
+.mini .rc-card::before,
+.mini .mh-action:not(.out):not(:disabled)::after { display: none; }
+.mini .mg-hero,
+.mini .ms-hero,
+.mini .mst-streak,
+.mini .mg-brief,
+.mini .do-card,
+.mini .bd-card { background: var(--m-card); }
+.mini .mh-action:not(.out):not(:disabled) { background: var(--m-accent); box-shadow: none; }
+.mini .ms-card-saved { background: var(--m-accent); box-shadow: none; }
+.mini .ms-bar i { background: var(--m-success); }
+.mini .tm-branch-head { background: var(--m-accent); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18); }
+.mini .tm-pin.branch.ok .tm-branch-head { background: #16a34a; }
+.mini .tm-pin.branch.warn .tm-branch-head { background: #d97706; }
+.mini .tm-pin.branch.bad .tm-branch-head { background: #dc2626; }
+.mini .mg-ring { background: radial-gradient(closest-side, var(--m-card) 80%, transparent 81% 100%), conic-gradient(from -90deg, var(--m-success) calc(var(--p) * 1%), var(--m-tint) 0); }
+.md-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+.md-summary span { display: grid; justify-items: center; padding: 10px 6px; border-radius: 14px; background: var(--m-card); color: var(--m-muted, #8a8f98); font-size: 12px; }
+.md-summary b { color: var(--m-ink); font-size: 19px; }
+.md-summary .warn b { color: #d97706; }
+.md-summary .bad b { color: var(--m-danger, #e5484d); }

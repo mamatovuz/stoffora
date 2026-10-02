@@ -3,7 +3,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Animated, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { MiniMap } from "@/components/MiniMap";
+import { TileMap } from "@/components/TileMap";
 import { Button, Icon, haptic } from "@/components/ui";
 import { ApiError, errorText, post } from "@/lib/api";
 import { FRAME, PLACEMENT_TEXT, grabFrame, placement, probeFace, verifyFaces, type Placement } from "@/lib/faceCamera";
@@ -323,7 +323,15 @@ export default function FaceCheck() {
       <View style={[st.panel, { paddingBottom: insets.bottom + 10 }]}>
         {branch ? (
           <View style={st.mapWrap}>
-            <MiniMap branch={branch} radius={branch.radiusMeters} me={fix} height={210} />
+            <TileMap
+              height={210}
+              fitKey={`${branch.id}:${fix ? "me" : ""}`}
+              points={[
+                { id: "branch", lat: branch.latitude, lng: branch.longitude, kind: "branch", label: branch.name, tone: "info" },
+                ...(fix ? [{ id: "me", lat: fix.latitude, lng: fix.longitude, kind: "me" as const, label: "Siz", tone: "ok" as const }] : []),
+              ]}
+              circles={[{ id: "r", lat: branch.latitude, lng: branch.longitude, radius: branch.radiusMeters }]}
+            />
             <View style={st.mapNote}>
               <Text style={st.mapNoteText} numberOfLines={1}>
                 {fix

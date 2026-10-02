@@ -1,12 +1,13 @@
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import { Image, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Badge, Card, ErrorBox, Icon, Loading, Segmented, haptic, type IconName } from "@/components/ui";
 import { errorText } from "@/lib/api";
 import { mediaUri } from "@/lib/config";
 import { dateUz, dayTitle, duration, som } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
+import { FineSheet } from "@/components/MoneyTools";
 import { useTheme } from "@/lib/theme";
 
 /*
@@ -41,7 +42,8 @@ type Att = { id: string; date: string; checkIn?: string; checkOut?: string; sche
 type Leave = { id: string; type: string; startDate: string; endDate: string; status: string };
 type Detail = { employee: Emp; attendance: Att[]; leave: Leave[] };
 type Named = { id: string; name: string };
-type View3 = "main" | "attendance" | "requests";
+type View3 = "main" | "attendance" | "requests" | "docs";
+type EmpDoc = { id: string; type: string; title: string; expiresAt?: string; createdAt: string; status: "OK" | "SOON" | "EXPIRED" };
 
 const LEAVE: Record<string, string> = { VACATION: "Mehnat ta’tili", SICK: "Kasallik", PERMISSION: "Ruxsat", UNPAID: "Haq to‘lanmaydigan", OTHER: "Boshqa" };
 const STATUS: Record<string, [string, "warn" | "ok" | "bad" | "muted"]> = {
@@ -62,13 +64,16 @@ export default function EmployeeProfile() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [view, setView] = useState<View3>("main");
+  const [docs, setDocs] = useState<EmpDoc[] | null>(null);
+  const [fining, setFining] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [a, detail, branches, departments, positions] = await Promise.all([
+      const [a, detail, , branches, departments, positions] = await Promise.all([
         managerAuth(),
         mcall<Detail>(`/employees/${id}`),
+        mcall<EmpDoc[]>(`/employees/${id}/documents`).then(setDocs).catch(() => setDocs([])),
         mcall<Named[]>("/branches").catch(() => []),
         mcall<Named[]>("/departments").catch(() => []),
         mcall<Named[]>("/positions").catch(() => []),
@@ -96,6 +101,7 @@ export default function EmployeeProfile() {
   const today = data.attendance[0];
   const fullName = [e.lastName, e.firstName, e.middleName].filter(Boolean).join(" ");
   // Oklad — faqat HR / moliya (filial rahbariga ko‘rsatilmaydi).
+  const canFine = Boolean(auth && (can(auth.user.role, "employees.edit") || can(auth.user.role, "payroll.edit") || auth.user.role === "BRANCH_MANAGER"));
   const showSalary = Boolean(auth && (can(auth.user.role, "employees.edit") || can(auth.user.role, "payroll.edit")) && e.baseSalary);
 
   return (
@@ -122,6 +128,7 @@ export default function EmployeeProfile() {
           <View style={{ flexDirection: "row", gap: 10, marginTop: 4 }}>
             <Action icon="call" label="Qo‘ng‘iroq" color={c.success} onPress={() => void Linking.openURL(`tel:${e.phone!.replace(/[^\d+]/g, "")}`)} />
             <Action icon="copy-outline" label="Nusxa" color={c.accent} onPress={() => void copy(e.phone!)} />
+            {canFine ? <Action icon="hammer-outline" label="Jarima" color={c.danger} onPress={() => setFining(true)} /> : null}
             {e.telegramUsername ? <Action icon="paper-plane-outline" label="Telegram" color="#229ED9" onPress={() => void Linking.openURL(`https://t.me/${e.telegramUsername!.replace(/^@/, "")}`)} /> : null}
           </View>
         ) : null}
@@ -145,6 +152,7 @@ export default function EmployeeProfile() {
           ["main", "Ma’lumotlar"],
           ["attendance", "Qaydnoma"],
           ["requests", "So‘rovlar"],
+          ["docs", `Hujjatlar${docs?.length ? ` · ${docs.length}` : ""}`],
         ]}
       />
 
@@ -196,6 +204,26 @@ export default function EmployeeProfile() {
         </Section>
       ) : null}
 
+      {view === "docs" ? (
+        <Section icon="folder-outline" title="Hujjatlar">
+          {!docs ? <Text style={{ color: c.muted, paddingVertical: 10 }}>Yuklanmoqda…</Text> : null}
+          {docs && !docs.length ? <Text style={{ color: c.muted, paddingVertical: 10 }}>Hujjat yuklanmagan</Text> : null}
+          {(docs || []).map((d, i, list) => (
+            <View key={d.id} style={[st.attRow, i < list.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: c.ink, fontSize: 15, fontWeight: "600" }}>{d.title}</Text>
+                <Text style={{ color: c.muted, fontSize: 12.5 }}>
+                  Yuklangan {dateUz(d.createdAt.slice(0, 10))}
+                  {d.expiresAt ? ` · ${dateUz(d.expiresAt)} gacha` : ""}
+                </Text>
+              </View>
+              {d.expiresAt ? <Badge text={d.status === "EXPIRED" ? "Muddati o‘tgan" : d.status === "SOON" ? "Tugayapti" : "Amal qiladi"} tone={d.status === "EXPIRED" ? "bad" : d.status === "SOON" ? "warn" : "ok"} /> : null}
+            </View>
+          ))}
+          <Text style={{ color: c.muted, fontSize: 12, marginTop: 6 }}>Fayllarni ochish — saytda (xodim profili → Hujjatlar).</Text>
+        </Section>
+      ) : null}
+
       {view === "requests" ? (
         <Section icon="document-text-outline" title="Ta’til va yo‘qlik so‘rovlari">
           {!data.leave.length ? <Text style={{ color: c.muted, paddingVertical: 10 }}>So‘rovlar yo‘q</Text> : null}
@@ -215,6 +243,16 @@ export default function EmployeeProfile() {
           })}
         </Section>
       ) : null}
+      <FineSheet
+        visible={fining}
+        direct={Boolean(auth && (can(auth.user.role, "employees.edit") || can(auth.user.role, "payroll.edit")))}
+        preset={{ id: e.id, firstName: e.firstName, lastName: e.lastName, photoDataUrl: e.photoDataUrl, branchName: nameOf(names.branches, e.branchId), baseSalary: e.baseSalary }}
+        onClose={() => setFining(false)}
+        onDone={(text) => {
+          setFining(false);
+          Alert.alert("Tayyor", text);
+        }}
+      />
     </ScrollView>
   );
 }

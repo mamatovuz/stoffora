@@ -2,7 +2,7 @@ import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { mediaUri } from "@/lib/config";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
-import { MiniMap } from "@/components/MiniMap";
+import { BranchMap } from "@/components/BranchMap";
 import { FineSheet, MoneyView } from "@/components/MoneyTools";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
@@ -14,7 +14,7 @@ type MView = "today" | "requests" | "map" | "week" | "money";
 type Emp = { id: string; firstName: string; lastName: string; photoDataUrl?: string; branchId: string };
 type RosterRow = {
   employee: Emp;
-  record?: { id: string; checkIn?: string; checkOut?: string; lateMinutes: number; flags?: string[] };
+  record?: { id: string; checkIn?: string; checkOut?: string; lateMinutes: number; flags?: string[]; latitude?: number; longitude?: number };
   state: "PRACTICE" | "IN" | "LEFT" | "ABSENT" | "ON_LEAVE" | "DAY_OFF" | "NOT_YET" | "UPCOMING";
   late: boolean;
   scheduledStart?: string;
@@ -359,28 +359,7 @@ export default function Manager() {
         )
       ) : null}
 
-      {view === "map" ? (
-        !branches.length ? (
-          <Empty icon="map-outline" title="Filiallar yo‘q" />
-        ) : (
-          branches.map((b) => {
-            const here = rows.filter((r) => r.employee.branchId === b.id);
-            const inNow = here.filter((r) => r.state === "IN").length;
-            const expected = here.filter((r) => !["ON_LEAVE", "DAY_OFF", "UPCOMING"].includes(r.state)).length;
-            return (
-              <Card key={b.id} style={{ gap: 10, padding: 12 }}>
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                  <Icon name="business" size={18} color={c.accent} />
-                  <Text style={{ color: c.ink, fontWeight: "700", fontSize: 15.5, flex: 1 }}>{b.name}</Text>
-                  <Badge text={`${inNow}/${expected} ishda`} tone={expected && inNow === expected ? "ok" : "info"} />
-                </View>
-                <MiniMap branch={b} radius={b.radiusMeters} height={160} />
-                <Text style={{ color: c.muted, fontSize: 12.5 }}>Ruxsat etilgan radius: {b.radiusMeters} m</Text>
-              </Card>
-            );
-          })
-        )
-      ) : null}
+      {view === "map" ? <BranchMap rows={rows} branches={branches} /> : null}
 
       {view === "week" ? (
         !analytics ? (
