@@ -104,6 +104,8 @@ function normalizeDatabase(database: Database): Database {
   database.kbArticles ||= [];
   database.courses ||= [];
   database.courseAttempts ||= [];
+  database.automationRules ||= [];
+  database.ruleRuns ||= [];
   database.mobileDevices ||= [];
   database.mobileSessions ||= [];
   database.mobileActivationCodes ||= [];

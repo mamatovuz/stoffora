@@ -156,6 +156,9 @@ export function startHrWorker() {
     // Checklist muddati va vazifa eslatmalari.
     const { runOpsReminders } = await import("./ops");
     await runOpsReminders().catch((error) => console.error("Operatsiya eslatmalari xatosi", error));
+    // Avtomatlashtirish qoidalari.
+    const { runRules } = await import("./rules");
+    await runRules().catch((error) => console.error("Qoidalar xatosi", error));
   };
   const today = () => tashkentIsoDate();
   timer = setInterval(() => void tick().then(rewards), 10 * 60_000);

@@ -164,6 +164,10 @@ export interface Department {
   companyId: string;
   name: string;
   manager?: string;
+  /** Tashkiliy tuzilma: yuqori bo‘lim. */
+  parentId?: string;
+  /** Bo‘lim rahbari (xodim). */
+  headEmployeeId?: string;
 }
 export interface Position {
   id: string;
@@ -359,6 +363,30 @@ export interface CourseAttempt {
   passed: boolean;
   answers: number[];
   at: string;
+}
+/** Avtomatlashtirish qoidasi: AGAR hodisa → amallar. */
+export interface AutomationRule {
+  id: string;
+  companyId: string;
+  name: string;
+  active: boolean;
+  trigger: "LATE" | "ABSENT" | "NO_CHECKOUT" | "LATE_STREAK" | "DOC_EXPIRING" | "TASK_OVERDUE" | "INCIDENT_HIGH";
+  conditions: { minutes?: number; count?: number; days?: number; branchIds?: string[] };
+  actions: { type: "NOTIFY_EMPLOYEE" | "NOTIFY_MANAGER" | "NOTIFY_HR" | "CREATE_TASK" | "PROPOSE_FINE"; message?: string; amount?: number }[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt?: string;
+  runs?: number;
+}
+export interface RuleRun {
+  id: string;
+  companyId: string;
+  ruleId: string;
+  at: string;
+  entity: string;
+  employeeId?: string;
+  summary: string;
 }
 /** Smena shabloni (Shift Planner). */
 export interface ShiftTemplate {
@@ -761,6 +789,8 @@ export interface Database {
   kbArticles: KbArticle[];
   courses: Course[];
   courseAttempts: CourseAttempt[];
+  automationRules: AutomationRule[];
+  ruleRuns: RuleRun[];
   /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
   mobileDevices: MobileDevice[];
   mobileSessions: MobileSession[];

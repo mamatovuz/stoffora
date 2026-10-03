@@ -50,6 +50,8 @@ import {
   ListChecks,
   GraduationCap,
   BookOpen,
+  Activity,
+  Zap,
   Siren,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
@@ -58,6 +60,7 @@ import { Avatar } from "./ui";
 import { roleLabels, useAuth } from "../auth";
 import { canAny, canOpenPage, homePage } from "@/lib/permissions";
 import { ScreenLock } from "./ScreenLock";
+import { CommandPalette } from "./CommandPalette";
 import { api } from "../api";
 import { useApi, usePolling } from "../hooks";
 import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
@@ -89,6 +92,8 @@ const sections: { label: string; items: NavItem[] }[] = [
       ["/incidents", "Hodisalar", Siren, "incidents"],
       ["/learning", "O‘qitish", GraduationCap],
       ["/knowledge", "Bilimlar bazasi", BookOpen],
+      ["/activity", "Faoliyat lentasi", Activity],
+      ["/automation", "Avtomatlashtirish", Zap],
     ],
   },
   {
@@ -97,6 +102,7 @@ const sections: { label: string; items: NavItem[] }[] = [
       ["/branches", "Filiallar", Building2],
       ["/schedules", "Ish grafiklari", ClipboardList],
       ["/shift-planner", "Smena rejasi", CalendarRange],
+      ["/org-chart", "Tashkiliy tuzilma", Network],
       ["/departments", "Bo‘limlar", Network],
       ["/positions", "Lavozimlar", BriefcaseBusiness],
     ],
@@ -145,6 +151,7 @@ export function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const searchRef = useRef<HTMLInputElement>(null);
+  const [palette, setPalette] = useState(false);
   const [lang, setLang] = useState<Lang>(() => storedLang() || "uz");
   useEffect(() => {
     document.documentElement.lang = lang;
@@ -254,7 +261,7 @@ export function Shell() {
     const shortcut = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        searchRef.current?.focus();
+        setPalette(true);
       }
     };
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -384,24 +391,12 @@ export function Shell() {
             <small>{company?.name || "Staffora"}</small>
             <b>{pageTitle}</b>
           </div>
-          <form
-            className="search"
-            onSubmit={(event) => {
-              event.preventDefault();
-              const value = searchRef.current?.value.trim();
-              if (!value) return;
-              navigate(`/employees?q=${encodeURIComponent(value)}`);
-              searchRef.current?.blur();
-            }}
-          >
+          <button type="button" className="search search-btn" onClick={() => setPalette(true)} aria-label="Qidiruv (Ctrl+K)">
             <Search size={16} />
-            <input
-              ref={searchRef}
-              aria-label="Xodim qidirish"
-              placeholder="Xodim, ID yoki telefon…"
-            />
+            <span>Qidirish: xodim, filial, sahifa…</span>
             <kbd>Ctrl K</kbd>
-          </form>
+          </button>
+          <CommandPalette open={palette} onClose={() => setPalette(false)} pages={visibleSections.flatMap((section) => section.items.map(([path, label]) => [path, label] as [string, string]))} />
           <div className="top-actions">
             <button
               className="lang-toggle"

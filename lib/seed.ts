@@ -56,6 +56,8 @@ export function emptyDatabase(): Database {
     kbArticles: [],
     courses: [],
     courseAttempts: [],
+    automationRules: [],
+    ruleRuns: [],
     mobileDevices: [],
     mobileSessions: [],
     mobileActivationCodes: [],
