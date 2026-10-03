@@ -23,6 +23,14 @@ const route = (handler: Handler) => (req: Request, res: Response, next: NextFunc
 const httpError = (message: string, status: number) => Object.assign(new Error(message), { status });
 const session = (req: Request) => (req as unknown as { employeeSession?: EmployeeSession }).employeeSession!;
 
+/** Marketplace: xodim shu kuni bo‘shmi (ish kuni emas, ta’tilda emas) va bir filialdami. */
+function eligible(db: Database, e: Employee, swap: ShiftSwapRequest) {
+  const requester = db.employees.find((x) => x.id === swap.requesterId);
+  if (!requester || e.branchId !== requester.branchId) return false;
+  if (dayPlan(db, e, swap.giveDate).enabled) return false;
+  return !db.leaveRequests.some((l) => l.employeeId === e.id && l.status === "APPROVED" && l.startDate <= swap.giveDate && l.endDate >= swap.giveDate);
+}
+
 function describe(db: Database, swap: ShiftSwapRequest) {
   const requester = db.employees.find((e) => e.id === swap.requesterId);
   const colleague = db.employees.find((e) => e.id === swap.colleagueId);
@@ -68,7 +76,7 @@ export function createMiniSwapRouter() {
       const db = await readDb();
       const me = db.employees.find((e) => e.id === auth.employeeId);
       const swaps = db.shiftSwaps
-        .filter((s) => s.companyId === auth.companyId && (s.requesterId === auth.employeeId || s.colleagueId === auth.employeeId))
+        .filter((s) => s.companyId === auth.companyId && (s.requesterId === auth.employeeId || s.colleagueId === auth.employeeId) && s.status !== "OPEN" || (s.status === "OPEN" && s.requesterId === auth.employeeId && s.companyId === auth.companyId))
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .slice(0, 30)
         .map((s) => ({ ...describe(db, s), incoming: s.colleagueId === auth.employeeId }));
@@ -76,7 +84,13 @@ export function createMiniSwapRouter() {
         .filter((e) => e.companyId === auth.companyId && e.status === "ACTIVE" && e.id !== auth.employeeId && e.branchId === me?.branchId)
         .map((e) => ({ id: e.id, name: nameOf(e) }))
         .sort((a, b) => a.name.localeCompare(b.name));
-      res.json({ swaps, colleagues });
+      // Marketplace: hamkasblarning ochiq takliflari (men o‘sha kuni bo‘shman).
+      const offers = me
+        ? db.shiftSwaps
+            .filter((s) => s.companyId === auth.companyId && s.status === "OPEN" && s.requesterId !== me.id && s.giveDate >= tashkentIsoDate() && eligible(db, me, s))
+            .map((s) => describe(db, s))
+        : [];
+      res.json({ swaps, colleagues, offers });
     }),
   );
 
@@ -86,7 +100,8 @@ export function createMiniSwapRouter() {
       const auth = session(req);
       const input = z
         .object({
-          colleagueId: z.string().min(1),
+          /** Bo‘sh — marketplace (mos hamkasblarga ochiq taklif). */
+          colleagueId: z.string().optional(),
           giveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           takeDate: z.union([z.string().regex(/^\d{4}-\d{2}-\d{2}$/), z.literal("")]).optional(),
           reason: z.string().trim().max(200).optional(),
@@ -95,8 +110,34 @@ export function createMiniSwapRouter() {
       const today = tashkentIsoDate();
       const created = await updateDb((db) => {
         const me = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId && e.status === "ACTIVE");
+        if (!me) throw httpError("Xodim topilmadi.", 404);
+        // Marketplace: hamkasb tanlanmagan — ochiq taklif.
+        if (!input.colleagueId) {
+          if (input.giveDate < today) throw httpError("O‘tgan kunni almashtirib bo‘lmaydi.", 422);
+          if (!dayPlan(db, me, input.giveDate).enabled) throw httpError(`${dmy(input.giveDate)} — sizning ish kuningiz emas.`, 422);
+          if (db.shiftSwaps.some((s) => s.requesterId === me.id && s.giveDate === input.giveDate && ["OPEN", "PENDING_COLLEAGUE", "PENDING_MANAGER"].includes(s.status)))
+            throw httpError("Bu kun uchun taklif allaqachon bor.", 409);
+          const now = new Date().toISOString();
+          const swap: ShiftSwapRequest = { id: randomUUID(), companyId: auth.companyId, requesterId: me.id, colleagueId: "", giveDate: input.giveDate, reason: input.reason || undefined, status: "OPEN", createdAt: now, updatedAt: now };
+          db.shiftSwaps.unshift(swap);
+          const candidates = db.employees.filter((e) => e.companyId === me.companyId && e.id !== me.id && e.status === "ACTIVE" && eligible(db, e, swap));
+          for (const c of candidates)
+            db.notifications.unshift({
+              id: randomUUID(),
+              companyId: me.companyId,
+              employeeId: c.id,
+              title: "Smena taklifi",
+              body: `${nameOf(me)} ${dmy(swap.giveDate)} kungi smenasini bermoqchi${swap.reason ? ` — ${swap.reason}` : ""}. Olsangiz — «So‘rovlar → Smena».`,
+              type: "SWAP",
+              read: false,
+              createdAt: now,
+              go: "swaps",
+            });
+          db.auditLogs.unshift(audit(auth.companyId, nameOf(me), `Smena taklifi (marketplace): ${dmy(swap.giveDate)} — ${candidates.length} mos hamkasb`, "employee", me.id));
+          return { swap, me, colleague: undefined as Employee | undefined, open: candidates.length };
+        }
         const colleague = db.employees.find((e) => e.id === input.colleagueId && e.companyId === auth.companyId && e.status === "ACTIVE");
-        if (!me || !colleague) throw httpError("Hamkasb topilmadi.", 404);
+        if (!colleague) throw httpError("Hamkasb topilmadi.", 404);
         if (input.giveDate < today) throw httpError("O‘tgan kunni almashtirib bo‘lmaydi.", 422);
         if (!dayPlan(db, me, input.giveDate).enabled) throw httpError(`${dmy(input.giveDate)} — sizning ish kuningiz emas.`, 422);
         if (dayPlan(db, colleague, input.giveDate).enabled) throw httpError(`${dmy(input.giveDate)} kuni ${colleague.firstName} o‘zi ishlaydi — dam oladigan hamkasbni tanlang.`, 422);
@@ -128,12 +169,16 @@ export function createMiniSwapRouter() {
         };
         db.shiftSwaps.unshift(swap);
         db.auditLogs.unshift(audit(auth.companyId, nameOf(me), `Smena almashish so‘rovi: ${dmy(swap.giveDate)} → ${nameOf(colleague)}`, "employee", me.id));
-        return { swap, me, colleague };
+        return { swap, me, colleague: colleague as Employee | undefined, open: 0 };
       });
       const db = await readDb();
+      if (!created.colleague) {
+        res.status(201).json({ ...describe(db, created.swap), offeredTo: created.open });
+        return;
+      }
       await notify(
         db,
-        created.colleague.id,
+        created.colleague!.id,
         `🔄 <b>Smena almashish so‘rovi</b>\n\n${nameOf(created.me)} ${dmy(created.swap.giveDate)} kungi smenasini sizga bermoqchi${created.swap.takeDate ? `, evaziga ${dmy(created.swap.takeDate)} kuni sizning o‘rningizga ishlaydi` : ""}.${created.swap.reason ? `\nSabab: ${created.swap.reason}` : ""}\n\nStaffora ilovasida «So‘rovlar» bo‘limida javob bering.`,
         "Smena almashish so‘rovi",
       );
@@ -178,6 +223,38 @@ export function createMiniSwapRouter() {
     }),
   );
 
+  /** Marketplace: ochiq taklifni olish → rahbar tasdig‘iga. */
+  router.post(
+    "/mini/swaps/:id/claim",
+    route(async (req, res) => {
+      const auth = session(req);
+      const swap = await updateDb((db) => {
+        const row = db.shiftSwaps.find((s) => s.id === req.params.id && s.companyId === auth.companyId);
+        const me = db.employees.find((e) => e.id === auth.employeeId && e.status === "ACTIVE");
+        if (!row || !me) throw httpError("Taklif topilmadi.", 404);
+        if (row.status !== "OPEN") throw httpError("Bu taklifni allaqachon boshqa hamkasb oldi.", 409);
+        if (row.requesterId === me.id) throw httpError("O‘z taklifingizni ola olmaysiz.", 422);
+        if (!eligible(db, me, row)) throw httpError(`${dmy(row.giveDate)} kuni siz bo‘sh emassiz.`, 422);
+        row.colleagueId = me.id;
+        row.status = "PENDING_MANAGER";
+        row.updatedAt = new Date().toISOString();
+        db.notifications.unshift({
+          id: randomUUID(),
+          companyId: auth.companyId,
+          title: "Smena almashish — tasdiq kutilmoqda",
+          body: `${nameOf(db.employees.find((e) => e.id === row.requesterId))} → ${nameOf(me)}: ${dmy(row.giveDate)} (marketplace). Ta’til va so‘rovlar sahifasida tasdiqlang.`,
+          type: "LEAVE",
+          read: false,
+          createdAt: row.updatedAt,
+        });
+        return { ...row };
+      });
+      const db = await readDb();
+      await notify(db, swap.requesterId, `🙌 ${nameOf(db.employees.find((e) => e.id === swap.colleagueId))} ${dmy(swap.giveDate)} kungi smenangizni oldi. Endi rahbar tasdiqlaydi.`, "Smenangizni olishdi");
+      res.json(describe(db, swap));
+    }),
+  );
+
   router.post(
     "/mini/swaps/:id/cancel",
     route(async (req, res) => {
@@ -185,7 +262,7 @@ export function createMiniSwapRouter() {
       await updateDb((db) => {
         const row = db.shiftSwaps.find((s) => s.id === req.params.id && s.companyId === auth.companyId && s.requesterId === auth.employeeId);
         if (!row) throw httpError("So‘rov topilmadi.", 404);
-        if (!["PENDING_COLLEAGUE", "PENDING_MANAGER"].includes(row.status)) throw httpError("Bu so‘rovni bekor qilib bo‘lmaydi.", 409);
+        if (!["OPEN", "PENDING_COLLEAGUE", "PENDING_MANAGER"].includes(row.status)) throw httpError("Bu so‘rovni bekor qilib bo‘lmaydi.", 409);
         row.status = "CANCELLED";
         row.updatedAt = new Date().toISOString();
       });

@@ -18,6 +18,7 @@ const som = (value: number) => `${Math.round(value).toLocaleString("ru-RU").repl
 type Swap = ShiftSwapRequest & { requesterName: string; colleagueName: string; giveShift?: string; takeShift?: string; incoming: boolean };
 
 const swapChip: Record<ShiftSwapRequest["status"], [string, string]> = {
+  OPEN: ["Ochiq taklif", "warn"],
   PENDING_COLLEAGUE: ["Hamkasb javobi", "warn"],
   PENDING_MANAGER: ["Rahbar tasdig‘i", "warn"],
   APPROVED: ["Tasdiqlandi", "ok"],
@@ -26,12 +27,12 @@ const swapChip: Record<ShiftSwapRequest["status"], [string, string]> = {
 };
 
 export function MiniSwaps({ onToast }: { onToast: Toast }) {
-  const [data, setData] = useState<{ swaps: Swap[]; colleagues: { id: string; name: string }[] } | null>(() => getCached("swaps"));
+  const [data, setData] = useState<{ swaps: Swap[]; colleagues: { id: string; name: string }[]; offers?: Swap[] } | null>(() => getCached("swaps"));
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const load = useCallback(
     () =>
-      api<{ swaps: Swap[]; colleagues: { id: string; name: string }[] }>("/mini/swaps")
+      api<{ swaps: Swap[]; colleagues: { id: string; name: string }[]; offers?: Swap[] }>("/mini/swaps")
         .then((value) => {
           setCached("swaps", value);
           setData(value);
@@ -64,6 +65,25 @@ export function MiniSwaps({ onToast }: { onToast: Toast }) {
         <ArrowLeftRight size={18} /> Smenani almashtirish
       </button>
       {data && !data.colleagues.length && <p className="mp-note">Filialingizda boshqa xodim yo‘q.</p>}
+      {!!data?.offers?.length && (
+        <section className="mini-card sw-incoming">
+          <div className="sw-head">Ochiq takliflar — siz shu kuni bo‘shsiz</div>
+          {data.offers.map((s) => (
+            <div className="sw-item" key={s.id}>
+              <p>
+                <b>{s.requesterName}</b> {dateUz(s.giveDate)}
+                {s.giveShift ? ` (${s.giveShift})` : ""} kungi smenasini bermoqchi.
+              </p>
+              {s.reason && <small>«{s.reason}»</small>}
+              <div className="sw-actions">
+                <button className="mini-btn sm" disabled={busy === s.id} onClick={() => void act(s.id, "claim", {}, "Smena olindi — rahbar tasdig‘i kutilmoqda", `${dateUz(s.giveDate)} kungi smenani olasizmi?`)}>
+                  <Check size={16} /> Olaman
+                </button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
       {incoming.length > 0 && (
         <section className="mini-card sw-incoming">
           <div className="sw-head">Sizga so‘rov keldi</div>
@@ -105,7 +125,7 @@ export function MiniSwaps({ onToast }: { onToast: Toast }) {
                     <ArrowLeftRight size={18} />
                   </span>
                   <span>
-                    <b>{s.incoming ? s.requesterName : s.colleagueName}</b>
+                    <b>{s.status === "OPEN" ? "Ochiq taklif" : s.incoming ? s.requesterName : s.colleagueName}</b>
                     <small>
                       {dateUz(s.giveDate)} — <span>{s.incoming ? "siz ishlaysiz" : "hamkasb ishlaydi"}</span>
                     </small>
@@ -114,7 +134,7 @@ export function MiniSwaps({ onToast }: { onToast: Toast }) {
                         {dateUz(s.takeDate)} — <span>{s.incoming ? "hamkasb ishlaydi" : "siz ishlaysiz"}</span>
                       </small>
                     )}
-                    {!s.incoming && ["PENDING_COLLEAGUE", "PENDING_MANAGER"].includes(s.status) && (
+                    {!s.incoming && ["OPEN", "PENDING_COLLEAGUE", "PENDING_MANAGER"].includes(s.status) && (
                       <button className="mini-link-danger" disabled={busy === s.id} onClick={() => void act(s.id, "cancel", {}, "So‘rov bekor qilindi", "Smena almashish so‘rovini bekor qilasizmi?")}>
                         Bekor qilish
                       </button>
@@ -131,9 +151,9 @@ export function MiniSwaps({ onToast }: { onToast: Toast }) {
         <SwapSheet
           colleagues={data.colleagues}
           onClose={() => setOpen(false)}
-          onSaved={() => {
+          onSaved={(market) => {
             setOpen(false);
-            onToast("So‘rov hamkasbingizga yuborildi");
+            onToast(market ? "Taklif bo‘sh hamkasblarga yuborildi" : "So‘rov hamkasbingizga yuborildi");
             void load();
           }}
         />
@@ -142,21 +162,23 @@ export function MiniSwaps({ onToast }: { onToast: Toast }) {
   );
 }
 
-function SwapSheet({ colleagues, onClose, onSaved }: { colleagues: { id: string; name: string }[]; onClose: () => void; onSaved: () => void }) {
+function SwapSheet({ colleagues, onClose, onSaved }: { colleagues: { id: string; name: string }[]; onClose: () => void; onSaved: (market: boolean) => void }) {
   const today = tashkentIsoDate();
   const [form, setForm] = useState({ colleagueId: "", giveDate: today, takeDate: "", reason: "" });
   const [exchange, setExchange] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const valid = Boolean(form.colleagueId && form.giveDate && (!exchange || form.takeDate));
+  // Hamkasb tanlanmasa — ochiq taklif (marketplace): shu kuni bo‘sh hamkasblarga yuboriladi.
+  const swapBack = exchange && Boolean(form.colleagueId);
+  const valid = Boolean(form.giveDate && (!swapBack || form.takeDate));
   async function save(event?: React.FormEvent) {
     event?.preventDefault();
-    if (!valid) return setError("Hamkasb va sanani tanlang.");
+    if (!valid) return setError("Sanani tanlang (evaz kuni faqat aniq hamkasb bilan).");
     setBusy(true);
     setError("");
     try {
-      await post("/mini/swaps", { ...form, takeDate: exchange ? form.takeDate : "" });
-      onSaved();
+      await post("/mini/swaps", { ...form, colleagueId: form.colleagueId || undefined, takeDate: swapBack ? form.takeDate : "" });
+      onSaved(!form.colleagueId);
     } catch (reason) {
       setError(errorText(reason, "So‘rov yuborilmadi."));
     } finally {
@@ -169,7 +191,7 @@ function SwapSheet({ colleagues, onClose, onSaved }: { colleagues: { id: string;
       title="Smena almashish"
       subtitle="Hamkasb rozi bo‘lgach, rahbar tasdiqlaydi"
       onClose={onClose}
-      primary={{ text: "So‘rov yuborish", onClick: () => void save(), busy, disabled: !valid }}
+      primary={{ text: form.colleagueId ? "So‘rov yuborish" : "Ochiq taklif qilish", onClick: () => void save(), busy, disabled: !valid }}
       secondary={
         colleague
           ? {
@@ -187,7 +209,7 @@ function SwapSheet({ colleagues, onClose, onSaved }: { colleagues: { id: string;
           <label>
             Hamkasb
             <select value={form.colleagueId} onChange={(e) => setForm({ ...form, colleagueId: e.target.value })} required>
-              <option value="">Tanlang</option>
+              <option value="">Hammaga (shu kuni bo‘sh hamkasblar)</option>
               {colleagues.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
@@ -199,11 +221,11 @@ function SwapSheet({ colleagues, onClose, onSaved }: { colleagues: { id: string;
             Men bermoqchi bo‘lgan ish kunim
             <input type="date" min={today} value={form.giveDate} onChange={(e) => setForm({ ...form, giveDate: e.target.value })} required />
           </label>
-          <label className="sw-toggle">
+          {form.colleagueId && <label className="sw-toggle">
             <input type="checkbox" checked={exchange} onChange={(e) => setExchange(e.target.checked)} />
             <span>Evaziga uning bir ish kunini olaman</span>
-          </label>
-          {exchange && (
+          </label>}
+          {swapBack && (
             <label>
               Men ishlab beradigan kun
               <input type="date" min={today} value={form.takeDate} onChange={(e) => setForm({ ...form, takeDate: e.target.value })} required />

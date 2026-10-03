@@ -42,6 +42,7 @@ import {
   HandCoins,
   Gavel,
   Trophy,
+  CalendarRange,
   Package,
   Inbox,
   Wallet,
@@ -80,6 +81,7 @@ const sections: { label: string; items: NavItem[] }[] = [
     items: [
       ["/branches", "Filiallar", Building2],
       ["/schedules", "Ish grafiklari", ClipboardList],
+      ["/shift-planner", "Smena rejasi", CalendarRange],
       ["/departments", "Bo‘limlar", Network],
       ["/positions", "Lavozimlar", BriefcaseBusiness],
     ],

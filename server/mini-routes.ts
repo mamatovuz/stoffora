@@ -1,3 +1,4 @@
+import { breakMinutes } from "../lib/mini";
 import { createMiniMobileRouter } from "./mobile";
 import { Router, type NextFunction, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
@@ -994,6 +995,9 @@ export function createMiniRouter() {
             graceMinutes: schedule?.graceMinutes || 0,
           });
           Object.assign(attendance, calculated);
+          // Tanaffus (tushlik) ish vaqtidan ayiriladi — kompaniya sozlamasi bo‘lsa.
+          const paused = attendance.breaks?.length ? breakMinutes(attendance.breaks, time) : 0;
+          if (paused && db.companies.find((c) => c.id === attendance.companyId)?.payroll?.deductBreaks) attendance.workedMinutes = Math.max(0, attendance.workedMinutes - paused);
           if (!day?.enabled) {
             attendance.overtimeMinutes = attendance.workedMinutes;
             attendance.earlyLeaveMinutes = 0;

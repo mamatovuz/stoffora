@@ -48,6 +48,7 @@ export function emptyDatabase(): Database {
     branchTransfers: [],
     assets: [],
     delegations: [],
+    shiftTemplates: [],
     mobileDevices: [],
     mobileSessions: [],
     mobileActivationCodes: [],

@@ -73,6 +73,7 @@ export const pagePermissions: Record<string, string[]> = {
   "/finance": ["payroll.view", "payroll.edit"],
   "/timesheet": ["employees.edit", "payroll.view", "payroll.edit"],
   "/assets": ["devices.manage", "employees.edit"],
+  "/shift-planner": ["attendance.edit"],
   "/reports": ["reports.view"],
   "/analytics": ["dashboard.view"],
   "/announcements": ["announcements.view"],

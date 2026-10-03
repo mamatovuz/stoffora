@@ -94,6 +94,7 @@ import { createWorkspaceRouter } from "./workspace";
 import { assertMonthOpen, createPayrollWorkflowRouter } from "./payroll-workflow";
 import { createAssetRouter, createPeopleRouter, offboard } from "./people";
 import { createDelegationRouter, delegationMiddleware } from "./delegations";
+import { createShiftRouter } from "./shifts";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
@@ -687,6 +688,7 @@ app.use("/api", createPayrollWorkflowRouter());
 app.use("/api", createPeopleRouter());
 app.use("/api", createAssetRouter());
 app.use("/api", createDelegationRouter());
+app.use("/api", createShiftRouter());
 app.use("/api", createMobileAdminRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
@@ -2880,6 +2882,8 @@ app.put(
         advanceMaxPercent: z.coerce.number().int().min(0).max(100).default(50),
         advanceHrApproval: z.boolean().default(true),
         absenceCompensation: z.boolean().default(true),
+        deductBreaks: z.boolean().default(false),
+        overtimeTwoStep: z.boolean().default(false),
       })
       .parse(req.body);
     const tenant = companyId(req);

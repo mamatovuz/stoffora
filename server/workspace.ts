@@ -198,6 +198,8 @@ export function buildInbox(db: Database, tenant: string, role: Role, scope: Set<
       for (const a of db.attendance.filter((x) => x.companyId === tenant && x.date.startsWith(month) && x.overtimeMinutes > 0 && x.overtimeApproved === undefined)) {
         const e = emp(a.employeeId);
         if (!inScope(e, a.branchId)) continue;
+        // Ikki bosqich: rahbar tasdiqlagani — faqat moliyada; tasdiqlanmagani — rahbarda (moliya ham ko‘radi).
+        if (a.overtimeManagerBy && !can(role, "payroll.edit")) continue;
         items.push({
           kind: "overtime",
           id: a.id,
@@ -205,6 +207,7 @@ export function buildInbox(db: Database, tenant: string, role: Role, scope: Set<
           title: nameOf(e),
           sub: `${dmy(a.date)} · +${a.overtimeMinutes} daq (${a.checkOut || "…"} / grafik ${a.scheduledEnd})`,
           detail: a.overtimeNote,
+          stage: a.overtimeManagerBy ? `Rahbar ✓ (${a.overtimeManagerBy}) → Moliya kutilmoqda` : undefined,
           urgent: false,
           employeeId: e!.id,
           photoDataUrl: e!.photoDataUrl,

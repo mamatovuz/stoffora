@@ -136,6 +136,10 @@ export interface PayrollSettings {
    * (o‘sha dam kunidagi ish esa qo‘shimcha ish sifatida to‘lanmaydi).
    */
   absenceCompensation?: boolean;
+  /** Tanaffus (tushlik) ishlangan vaqtdan ayiriladi. */
+  deductBreaks?: boolean;
+  /** Qo‘shimcha ish: avval rahbar, keyin moliya tasdiqlaydi (moliya foydalanuvchisi bo‘lsa). */
+  overtimeTwoStep?: boolean;
 }
 export interface Branch {
   id: string;
@@ -249,6 +253,15 @@ export interface Delegation {
   createdAt: string;
   revokedAt?: string;
 }
+/** Smena shabloni (Shift Planner). */
+export interface ShiftTemplate {
+  id: string;
+  companyId: string;
+  name: string;
+  start: string;
+  end: string;
+  color: string;
+}
 export interface ReminderRule {
   enabled: boolean;
   offset: number;
@@ -349,6 +362,8 @@ export interface Attendance {
   externalIds?: Record<string, string>;
   /** Qo‘shimcha ish tasdig‘i: true — tasdiqlangan, false — rad etilgan, yo‘q — kutilmoqda. */
   overtimeApproved?: boolean;
+  /** Ikki bosqichli tasdiqda: rahbar tasdiqladi (moliya kutilmoqda). */
+  overtimeManagerBy?: string;
   overtimeDecidedBy?: string;
   /** Shubhali belgilar (masalan soxta GPS) — HR ko‘rib chiqadi. */
   flags?: AttendanceFlag[];
@@ -608,6 +623,7 @@ export interface Database {
   branchTransfers: BranchTransfer[];
   assets: Asset[];
   delegations: Delegation[];
+  shiftTemplates: ShiftTemplate[];
   /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
   mobileDevices: MobileDevice[];
   mobileSessions: MobileSession[];
@@ -938,7 +954,8 @@ export interface ShiftSwapRequest {
   /** Ixtiyoriy: talab qiluvchi o‘rniga hamkasbning shu kunida ishlaydi. */
   takeDate?: string;
   reason?: string;
-  status: "PENDING_COLLEAGUE" | "PENDING_MANAGER" | "APPROVED" | "REJECTED" | "CANCELLED";
+  /** OPEN — marketplace: hamkasb tanlanmagan, mos xodimlarga taklif qilingan. */
+  status: "OPEN" | "PENDING_COLLEAGUE" | "PENDING_MANAGER" | "APPROVED" | "REJECTED" | "CANCELLED";
   decidedBy?: string;
   createdAt: string;
   updatedAt: string;

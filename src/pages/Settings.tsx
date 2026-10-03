@@ -781,6 +781,26 @@ function PayrollSection() {
               </span>
             </label>
           )}
+          <label className="setting-row">
+            <span>
+              <b>Tanaffusni ish vaqtidan ayirish</b>
+              <small>Xodim «Tanaffus» bosgan vaqt (tushlik va h.k.) ishlangan soatga qo‘shilmaydi.</small>
+            </span>
+            <span className="switch">
+              <input type="checkbox" checked={Boolean(form.deductBreaks)} onChange={(e) => setForm({ ...form, deductBreaks: e.target.checked })} />
+              <span />
+            </span>
+          </label>
+          <label className="setting-row">
+            <span>
+              <b>Qo‘shimcha ish — ikki bosqichli tasdiq</b>
+              <small>Avval rahbar (filial rahbari/HR) tasdiqlaydi, keyin moliya. Moliya foydalanuvchisi bo‘lmasa — bitta tasdiq yetarli.</small>
+            </span>
+            <span className="switch">
+              <input type="checkbox" checked={Boolean(form.overtimeTwoStep)} onChange={(e) => setForm({ ...form, overtimeTwoStep: e.target.checked })} />
+              <span />
+            </span>
+          </label>
         </div>
         <div className="alert info" style={{ marginBottom: 14 }}>
           <Banknote size={18} />

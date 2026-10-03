@@ -24,6 +24,7 @@ const STATUS: Record<string, [string, "warn" | "ok" | "bad" | "muted"]> = {
   APPROVED: ["Tasdiqlandi", "ok"],
   REJECTED: ["Rad etildi", "bad"],
   CANCELLED: ["Bekor qilindi", "muted"],
+  OPEN: ["Ochiq taklif", "warn"],
   PENDING_COLLEAGUE: ["Hamkasb javobi", "warn"],
   PENDING_MANAGER: ["Rahbar tasdig‘i", "warn"],
 };
@@ -354,7 +355,7 @@ type Swap = { id: string; status: string; giveDate: string; takeDate?: string; r
 
 function SwapTab() {
   const { c } = useTheme();
-  const { data, error, reload } = useData<{ swaps: Swap[]; colleagues: { id: string; name: string }[] }>("/mini/swaps");
+  const { data, error, reload } = useData<{ swaps: Swap[]; colleagues: { id: string; name: string }[]; offers?: Swap[] }>("/mini/swaps");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const act = async (id: string, path: string, body: object, ask?: string) => {
@@ -377,6 +378,17 @@ function SwapTab() {
       <Button title="Smenani almashtirish" icon="swap-horizontal" onPress={() => setOpen(true)} disabled={!data?.colleagues.length} />
       {data && !data.colleagues.length ? <Text style={{ color: c.muted, fontSize: 13 }}>Filialingizda boshqa xodim yo‘q.</Text> : null}
       {error ? <ErrorBox text={error} onRetry={reload} /> : null}
+      {(data?.offers || []).map((s) => (
+        <Card key={s.id} style={{ gap: 10, borderWidth: 1, borderColor: `${c.accent}55` }}>
+          <Text style={{ color: c.accent, fontWeight: "700", fontSize: 13 }}>OCHIQ TAKLIF — SIZ SHU KUNI BO‘SHSIZ</Text>
+          <Text style={{ color: c.ink, fontSize: 15, lineHeight: 21 }}>
+            <Text style={{ fontWeight: "700" }}>{s.requesterName}</Text> {dateUz(s.giveDate)}
+            {s.giveShift ? ` (${s.giveShift})` : ""} kungi smenasini bermoqchi.
+          </Text>
+          {s.reason ? <Text style={{ color: c.muted }}>«{s.reason}»</Text> : null}
+          <Button title="Olaman" icon="hand-right-outline" busy={busy === s.id} onPress={() => void act(s.id, "claim", {}, `${dateUz(s.giveDate)} kungi smenani olasizmi? Rahbar tasdiqlaydi.`)} />
+        </Card>
+      ))}
       {incoming.map((s) => (
         <Card key={s.id} style={{ gap: 10, borderWidth: 1, borderColor: `${c.warn}55` }}>
           <Text style={{ color: c.warn, fontWeight: "700", fontSize: 13 }}>SIZGA SO‘ROV KELDI</Text>
@@ -402,11 +414,11 @@ function SwapTab() {
             <ListRow
               key={s.id}
               icon="swap-horizontal"
-              title={s.incoming ? s.requesterName : s.colleagueName}
+              title={s.status === "OPEN" ? "Ochiq taklif" : s.incoming ? s.requesterName : s.colleagueName}
               sub={`${dateUz(s.giveDate)} — ${s.incoming ? "siz ishlaysiz" : "hamkasb ishlaydi"}`}
               extra={s.takeDate ? `${dateUz(s.takeDate)} — ${s.incoming ? "hamkasb ishlaydi" : "siz ishlaysiz"}` : undefined}
               badge={s.status}
-              onCancel={!s.incoming && ["PENDING_COLLEAGUE", "PENDING_MANAGER"].includes(s.status) ? () => void act(s.id, "cancel", {}, "Smena almashish so‘rovini bekor qilasizmi?") : undefined}
+              onCancel={!s.incoming && ["OPEN", "PENDING_COLLEAGUE", "PENDING_MANAGER"].includes(s.status) ? () => void act(s.id, "cancel", {}, "Smena almashish so‘rovini bekor qilasizmi?") : undefined}
               last={i === rest.length - 1}
             />
           ))}
@@ -442,7 +454,7 @@ function SwapSheet({ visible, colleagues, onClose, onSaved }: { visible: boolean
     setBusy(true);
     setError("");
     try {
-      await post("/mini/swaps", { colleagueId, giveDate: give, takeDate: exchange ? take : "", reason: reason.trim() });
+      await post("/mini/swaps", { colleagueId: colleagueId || undefined, giveDate: give, takeDate: exchange && colleagueId ? take : "", reason: reason.trim() });
       onSaved();
     } catch (e) {
       setError(errorText(e, "So‘rov yuborilmadi."));
@@ -454,6 +466,9 @@ function SwapSheet({ visible, colleagues, onClose, onSaved }: { visible: boolean
     <Sheet visible={visible} title="Smena almashish" subtitle="Hamkasb rozi bo‘lgach, rahbar tasdiqlaydi" onClose={onClose}>
       <Text style={[st.label, { color: c.muted }]}>Hamkasb</Text>
       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+        <Pressable onPress={() => setColleague("")} style={[st.chip, { borderColor: !colleagueId ? c.accent : c.line, backgroundColor: !colleagueId ? `${c.accent}18` : c.card }]}>
+          <Text style={{ color: !colleagueId ? c.accent : c.ink }}>Hammaga (bo‘shlarga)</Text>
+        </Pressable>
         {colleagues.map((p) => (
           <Pressable key={p.id} onPress={() => setColleague(p.id)} style={[st.chip, { borderColor: colleagueId === p.id ? c.accent : c.line, backgroundColor: colleagueId === p.id ? `${c.accent}18` : c.card }]}>
             <Text style={{ color: colleagueId === p.id ? c.accent : c.ink }}>{p.name}</Text>
@@ -462,14 +477,18 @@ function SwapSheet({ visible, colleagues, onClose, onSaved }: { visible: boolean
       </View>
       <Text style={[st.label, { color: c.muted }]}>Men bermoqchi bo‘lgan ish kunim</Text>
       <DateStrip value={give} onChange={setGive} days={45} />
-      <Pressable onPress={() => setExchange((v) => !v)} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Icon name={exchange ? "checkbox" : "square-outline"} size={22} color={c.accent} />
-        <Text style={{ color: c.ink, fontSize: 15 }}>Evaziga uning kunida men ishlayman</Text>
-      </Pressable>
-      {exchange ? <DateStrip value={take} onChange={setTake} days={45} /> : null}
+      {colleagueId ? (
+        <Pressable onPress={() => setExchange((v) => !v)} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Icon name={exchange ? "checkbox" : "square-outline"} size={22} color={c.accent} />
+          <Text style={{ color: c.ink, fontSize: 15 }}>Evaziga uning kunida men ishlayman</Text>
+        </Pressable>
+      ) : (
+        <Text style={{ color: c.muted, fontSize: 13 }}>Shu kuni bo‘sh hamkasblarga taklif boradi — birinchi olgan kishi rahbar tasdig‘iga o‘tadi.</Text>
+      )}
+      {exchange && colleagueId ? <DateStrip value={take} onChange={setTake} days={45} /> : null}
       <TextInput value={reason} onChangeText={setReason} placeholder="Izoh (ixtiyoriy)" placeholderTextColor={c.muted} style={[st.input, { color: c.ink, borderColor: c.line, backgroundColor: c.card, minHeight: 46 }]} maxLength={300} />
       {error ? <Text style={{ color: c.danger }}>{error}</Text> : null}
-      <Button title="So‘rov yuborish" icon="send" busy={busy} disabled={!colleagueId} onPress={() => void save()} />
+      <Button title={colleagueId ? "So‘rov yuborish" : "Ochiq taklif qilish"} icon="send" busy={busy} onPress={() => void save()} />
     </Sheet>
   );
 }

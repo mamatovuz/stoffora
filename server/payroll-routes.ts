@@ -185,6 +185,7 @@ export function createPayrollRouter() {
             scheduledEnd: a.scheduledEnd,
             overtimeMinutes: a.overtimeMinutes,
             approved: a.overtimeApproved,
+            managerBy: a.overtimeManagerBy,
             decidedBy: a.overtimeDecidedBy,
             note: a.overtimeNote,
             branchId: a.branchId,
@@ -206,11 +207,20 @@ export function createPayrollRouter() {
         if (req.session!.role === "BRANCH_MANAGER" && !(db.users.find((u) => u.id === req.session!.userId)?.branchIds || []).includes(record.branchId))
           throw httpError("Davomat yozuvi topilmadi.", 404);
         assertOpen(db, tenant, record.date.slice(0, 7));
-        record.overtimeApproved = approved;
-        record.overtimeDecidedBy = req.session!.name;
+        // Ikki bosqich: rahbar (davomat huquqi) tasdiqlasa — moliyaga o‘tadi; moliya tasdiqlasa — oylikka.
+        const settings = db.companies.find((c) => c.id === tenant)?.payroll;
+        const hasFinance = db.users.some((u) => u.companyId === tenant && u.role === "FINANCE");
+        const finance = canAny(req.session!.role, ["payroll.edit"]);
+        if (approved && settings?.overtimeTwoStep && hasFinance && !finance) {
+          if (record.overtimeManagerBy) throw httpError("Rahbar allaqachon tasdiqlagan — moliya kutilmoqda.", 409);
+          record.overtimeManagerBy = req.session!.name;
+        } else {
+          record.overtimeApproved = approved;
+          record.overtimeDecidedBy = req.session!.name;
+        }
         record.updatedAt = new Date().toISOString();
         db.auditLogs.unshift(
-          audit(tenant, req.session!.name, `Qo‘shimcha ish ${approved ? "tasdiqlandi" : "rad etildi"} (${record.overtimeMinutes} daq, ${record.date})`, "attendance", record.id),
+          audit(tenant, req.session!.name, `Qo‘shimcha ish ${record.overtimeApproved === undefined && record.overtimeManagerBy ? "rahbar tasdiqladi (moliya kutilmoqda)" : approved ? "tasdiqlandi" : "rad etildi"} (${record.overtimeMinutes} daq, ${record.date})`, "attendance", record.id),
         );
         return record;
       });

@@ -306,6 +306,7 @@ function LeaveForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => v
 }
 
 const swapStatus: Record<ShiftSwapRequest["status"], [string, string]> = {
+  OPEN: ["Ochiq taklif", "PENDING"],
   PENDING_COLLEAGUE: ["Hamkasb javobi kutilmoqda", "PENDING"],
   PENDING_MANAGER: ["Tasdiq kutilmoqda", "PENDING"],
   APPROVED: ["Tasdiqlangan", "APPROVED"],

@@ -96,6 +96,7 @@ function normalizeDatabase(database: Database): Database {
   database.branchTransfers ||= [];
   database.assets ||= [];
   database.delegations ||= [];
+  database.shiftTemplates ||= [];
   database.mobileDevices ||= [];
   database.mobileSessions ||= [];
   database.mobileActivationCodes ||= [];
