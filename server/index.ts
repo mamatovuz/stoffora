@@ -96,6 +96,7 @@ import { createAssetRouter, createPeopleRouter, offboard } from "./people";
 import { createDelegationRouter, delegationMiddleware } from "./delegations";
 import { createShiftRouter } from "./shifts";
 import { createOpsRouter } from "./ops";
+import { createHistoryRouter } from "./history";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
@@ -691,6 +692,7 @@ app.use("/api", createAssetRouter());
 app.use("/api", createDelegationRouter());
 app.use("/api", createShiftRouter());
 app.use("/api", createOpsRouter());
+app.use("/api", createHistoryRouter());
 app.use("/api", createMobileAdminRouter());
 
 app.get("/api/telegram/status", (_req, res) => {

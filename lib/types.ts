@@ -440,7 +440,22 @@ export interface Attendance {
   breaks?: { start: string; end?: string }[];
   /** Xodimning qo‘shimcha ish haqidagi izohi (rahbar tasdiqlashi uchun). */
   overtimeNote?: string;
+  /** Har bir belgi (kirish/chiqish): vaqt, joy, rasm — tarixda «Qaydnoma». */
+  marks?: AttendanceMark[];
   updatedAt: string;
+}
+export interface AttendanceMark {
+  kind: "IN" | "OUT";
+  time: string;
+  branchId: string;
+  branchName: string;
+  latitude?: number;
+  longitude?: number;
+  accuracy?: number;
+  distanceMeters?: number;
+  photoId?: string;
+  method: "FACE" | "BIOMETRIC" | "MANUAL";
+  qr?: boolean;
 }
 export type AttendanceFlag =
   | "GPS_ACCURACY"

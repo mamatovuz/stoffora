@@ -47,6 +47,7 @@ import { createMiniCorrectionRouter } from "./corrections";
 import { createMiniReminderRouter } from "./reminders";
 import { createMiniPeopleRouter } from "./people";
 import { createMiniOpsRouter } from "./ops";
+import { createMiniHistoryRouter, marksOf, saveMarkPhoto } from "./history";
 import { deviceFlags, isDeepLinkParam } from "../lib/mini";
 import { documentInputSchema, saveDocument } from "./documents";
 import {
@@ -332,6 +333,7 @@ export function createMiniRouter() {
   router.use(createMiniReminderRouter());
   router.use(createMiniPeopleRouter());
   router.use(createMiniOpsRouter());
+  router.use(createMiniHistoryRouter());
   router.use(createMiniMobileRouter());
   router.get(
     "/mini/home",
@@ -862,6 +864,8 @@ export function createMiniRouter() {
         if (qrPayload?.type !== "ATTENDANCE_QR")
           return res.status(400).json({ message: "QR turi noto‘g‘ri." });
       }
+      // Belgi rasmi (tarixdagi «Qaydnoma» uchun) — tranzaksiyadan oldin saqlanadi.
+      const markPhotoId = await saveMarkPhoto(auth.companyId, input.photoDataUrl);
       const result = await updateDb((db) => {
         const session = db.attendanceSessions.find(
           (item) =>
@@ -1033,6 +1037,23 @@ export function createMiniRouter() {
         );
         flags.push(...deviceFlags({ motion: input.motion, platform: input.platform, mocked: input.mocked }));
         if (flags.length) attendance.flags = [...new Set([...(attendance.flags || []), ...flags])];
+        // Eski yozuvlarda marks yo‘q — avval mavjud kirishni tiklab olamiz.
+        if (!attendance.marks?.length)
+          attendance.marks = marksOf(db, { ...attendance, checkOut: undefined })
+            .filter((m) => m.kind === "IN" && session.action === "CHECK_OUT");
+        attendance.marks.push({
+          kind: session.action === "CHECK_IN" ? "IN" : "OUT",
+          time,
+          branchId: branch.id,
+          branchName: branch.name,
+          latitude: input.latitude,
+          longitude: input.longitude,
+          accuracy: input.accuracy !== undefined ? Math.round(input.accuracy) : undefined,
+          distanceMeters,
+          photoId: markPhotoId,
+          method: session.method === "BIOMETRIC" ? "BIOMETRIC" : "FACE",
+          qr: requiresQr || undefined,
+        });
         attendance.latitude = input.latitude;
         attendance.longitude = input.longitude;
         attendance.distanceMeters = distanceMeters;

@@ -70,7 +70,8 @@ export async function cleanupDocumentFiles() {
   const db = await readDb();
   // Hali tasdiqlanmagan anketalardagi pasport rasmlari ham saqlanadi.
   const { opsPhotoIds } = await import("./ops");
-  const alive = new Set([...db.documents.map((d) => d.id), ...opsPhotoIds(db), ...db.registrations.flatMap((r) => [r.data.idDocument, r.data.selfie]).filter((id): id is string => Boolean(id))]);
+  const { markPhotoIds } = await import("./history");
+  const alive = new Set([...db.documents.map((d) => d.id), ...opsPhotoIds(db), ...markPhotoIds(db), ...db.registrations.flatMap((r) => [r.data.idDocument, r.data.selfie]).filter((id): id is string => Boolean(id))]);
   const conn = await files();
   let removed = 0;
   for (const id of await conn.fileIds())

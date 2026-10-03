@@ -8,6 +8,7 @@ import { SkeletonList } from "./shared";
 import { getCached, setCached } from "../miniCache";
 import { Seg, type HomeData } from "./shared";
 import { haptic } from "./tg";
+import { HistoryCalendar } from "./HistoryCalendar";
 
 type View = "calendar" | "schedule" | "stats";
 const MONTHS = ["Yanvar", "Fevral", "Mart", "Aprel", "May", "Iyun", "Iyul", "Avgust", "Sentabr", "Oktabr", "Noyabr", "Dekabr"];
@@ -19,7 +20,7 @@ export function MiniHistory({ home, initialView }: { home: HomeData; initialView
   return (
     <div className="mini-body">
       <div className="mini-title">
-        <h1>{view === "calendar" ? "Davomat tarixi" : view === "schedule" ? "Ish grafigim" : "Statistika"}</h1>
+        <h1>{view === "calendar" ? "Taqvim" : view === "schedule" ? "Ish grafigim" : "Statistika"}</h1>
         <p>{view === "stats" ? "Oxirgi 6 oy" : monthTitle(tashkentIsoDate())}</p>
       </div>
       <Seg
@@ -43,131 +44,11 @@ export function MiniHistory({ home, initialView }: { home: HomeData; initialView
 }
 
 /* ---------------------------------------------------------- kalendar --- */
-function CalendarView({ home }: { home: HomeData }) {
-  const [rows, setRows] = useState<Attendance[] | null>(() => getCached<Attendance[]>("history"));
-  const [error, setError] = useState("");
-  useEffect(() => {
-    void api<Attendance[]>("/mini/attendance")
-      .then((value) => {
-        setCached("history", value);
-        setRows(value);
-      })
-      .catch((e) => setError(errorText(e)));
-  }, []);
-  const today = tashkentIsoDate();
-  const month = today.slice(0, 7);
-  const [year, m] = month.split("-").map(Number);
-  const days = new Date(Date.UTC(year, m, 0)).getUTCDate();
-  const offset = (new Date(Date.UTC(year, m - 1, 1)).getUTCDay() + 6) % 7;
-  const byDate = useMemo(() => new Map((rows || []).map((r) => [r.date, r])), [rows]);
-  // Har kun rejasi serverdan: shaxsiy dam kuni, ko‘chirish, smena almashish va ta’til hisobga olingan.
-  const [plan, setPlan] = useState<ScheduleMonth | null>(() => getCached<ScheduleMonth>(`schedule:${month}`));
-  useEffect(() => {
-    void api<ScheduleMonth>(`/mini/schedule?month=${month}`)
-      .then((value) => {
-        setCached(`schedule:${month}`, value);
-        setPlan(value);
-      })
-      .catch(() => undefined);
-  }, [month]);
-  const planOf = useMemo(() => new Map((plan?.days || []).map((d) => [d.date, d])), [plan]);
-  return (
-    <>
-      <section className="mini-card">
-        <div className="mini-cal">
-          {weekOrder.map((d) => (
-            <span key={d}>{weekdayShort[d]}</span>
-          ))}
-          {Array.from({ length: offset }, (_, i) => (
-            <i key={`b${i}`} />
-          ))}
-          {Array.from({ length: days }, (_, i) => {
-            const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-            const row = byDate.get(date);
-            const weekday = dateParts(date).weekday;
-            const day = planOf.get(date);
-            const workday = day ? day.working : (home.schedule?.days.find((d) => d.day === weekday)?.enabled ?? true);
-            const tone = row?.checkIn
-              ? row.lateMinutes
-                ? "late"
-                : "present"
-              : day?.leave
-                ? "leave"
-                : date < today && workday && date >= home.employee.startDate
-                  ? "absent"
-                  : !workday
-                    ? "off"
-                    : "";
-            // Dam olish kunida ishga kelgan — kichik ko‘k nuqta (qoplash / qo‘shimcha ish).
-            const restWork = Boolean(row?.checkIn && day && !day.working && !day.leave);
-            return (
-              <span key={date} className={`mini-cal-day ${tone} ${restWork ? "rest-work" : ""} ${date === today ? "today" : ""}`} title={day?.reason || undefined}>
-                {i + 1}
-              </span>
-            );
-          })}
-        </div>
-        <div className="mini-legend">
-          <span>
-            <i style={{ background: "var(--m-success)" }} /> Vaqtida
-          </span>
-          <span>
-            <i style={{ background: "var(--m-warn)" }} /> Kechikkan
-          </span>
-          <span>
-            <i style={{ background: "var(--m-danger)" }} /> Kelmagan
-          </span>
-          <span>
-            <i style={{ background: "var(--m-rest)" }} /> Dam olish
-          </span>
-        </div>
-      </section>
-      {error && (
-        <div className="mini-alert">
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
-      <section className="mini-card">
-        {rows === null ? (
-          <SkeletonList rows={4} />
-        ) : rows.length === 0 ? (
-          <div className="mini-empty">
-            <Clock3 size={28} />
-            Hali davomat qaydlari yo‘q
-          </div>
-        ) : (
-          <div className="mini-rows">
-            {rows.map((item) => (
-              <div className="mini-row" key={item.id}>
-                <span className="mini-date">
-                  <b>{dateParts(item.date).day}</b>
-                  <small>{monthShortUz(item.date)}</small>
-                </span>
-                <span>
-                  <b>
-                    {item.checkIn || "—"} → {item.checkOut || "…"}
-                  </b>
-                  <small>
-                    {item.workedMinutes ? duration(item.workedMinutes) : "Ish davom etmoqda"}
-                    {item.lateMinutes ? ` · ${item.lateMinutes} daq kech` : ""}
-                    {item.overtimeMinutes ? ` · +${item.overtimeMinutes} daq` : ""}
-                    {item.breaks?.length ? ` · ☕ ${item.breaks.length}` : ""}
-                  </small>
-                </span>
-                <span className={`mini-chip ${item.lateMinutes ? "warn" : item.checkOut ? "ok" : "info"}`}>
-                  {item.lateMinutes ? "Kechikdi" : item.checkOut ? "Vaqtida" : "Ishda"}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    </>
-  );
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function CalendarView(_props: { home: HomeData }) {
+  return <HistoryCalendar fetcher={api} base="/mini/history" />;
 }
 
-/* ---------------------------------------------------------- grafigim --- */
 type ScheduleDay = {
   date: string;
   working: boolean;

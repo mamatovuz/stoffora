@@ -8,6 +8,7 @@ import { mediaUri } from "@/lib/config";
 import { dateUz, dayTitle, duration, som } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { FineSheet } from "@/components/MoneyTools";
+import { HistoryCalendar } from "@/components/HistoryCalendar";
 import { useTheme } from "@/lib/theme";
 
 /*
@@ -154,7 +155,7 @@ export default function EmployeeProfile() {
         onChange={setView}
         options={[
           ["main", "Ma’lumotlar"],
-          ["attendance", "Qaydnoma"],
+          ["attendance", "Taqvim"],
           ["requests", "So‘rovlar"],
           ["docs", `Hujjatlar${docs?.length ? ` · ${docs.length}` : ""}`],
           ["history", "Tarix"],
@@ -188,26 +189,7 @@ export default function EmployeeProfile() {
         </>
       ) : null}
 
-      {view === "attendance" ? (
-        <Section icon="locate-outline" title="Qaydnoma (oxirgi 30 ta)">
-          {!data.attendance.length ? <Text style={{ color: c.muted, paddingVertical: 10 }}>Qaydlar yo‘q</Text> : null}
-          {data.attendance.slice(0, 30).map((a, i, list) => (
-            <View key={a.id} style={[st.attRow, i < list.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={{ color: c.ink, fontSize: 15, fontWeight: "600" }}>{dayTitle(a.date)}</Text>
-                <Text style={{ color: c.muted, fontSize: 12.5 }}>
-                  {a.workedMinutes ? `${duration(a.workedMinutes)} ishlagan` : "ishda"}
-                  {a.lateMinutes ? ` · ${a.lateMinutes} daq kech` : ""}
-                  {a.verification.includes("MANUAL") ? " · qo‘lda" : ""}
-                </Text>
-              </View>
-              <Text style={{ color: a.lateMinutes ? c.warn : c.ink, fontSize: 15, fontWeight: "600", fontVariant: ["tabular-nums"] }}>
-                {a.checkIn || "--:--"} – {a.checkOut || "--:--"}
-              </Text>
-            </View>
-          ))}
-        </Section>
-      ) : null}
+      {view === "attendance" ? <HistoryCalendar fetcher={mcall} base={`/employees/${id}/history`} /> : null}
 
       {view === "history" ? (
         <>

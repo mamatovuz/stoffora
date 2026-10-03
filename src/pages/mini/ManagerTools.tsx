@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { HistoryCalendar } from "./HistoryCalendar";
 import { AlertTriangle, CalendarClock, FileText, Flame, Megaphone, MessageCircle, Phone, ShieldCheck, Sun } from "lucide-react";
 import { dateUz, duration, tashkentClock, tashkentIsoDate } from "@/lib/format";
 import type { Attendance, Branch } from "@/lib/types";
@@ -151,7 +152,8 @@ export function EmployeeCardSheet({
 }) {
   const [card, setCard] = useState<Card | null>(null);
   const [error, setError] = useState("");
-  const [tab, setTab] = useState<"stats" | "history" | "docs">("stats");
+  const [tab, setTab] = useState<"stats" | "calendar" | "history" | "docs">("stats");
+  const fetcher = useCallback(<T,>(path: string) => call<T>(path), [call]);
   const [marking, setMarking] = useState(false);
   const [reviewing, setReviewing] = useState<string | null>(null);
   async function review(id: string, verdict: "OK" | "SUSPICIOUS") {
@@ -247,15 +249,17 @@ export function EmployeeCardSheet({
             </div>
           )}
           <Seg
-            className="three"
+            className="four"
             value={tab}
             onChange={setTab}
             options={[
               ["stats", "Bu oy"],
-              ["history", "Tarix"],
+              ["calendar", "Taqvim"],
+              ["history", "Qaydlar"],
               ["docs", "Hujjatlar"],
             ]}
           />
+          {tab === "calendar" && <HistoryCalendar fetcher={fetcher} base={`/employees/${employeeId}/history`} />}
           {tab === "stats" && (
             <>
               <section className="mg-kpis">

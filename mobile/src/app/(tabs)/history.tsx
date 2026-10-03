@@ -6,6 +6,8 @@ import { WEEKDAYS_SHORT, dateLongUz, dateUz, duration, tashkentIsoDate, weekdayS
 import { radius, useTheme } from "@/lib/theme";
 import type { Attendance, HomeData } from "@/lib/types";
 import { useData } from "@/lib/useData";
+import { api } from "@/lib/api";
+import { HistoryCalendar } from "@/components/HistoryCalendar";
 
 type View3 = "calendar" | "schedule" | "stats";
 type PlanDay = { date: string; working: boolean; start: string; end: string; overridden: boolean; reason?: string; leave?: string; checkIn?: string; checkOut?: string; lateMinutes: number; workedMinutes: number };
@@ -32,7 +34,7 @@ export default function History() {
     if (params.view) setView(params.view);
   }, [params.view]);
   return (
-    <Screen title={view === "calendar" ? "Davomat tarixi" : view === "schedule" ? "Ish grafigim" : "Statistika"}>
+    <Screen title={view === "calendar" ? "Taqvim" : view === "schedule" ? "Ish grafigim" : "Statistika"}>
       <Segmented<View3>
         value={view}
         onChange={setView}
@@ -49,97 +51,7 @@ export default function History() {
 
 /* ------------------------------------------------------------ kalendar --- */
 function CalendarView() {
-  const { c } = useTheme();
-  const today = tashkentIsoDate();
-  const month = today.slice(0, 7);
-  const { data: rows, error, reload } = useData<Attendance[]>("/mini/attendance");
-  const { data: plan } = useData<PlanMonth>(`/mini/schedule?month=${month}`);
-  const { data: home } = useData<HomeData>("/mini/home", { refetchOnFocus: false });
-  const byDate = useMemo(() => new Map((rows || []).map((r) => [r.date, r])), [rows]);
-  const planOf = useMemo(() => new Map((plan?.days || []).map((d) => [d.date, d])), [plan]);
-  const days = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).getUTCDate();
-  const start = (home?.employee as { startDate?: string } | undefined)?.startDate || "0000";
-  const toneColor = { present: c.success, late: c.warn, absent: c.danger, leave: c.violet, off: c.muted } as const;
-
-  return (
-    <>
-      <Card>
-        <View style={st.calHead}>
-          {ORDER.map((d) => (
-            <Text key={d} style={[st.calWeek, { color: c.muted }]}>
-              {WEEKDAYS_SHORT[d]}
-            </Text>
-          ))}
-        </View>
-        <View style={st.cal}>
-          {Array.from({ length: firstOffset(month) }, (_, i) => (
-            <View key={`b${i}`} style={st.cell} />
-          ))}
-          {Array.from({ length: days }, (_, i) => {
-            const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-            const row = byDate.get(date);
-            const day = planOf.get(date);
-            const workday = day ? day.working : true;
-            const tone = row?.checkIn ? (row.lateMinutes ? "late" : "present") : day?.leave ? "leave" : date < today && workday && date >= start ? "absent" : !workday ? "off" : null;
-            const color = tone ? toneColor[tone] : null;
-            const restWork = Boolean(row?.checkIn && day && !day.working && !day.leave);
-            return (
-              <View key={date} style={st.cell}>
-                <View style={[st.day, color && tone !== "off" ? { backgroundColor: `${color}22` } : null, date === today && { borderWidth: 1.5, borderColor: c.accent }]}>
-                  <Text style={{ color: tone === "off" ? c.muted : color || c.ink, fontWeight: color ? "700" : "500", fontSize: 14.5 }}>{i + 1}</Text>
-                  {restWork ? <View style={[st.restDot, { backgroundColor: c.accent }]} /> : null}
-                </View>
-              </View>
-            );
-          })}
-        </View>
-        <View style={st.legend}>
-          {(
-            [
-              ["Vaqtida", c.success],
-              ["Kechikkan", c.warn],
-              ["Kelmagan", c.danger],
-              ["Dam olish", c.violet],
-            ] as const
-          ).map(([label, color]) => (
-            <View key={label} style={st.legendItem}>
-              <View style={[st.legendDot, { backgroundColor: color }]} />
-              <Text style={{ color: c.muted, fontSize: 12 }}>{label}</Text>
-            </View>
-          ))}
-        </View>
-      </Card>
-      {error ? <ErrorBox text={error} onRetry={reload} /> : null}
-      {!rows ? (
-        <Loading />
-      ) : rows.length === 0 ? (
-        <Empty icon="time-outline" title="Hali davomat qaydlari yo‘q" />
-      ) : (
-        <Group>
-          {rows.map((item, i) => (
-            <View key={item.id} style={[st.histRow, i < rows.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
-              <View style={[st.dateBox, { backgroundColor: c.tint }]}>
-                <Text style={{ color: c.ink, fontWeight: "700", fontSize: 17 }}>{Number(item.date.slice(8))}</Text>
-                <Text style={{ color: c.muted, fontSize: 11 }}>{weekdayShort(item.date)}</Text>
-              </View>
-              <View style={{ flex: 1, gap: 2 }}>
-                <Text style={{ color: c.ink, fontWeight: "600", fontSize: 15.5, fontVariant: ["tabular-nums"] }}>
-                  {item.checkIn || "—"} → {item.checkOut || "…"}
-                </Text>
-                <Text style={{ color: c.muted, fontSize: 12.5 }}>
-                  {item.workedMinutes ? duration(item.workedMinutes) : "Ish davom etmoqda"}
-                  {item.lateMinutes ? ` · ${item.lateMinutes} daq kech` : ""}
-                  {item.overtimeMinutes ? ` · +${item.overtimeMinutes} daq` : ""}
-                  {item.breaks?.length ? ` · ☕ ${item.breaks.length}` : ""}
-                </Text>
-              </View>
-              <Badge text={item.lateMinutes ? "Kechikdi" : item.checkOut ? "Vaqtida" : "Ishda"} tone={item.lateMinutes ? "warn" : item.checkOut ? "ok" : "info"} />
-            </View>
-          ))}
-        </Group>
-      )}
-    </>
-  );
+  return <HistoryCalendar fetcher={api} base="/mini/history" />;
 }
 
 /* ------------------------------------------------------------ grafigim --- */
