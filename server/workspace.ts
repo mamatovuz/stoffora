@@ -1,3 +1,4 @@
+import { opsSummary } from "./ops";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { dataIndexes, readDb } from "../lib/store";
 import { can, canAny } from "../lib/permissions";
@@ -364,6 +365,14 @@ function buildActions(db: Database, tenant: string, role: Role, scope: Set<strin
       .filter((b) => b.companyId === tenant && (!scope || scope.has(b.id)) && b.requiredStaff)
       .filter((b) => tomorrowReadiness(db, employees.filter((e) => e.branchId === b.id), tomorrow, b.requiredStaff).shortage > 0);
     push({ level: "orange", text: "filialda ertaga xodim yetishmaydi", count: short.length, link: "/branches", view: "today" });
+  }
+  // Operatsiya: vazifalar, checklistlar, hodisalar.
+  if (canAny(role, ["ops.manage", "incidents.it"])) {
+    const ops = opsSummary(db, tenant, { branches: scope, itOnly: !can(role, "ops.manage") });
+    push({ level: "red", text: "jiddiy hodisa hal qilinmagan", count: ops.highIncidents, link: "/incidents", view: "ops" });
+    push({ level: "orange", text: "ochiq hodisa (muammo)", count: ops.openIncidents - ops.highIncidents, link: "/incidents", view: "ops" });
+    push({ level: "orange", text: "vazifa muddati o‘tgan", count: ops.overdueTasks, link: "/tasks", view: "ops" });
+    push({ level: "yellow", text: "checklist vaqtida tugamagan", count: ops.checklists.overdue, link: "/checklists", view: "ops" });
   }
   const order = { red: 0, orange: 1, yellow: 2, info: 3 };
   return out.sort((a, b) => order[a.level] - order[b.level]);

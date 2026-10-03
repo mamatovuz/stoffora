@@ -36,6 +36,7 @@ import {
 } from "./mini/tg";
 import type { ProfileSection } from "./mini/Profile";
 import type { HelpdeskView } from "./mini/Helpdesk";
+import type { WorkView } from "./mini/Work";
 import { disableZoom } from "./mini/noZoom";
 import { BirthdaysSheet } from "./mini/Birthdays";
 import { FaceCheck } from "./mini/FaceCheck";
@@ -46,6 +47,7 @@ const MiniRequests = lazy(() => import("./mini/Requests").then((m) => ({ default
 const MiniProfile = lazy(() => import("./mini/Profile").then((m) => ({ default: m.MiniProfile })));
 const ManagerHome = lazy(() => import("./MiniManager").then((m) => ({ default: m.ManagerHome })));
 const DirectorySheet = lazy(() => import("./mini/Directory").then((m) => ({ default: m.DirectorySheet })));
+const WorkSheet = lazy(() => import("./mini/Work").then((m) => ({ default: m.WorkSheet })));
 const HelpdeskSheet = lazy(() => import("./mini/Helpdesk").then((m) => ({ default: m.HelpdeskSheet })));
 const Receipt = lazy(() => import("./mini/Receipt").then((m) => ({ default: m.Receipt })));
 
@@ -103,6 +105,7 @@ export function MiniAppPage() {
   const [salaryOpen, setSalaryOpen] = useState(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [helpdesk, setHelpdesk] = useState<{ view?: HelpdeskView; id?: string } | null>(null);
+  const [work, setWork] = useState<{ view: WorkView; id?: string } | null>(null);
   const [birthdaysOpen, setBirthdaysOpen] = useState(false);
   /** Davomat natijasi «cheki»; yopilgach (kerak bo‘lsa) biometriya taklif qilinadi. */
   const [receipt, setReceipt] = useState<{ row: Attendance; action: Action; method: Flow["method"] } | null>(null);
@@ -343,6 +346,10 @@ export function MiniAppPage() {
         if (link.action === "notifs") setNotifOpen(true);
         return;
       }
+      if (link.tab === "work") {
+        setWork({ view: link.view, id: link.id });
+        return;
+      }
       if (link.tab === "profile" && link.section === "directory") {
         setDirectoryOpen(true);
         return;
@@ -390,7 +397,7 @@ export function MiniAppPage() {
   useSettingsButton(() => navigate({ tab: "profile", section: "settings" }));
 
   // Telegram «Orqaga» tugmasi
-  const anyOpen = notifOpen || salaryOpen || directoryOpen || Boolean(helpdesk) || birthdaysOpen || Boolean(receipt) || Boolean(flow) || Boolean(faceAction) || bioEnroll;
+  const anyOpen = notifOpen || salaryOpen || directoryOpen || Boolean(helpdesk) || Boolean(work) || birthdaysOpen || Boolean(receipt) || Boolean(flow) || Boolean(faceAction) || bioEnroll;
   useBackButton(
     anyOpen || nav.tab !== "home"
       ? () => {
@@ -399,6 +406,7 @@ export function MiniAppPage() {
           else if (directoryOpen) setDirectoryOpen(false);
           else if (receipt) closeReceipt();
           else if (helpdesk) setHelpdesk(null);
+          else if (work) setWork(null);
           else if (birthdaysOpen) setBirthdaysOpen(false);
           else if (flow) setFlow(null);
           else if (faceAction) setFaceAction(null);
@@ -704,6 +712,7 @@ export function MiniAppPage() {
                 if (enable && webApp?.requestEmojiStatusAccess && supports("8.0")) webApp.requestEmojiStatusAccess(() => undefined);
               }}
               onDirectory={() => setDirectoryOpen(true)}
+              onWork={(view) => setWork({ view })}
               onHelpdesk={(view) => setHelpdesk({ view })}
               onBirthdays={() => setBirthdaysOpen(true)}
             />
@@ -788,6 +797,7 @@ export function MiniAppPage() {
       <Suspense fallback={null}>
         {salaryOpen && <SalarySheet onClose={() => setSalaryOpen(false)} onToast={showToast} />}
         {directoryOpen && <DirectorySheet onClose={() => setDirectoryOpen(false)} />}
+        {work && <WorkSheet onClose={() => setWork(null)} onToast={showToast} initialView={work.view} focusId={work.id} />}
         {helpdesk && <HelpdeskSheet onClose={() => setHelpdesk(null)} onToast={showToast} initialView={helpdesk.view} focusId={helpdesk.id} />}
         {birthdaysOpen && <BirthdaysSheet onClose={() => setBirthdaysOpen(false)} onToast={showToast} />}
         {receipt && (

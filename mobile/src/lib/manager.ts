@@ -49,11 +49,11 @@ export async function mcall<T>(path: string, body?: unknown, method = body === u
 const ROLE_PERMS: Record<string, string[]> = {
   COMPANY_OWNER: ["*"],
   // HR bitta: «HR menejer» ham HR bilan bir xil.
-  HR_ADMIN: ["attendance.view", "attendance.edit", "leave.approve", "employees.edit", "employees.view", "dashboard.view", "announcements.create"],
-  HR_MANAGER: ["attendance.view", "attendance.edit", "leave.approve", "employees.edit", "employees.view", "dashboard.view", "announcements.create"],
+  HR_ADMIN: ["attendance.view", "attendance.edit", "leave.approve", "employees.edit", "employees.view", "dashboard.view", "announcements.create", "ops.manage"],
+  HR_MANAGER: ["attendance.view", "attendance.edit", "leave.approve", "employees.edit", "employees.view", "dashboard.view", "announcements.create", "ops.manage"],
   FINANCE: ["payroll.edit"],
   // IT: telefonlar (ulash/almashtirish/o‘chirish).
-  IT_ADMIN: ["devices.manage", "employees.view"],
-  BRANCH_MANAGER: ["attendance.view", "attendance.edit", "dashboard.view"],
+  IT_ADMIN: ["devices.manage", "employees.view", "incidents.it"],
+  BRANCH_MANAGER: ["attendance.view", "attendance.edit", "dashboard.view", "ops.manage"],
 };
 export const can = (role: Role, permission: string) => (ROLE_PERMS[role] || []).some((p) => p === "*" || p === permission);

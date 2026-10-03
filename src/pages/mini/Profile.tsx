@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Cake, ChevronRight, Fingerprint, MapPin, MessageCircleQuestion, ScrollText, Share2, Smile, Users } from "lucide-react";
+import { Cake, ChevronRight, Fingerprint, ListChecks, ListTodo, MapPin, MessageCircleQuestion, ScrollText, Share2, Smile, TriangleAlert, Users } from "lucide-react";
 import type { HelpdeskView } from "./Helpdesk";
+import type { WorkView } from "./Work";
 import { MobileLinkRow } from "./MobileLink";
 import { MiniReminders } from "./Reminders";
 import { dateUz, tashkentWeekday } from "@/lib/format";
@@ -33,6 +34,7 @@ export function MiniProfile({
   onEmojiStatus,
   onDirectory,
   onHelpdesk,
+  onWork,
   onBirthdays,
 }: {
   data: HomeData;
@@ -49,6 +51,7 @@ export function MiniProfile({
   onEmojiStatus: (enable: boolean) => void;
   onDirectory: () => void;
   onHelpdesk: (view: HelpdeskView) => void;
+  onWork: (view: WorkView) => void;
   onBirthdays: () => void;
 }) {
   const [homeScreen, setHomeScreen] = useState<"unsupported" | "unknown" | "added" | "missed">("unsupported");
@@ -158,6 +161,28 @@ export function MiniProfile({
             <ChevronRight size={16} />
           </button>
         )}
+      </section>
+
+      <div className="mp-group-title">Ishlarim</div>
+      <section className="mp-group">
+        <button className="mp-row link" onClick={() => onWork("tasks")}>
+          <span>
+            <ListTodo size={15} /> Vazifalar
+          </span>
+          <ChevronRight size={16} />
+        </button>
+        <button className="mp-row link" onClick={() => onWork("checklist")}>
+          <span>
+            <ListChecks size={15} /> Bugungi checklist
+          </span>
+          <ChevronRight size={16} />
+        </button>
+        <button className="mp-row link" onClick={() => onWork("incidents")}>
+          <span>
+            <TriangleAlert size={15} /> Muammo haqida xabar berish
+          </span>
+          <ChevronRight size={16} />
+        </button>
       </section>
 
       <div className="mp-group-title">HR bilan aloqa</div>

@@ -253,6 +253,72 @@ export interface Delegation {
   createdAt: string;
   revokedAt?: string;
 }
+/** Operatsiya: vazifa (HR / filial rahbari → xodim). */
+export interface OpsTask {
+  id: string;
+  companyId: string;
+  title: string;
+  description?: string;
+  assigneeIds: string[];
+  branchId?: string;
+  dueDate?: string;
+  priority: "LOW" | "NORMAL" | "HIGH";
+  requirePhoto?: boolean;
+  status: "TODO" | "IN_PROGRESS" | "DONE" | "CANCELLED";
+  createdBy: string;
+  createdById?: string;
+  createdAt: string;
+  updatedAt: string;
+  doneAt?: string;
+  doneBy?: string;
+  photoIds: string[];
+  comments: { by: string; text: string; at: string; photoId?: string }[];
+}
+/** Takrorlanuvchi checklist shabloni (filial bo‘yicha, hafta kunlari). */
+export interface ChecklistTemplate {
+  id: string;
+  companyId: string;
+  title: string;
+  /** Bo‘sh — barcha filiallar. */
+  branchIds: string[];
+  /** 0 — yakshanba … 6 — shanba. */
+  weekdays: number[];
+  /** Shu vaqtgacha tugashi kerak (HH:MM). */
+  dueTime?: string;
+  items: { id: string; text: string; requirePhoto?: boolean }[];
+  active: boolean;
+  createdBy: string;
+  createdAt: string;
+}
+/** Checklistning bir kunlik bajarilishi (filial + sana). */
+export interface ChecklistRun {
+  id: string;
+  companyId: string;
+  templateId: string;
+  branchId: string;
+  date: string;
+  items: { itemId: string; done: boolean; by?: string; at?: string; photoId?: string; note?: string }[];
+  completedAt?: string;
+}
+/** Hodisa (incident): Ochiq → Jarayonda → Hal qilindi. */
+export interface Incident {
+  id: string;
+  companyId: string;
+  branchId: string;
+  title: string;
+  description?: string;
+  category: "EQUIPMENT" | "IT" | "SAFETY" | "CUSTOMER" | "CLEANING" | "OTHER";
+  severity: "LOW" | "MEDIUM" | "HIGH";
+  status: "OPEN" | "IN_PROGRESS" | "RESOLVED";
+  reporterEmployeeId?: string;
+  reporterName: string;
+  assignee?: string;
+  photoIds: string[];
+  history: { at: string; by: string; status: Incident["status"]; note?: string }[];
+  createdAt: string;
+  updatedAt: string;
+  resolvedAt?: string;
+}
 /** Smena shabloni (Shift Planner). */
 export interface ShiftTemplate {
   id: string;
@@ -624,6 +690,10 @@ export interface Database {
   assets: Asset[];
   delegations: Delegation[];
   shiftTemplates: ShiftTemplate[];
+  tasks: OpsTask[];
+  checklistTemplates: ChecklistTemplate[];
+  checklistRuns: ChecklistRun[];
+  incidents: Incident[];
   /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
   mobileDevices: MobileDevice[];
   mobileSessions: MobileSession[];

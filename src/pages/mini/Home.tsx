@@ -13,14 +13,14 @@ import {
   MapPin,
   ScanFace,
   ShieldCheck,
-  Timer,
   TrendingUp,
   Users,
   Wallet,
   FileText,
   MessageCircleQuestion,
   Navigation,
-  ScrollText,
+  ListChecks,
+  ListTodo,
 } from "lucide-react";
 import { haversineDistance } from "@/lib/attendance";
 import { BirthdayCard } from "./Birthdays";
@@ -261,7 +261,7 @@ export function MiniHome({
       <section className="mh-quick" aria-label="Tezkor bo‘limlar">
         <QuickTile icon={<CalendarRange size={19} />} label="Grafigim" onClick={() => onNavigate({ tab: "history", view: "schedule" })} />
         <QuickTile icon={<TrendingUp size={19} />} label="Statistika" onClick={() => onNavigate({ tab: "history", view: "stats" })} />
-        <QuickTile icon={<Timer size={19} />} label="Qo‘shimcha" onClick={() => onNavigate({ tab: "leave", view: "overtime" })} />
+        <QuickTile icon={<ListTodo size={19} />} label="Vazifalar" onClick={() => onNavigate({ tab: "work", view: "tasks" })} />
         {data.features?.directory !== false ? (
           <QuickTile icon={<Users size={19} />} label="Hamkasblar" onClick={() => onNavigate({ tab: "profile", section: "directory" })} />
         ) : (
@@ -270,7 +270,7 @@ export function MiniHome({
         <QuickTile icon={<Wallet size={19} />} label="Hisob varaqa" onClick={() => onNavigate({ tab: "profile", section: "payslips" })} />
         <QuickTile icon={<CalendarCheck size={19} />} label="Ta’til" onClick={() => onNavigate({ tab: "leave", view: "leave" })} />
         <QuickTile icon={<MessageCircleQuestion size={19} />} label="HR’ga savol" onClick={() => onHelpdesk("questions")} />
-        <QuickTile icon={<ScrollText size={19} />} label="Spravka" onClick={() => onHelpdesk("certificates")} />
+        <QuickTile icon={<ListChecks size={19} />} label="Checklist" onClick={() => onNavigate({ tab: "work", view: "checklist" })} />
       </section>
 
       {data.month.practiceUntil && (

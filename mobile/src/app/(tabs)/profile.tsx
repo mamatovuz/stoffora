@@ -108,6 +108,13 @@ export default function Profile() {
         <Row icon="folder" iconColor="#0A84FF" label="Hujjatlarim" onPress={() => go("/documents")} last />
       </Group>
 
+      <GroupTitle>Ishlarim</GroupTitle>
+      <Group>
+        <Row icon="checkbox" iconColor="#5856D6" label="Vazifalar" onPress={() => go({ pathname: "/work", params: { view: "tasks" } })} />
+        <Row icon="list" iconColor="#34C759" label="Bugungi checklist" onPress={() => go({ pathname: "/work", params: { view: "checklist" } })} />
+        <Row icon="warning" iconColor="#FF9500" label="Muammo haqida xabar berish" onPress={() => go({ pathname: "/work", params: { view: "incidents" } })} last />
+      </Group>
+
       <GroupTitle>HR bilan aloqa</GroupTitle>
       <Group>
         <Row icon="chatbubble-ellipses" label="HR’ga savol berish" onPress={() => go({ pathname: "/helpdesk", params: { view: "questions" } })} />

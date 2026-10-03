@@ -69,7 +69,8 @@ export async function saveDocument(companyId: string, employeeId: string, input:
 export async function cleanupDocumentFiles() {
   const db = await readDb();
   // Hali tasdiqlanmagan anketalardagi pasport rasmlari ham saqlanadi.
-  const alive = new Set([...db.documents.map((d) => d.id), ...db.registrations.flatMap((r) => [r.data.idDocument, r.data.selfie]).filter((id): id is string => Boolean(id))]);
+  const { opsPhotoIds } = await import("./ops");
+  const alive = new Set([...db.documents.map((d) => d.id), ...opsPhotoIds(db), ...db.registrations.flatMap((r) => [r.data.idDocument, r.data.selfie]).filter((id): id is string => Boolean(id))]);
   const conn = await files();
   let removed = 0;
   for (const id of await conn.fileIds())

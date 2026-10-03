@@ -46,6 +46,7 @@ import { createMiniDayOffRouter } from "./dayoff";
 import { createMiniCorrectionRouter } from "./corrections";
 import { createMiniReminderRouter } from "./reminders";
 import { createMiniPeopleRouter } from "./people";
+import { createMiniOpsRouter } from "./ops";
 import { deviceFlags, isDeepLinkParam } from "../lib/mini";
 import { documentInputSchema, saveDocument } from "./documents";
 import {
@@ -330,6 +331,7 @@ export function createMiniRouter() {
   router.use(createMiniCorrectionRouter());
   router.use(createMiniReminderRouter());
   router.use(createMiniPeopleRouter());
+  router.use(createMiniOpsRouter());
   router.use(createMiniMobileRouter());
   router.get(
     "/mini/home",

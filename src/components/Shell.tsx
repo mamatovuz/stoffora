@@ -46,6 +46,9 @@ import {
   Package,
   Inbox,
   Wallet,
+  ListTodo,
+  ListChecks,
+  Siren,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -74,6 +77,14 @@ const sections: { label: string; items: NavItem[] }[] = [
       ["/registrations", "Arizalar", ClipboardCheck, "registrations"],
       ["/dismissed", "Ishdan bo‘shaganlar", UserMinus],
       ["/assets", "Aktivlar", Package],
+    ],
+  },
+  {
+    label: "Operatsiya",
+    items: [
+      ["/tasks", "Vazifalar", ListTodo, "tasks"],
+      ["/checklists", "Checklistlar", ListChecks],
+      ["/incidents", "Hodisalar", Siren, "incidents"],
     ],
   },
   {
@@ -200,7 +211,13 @@ export function Shell() {
     user && canOpenPage(user.role, "/registrations") ? "/registrations?status=PENDING" : null,
   );
   usePolling(() => void reloadRegistrations(true), 60_000);
+  const { data: ops, reload: reloadOps } = useApi<{ openIncidents: number; overdueTasks: number }>(
+    user && canAny(user.role, ["ops.manage", "incidents.it"]) ? "/ops/summary" : null,
+  );
+  usePolling(() => void reloadOps(true), 60_000);
   const counts: Record<string, number> = {
+    incidents: ops?.openIncidents || 0,
+    tasks: ops?.overdueTasks || 0,
     registrations: registrations?.counts.PENDING || 0,
     notifications: notifications?.filter((item) => !item.read).length || 0,
     leave: leave?.filter((item) => item.status === "PENDING").length || 0,

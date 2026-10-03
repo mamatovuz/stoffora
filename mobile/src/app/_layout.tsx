@@ -167,6 +167,7 @@ function Shell() {
         <Stack.Screen name="payslips" options={{ headerShown: true, title: "Hisob varaqalar" }} />
         <Stack.Screen name="documents" options={{ headerShown: true, title: "Hujjatlarim" }} />
         <Stack.Screen name="helpdesk" options={{ headerShown: true, title: "HR bilan aloqa" }} />
+        <Stack.Screen name="work" options={{ headerShown: true, title: "Ishlarim" }} />
         <Stack.Screen name="pin" options={{ presentation: "modal", gestureEnabled: false }} />
         <Stack.Screen name="birthdays" options={{ headerShown: true, title: "Tug‘ilgan kunlar" }} />
         <Stack.Screen name="mark-request" options={{ headerShown: true, title: "Belgilash so‘rovi" }} />

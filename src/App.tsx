@@ -58,6 +58,9 @@ const AttendanceRequestsPage = lazy(() =>
   import("./pages/AttendanceRequests").then((m) => ({ default: m.AttendanceRequestsPage })),
 );
 const AdvancesPage = lazy(() => import("./pages/Money").then((m) => ({ default: m.AdvancesPage })));
+const TasksPage = lazy(() => import("./pages/Ops").then((m) => ({ default: m.TasksPage })));
+const ChecklistsPage = lazy(() => import("./pages/Ops").then((m) => ({ default: m.ChecklistsPage })));
+const IncidentsPage = lazy(() => import("./pages/Ops").then((m) => ({ default: m.IncidentsPage })));
 const ShiftPlannerPage = lazy(() => import("./pages/ShiftPlanner").then((m) => ({ default: m.ShiftPlannerPage })));
 const AssetsPage = lazy(() => import("./pages/People").then((m) => ({ default: m.AssetsPage })));
 const TimesheetPage = lazy(() => import("./components/PayrollWorkspace").then((m) => ({ default: m.TimesheetPage })));
@@ -142,6 +145,9 @@ export default function App() {
           <Route path="/timesheet" element={<TimesheetPage />} />
           <Route path="/assets" element={<AssetsPage />} />
           <Route path="/shift-planner" element={<ShiftPlannerPage />} />
+          <Route path="/tasks" element={<TasksPage />} />
+          <Route path="/checklists" element={<ChecklistsPage />} />
+          <Route path="/incidents" element={<IncidentsPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/employees/new" element={<EmployeeFormPage />} />
