@@ -9406,3 +9406,26 @@ html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
 /* Face ID: ramka yuzni kuzatadi (silliq suriladi) */
 .fc-frame { transition: left 0.18s ease-out, top 0.18s ease-out, width 0.18s ease-out; }
 .fc-frame.tracking { transform: none; animation: none; }
+
+/* ======================================================== minimal polish ===
+ * Sayt: kartalar soyasiz, yengil chegara; bo‘limlar orasida bir xil havo; jadval qatorlari tinchroq.
+ * Mini App: bir xil 16px radius, soyasiz kartalar, guruh sarlavhalari kichik va ochiq.
+ */
+:root { --line: #e8edf3; --line-2: #f3f6f9; }
+.card { box-shadow: none; }
+.page > .card + .card, .page > section + section, .page > .stat-grid + .card, .page > .card + .stat-grid { margin-top: 16px; }
+.page-header { margin-bottom: 24px; }
+.page-title { letter-spacing: -0.02em; }
+.stat-grid { gap: 14px; margin-bottom: 20px; }
+.card.stat { padding: 16px 18px; }
+.table th { font-weight: 600; color: var(--muted); letter-spacing: 0.01em; }
+.table td, .table th { padding-top: 12px; padding-bottom: 12px; }
+.badge { font-weight: 600; }
+
+.mini-card, .mp-group { border-radius: 16px; box-shadow: none; }
+.mini-body { gap: 14px; padding: 12px 14px 16px; }
+.mp-group-title { margin: 14px 6px 2px; letter-spacing: 0.04em; font-size: 11.5px; }
+.mini-row { gap: 12px; }
+.mini-rows > * + * { border-top-color: var(--m-line); }
+.mg-kpis { gap: 10px; }
+.mg-kpis > div { border-radius: 14px; }

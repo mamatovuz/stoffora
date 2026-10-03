@@ -46,7 +46,7 @@ export function useTheme() {
   return { c, dark: scheme === "dark" };
 }
 
-export const radius = { card: ios ? 14 : 20, button: ios ? 14 : 16, tile: ios ? 14 : 16 };
+export const radius = { card: ios ? 16 : 20, button: ios ? 14 : 16, tile: ios ? 14 : 16 };
 export const font = {
   family: ios ? undefined : "sans-serif",
   title: ios ? 34 : 26,

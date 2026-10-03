@@ -331,7 +331,7 @@ export const s = StyleSheet.create({
   title: { fontSize: ios ? 34 : 26, fontWeight: ios ? "700" : "600", letterSpacing: ios ? 0.2 : 0 },
   subtitle: { fontSize: 14, marginTop: 2 },
   card: { borderRadius: radius.card, padding: 16, overflow: "hidden" },
-  groupTitle: { fontSize: ios ? 12.5 : 13.5, fontWeight: ios ? "400" : "600", marginTop: 10, marginBottom: -4, marginLeft: ios ? 16 : 4, letterSpacing: ios ? 0.2 : 0 },
+  groupTitle: { fontSize: ios ? 12.5 : 13.5, fontWeight: ios ? "400" : "600", marginTop: 14, marginBottom: -2, marginLeft: ios ? 16 : 4, letterSpacing: ios ? 0.2 : 0 },
   row: { flexDirection: "row", alignItems: "center", paddingLeft: 16, minHeight: ios ? 46 : 54 },
   rowIcon: { width: 29, height: 29, borderRadius: 7, alignItems: "center", justifyContent: "center", marginRight: 12 },
   rowBody: { flex: 1, flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "stretch", paddingRight: 14, paddingVertical: 10 },
