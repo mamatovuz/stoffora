@@ -48,6 +48,8 @@ import {
   Wallet,
   ListTodo,
   ListChecks,
+  GraduationCap,
+  BookOpen,
   Siren,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
@@ -85,6 +87,8 @@ const sections: { label: string; items: NavItem[] }[] = [
       ["/tasks", "Vazifalar", ListTodo, "tasks"],
       ["/checklists", "Checklistlar", ListChecks],
       ["/incidents", "Hodisalar", Siren, "incidents"],
+      ["/learning", "O‘qitish", GraduationCap],
+      ["/knowledge", "Bilimlar bazasi", BookOpen],
     ],
   },
   {

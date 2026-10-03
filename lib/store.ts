@@ -101,6 +101,9 @@ function normalizeDatabase(database: Database): Database {
   database.checklistTemplates ||= [];
   database.checklistRuns ||= [];
   database.incidents ||= [];
+  database.kbArticles ||= [];
+  database.courses ||= [];
+  database.courseAttempts ||= [];
   database.mobileDevices ||= [];
   database.mobileSessions ||= [];
   database.mobileActivationCodes ||= [];

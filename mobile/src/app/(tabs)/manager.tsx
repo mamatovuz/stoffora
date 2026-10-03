@@ -240,6 +240,9 @@ export default function Manager() {
               <Icon name="hammer-outline" size={20} color={c.danger} />
             </Pressable>
           ) : null}
+          <Pressable onPress={() => router.push("/badge-scan")} style={[st.round, { backgroundColor: c.card }]} accessibilityLabel="Xodim ID QR tekshirish">
+            <Icon name="scan-outline" size={20} color={c.ink} />
+          </Pressable>
           {can(auth.user.role, "announcements.create") || auth.user.role === "BRANCH_MANAGER" ? (
             <Pressable onPress={() => setAnnouncing(true)} style={[st.round, { backgroundColor: c.card }]} accessibilityLabel="Tezkor e’lon">
               <Icon name="megaphone-outline" size={20} color={c.accent} />

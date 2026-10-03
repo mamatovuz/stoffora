@@ -58,6 +58,8 @@ const AttendanceRequestsPage = lazy(() =>
   import("./pages/AttendanceRequests").then((m) => ({ default: m.AttendanceRequestsPage })),
 );
 const AdvancesPage = lazy(() => import("./pages/Money").then((m) => ({ default: m.AdvancesPage })));
+const KnowledgePage = lazy(() => import("./pages/Learn").then((m) => ({ default: m.KnowledgePage })));
+const LearningPage = lazy(() => import("./pages/Learn").then((m) => ({ default: m.LearningPage })));
 const TasksPage = lazy(() => import("./pages/Ops").then((m) => ({ default: m.TasksPage })));
 const ChecklistsPage = lazy(() => import("./pages/Ops").then((m) => ({ default: m.ChecklistsPage })));
 const IncidentsPage = lazy(() => import("./pages/Ops").then((m) => ({ default: m.IncidentsPage })));
@@ -148,6 +150,8 @@ export default function App() {
           <Route path="/tasks" element={<TasksPage />} />
           <Route path="/checklists" element={<ChecklistsPage />} />
           <Route path="/incidents" element={<IncidentsPage />} />
+          <Route path="/knowledge" element={<KnowledgePage />} />
+          <Route path="/learning" element={<LearningPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/employees/new" element={<EmployeeFormPage />} />

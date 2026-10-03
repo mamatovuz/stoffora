@@ -115,6 +115,13 @@ export default function Profile() {
         <Row icon="warning" iconColor="#FF9500" label="Muammo haqida xabar berish" onPress={() => go({ pathname: "/work", params: { view: "incidents" } })} last />
       </Group>
 
+      <GroupTitle>O‘qish va ID</GroupTitle>
+      <Group>
+        <Row icon="school" iconColor="#5856D6" label="Kurslar va testlar" onPress={() => go({ pathname: "/learn", params: { view: "courses" } })} />
+        <Row icon="book" iconColor="#FF9500" label="Bilimlar bazasi" onPress={() => go({ pathname: "/learn", params: { view: "kb" } })} />
+        <Row icon="id-card" iconColor="#34C759" label="Mening ID (QR guvohnoma)" onPress={() => go({ pathname: "/learn", params: { view: "badge" } })} last />
+      </Group>
+
       <GroupTitle>HR bilan aloqa</GroupTitle>
       <Group>
         <Row icon="chatbubble-ellipses" label="HR’ga savol berish" onPress={() => go({ pathname: "/helpdesk", params: { view: "questions" } })} />

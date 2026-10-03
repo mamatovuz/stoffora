@@ -9450,3 +9450,51 @@ html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
 .an-row > span:first-child { display: grid; min-width: 0; }
 .an-row small { color: var(--muted); }
 .an-state { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+/* Mini App: O‘qish va ID */
+.ln-quiz { display: grid; gap: 12px; }
+.ln-quiz .mini-card { display: grid; gap: 8px; }
+.ln-opt { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px; background: var(--m-tint); font-size: 15px; }
+.ln-opt.on { background: color-mix(in srgb, var(--m-accent) 14%, transparent); color: var(--m-accent); font-weight: 600; }
+.ln-opt input { accent-color: var(--m-accent); }
+.ln-result { display: grid; justify-items: center; gap: 6px; padding: 24px 16px; text-align: center; }
+.ln-result b { font-size: 34px; }
+.ln-result.ok svg { color: var(--m-success); } .ln-result.bad svg { color: var(--m-danger); }
+.ln-result small { color: var(--m-muted); }
+.ln-steps { display: flex; gap: 6px; overflow-x: auto; }
+.ln-steps button { flex: none; width: 34px; height: 34px; border-radius: 50%; border: 0; background: var(--m-card); color: var(--m-ink); font-weight: 600; }
+.ln-steps button.on { background: var(--m-accent); color: var(--m-accent-ink); }
+.ln-lesson { display: grid; gap: 8px; }
+.ln-lesson p, .ln-article { margin: 0; white-space: pre-wrap; line-height: 1.55; font-size: 15px; }
+.ln-badge { display: grid; gap: 14px; justify-items: center; text-align: center; padding: 18px 16px; }
+.ln-badge-top { display: flex; align-items: center; gap: 6px; color: var(--m-muted); font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+.ln-badge-person { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; }
+.ln-badge-person img, .ln-badge-ph { width: 72px; height: 72px; border-radius: 18px; object-fit: cover; flex: none; background: var(--m-tint); display: grid; place-items: center; font-size: 26px; font-weight: 700; }
+.ln-badge-person > span { display: grid; gap: 2px; min-width: 0; }
+.ln-badge-person b { font-size: 17px; }
+.ln-badge-person small { color: var(--m-muted); }
+.ln-qr { width: min(240px, 70vw); aspect-ratio: 1; border-radius: 16px; background: #fff; padding: 8px; }
+.ln-timer { display: inline-flex; align-items: center; gap: 5px; color: var(--m-muted); font-size: 12px; }
+
+.bc-result { display: grid; justify-items: center; gap: 6px; padding: 22px 16px; text-align: center; }
+.bc-result img { width: 96px; height: 96px; border-radius: 24px; object-fit: cover; }
+.bc-result b { font-size: 18px; }
+.bc-result small { color: var(--m-muted); }
+.bc-result.ok > svg { color: var(--m-success); } .bc-result.bad > svg { color: var(--m-danger); }
+
+/* Bilimlar bazasi va o‘qitish (sayt) */
+.kb-list { display: grid; }
+.kb-item { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border: 0; border-top: 1px solid var(--line-2); background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.kb-item:first-child { border-top: 0; }
+.kb-item:hover { background: var(--surface-2); }
+.kb-item > span:last-child { display: grid; gap: 2px; min-width: 0; }
+.kb-item small { color: var(--muted); }
+.kb-ico { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: var(--brand-50); color: var(--brand); flex: none; }
+.kb-body { white-space: pre-wrap; line-height: 1.6; max-height: 60vh; overflow: auto; }
+.ln-progress { height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; max-width: 160px; margin-bottom: 4px; }
+.ln-progress i { display: block; height: 100%; background: var(--green); }
+.ln-h { margin: 18px 0 8px; font-size: 14px; }
+.ln-edit { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 8px; position: relative; }
+.ln-edit > .icon-btn { position: absolute; top: 8px; right: 8px; }
+.ln-opt-edit { display: flex; align-items: center; gap: 8px; }
+.ln-opt-edit .input { flex: 1; }

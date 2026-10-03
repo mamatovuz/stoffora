@@ -32,6 +32,7 @@ import { dateLongUz, dateUz, tashkentIsoDate } from "@/lib/format";
 import { FineSheet, MoneyView } from "./mini/MoneyTools";
 import { DevicesView } from "./mini/DevicesView";
 import { OpsView } from "./mini/OpsView";
+import { useBadgeScanner } from "./mini/BadgeCheck";
 import { Donut } from "./mini/HistoryCalendar";
 import { MiniDesk } from "./mini/Desk";
 import type { Attendance, Branch, Employee, LeaveRequest } from "@/lib/types";
@@ -154,6 +155,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const [branch, setBranch] = useState("");
   const [loading, setLoading] = useState(false);
   const [openGroups, setOpenGroups] = useState<string[]>([]);
+  const badge = useBadgeScanner(call);
   const [busy, setBusy] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Pending[]>([]);
@@ -410,10 +412,14 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               <Megaphone size={18} />
             </button>
           )}
+          <button className="mg-refresh" onClick={badge.scan} aria-label="Xodim ID QR tekshirish">
+            {badge.icon}
+          </button>
           <button className="mg-refresh" onClick={() => void load()} aria-label="Yangilash" disabled={loading}>
             <RefreshCw size={18} className={loading ? "spin" : ""} />
           </button>
         </span>
+        {badge.sheet}
       </div>
       <div className={`mini-seg ${["", "one", "", "three", "four", "five", "six"][[true, canAttendance, canRequests, canAttendance, canAnalytics, canMoney, canDevices, canOps].filter(Boolean).length] || "seven"}`} role="tablist">
         {(

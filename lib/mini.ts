@@ -16,7 +16,8 @@ export type DeepLink =
   | { tab: "leave"; view?: "leave" | "swap" | "overtime" | "dayoff" | "marks"; id?: string }
   | { tab: "profile"; section?: "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays"; id?: string }
   | { tab: "manager"; view?: "desk" | "today" | "requests" | "map" | "week" | "money" | "devices" | "ops" }
-  | { tab: "work"; view: "tasks" | "checklist" | "incidents"; id?: string };
+  | { tab: "work"; view: "tasks" | "checklist" | "incidents"; id?: string }
+  | { tab: "learn"; view: "courses" | "kb" | "badge"; id?: string };
 
 const MONTH = /^\d{4}-\d{2}$/;
 const SAFE_ID = /^[A-Za-z0-9-]{1,64}$/;
@@ -82,6 +83,13 @@ export function parseDeepLink(raw?: string | null): DeepLink | null {
     case "incident":
     case "incidents":
       return { tab: "work", view: "incidents", id };
+    case "course":
+    case "courses":
+      return { tab: "learn", view: "courses", id };
+    case "kb":
+      return { tab: "learn", view: "kb", id };
+    case "badge":
+      return { tab: "learn", view: "badge" };
     default:
       return null;
   }

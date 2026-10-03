@@ -319,6 +319,47 @@ export interface Incident {
   updatedAt: string;
   resolvedAt?: string;
 }
+/** Bilimlar bazasi maqolasi. */
+export interface KbArticle {
+  id: string;
+  companyId: string;
+  title: string;
+  body: string;
+  category: string;
+  target: AnnouncementTarget;
+  pinned: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  views: number;
+}
+/** O‘quv kursi: darslar + test (to‘g‘ri javob — faqat serverda). */
+export interface Course {
+  id: string;
+  companyId: string;
+  title: string;
+  description?: string;
+  lessons: { title: string; body: string }[];
+  questions: { id: string; q: string; options: string[]; correct: number }[];
+  passPercent: number;
+  target: AnnouncementTarget;
+  dueDate?: string;
+  required: boolean;
+  active: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface CourseAttempt {
+  id: string;
+  companyId: string;
+  courseId: string;
+  employeeId: string;
+  score: number;
+  passed: boolean;
+  answers: number[];
+  at: string;
+}
 /** Smena shabloni (Shift Planner). */
 export interface ShiftTemplate {
   id: string;
@@ -717,6 +758,9 @@ export interface Database {
   checklistTemplates: ChecklistTemplate[];
   checklistRuns: ChecklistRun[];
   incidents: Incident[];
+  kbArticles: KbArticle[];
+  courses: Course[];
+  courseAttempts: CourseAttempt[];
   /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
   mobileDevices: MobileDevice[];
   mobileSessions: MobileSession[];

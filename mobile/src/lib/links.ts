@@ -51,6 +51,13 @@ export function routeForGo(go?: string | null): Href | null {
     case "incident":
     case "incidents":
       return { pathname: "/work", params: { view: "incidents" } };
+    case "course":
+    case "courses":
+      return { pathname: "/learn", params: { view: "courses" } };
+    case "kb":
+      return { pathname: "/learn", params: { view: "kb" } };
+    case "badge":
+      return { pathname: "/learn", params: { view: "badge" } };
     case "payslip":
     case "payslips":
       return "/payslips";

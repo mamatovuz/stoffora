@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Cake, ChevronRight, Fingerprint, ListChecks, ListTodo, MapPin, MessageCircleQuestion, ScrollText, Share2, Smile, TriangleAlert, Users } from "lucide-react";
+import { BookOpen, Cake, ChevronRight, GraduationCap, IdCard, Fingerprint, ListChecks, ListTodo, MapPin, MessageCircleQuestion, ScrollText, Share2, Smile, TriangleAlert, Users } from "lucide-react";
 import type { HelpdeskView } from "./Helpdesk";
 import type { WorkView } from "./Work";
+import type { LearnView } from "./Learn";
 import { MobileLinkRow } from "./MobileLink";
 import { MiniNotifyPrefs, MiniReminders } from "./Reminders";
 import { dateUz, tashkentWeekday } from "@/lib/format";
@@ -35,6 +36,7 @@ export function MiniProfile({
   onDirectory,
   onHelpdesk,
   onWork,
+  onLearn,
   onBirthdays,
 }: {
   data: HomeData;
@@ -52,6 +54,7 @@ export function MiniProfile({
   onDirectory: () => void;
   onHelpdesk: (view: HelpdeskView) => void;
   onWork: (view: WorkView) => void;
+  onLearn: (view: LearnView) => void;
   onBirthdays: () => void;
 }) {
   const [homeScreen, setHomeScreen] = useState<"unsupported" | "unknown" | "added" | "missed">("unsupported");
@@ -180,6 +183,28 @@ export function MiniProfile({
         <button className="mp-row link" onClick={() => onWork("incidents")}>
           <span>
             <TriangleAlert size={15} /> Muammo haqida xabar berish
+          </span>
+          <ChevronRight size={16} />
+        </button>
+      </section>
+
+      <div className="mp-group-title">O‘qish va ID</div>
+      <section className="mp-group">
+        <button className="mp-row link" onClick={() => onLearn("courses")}>
+          <span>
+            <GraduationCap size={15} /> Kurslar va testlar
+          </span>
+          <ChevronRight size={16} />
+        </button>
+        <button className="mp-row link" onClick={() => onLearn("kb")}>
+          <span>
+            <BookOpen size={15} /> Bilimlar bazasi (qoidalar, yo‘riqnomalar)
+          </span>
+          <ChevronRight size={16} />
+        </button>
+        <button className="mp-row link" onClick={() => onLearn("badge")}>
+          <span>
+            <IdCard size={15} /> Mening ID (QR guvohnoma)
           </span>
           <ChevronRight size={16} />
         </button>

@@ -98,6 +98,7 @@ import { createShiftRouter } from "./shifts";
 import { createOpsRouter } from "./ops";
 import { createHistoryRouter } from "./history";
 import { createEngageRouter } from "./engage";
+import { createLearnRouter } from "./learn";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
@@ -695,6 +696,7 @@ app.use("/api", createShiftRouter());
 app.use("/api", createOpsRouter());
 app.use("/api", createHistoryRouter());
 app.use("/api", createEngageRouter());
+app.use("/api", createLearnRouter());
 app.use("/api", createMobileAdminRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
