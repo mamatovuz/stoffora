@@ -47,6 +47,7 @@ export function emptyDatabase(): Database {
     holidays: [],
     branchTransfers: [],
     assets: [],
+    delegations: [],
     mobileDevices: [],
     mobileSessions: [],
     mobileActivationCodes: [],

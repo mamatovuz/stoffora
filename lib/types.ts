@@ -234,6 +234,21 @@ export interface Asset {
   history: { action: string; by: string; at: string; employeeId?: string }[];
   createdAt: string;
 }
+/** Tasdiqlash vakolatini vaqtincha berish. */
+export interface Delegation {
+  id: string;
+  companyId: string;
+  fromUserId: string;
+  fromName: string;
+  fromRole: Role;
+  toUserId: string;
+  toName: string;
+  startDate: string;
+  endDate: string;
+  reason?: string;
+  createdAt: string;
+  revokedAt?: string;
+}
 export interface ReminderRule {
   enabled: boolean;
   offset: number;
@@ -592,6 +607,7 @@ export interface Database {
   holidays: Holiday[];
   branchTransfers: BranchTransfer[];
   assets: Asset[];
+  delegations: Delegation[];
   /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
   mobileDevices: MobileDevice[];
   mobileSessions: MobileSession[];

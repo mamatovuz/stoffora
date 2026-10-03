@@ -726,6 +726,7 @@ type Summary = {
   overtime: number;
   advance: number;
   advances: { requested: number; pendingCount: number; approved: number; paid: number; unpaidCount: number };
+  forecast: { fund: number; payable: number; current: boolean };
   rewards: { count: number; amount: number };
   pendingFines: number;
   noSalary: number;
@@ -771,6 +772,15 @@ export function FinancePage() {
             <StatCard label="Ushlanmalar" value={money(data.deductions + data.fine)} note={`jarima ${money(data.fine)} · kechikish/kelmaslik ${money(data.deductions)}`} icon={Gavel} tone="amber" />
             <StatCard label="Bonus va qo‘shimcha" value={money(data.bonus + data.overtime)} note={`rag‘batlantirish: ${data.rewards.count} ta · ${money(data.rewards.amount)}`} icon={Trophy} tone="violet" />
           </div>
+          {data.forecast.current && (
+            <div className="alert info" style={{ marginBottom: 16 }}>
+              <Wallet size={18} />
+              <div>
+                <b>Oy oxiriga prognoz: ish haqi fondi ≈ {money(data.forecast.fund)}</b>
+                <p>Avanslardan keyin to‘lanadi ≈ {money(data.forecast.payable)} (to‘liq oklad − ma’lum ushlanmalar + bonus va qo‘shimcha ish).</p>
+              </div>
+            </div>
+          )}
           {alerts.length > 0 && (
             <section className="card fin-alerts">
               {alerts.map((a) => (

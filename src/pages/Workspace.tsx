@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, Building2, Check, ChevronRight, ClipboardCheck, Inbox, ShieldAlert, Smartphone, Users, Wallet, X } from "lucide-react";
-import { api, errorText, notifyChange } from "../api";
+import { AlertTriangle, Building2, Check, ChevronRight, ClipboardCheck, Inbox, ShieldAlert, Smartphone, UserCheck, Users, Wallet, X } from "lucide-react";
+import { api, errorText, notifyChange, post } from "../api";
 import { useApi, usePolling } from "../hooks";
-import { Avatar, Empty, Loading, PageHeader, Segmented, StatCard, useToast } from "../components/ui";
+import { Avatar, Empty, Field, Loading, Modal, PageHeader, Segmented, StatCard, useToast } from "../components/ui";
 import { useAuth } from "../auth";
 import { can, canAny } from "@/lib/permissions";
 import { money } from "@/lib/format";
@@ -119,6 +119,7 @@ export function WorkspacePage() {
         </section>
         <InboxCard onChanged={() => void actions.reload(true)} />
       </div>
+      <DelegationCard />
     </div>
   );
 }
@@ -376,5 +377,103 @@ function DeviceCenter({ data }: { data: Devices }) {
         </section>
       </div>
     </>
+  );
+}
+
+/* ---------------------------------------------------- vakolat berish (delegation) --- */
+type Delegation = { id: string; fromName: string; toName: string; toUserId: string; fromUserId: string; startDate: string; endDate: string; reason?: string; active: boolean; revokedAt?: string };
+function DelegationCard() {
+  const toast = useToast();
+  const { user } = useAuth();
+  const { data, reload } = useApi<{ mine: Delegation[]; all?: Delegation[]; candidates: { id: string; name: string; role: string }[] }>("/delegations");
+  const today = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
+  const [form, setForm] = useState({ toUserId: "", startDate: today, endDate: today, reason: "" });
+  const [open, setOpen] = useState(false);
+  if (!data) return null;
+  const list = (data.all || data.mine).filter((d) => !d.revokedAt && d.endDate >= today);
+  async function save() {
+    try {
+      await post("/delegations", { ...form, reason: form.reason || undefined });
+      toast("Vakolat berildi — muddat tugashi bilan avtomatik o‘chadi");
+      setOpen(false);
+      void reload(true);
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    }
+  }
+  async function revoke(d: Delegation) {
+    try {
+      await post(`/delegations/${d.id}/revoke`, {});
+      void reload(true);
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    }
+  }
+  return (
+    <section className="card" style={{ marginBottom: 16 }}>
+      <div className="card-head">
+        <h3 className="ws-h">
+          <UserCheck size={17} /> Vakolat (vaqtincha o‘rinbosar)
+        </h3>
+        <button className="btn btn-sm" onClick={() => setOpen(true)}>
+          Vakolat berish
+        </button>
+      </div>
+      {!list.length ? (
+        <p className="muted" style={{ padding: "0 18px 14px", margin: 0 }}>
+          Masalan, ta’tilga ketsangiz — tasdiqlash vakolatini boshqa mas’ulga bering. U faqat tasdiqlashlarni (so‘rovlar, ish haqi jarayoni) sizning nomingizdan bajaradi; hammasi auditda.
+        </p>
+      ) : (
+        <div className="ws-actions">
+          {list.map((d) => (
+            <div key={d.id} className="ws-action">
+              <span className="ws-text">
+                <b>{d.fromName}</b> → <b>{d.toName}</b> · {d.startDate.split("-").reverse().join(".")} – {d.endDate.split("-").reverse().join(".")}
+                {d.active ? " · amalda" : " · rejalangan"}
+                {d.reason ? ` · ${d.reason}` : ""}
+              </span>
+              {(d.fromUserId === user?.userId || user?.role === "COMPANY_OWNER") && (
+                <button className="btn btn-sm" onClick={() => void revoke(d)}>
+                  Bekor qilish
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {open && (
+        <Modal title="Vakolat berish" subtitle="O‘rinbosar faqat tasdiqlashlarni sizning nomingizdan bajaradi (sozlamalar va boshqa bo‘limlarga ta’sir qilmaydi)" onClose={() => setOpen(false)} size="narrow">
+          <Field label="Kimga">
+            <select className="select" value={form.toUserId} onChange={(e) => setForm({ ...form, toUserId: e.target.value })}>
+              <option value="">Tanlang</option>
+              {data.candidates.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="form-grid">
+            <Field label="Boshlanish">
+              <input className="input" type="date" value={form.startDate} min={today} onChange={(e) => setForm({ ...form, startDate: e.target.value })} />
+            </Field>
+            <Field label="Tugash">
+              <input className="input" type="date" value={form.endDate} min={form.startDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} />
+            </Field>
+          </div>
+          <Field label="Sabab (ixtiyoriy)">
+            <input className="input" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="Masalan: ta’til" />
+          </Field>
+          <div className="form-actions">
+            <button className="btn" onClick={() => setOpen(false)}>
+              Bekor qilish
+            </button>
+            <button className="btn btn-primary" disabled={!form.toUserId} onClick={() => void save()}>
+              Berish
+            </button>
+          </div>
+        </Modal>
+      )}
+    </section>
   );
 }

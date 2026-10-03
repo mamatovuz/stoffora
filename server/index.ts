@@ -93,6 +93,7 @@ import { createRewardsRouter } from "./rewards";
 import { createWorkspaceRouter } from "./workspace";
 import { assertMonthOpen, createPayrollWorkflowRouter } from "./payroll-workflow";
 import { createAssetRouter, createPeopleRouter, offboard } from "./people";
+import { createDelegationRouter, delegationMiddleware } from "./delegations";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
@@ -648,6 +649,8 @@ app.use("/api", createManagerAuthRouter());
 app.use("/api", createIntegrationWebhookRouter());
 app.use("/api", createCompanyBotWebhookRouter());
 app.use("/api", requireAuth);
+// Vaqtincha berilgan tasdiqlash vakolati (faqat tasdiqlash yo‘llarida).
+app.use("/api", delegationMiddleware());
 // Oylik — moliyaviy ma’lumot: moliya, direktor va HR (xodim qo‘shishda kiritadi) ko‘radi.
 // Filial rahbari, IT va boshqalar uchun javoblardan «baseSalary» olib tashlanadi.
 app.use("/api", (req, res, next) => {
@@ -683,6 +686,7 @@ app.use("/api", createWorkspaceRouter());
 app.use("/api", createPayrollWorkflowRouter());
 app.use("/api", createPeopleRouter());
 app.use("/api", createAssetRouter());
+app.use("/api", createDelegationRouter());
 app.use("/api", createMobileAdminRouter());
 
 app.get("/api/telegram/status", (_req, res) => {

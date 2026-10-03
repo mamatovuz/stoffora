@@ -567,9 +567,13 @@ export function financeSummary(db: Database, tenant: string, month: string) {
     const own = m === month ? lines : linesFor(m);
     return { month: m, label: monthLabel(m), net: sum(own, "net"), fine: sum(own, "fine"), advance: sum(own, "advance"), closed: Boolean(closedPeriod(db, tenant, m)) };
   });
+  // Oy oxiriga prognoz: to‘liq oklad − ma’lum ushlanmalar + bonus va qo‘shimcha ish (joriy oy uchun).
+  const isCurrent = month === tashkentIsoDate().slice(0, 7) && !closedPeriod(db, tenant, month);
+  const fund = isCurrent ? sum(lines, "base") - sum(lines, "deductions") - sum(lines, "fine") + sum(lines, "bonus") + sum(lines, "overtime") : sum(lines, "net") + sum(lines, "advance");
   return {
     month,
     label: monthLabel(month),
+    forecast: { fund: Math.max(0, Math.round(fund)), payable: Math.max(0, Math.round(fund - sum(lines, "advance"))), current: isCurrent },
     closed: Boolean(closedPeriod(db, tenant, month)),
     employees: lines.length,
     base: sum(lines, "base"),
