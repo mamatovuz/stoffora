@@ -118,9 +118,26 @@ export function createMiniAdvanceRouter() {
       const db = await readDb();
       const employee = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId);
       if (!employee) throw httpError("Xodim topilmadi.", 404);
-      const month = tashkentIsoDate().slice(0, 7);
+      // Oy tanlash: o‘tgan oylar ham (12 oygacha); kelajak — yo‘q.
+      const current = tashkentIsoDate().slice(0, 7);
+      const asked = String(req.query.month || current);
+      const month = /^\d{4}-\d{2}$/.test(asked) && asked <= current ? asked : current;
+      const snapshot = salarySnapshot(db, employee, month);
+      // To‘langani: avanslar (to‘langan) + oy «To‘landi» bosqichida bo‘lsa — qolgani ham.
+      const stage = db.payrollWorkflows.find((w) => w.companyId === employee.companyId && w.month === month)?.stage;
+      const accrued = snapshot.base + snapshot.overtimeAmount + snapshot.bonus;
+      const withheld = snapshot.lateDeduction + snapshot.absenceDeduction + snapshot.fine;
+      const payable = Math.max(0, accrued - withheld);
+      const paid = stage === "PAID" ? payable : snapshot.advance;
       res.json({
-        ...salarySnapshot(db, employee, month),
+        ...snapshot,
+        current: month === current,
+        stage: stage || "CALCULATING",
+        accrued,
+        withheld,
+        payable,
+        paid,
+        remaining: Math.max(0, payable - paid),
         limit: advanceLimit(db, employee, month),
         savedCard: publicCard(db.payoutCards.find((c) => c.employeeId === employee.id)),
         requests: db.advanceRequests

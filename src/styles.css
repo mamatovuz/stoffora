@@ -9373,3 +9373,36 @@ html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
 .sheet > .sheet-head + * { margin-top: 0; }
 .sheet .mini-seg { margin-bottom: 0; }
 .sheet .mg-kpis > div, .sheet .mp-group { box-shadow: none; }
+.mg-group { display: grid; gap: 4px; padding-bottom: 6px; }
+.mg-group-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mg-group-head i { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.mg-group-head b { flex: 1; min-width: 0; font-weight: 600; font-size: 14.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mg-group-head .mini-link { flex: none; font-size: 13.5px; }
+/* Mini App: ish haqi — oy tanlash va bloklar */
+.ms-month { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.ms-month > span { display: grid; justify-items: center; gap: 4px; }
+.ms-month b { font-size: 17px; font-weight: 600; }
+.ms-month i { font-style: normal; }
+.ms-month button { width: 42px; height: 38px; border: 0; border-radius: 12px; background: var(--m-card); color: var(--m-ink); display: grid; place-items: center; }
+.ms-month button:disabled { opacity: 0.35; }
+.ms-block { display: grid; gap: 8px; }
+.ms-block-head { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 15.5px; }
+.ms-block-head svg { color: var(--m-accent); }
+.ms-block-head b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.ms-block-head small { margin-left: auto; color: var(--m-muted); font-weight: 400; }
+.ms-block-head b.ok { color: var(--m-success); } .ms-block-head b.bad { color: var(--m-danger); }
+.ms-block-head.sep { border-top: 1px solid var(--m-line); padding-top: 10px; margin-top: 4px; }
+.ms-block .ps-line span { color: var(--m-muted); }
+/* Xaritada tanlangan xodim kartasi — tepada (pastda suzuvchi navbar ostida qolmasin), o‘ngdagi tugmalarga tegmaydi. */
+.tm-card { top: 10px; bottom: auto; right: 60px; }
+.map-scope .tm-card { right: 60px; }
+/* Hujjat yuklash: har biri o‘z qatorida, iOS’da bo‘sh sana maydoni yig‘ilib qolmasin. */
+.md-upload { grid-template-columns: 1fr; gap: 10px; padding: 14px; }
+.md-expiry { font-size: 12.5px; gap: 6px; }
+.md-upload select, .md-upload input[type="date"] { min-height: 44px; -webkit-appearance: none; appearance: none; font-size: 15px; }
+.md-upload .mini-btn.sm { width: 100%; min-height: 44px; }
+.md-summary { gap: 8px; margin-bottom: 12px; }
+.mp-group + .mp-group, .md-summary + .mp-group { margin-top: 12px; }
+/* Face ID: ramka yuzni kuzatadi (silliq suriladi) */
+.fc-frame { transition: left 0.18s ease-out, top 0.18s ease-out, width 0.18s ease-out; }
+.fc-frame.tracking { transform: none; animation: none; }

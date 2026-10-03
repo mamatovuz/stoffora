@@ -91,6 +91,8 @@ export function FaceCheck({
   /** Kamera oynasi — video nisbatida, sahnaga sig‘adigan (kesilmaydi, kattalashtirilmaydi). */
   const [view, setView] = useState<{ w: number; h: number } | null>(null);
   const [seen, setSeen] = useState(false);
+  // Ramka yuzni kuzatadi: ekrandagi (oyna) koordinata, piksel. null — markazda.
+  const [track, setTrack] = useState<{ x: number; y: number; size: number } | null>(null);
   const [error, setError] = useState("");
   const [flash, setFlash] = useState(false);
   const [pass, setPass] = useState(65);
@@ -246,6 +248,7 @@ export function FaceCheck({
         };
         if (!face) {
           setSeen(false);
+          setTrack(null);
           smooth = null;
           setPercent(null);
           reset("none");
@@ -253,6 +256,13 @@ export function FaceCheck({
         }
         const box = face.detection.box;
         setSeen(true);
+        // Video oynaga to‘liq mos (nisbat saqlangan) va ko‘zgudek aks etgan — x teskari.
+        const viewW = video.clientWidth || video.videoWidth;
+        const k = viewW / video.videoWidth;
+        const side = Math.max(box.width, box.height) * 1.35 * k;
+        const cxView = viewW - (box.x + box.width / 2) * k;
+        const cyView = (box.y + box.height / 2) * k;
+        setTrack({ x: cxView - side / 2, y: cyView - side / 2, size: side });
         // Yuz qotirilgan ramka ichida bo‘lishi kerak: markazi yaqin, o‘lchami ramkaga mos.
         const target = frameInVideo(video);
         const faceSize = Math.max(box.width, box.height);
@@ -266,7 +276,7 @@ export function FaceCheck({
           reset("near");
           continue;
         }
-        if (Math.abs(dx) > 0.2 || Math.abs(dy) > 0.22) {
+        if (Math.abs(dx) > 0.38 || Math.abs(dy) > 0.4) {
           reset("offcenter");
           continue;
         }
@@ -400,8 +410,8 @@ export function FaceCheck({
           <video ref={videoRef} muted playsInline autoPlay />
           <div className="fc-shade" aria-hidden />
           <div
-            className={`fc-frame ${tone} ${seen ? "seen" : ""}`}
-            style={view ? { width: Math.min(view.w * 0.6, view.h * 0.62) } : undefined}
+            className={`fc-frame ${tone} ${seen ? "seen" : ""} ${track ? "tracking" : ""}`}
+            style={track ? { width: track.size, left: track.x, top: track.y } : view ? { width: Math.min(view.w * 0.6, view.h * 0.62) } : undefined}
             aria-hidden
           >
           <i />

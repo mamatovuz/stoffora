@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { AlertCircle, Banknote, ChevronRight, CreditCard, Eye, EyeOff, HandCoins, LoaderCircle, Trash2, Wallet } from "lucide-react";
+import { AlertCircle, Banknote, BarChart3, ChevronLeft, ChevronRight, CreditCard, Eye, EyeOff, HandCoins, LoaderCircle, Trash2, Wallet } from "lucide-react";
 import { cardBrand, cardDigits, cardError, CARD_BRAND_LABELS, formatCard, holderError } from "@/lib/card";
 import { api, del, errorText, post } from "../api";
 import { Sheet } from "./mini/shared";
@@ -137,8 +137,31 @@ const statusChip: Record<AdvanceRequest["status"], [string, string]> = {
   CANCELLED: ["Bekor qilindi", ""],
 };
 
+type SalaryMore = Salary & { current?: boolean; stage?: string; accrued?: number; withheld?: number; payable?: number; paid?: number; remaining?: number };
+const shiftMonth = (m: string, d: number) => {
+  const x = new Date(`${m}-15T00:00:00Z`);
+  x.setUTCMonth(x.getUTCMonth() + d);
+  return x.toISOString().slice(0, 7);
+};
+
 export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast: Toast }) {
-  const { data, error, reload } = useSalary();
+  const { data: currentData, error, reload } = useSalary();
+  // O‘tgan oylar — alohida yuklanadi (avans faqat joriy oyda).
+  const thisMonth = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 7);
+  const [month, setMonth] = useState(thisMonth);
+  const [past, setPast] = useState<SalaryMore | null>(null);
+  useEffect(() => {
+    if (month === thisMonth) return setPast(null);
+    let live = true;
+    setPast(null);
+    api<SalaryMore>(`/mini/salary?month=${month}`)
+      .then((v) => live && setPast(v))
+      .catch((e) => onToast(errorText(e), "error"));
+    return () => {
+      live = false;
+    };
+  }, [month, thisMonth, onToast]);
+  const data = (month === thisMonth ? currentData : past) as SalaryMore | null;
   const [asking, setAsking] = useState(false);
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
@@ -207,7 +230,7 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
     await reload();
   }
   const pending = data?.requests.some((r) => r.status === "PENDING" || r.status === "HR_APPROVED");
-  const canAsk = Boolean(data?.limit.enabled && !pending && data.limit.available >= 10_000);
+  const canAsk = Boolean(month === thisMonth && data?.limit.enabled && !pending && data.limit.available >= 10_000);
   return (
     <Sheet
       title="Mening oyligim"
@@ -236,33 +259,55 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
           )
         ) : (
           <>
-            <div className="ms-hero">
-              <small>Taxminan qo‘lga</small>
-              <b>{som(data.net)}</b>
+            <div className="ms-month">
+              <button onClick={() => (haptic.select(), setMonth(shiftMonth(month, -1)))} aria-label="Oldingi oy">
+                <ChevronLeft size={18} />
+              </button>
               <span>
-                Oylik {som(data.base)} · {data.days}/{data.workingDays} ish kuni
+                <b>{data.label}</b>
+                <i className={`mini-chip ${data.stage === "PAID" ? "ok" : data.closed ? "" : "warn"}`}>{data.stage === "PAID" ? "To‘landi" : data.closed ? "Yopilgan" : "Taxminiy hisob"}</i>
               </span>
+              <button onClick={() => (haptic.select(), setMonth(shiftMonth(month, 1)))} disabled={month >= thisMonth} aria-label="Keyingi oy">
+                <ChevronRight size={18} />
+              </button>
             </div>
-            <div className="ms-lines">
-              <Line label="Hozirgacha ishlab topilgan" value={som(data.earnedToDate)} />
-              {data.overtimeAmount > 0 && <Line label="Qo‘shimcha ish" value={`+${som(data.overtimeAmount)}`} tone="ok" />}
+            <section className="mini-card ms-block">
+              <div className="ms-block-head">
+                <BarChart3 size={18} /> To‘lanishi kerak <b>{som(data.payable ?? data.net)}</b>
+              </div>
+              <Line label="To‘landi" value={som(data.paid ?? data.advance)} />
+              <Line label="Qoldi" value={som(data.remaining ?? data.net)} />
+              {data.current !== false && <Line label="Bugungacha ishlab topildi" value={`${som(data.earnedToDate)} · ${data.days}/${data.workingDays} kun`} />}
+            </section>
+            <section className="mini-card ms-block">
+              <div className="ms-block-head">
+                Hisoblandi <b className="ok">{som(data.accrued ?? data.base)}</b>
+              </div>
+              <Line label="+ Maosh (oklad)" value={som(data.base)} />
+              <Line label="+ Qo‘shimcha ish" value={som(data.overtimeAmount)} />
+              <Line label="+ Mukofot" value={som(data.bonus)} />
               {data.pendingOvertimeMinutes > 0 && <Line label="Tasdiq kutayotgan qo‘shimcha ish" value={`${Math.round(data.pendingOvertimeMinutes / 60)} soat`} />}
-              {data.bonus > 0 && <Line label="Bonus" value={`+${som(data.bonus)}`} tone="ok" />}
-              {data.lateDeduction > 0 && <Line label={`Kechikish (${data.lateMinutes} daq)`} value={`−${som(data.lateDeduction)}`} tone="bad" />}
-              {data.absenceDeduction > 0 && <Line label={`Kelmagan ${data.absentDays} kun`} value={`−${som(data.absenceDeduction)}`} tone="bad" />}
+              <div className="ms-block-head sep">
+                Ushlab qolindi <b className="bad">{som(data.withheld ?? data.lateDeduction + data.absenceDeduction + data.fine)}</b>
+              </div>
+              <Line label={`− Kech kelish${data.lateMinutes ? ` (${data.lateMinutes} daq)` : ""}`} value={som(data.lateDeduction)} />
+              <Line label={`− Kelmagan kunlar${data.absentDays ? ` (${data.absentDays})` : ""}`} value={som(data.absenceDeduction)} />
+              <Line label="− Jarima" value={som(data.fine)} />
               {(data.compensatedDays || 0) > 0 && (
-                <Line
-                  label={`Qoplandi: ${data.compensatedDays} kun (dam kunida ishladingiz)`}
-                  value={(data.compensatedDates || []).map((d) => d.slice(8, 10) + "." + d.slice(5, 7)).join(", ") || "✓"}
-                  tone="ok"
-                />
+                <Line label={`Qoplandi: ${data.compensatedDays} kun (dam kunida ishladingiz)`} value={(data.compensatedDates || []).map((d) => d.slice(8, 10) + "." + d.slice(5, 7)).join(", ") || "✓"} tone="ok" />
               )}
-              {data.fine > 0 && <Line label="Jarima" value={`−${som(data.fine)}`} tone="bad" />}
-              {data.advance > 0 && <Line label="Olingan avans" value={`−${som(data.advance)}`} />}
-            </div>
+              {data.advance > 0 && <Line label="Avans (oldindan to‘langan)" value={som(data.advance)} />}
+            </section>
+            <section className="mini-card ms-block">
+              <div className="ms-block-head">
+                <Wallet size={18} /> Maosh <small>{data.workingDays} ish kuni</small>
+              </div>
+              <Line label="Oklad (oylik)" value={som(data.base)} />
+              <Line label="1 ish kuni" value={som(data.workingDays ? Math.round(data.base / data.workingDays) : 0)} />
+            </section>
             <p className="ms-note">Oy oxirigacha davomatga qarab o‘zgaradi. Yakuniy summa oy yopilgach hisob varaqasida keladi.</p>
 
-            {data.limit.enabled && !asking && !canAsk && (
+            {month === thisMonth && data.limit.enabled && !asking && !canAsk && (
               <div className="mh-hint info">
                 <HandCoins size={16} />
                 <span>{pending ? "Avans so‘rovingiz ko‘rib chiqilmoqda" : "Bu oy avans chegarasi tugagan"}</span>

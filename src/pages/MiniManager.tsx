@@ -32,6 +32,7 @@ import { dateLongUz, dateUz, tashkentIsoDate } from "@/lib/format";
 import { FineSheet, MoneyView } from "./mini/MoneyTools";
 import { DevicesView } from "./mini/DevicesView";
 import { OpsView } from "./mini/OpsView";
+import { Donut } from "./mini/HistoryCalendar";
 import { MiniDesk } from "./mini/Desk";
 import type { Attendance, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../types";
@@ -113,6 +114,18 @@ type DayOffRow = { id: string; employeeName: string; fromDate: string; toDate: s
 const som = (value: number) => `${Math.round(value).toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m`;
 type Filter = "ALL" | "IN" | "LATE" | "ABSENT" | "NOT_YET" | "ON_LEAVE" | "FLAGGED";
 
+type TodayRow = { state: string; late: boolean };
+/** Kunlik davomat guruhlari (diagramma va ro‘yxat). */
+const TODAY_GROUPS: { key: string; label: string; color: string; test: (r: TodayRow) => boolean }[] = [
+  { key: "ontime", label: "o‘z vaqtida kelgan", color: "#22C55E", test: (r) => (r.state === "IN" || r.state === "LEFT" || r.state === "PRACTICE") && !r.late },
+  { key: "late", label: "kechikib kelgan", color: "#F59E0B", test: (r) => r.late },
+  { key: "notyet", label: "hali kelmagan", color: "#38BDF8", test: (r) => r.state === "NOT_YET" },
+  { key: "absent", label: "kelmagan", color: "#EF4444", test: (r) => r.state === "ABSENT" },
+  { key: "leave", label: "ta’tilda", color: "#8B5CF6", test: (r) => r.state === "ON_LEAVE" },
+  { key: "off", label: "dam olish kuni", color: "#A5C4F3", test: (r) => r.state === "DAY_OFF" },
+  { key: "upcoming", label: "ish vaqti boshlanmagan", color: "#8E9AAF", test: (r) => r.state === "UPCOMING" },
+];
+
 export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: ManagerAuth; onToast: Toast; onExpired: () => void; initialView?: ManagerView }) {
   const call = useMemo(() => client(auth.token), [auth.token]);
   const role = auth.user.role;
@@ -140,6 +153,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const [branch, setBranch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [openGroups, setOpenGroups] = useState<string[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<Pending[]>([]);
@@ -350,6 +364,34 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
       </button>
     ) : null;
 
+  const renderRow = (r: (typeof rows)[number]) => {
+                    const notice = noticeOf(r.employee.id);
+                    return (
+                      <button className={`mini-row mg-row ${fresh.has(r.employee.id) ? "fresh" : ""}`} key={r.employee.id} onClick={() => setCardFor(r.employee.id)}>
+                        <span className={`mg-avatar ${stateTone(r)}`}>
+                          {r.employee.photoDataUrl ? <img src={r.employee.photoDataUrl} alt="" /> : `${r.employee.firstName[0] || ""}${r.employee.lastName[0] || ""}`}
+                        </span>
+                        <span>
+                          <b>
+                            {r.employee.firstName} {r.employee.lastName}
+                          </b>
+                          <small>
+                            {r.branch}
+                            {r.record?.checkIn ? ` · ${r.record.checkIn}${r.record.checkOut ? ` → ${r.record.checkOut}` : ""}` : r.scheduledStart ? ` · grafik ${r.scheduledStart}` : ""}
+                            {r.record?.breaks?.some((b) => !b.end) ? " · ☕ tanaffusda" : ""}
+                          </small>
+                          {notice && !r.record?.checkIn && (
+                            <small className="mg-notice">
+                              ⏳ ~{notice.minutes} daq · {notice.reason}
+                            </small>
+                          )}
+                        </span>
+                        <span className={`mini-chip ${chipTone(r)}`}>
+                          {flagged(r) && <AlertTriangle size={11} />} {stateLabel(r)}
+                        </span>
+                      </button>
+                    );
+  };
   return (
     <div className="mini-body mg">
       <div className="mg-head">
@@ -421,17 +463,8 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                 else setFilter(target);
               }}
             />
-            <section className="mg-hero">
-              <div className="mg-ring" style={{ ["--p" as string]: `${rate}` }}>
-                <b>{rate}%</b>
-                <small>keldi</small>
-              </div>
-              <div className="mg-tiles">
-                <Tile label="Ishda" value={stats.in} tone="ok" active={filter === "IN"} onClick={() => setFilter(filter === "IN" ? "ALL" : "IN")} />
-                <Tile label="Kechikdi" value={stats.late} tone="warn" active={filter === "LATE"} onClick={() => setFilter(filter === "LATE" ? "ALL" : "LATE")} />
-                <Tile label="Kelmadi" value={stats.absent} tone="bad" active={filter === "ABSENT"} onClick={() => setFilter(filter === "ABSENT" ? "ALL" : "ABSENT")} />
-                <Tile label="Hali yo‘q" value={stats.notYet} active={filter === "NOT_YET"} onClick={() => setFilter(filter === "NOT_YET" ? "ALL" : "NOT_YET")} />
-              </div>
+            <section className="mini-card">
+              <Donut slices={TODAY_GROUPS.map((g) => ({ label: g.label, value: scoped.filter(g.test).length, color: g.color }))} center={String(scoped.length)} />
             </section>
             {notices.length > 0 && (
               <div className="mg-alert info">
@@ -466,45 +499,40 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                 )}
               </p>
             )}
-            <section className="mini-card">
-              {!list.length ? (
-                <div className="mini-empty">
-                  <Users size={26} />
-                  Bu ro‘yxatda hech kim yo‘q
-                </div>
-              ) : (
-                <div className="mini-rows">
-                  {list.map((r) => {
-                    const notice = noticeOf(r.employee.id);
-                    return (
-                      <button className={`mini-row mg-row ${fresh.has(r.employee.id) ? "fresh" : ""}`} key={r.employee.id} onClick={() => setCardFor(r.employee.id)}>
-                        <span className={`mg-avatar ${stateTone(r)}`}>
-                          {r.employee.photoDataUrl ? <img src={r.employee.photoDataUrl} alt="" /> : `${r.employee.firstName[0] || ""}${r.employee.lastName[0] || ""}`}
-                        </span>
-                        <span>
-                          <b>
-                            {r.employee.firstName} {r.employee.lastName}
-                          </b>
-                          <small>
-                            {r.branch}
-                            {r.record?.checkIn ? ` · ${r.record.checkIn}${r.record.checkOut ? ` → ${r.record.checkOut}` : ""}` : r.scheduledStart ? ` · grafik ${r.scheduledStart}` : ""}
-                            {r.record?.breaks?.some((b) => !b.end) ? " · ☕ tanaffusda" : ""}
-                          </small>
-                          {notice && !r.record?.checkIn && (
-                            <small className="mg-notice">
-                              ⏳ ~{notice.minutes} daq · {notice.reason}
-                            </small>
-                          )}
-                        </span>
-                        <span className={`mini-chip ${chipTone(r)}`}>
-                          {flagged(r) && <AlertTriangle size={11} />} {stateLabel(r)}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
+            {filter === "ALL" && !query.trim() ? (
+              TODAY_GROUPS.map((g) => {
+                const members = scoped.filter(g.test);
+                if (!members.length) return null;
+                const all = openGroups.includes(g.key);
+                return (
+                  <section className="mini-card mg-group" key={g.key}>
+                    <div className="mg-group-head">
+                      <i style={{ background: g.color }} />
+                      <b>
+                        {g.label[0].toUpperCase() + g.label.slice(1)} · {members.length}
+                      </b>
+                      {members.length > 5 && (
+                        <button className="mini-link" onClick={() => setOpenGroups(all ? openGroups.filter((k) => k !== g.key) : [...openGroups, g.key])}>
+                          {all ? "Yig‘ish" : "Barchasini ko‘rsatish"}
+                        </button>
+                      )}
+                    </div>
+                    <div className="mini-rows">{(all ? members : members.slice(0, 5)).map(renderRow)}</div>
+                  </section>
+                );
+              })
+            ) : (
+              <section className="mini-card">
+                {!list.length ? (
+                  <div className="mini-empty">
+                    <Users size={26} />
+                    Bu ro‘yxatda hech kim yo‘q
+                  </div>
+                ) : (
+                  <div className="mini-rows">{list.map(renderRow)}</div>
+                )}
+              </section>
+            )}
             <p className="mp-note">Xodimga bosing — karta: oylik tarix, trendlar, hujjatlar, yozish va qo‘lda belgilash.</p>
           </>
         ))}

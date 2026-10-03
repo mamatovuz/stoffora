@@ -361,9 +361,8 @@ export function MiniDocuments({ onToast }: { onToast: Toast }) {
             ))}
           </select>
           <label className="md-expiry">
-            <span>Amal qilish muddati</span>
+            <span>Amal qilish muddati (ixtiyoriy)</span>
             <input type="date" value={expiresAt} onChange={(e) => setExpiresAt(e.target.value)} aria-label="Amal qilish muddati (ixtiyoriy)" />
-            {!expiresAt && <em>ixtiyoriy</em>}
           </label>
           <button className="mini-btn sm" disabled={busy} onClick={() => input.current?.click()}>
             {busy ? <LoaderCircle size={16} className="spin" /> : <Upload size={16} />} Yuklash

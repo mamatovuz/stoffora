@@ -30,10 +30,27 @@ const STATUS: Record<AdvanceRequest["status"], [string, "warn" | "info" | "ok" |
   CANCELLED: ["Bekor qilindi", "muted"],
 };
 
+const shiftMonth = (m: string, d: number) => {
+  const x = new Date(`${m}-15T00:00:00Z`);
+  x.setUTCMonth(x.getUTCMonth() + d);
+  return x.toISOString().slice(0, 7);
+};
+function MoneyLine({ label, value, tone, head, sub, strong }: { label: string; value: string; tone?: string; head?: boolean; sub?: boolean; strong?: boolean }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10 }}>
+      <Text style={{ flex: 1, color: sub ? c.muted : c.ink, fontSize: head ? 17 : sub ? 14 : 15.5, fontWeight: head || strong ? "600" : "400" }}>{label}</Text>
+      <Text style={{ color: tone || (sub ? c.muted : c.ink), fontSize: head ? 17 : sub ? 14 : 15.5, fontWeight: head || strong ? "600" : "400", fontVariant: ["tabular-nums"] }}>{value}</Text>
+    </View>
+  );
+}
+
 /** «Mening oyligim» — oy davomida real vaqtda; shu yerdan avans so‘raladi (HR → Moliya). */
 export default function SalaryScreen() {
   const { c } = useTheme();
-  const { data, error, loading, reload } = useData<Salary>("/mini/salary", { maxAgeMs: 0 });
+  const current = tashkentIsoDate().slice(0, 7);
+  const [month, setMonth] = useState(current);
+  const { data, error, loading, reload } = useData<Salary>(`/mini/salary?month=${month}`, { maxAgeMs: 0 });
   const [visible, setVisible] = useState(false);
   const [open, setOpen] = useState(false);
   if (loading && !data) return <Loading />;
@@ -54,39 +71,73 @@ export default function SalaryScreen() {
     ]);
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
+      <View style={st.monthNav}>
+        <Pressable onPress={() => (haptic.select(), setMonth(shiftMonth(month, -1)))} hitSlop={10} style={[st.navBtn, { backgroundColor: c.card }]}>
+          <Icon name="chevron-back" size={18} color={c.ink} />
+        </Pressable>
+        <View style={{ alignItems: "center", gap: 4 }}>
+          <Text style={{ color: c.ink, fontSize: 18, fontWeight: "600" }}>{data.label}</Text>
+          <Badge text={data.stage === "PAID" ? "To‘landi" : data.closed ? "Yopilgan" : "Taxminiy hisob"} tone={data.stage === "PAID" ? "ok" : data.closed ? "info" : "warn"} />
+        </View>
+        <Pressable onPress={() => (haptic.select(), setMonth(shiftMonth(month, 1)))} disabled={month >= current} hitSlop={10} style={[st.navBtn, { backgroundColor: c.card, opacity: month >= current ? 0.35 : 1 }]}>
+          <Icon name="chevron-forward" size={18} color={c.ink} />
+        </Pressable>
+      </View>
+
       <Card style={{ gap: 12 }}>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.muted, fontSize: 13 }}>{data.closed ? `${data.label} — yopilgan` : `${data.label} · taxminan qo‘lga`}</Text>
-            <Text style={{ color: c.ink, fontSize: 32, fontWeight: "800", fontVariant: ["tabular-nums"] }}>{visible ? som(data.net) : "••• ••• so‘m"}</Text>
-          </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Icon name="stats-chart" size={20} color={c.accent} />
+          <Text style={{ color: c.ink, fontSize: 15.5, fontWeight: "600", flex: 1 }}>To‘lanishi kerak</Text>
           <Pressable onPress={() => setVisible((v) => !v)} hitSlop={12} accessibilityLabel={visible ? "Yashirish" : "Ko‘rsatish"}>
-            <Icon name={visible ? "eye-off-outline" : "eye-outline"} size={24} color={c.muted} />
+            <Icon name={visible ? "eye-off-outline" : "eye-outline"} size={22} color={c.muted} />
           </Pressable>
         </View>
-        <View style={[st.bar, { backgroundColor: c.tint }]}>
-          <View style={{ width: `${progress}%`, height: "100%", backgroundColor: c.success }} />
-        </View>
-        <Text style={{ color: c.muted, fontSize: 13 }}>
-          Ishlab topildi: {show(data.earnedToDate)} · {data.days}/{data.workingDays} kun
-        </Text>
+        <Text style={{ color: c.ink, fontSize: 30, fontWeight: "700", fontVariant: ["tabular-nums"] }}>{visible ? som(data.payable ?? data.net) : "••• ••• so‘m"}</Text>
+        <MoneyLine label="To‘landi" value={show(data.paid ?? data.advance)} />
+        <MoneyLine label="Qoldi" value={show(data.remaining ?? data.net)} strong />
+        {data.current ? (
+          <>
+            <View style={[st.bar, { backgroundColor: c.tint }]}>
+              <View style={{ width: `${progress}%`, height: "100%", backgroundColor: c.success }} />
+            </View>
+            <Text style={{ color: c.muted, fontSize: 13 }}>
+              Bugungacha ishlab topildi: {show(data.earnedToDate)} · {data.days}/{data.workingDays} kun
+            </Text>
+          </>
+        ) : null}
       </Card>
 
-      <GroupTitle>Hisob-kitob</GroupTitle>
-      <Group>
-        <Row label="Oklad" value={show(data.base)} />
-        {data.overtimeAmount ? <Row label="Qo‘shimcha ish" value={`+${show(data.overtimeAmount)}`} /> : null}
-        {data.bonus ? <Row label="Mukofot" value={`+${show(data.bonus)}`} /> : null}
-        {data.lateDeduction ? <Row label={`Kechikish (${data.lateMinutes} daq)`} value={`−${show(data.lateDeduction)}`} /> : null}
-        {data.absenceDeduction ? <Row label={`Kelmagan kunlar (${data.absentDays})`} value={`−${show(data.absenceDeduction)}`} /> : null}
-        {data.fine ? <Row label="Jarima" value={`−${show(data.fine)}`} /> : null}
-        {data.advance ? <Row label="Avans" value={`−${show(data.advance)}`} /> : null}
-        <Row label="Qo‘lga (taxminan)" value={show(data.net)} last />
-      </Group>
+      <Card style={{ gap: 10 }}>
+        <MoneyLine label="Hisoblandi" value={show(data.accrued ?? data.base)} tone={c.success} head />
+        <MoneyLine label="+ Maosh (oklad)" value={show(data.base)} sub />
+        <MoneyLine label="+ Qo‘shimcha ish" value={show(data.overtimeAmount)} sub />
+        <MoneyLine label="+ Mukofot" value={show(data.bonus)} sub />
+        <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: c.line, marginVertical: 4 }} />
+        <MoneyLine label="Ushlab qolindi" value={show(data.withheld ?? 0)} tone={c.danger} head />
+        <MoneyLine label={`− Kech kelish${data.lateMinutes ? ` (${data.lateMinutes} daq)` : ""}`} value={show(data.lateDeduction)} sub />
+        <MoneyLine label={`− Kelmagan kunlar${data.absentDays ? ` (${data.absentDays})` : ""}`} value={show(data.absenceDeduction)} sub />
+        <MoneyLine label="− Jarima" value={show(data.fine)} sub />
+        {data.advance ? (
+          <>
+            <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: c.line, marginVertical: 4 }} />
+            <MoneyLine label="Avans (oldindan to‘langan)" value={show(data.advance)} sub />
+          </>
+        ) : null}
+      </Card>
+
+      <Card style={{ gap: 10 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <Icon name="cash-outline" size={20} color={c.accent} />
+          <Text style={{ color: c.ink, fontSize: 15.5, fontWeight: "600", flex: 1 }}>Maosh</Text>
+          <Text style={{ color: c.muted }}>{data.workingDays} ish kuni</Text>
+        </View>
+        <MoneyLine label="Oklad (oylik)" value={show(data.base)} />
+        <MoneyLine label="1 ish kuni" value={show(data.workingDays ? Math.round(data.base / data.workingDays) : 0)} sub />
+      </Card>
       {data.compensatedDays ? <Hint tone="ok" icon="checkmark-circle-outline">{data.compensatedDays} ta sababsiz kelmagan kun dam kunida ishlab qoplandi.</Hint> : null}
       {data.pendingOvertimeMinutes ? <Hint icon="timer-outline">{data.pendingOvertimeMinutes} daqiqa qo‘shimcha ish rahbar tasdig‘ini kutmoqda.</Hint> : null}
 
-      {data.limit.enabled ? (
+      {data.current !== false && data.limit.enabled ? (
         <>
           <GroupTitle>Avans</GroupTitle>
           <Card style={{ gap: 10 }}>
@@ -229,6 +280,8 @@ function AdvanceSheet({ visible, data, onClose, onSaved }: { visible: boolean; d
 
 const st = StyleSheet.create({
   bar: { height: 8, borderRadius: 4, overflow: "hidden" },
+  monthNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  navBtn: { width: 44, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   amount: { borderWidth: 1, borderRadius: 14, paddingHorizontal: 16, height: 58, fontSize: 24, fontWeight: "700" },
   chip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 99, borderWidth: 1 },
   method: { flex: 1, flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, borderWidth: 1 },

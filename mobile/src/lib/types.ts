@@ -82,6 +82,13 @@ export type Salary = {
   net: number;
   earnedToDate: number;
   compensatedDays?: number;
+  current?: boolean;
+  stage?: string;
+  accrued?: number;
+  withheld?: number;
+  payable?: number;
+  paid?: number;
+  remaining?: number;
   limit: { enabled: boolean; percent: number; max: number; taken: number; pending: number; available: number; closed: boolean };
   requests: AdvanceRequest[];
   savedCard?: { mask: string; brand: string; holder: string } | null;

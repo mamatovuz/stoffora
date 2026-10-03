@@ -15,7 +15,7 @@ import { invalidate, useData } from "@/lib/useData";
 /*
  * Kundalik Face ID (sozlangandan keyin) — Mini App’dagi kabi, lekin native:
  *  • kamera 3:4 oynada, KESILMAYDI va kattalashtirilmaydi (zoom 0) — yuz tabiiy masofada ko‘rinadi;
- *  • ramka markazda QOTIRILGAN — xodim yuzini ramkaga o‘zi olib keladi;
+ *  • ramka yuzni KUZATADI (server aniqlagan yuz joyiga silliq suriladi); yuz topilmasa — markazda;
  *  • yuz ramkada emas / moslik past — QIZIL; ramkada va moslik ≥ chegara (65%) — YASHIL;
  *  • ~1 soniya yashil turgach kadrlar server Face ID’siga yuboriladi (qaror — serverda);
  *  • pastda xarita: filial, ruxsat etilgan radius va xodim turgan joy.
@@ -48,6 +48,9 @@ export default function FaceCheck() {
   const active = useRef(true);
   const session = useRef<{ id: string; requiresQr: boolean; photo: string } | null>(null);
   const [area, setArea] = useState<{ w: number; h: number } | null>(null);
+  // Oxirgi aniqlangan yuz (rasmga nisbatan 0..1) — ramka shu joyga suriladi.
+  const [faceBox, setFaceBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const anim = useRef({ left: new Animated.Value(0), top: new Animated.Value(0), size: new Animated.Value(0), ready: false }).current;
 
   useEffect(() => {
     alive.current = true;
@@ -118,6 +121,7 @@ export default function FaceCheck() {
         await new Promise((r) => setTimeout(r, 600));
         if (stop) return;
         setPass(probe.passPercent);
+        setFaceBox(probe.face?.box ?? null);
         const where = placement(probe.face);
         smooth = !probe.face || probe.percent === null ? null : smooth === null ? probe.percent : Math.round(smooth * 0.5 + probe.percent * 0.5);
         setPercent(smooth);
@@ -228,10 +232,42 @@ export default function FaceCheck() {
     setPercent(null);
     setGreen(false);
     setPlace("loading");
+    setFaceBox(null);
     scanned.current = false;
     session.current = null;
     setPhase("face");
   };
+
+  /* ------------------------------------------- ramka: yuzni kuzatish --- */
+  // Rasm (3:4) kamera maydonini «cover» bilan to‘ldiradi. Old kamera ko‘rinishi ko‘zgudek — x teskari.
+  const frameBox = useMemo(() => {
+    if (!area) return null;
+    const scale = Math.max(area.w / 3, area.h / 4);
+    const iw = 3 * scale;
+    const ih = 4 * scale;
+    const ox = area.w / 2 - iw / 2;
+    const oy = area.h / 2 - ih / 2;
+    if (faceBox && phase === "face") {
+      const size = Math.min(area.w * 0.95, Math.max(faceBox.width * iw, faceBox.height * ih * 0.9) * 1.3);
+      const cx = ox + (1 - faceBox.x - faceBox.width / 2) * iw;
+      const cy = oy + (faceBox.y + faceBox.height / 2) * ih;
+      return { size, left: cx - size / 2, top: cy - size / 2 };
+    }
+    const size = FRAME.w * iw;
+    return { size, left: area.w / 2 - size / 2, top: area.h / 2 + (FRAME.cy - 0.5) * ih - size / 2 };
+  }, [area, faceBox, phase]);
+  useEffect(() => {
+    if (!frameBox) return;
+    if (!anim.ready) {
+      anim.left.setValue(frameBox.left);
+      anim.top.setValue(frameBox.top);
+      anim.size.setValue(frameBox.size);
+      anim.ready = true;
+      return;
+    }
+    const spring = (v: Animated.Value, to: number) => Animated.spring(v, { toValue: to, useNativeDriver: false, speed: 14, bounciness: 4 });
+    Animated.parallel([spring(anim.left, frameBox.left), spring(anim.top, frameBox.top), spring(anim.size, frameBox.size)]).start();
+  }, [frameBox, anim]);
 
   /* ---------------------------------------------------------- UI --- */
   const gap = fix && branch ? Math.round(distanceMeters(fix.latitude, fix.longitude, branch.latitude, branch.longitude)) : null;
@@ -271,15 +307,6 @@ export default function FaceCheck() {
 
   if (phase === "done" && result) return <Receipt action={action} attendance={result} percent={percent} branchName={branch?.name} distance={gap} />;
 
-  // Ramka ekranda: rasm (3:4) kamera maydonini «cover» bilan to‘ldiradi — ramka rasmdagi joyiga mos chiziladi.
-  const frameBox = (() => {
-    if (!area) return null;
-    const scale = Math.max(area.w / 3, area.h / 4);
-    const iw = 3 * scale;
-    const ih = 4 * scale;
-    const size = FRAME.w * iw;
-    return { size, left: area.w / 2 - size / 2, top: area.h / 2 + (FRAME.cy - 0.5) * ih - size / 2 };
-  })();
 
   return (
     <View style={st.root}>
@@ -291,11 +318,11 @@ export default function FaceCheck() {
           <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="front" zoom={0} animateShutter={false} mirror={false} onCameraReady={() => setReady(true)} />
         )}
         {frameBox && phase !== "qr" ? (
-          <View pointerEvents="none" style={[st.frame, { width: frameBox.size, height: frameBox.size, left: frameBox.left, top: frameBox.top }]}>
+          <Animated.View pointerEvents="none" style={[st.frame, { width: anim.size, height: anim.size, left: anim.left, top: anim.top }]}>
             {[0, 1, 2, 3].map((i) => (
               <View key={i} style={[cornerStyle(i), { borderColor: color }]} />
             ))}
-          </View>
+          </Animated.View>
         ) : null}
         {phase === "verifying" || phase === "locating" || phase === "committing" ? (
           <View style={[StyleSheet.absoluteFill, st.busy]}>

@@ -5,6 +5,7 @@ import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } fr
 import { BranchMap } from "@/components/BranchMap";
 import { FineSheet, MoneyView } from "@/components/MoneyTools";
 import { DevicesView } from "@/components/DevicesView";
+import { AttendanceOverview } from "@/components/AttendanceOverview";
 import { OpsView } from "@/components/OpsView";
 import { DeskView } from "@/components/DeskView";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
@@ -64,6 +65,20 @@ export default function Manager() {
     if (params.view) setView(params.view);
   }, [params.view, params.t]);
   const [day, setDay] = useState<Day | null>(null);
+  // Boshqa kun (‹ ›) — alohida yuklanadi; bugun — umumiy yangilanish bilan.
+  const [dayDate, setDayDate] = useState(tashkentIsoDate());
+  const [otherDay, setOtherDay] = useState<Day | null>(null);
+  useEffect(() => {
+    if (dayDate === tashkentIsoDate()) return setOtherDay(null);
+    let live = true;
+    setOtherDay(null);
+    void mcall<Day>(`/attendance/day?date=${dayDate}`)
+      .then((d) => live && setOtherDay(d))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [dayDate]);
   const [pending, setPending] = useState<Pending[]>([]);
   const [notices, setNotices] = useState<LateNotice[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -158,7 +173,8 @@ export default function Manager() {
     }
   };
 
-  const rows = day?.rows || [];
+  const shownDay = dayDate === tashkentIsoDate() ? day : otherDay;
+  const rows = shownDay?.rows || [];
   const stats = useMemo(() => {
     const expected = rows.filter((r) => !["ON_LEAVE", "DAY_OFF", "UPCOMING"].includes(r.state)).length;
     return {
@@ -254,39 +270,6 @@ export default function Manager() {
           <Empty icon="people-outline" title="Davomatni ko‘rish huquqi yo‘q" />
         ) : (
           <>
-            <Card style={{ gap: 12 }}>
-              <View style={{ flexDirection: "row", alignItems: "baseline", gap: 8 }}>
-                <Text style={{ color: c.ink, fontSize: 34, fontWeight: "700", letterSpacing: -1 }}>{rate}%</Text>
-                <Text style={{ color: c.muted }}>
-                  ishda: {stats.in}/{stats.expected}
-                </Text>
-              </View>
-              <View style={[st.bar, { backgroundColor: c.tint }]}>
-                <View style={{ width: `${rate}%`, height: "100%", backgroundColor: c.success }} />
-              </View>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {(
-                  [
-                    ["IN", "Ishda", stats.in, c.success],
-                    ["LATE", "Kechikdi", stats.late, c.warn],
-                    ["ABSENT", "Kelmadi", stats.absent, c.danger],
-                    ["NOT_YET", "Hali yo‘q", stats.notYet, c.muted],
-                  ] as const
-                ).map(([key, label, value, color]) => (
-                  <Pressable
-                    key={key}
-                    onPress={() => {
-                      haptic.select();
-                      setFilter(filter === key ? "ALL" : key);
-                    }}
-                    style={[st.tile, { backgroundColor: c.tint, borderColor: filter === key ? c.accent : "transparent" }]}
-                  >
-                    <Text style={{ color: value ? color : c.muted, fontSize: 22, fontWeight: "700" }}>{value}</Text>
-                    <Text style={{ color: c.muted, fontSize: 11.5 }}>{label}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </Card>
             {stats.flagged ? <Hint tone="warn" icon="flag-outline">{stats.flagged} ta shubhali belgi (GPS / qurilma / internetsiz) — panelda ko‘rib chiqing.</Hint> : null}
             {notices.length ? (
               <>
@@ -312,14 +295,18 @@ export default function Manager() {
               <Icon name="search" size={17} color={c.muted} />
               <TextInput value={query} onChangeText={setQuery} placeholder="Xodimni qidirish" placeholderTextColor={c.muted} style={{ flex: 1, color: c.ink, fontSize: 16 }} />
             </View>
-            {!visible.length ? (
-              <Empty icon="people-outline" title="Hech kim yo‘q" />
+            {query.trim() ? (
+              !visible.length ? (
+                <Empty icon="people-outline" title="Hech kim yo‘q" />
+              ) : (
+                <Group>
+                  {visible.map((r, i) => (
+                    <RosterLine key={r.employee.id} row={r} last={i === visible.length - 1} />
+                  ))}
+                </Group>
+              )
             ) : (
-              <Group>
-                {visible.map((r, i) => (
-                  <RosterLine key={r.employee.id} row={r} last={i === visible.length - 1} />
-                ))}
-              </Group>
+              <AttendanceOverview rows={shownDay?.rows || []} date={dayDate} onDate={setDayDate} render={(r, last) => <RosterLine key={r.employee.id} row={r} last={last} />} />
             )}
           </>
         )
