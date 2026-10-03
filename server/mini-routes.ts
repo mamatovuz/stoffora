@@ -22,6 +22,9 @@ import {
   assertPoseVariation,
   isReplayedDescriptor,
   matchFace,
+  verifyIdentity,
+  faceDistance,
+  ADAPTIVE_MAX_FROM_CENTER,
   faceMatchThreshold,
   matchPassPercent,
 } from "../lib/face";
@@ -48,6 +51,7 @@ import { createMiniReminderRouter } from "./reminders";
 import { createMiniPeopleRouter } from "./people";
 import { createMiniOpsRouter } from "./ops";
 import { createMiniHistoryRouter, marksOf, saveMarkPhoto } from "./history";
+import { lookalikeAlert } from "./face-reference";
 import { deviceFlags, isDeepLinkParam } from "../lib/mini";
 import { documentInputSchema, saveDocument } from "./documents";
 import {
@@ -645,7 +649,7 @@ export function createMiniRouter() {
       res.setHeader("Cache-Control", "private, no-store");
       res.json({
         descriptor: profile.descriptor,
-        samples: [...(profile.samples || []), ...(profile.adaptiveSamples || [])].slice(-14),
+        samples: [...(profile.samples || []), ...(profile.adaptiveSamples || []).filter((x) => faceDistance(profile.descriptor, x) <= ADAPTIVE_MAX_FROM_CENTER)].slice(-14),
         threshold,
         passPercent: matchPassPercent(threshold),
       });
@@ -655,9 +659,11 @@ export function createMiniRouter() {
     "/mini/face/verify",
     perEmployeeLimit(10),
     asyncRoute(async (req, res) => {
-      const { descriptor, turnDescriptor, liveness, photoDataUrl, photoQuality } = z
+      const { descriptor, frames, turnDescriptor, liveness, photoDataUrl, photoQuality } = z
         .object({
           descriptor: descriptorSchema,
+          /** Ushlab turilgan kadrlar deskriptorlari (2–6) — qaror mediana bo‘yicha. */
+          frames: z.array(descriptorSchema).max(6).optional(),
           turnDescriptor: descriptorSchema.optional(),
           liveness: livenessSchema,
           photoDataUrl: z.string().max(700_000).regex(/^data:image\/(jpeg|jpg|webp);base64,/).optional(),
@@ -689,8 +695,14 @@ export function createMiniRouter() {
           );
         const front = matchFace(profile, descriptor);
         // Bosh burilgan kadr ham shu odamniki bo‘lishi shart (burilishda aniqlik pastroq — biroz yumshoq chegara).
-        const turned = turnDescriptor ? matchFace(profile, turnDescriptor, faceMatchThreshold() + 0.1) : undefined;
-        const match = { ...front, matched: front.matched && (!turned || turned.matched) };
+        const turned = turnDescriptor ? matchFace(profile, turnDescriptor, faceMatchThreshold() + 0.06) : undefined;
+        // Bir nechta kadr + 1:N: boshqa xodimga o‘xshasa — rad.
+        const candidates = [descriptor, ...(frames || [])];
+        candidates.forEach(assertFaceDescriptor);
+        const others = db.faceProfiles.filter((p) => p.companyId === auth.companyId && p.employeeId !== auth.employeeId);
+        const identity = verifyIdentity(profile, candidates, others);
+        if (identity.reason === "LOOKALIKE") lookalikeAlert(db, auth.companyId, employee, identity.lookalikeEmployeeId, "Mini App");
+        const match = { ...front, distance: identity.distance, score: identity.percent, reason: identity.reason, matched: identity.matched && front.matched && (!turned || turned.matched) };
         if (match.matched) {
           profile.lastDescriptor = descriptor;
           profile.lastVerifiedAt = new Date().toISOString();
@@ -737,7 +749,9 @@ export function createMiniRouter() {
       if (!result.matched)
         return res.status(403).json({
           message:
-            "Yuz profildagi Face ID bilan mos kelmadi. Yorug‘ joyda, ko‘zoynak/niqobsiz qayta urinib ko‘ring.",
+            result.reason === "LOOKALIKE"
+              ? "Yuz boshqa xodimga o‘xshab chiqdi — har kim faqat o‘zi belgilaydi. HR’ga xabar berildi."
+              : "Yuz profildagi Face ID bilan mos kelmadi. Yorug‘ joyda, ko‘zoynak/niqobsiz qayta urinib ko‘ring.",
           score: result.score,
         });
       return res.json({

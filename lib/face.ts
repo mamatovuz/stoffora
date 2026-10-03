@@ -23,21 +23,31 @@ export function faceDistance(reference: number[], candidate: number[]) {
   );
 }
 
+/** Moslikdan o‘tish foizi — chegara masofasi har doim shu foizga to‘g‘ri keladi. */
+export const FACE_PASS_PERCENT = 75;
 /**
- * Moslik foizi (ekranda ko‘rsatiladi): chegara masofasi (standart 0,5) = 65%.
- * Shu sababli «65% dan yuqori — yashil» qoidasi chegarani o‘zgartirganda ham ma’noli qoladi.
+ * Moslik foizi (ekranda ko‘rsatiladi). Chegara masofasi = 75%; chegaradan pastda 75–100%,
+ * chegaradan oshgach foiz TEZ tushadi (begona odam «71%» ko‘rinib, chalg‘itmasin).
  */
-export function matchPercent(distance: number) {
-  return Math.max(0, Math.min(100, Math.round(100 - distance * 70)));
+export function matchPercent(distance: number, threshold = faceMatchThreshold()) {
+  const value = distance <= threshold ? 100 - (distance / threshold) * 25 : 75 - ((distance - threshold) / 0.2) * 75;
+  return Math.max(0, Math.min(100, Math.round(value)));
 }
-export const matchPassPercent = (threshold = faceMatchThreshold()) => matchPercent(threshold);
+export const matchPassPercent = (_threshold = faceMatchThreshold()) => FACE_PASS_PERCENT;
 
+/**
+ * Masofa chegarasi (face-api ResNet deskriptori). 0,4 — bir odam uchun odatiy 0,25–0,38,
+ * o‘xshash begona odamlar 0,4–0,55 oralig‘ida. FACE_MATCH_THRESHOLD bilan o‘zgartirish mumkin.
+ */
 export function faceMatchThreshold() {
-  const configured = Number(process.env.FACE_MATCH_THRESHOLD || 0.5);
-  return Number.isFinite(configured) && configured >= 0.3 && configured <= 0.8
+  // Brauzerda (Mini App) process yo‘q — standart chegara.
+  const configured = Number((typeof process !== "undefined" ? process.env?.FACE_MATCH_THRESHOLD : undefined) || 0.4);
+  return Number.isFinite(configured) && configured >= 0.3 && configured <= 0.6
     ? configured
-    : 0.5;
+    : 0.4;
 }
+/** Moslashuvchan namuna markazdan shu masofadan uzoq bo‘lsa — e’tiborga olinmaydi (profil siljimaydi). */
+export const ADAPTIVE_MAX_FROM_CENTER = 0.32;
 
 export function meanDescriptor(samples: number[][]) {
   if (!samples.length)
@@ -106,7 +116,9 @@ export function matchFace(
   assertFaceDescriptor(candidate);
   const centerDistance = faceDistance(profile.descriptor, candidate);
   // Ro‘yxatdan o‘tishdagi namunalar + oxirgi ishonchli tekshiruvlar (vaqt o‘tishi bilan o‘zgarishga moslashadi).
-  const sampleDistances = [...(profile.samples || []), ...(profile.adaptiveSamples || [])]
+  // Moslashuvchan namunalar faqat ro‘yxatdagi markazga yaqin bo‘lsa (ilgari xato qo‘shilganlari ham chetlanadi).
+  const adaptive = (profile.adaptiveSamples || []).filter((s) => s.length === FACE_DESCRIPTOR_SIZE && faceDistance(profile.descriptor, s) <= ADAPTIVE_MAX_FROM_CENTER);
+  const sampleDistances = [...(profile.samples || []), ...adaptive]
     .map((sample) => faceDistance(sample, candidate))
     .sort((a, b) => a - b);
   const nearest = sampleDistances.length
@@ -116,9 +128,10 @@ export function matchFace(
     : centerDistance;
   const distance = Math.min(centerDistance, (centerDistance + nearest) / 2);
   return {
-    matched: distance <= threshold && centerDistance <= threshold + 0.08,
+    matched: distance <= threshold && centerDistance <= threshold + 0.04,
     distance,
-    score: matchPercent(distance),
+    centerDistance,
+    score: matchPercent(distance, threshold),
   };
 }
 
@@ -136,7 +149,11 @@ export function adaptProfile(
   match: { distance: number },
   threshold = faceMatchThreshold(),
 ) {
-  if (match.distance > threshold * 0.8) return false;
+  // Faqat juda aniq moslik va ro‘yxatdagi markazga yaqin bo‘lsa — boshqa odam profilga «kirib qolmaydi».
+  if (match.distance > threshold * 0.7) return false;
+  if ("descriptor" in profile && Array.isArray((profile as { descriptor?: number[] }).descriptor)) {
+    if (faceDistance((profile as { descriptor: number[] }).descriptor, candidate) > ADAPTIVE_MAX_FROM_CENTER * 0.9) return false;
+  }
   const pool = profile.adaptiveSamples || [];
   if (pool.some((sample) => faceDistance(sample, candidate) < 0.06)) return false;
   profile.adaptiveSamples = [...pool, candidate].slice(-ADAPTIVE_SAMPLES_MAX);
@@ -181,4 +198,47 @@ export function isReplayedDescriptor(
 ) {
   if (!previous || previous.length !== FACE_DESCRIPTOR_SIZE) return false;
   return faceDistance(previous, candidate) < 0.0005;
+}
+
+type FaceProfileLike = { employeeId: string; descriptor: number[]; samples?: number[][]; adaptiveSamples?: number[][] };
+export type IdentityResult = {
+  matched: boolean;
+  distance: number;
+  percent: number;
+  /** MISMATCH — profilga mos emas; UNSTABLE — kadrlar bir-biriga zid; LOOKALIKE — boshqa xodimga ko‘proq/teng o‘xshaydi. */
+  reason?: "MISMATCH" | "UNSTABLE" | "LOOKALIKE";
+  /** LOOKALIKE bo‘lsa — kimga o‘xshadi (audit uchun, xodimga ko‘rsatilmaydi). */
+  lookalikeEmployeeId?: string;
+};
+
+const median = (values: number[]) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+};
+
+/**
+ * Yakuniy Face ID qarori (server):
+ *  1) bir nechta kadr — mediana chegaradan past, eng yomon kadr ham chegaraga yaqin bo‘lishi shart;
+ *  2) 1:N tekshiruv — kompaniyadagi boshqa xodimlar profillari bilan solishtiriladi. Yuz boshqa xodimga
+ *     o‘zinikidan yaqinroq (yoki deyarli teng) bo‘lsa — RAD (hamkasb o‘rniga belgilashning oldini oladi).
+ */
+export function verifyIdentity(profile: FaceProfileLike, candidates: number[][], others: FaceProfileLike[] = [], threshold = faceMatchThreshold()): IdentityResult {
+  if (!candidates.length) throw Object.assign(new Error("Yuz namunalari topilmadi."), { status: 400 });
+  const matches = candidates.map((c) => matchFace(profile, c, threshold));
+  const distance = median(matches.map((m) => m.distance));
+  const worst = Math.max(...matches.map((m) => m.distance));
+  const percent = matchPercent(distance, threshold);
+  if (distance > threshold || matches.filter((m) => m.matched).length < Math.ceil(candidates.length / 2)) return { matched: false, distance, percent, reason: "MISMATCH" };
+  if (worst > threshold + 0.08) return { matched: false, distance, percent, reason: "UNSTABLE" };
+  let closest: { id: string; distance: number } | null = null;
+  for (const other of others) {
+    if (other.employeeId === profile.employeeId || other.descriptor?.length !== FACE_DESCRIPTOR_SIZE) continue;
+    const d = median(candidates.map((c) => matchFace(other, c, threshold).distance));
+    if (!closest || d < closest.distance) closest = { id: other.employeeId, distance: d };
+  }
+  // Boshqa xodimga ham chegaradan o‘tadigan darajada o‘xshash va farq juda kichik — ishonchli emas.
+  if (closest && closest.distance <= threshold + 0.03 && closest.distance < distance + 0.06)
+    return { matched: false, distance, percent: Math.min(percent, FACE_PASS_PERCENT - 1), reason: "LOOKALIKE", lookalikeEmployeeId: closest.id };
+  return { matched: true, distance, percent };
 }

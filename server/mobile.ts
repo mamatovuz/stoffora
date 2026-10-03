@@ -5,7 +5,8 @@ import { z } from "zod";
 import { desiredStaffRole, syncStaffRoles } from "../lib/staff-roles";
 import { audit, readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
-import { adaptProfile, assertConsistentSamples, faceMatchThreshold, isReplayedDescriptor, matchFace, matchPassPercent, matchPercent } from "../lib/face";
+import { adaptProfile, assertConsistentSamples, faceMatchThreshold, isReplayedDescriptor, matchFace, matchPassPercent, matchPercent, verifyIdentity } from "../lib/face";
+import { lookalikeAlert } from "./face-reference";
 import type { Database, DeviceChangeRequest, Employee, MobileDevice, MobileSession, PanelSession, User } from "../lib/types";
 import { MOBILE_ACCESS_TTL_SECONDS, requireEmployee, signMobileAccess, signSession, type AuthedRequest, type EmployeeSession, type Session } from "./auth";
 import { signFaceProof } from "./face-proof";
@@ -596,26 +597,34 @@ ${out.name}, PIN-kodni tiklash kodi:
         const profile = db.faceProfiles.find((p) => p.employeeId === auth.employeeId && p.companyId === auth.companyId);
         if (!employee || !profile) throw httpError("Face ID hali sozlanmagan.", 428, "FACE_NOT_ENROLLED");
         if (descriptors.some((d) => isReplayedDescriptor(profile.lastDescriptor, d))) throw httpError("Takroriy so‘rov aniqlandi.", 409, "REPLAY");
-        const matches = descriptors.map((d) => matchFace(profile, d));
-        const best = matches.reduce((a, b) => (b.distance < a.distance ? b : a));
-        const matched = matches.every((m) => m.matched);
+        // Bir nechta kadr + 1:N (boshqa xodimlar profillari) — begona yuz «sen» deb qabul qilinmaydi.
+        const others = db.faceProfiles.filter((p) => p.companyId === auth.companyId && p.employeeId !== auth.employeeId);
+        const identity = verifyIdentity(profile, descriptors, others);
+        const matched = identity.matched;
+        if (identity.reason === "LOOKALIKE") lookalikeAlert(db, auth.companyId, employee, identity.lookalikeEmployeeId, "mobil ilova");
         db.auditLogs.unshift(
-          audit(auth.companyId, nameOf(employee), matched ? "Face ID tasdiqlandi (mobil ilova)" : "Face ID mos kelmadi (mobil ilova)", "employee", employee.id, undefined, {
+          audit(auth.companyId, nameOf(employee), matched ? "Face ID tasdiqlandi (mobil ilova)" : `Face ID rad etildi (mobil ilova: ${identity.reason})`, "employee", employee.id, undefined, {
             matched,
-            distance: Number(best.distance.toFixed(4)),
+            distance: Number(identity.distance.toFixed(4)),
+            reason: identity.reason,
+            lookalike: identity.lookalikeEmployeeId,
             deviceId: auth.mdid,
           }),
         );
         if (matched) {
           profile.lastDescriptor = descriptors[descriptors.length - 1];
           profile.lastVerifiedAt = new Date().toISOString();
-          if (adaptProfile(profile, descriptors[0], best)) profile.updatedAt = profile.lastVerifiedAt;
+          if (adaptProfile(profile, descriptors[0], matchFace(profile, descriptors[0]))) profile.updatedAt = profile.lastVerifiedAt;
           for (const device of db.biometricDevices) if (device.employeeId === employee.id && !device.revokedAt) Object.assign(device, { uses: 0, lastFaceAt: profile.lastVerifiedAt });
         }
-        return { matched, percent: matchPercent(best.distance) };
+        return { matched, percent: identity.percent, reason: identity.reason };
       });
       if (!result.matched)
-        return res.status(403).json({ code: "FACE_MISMATCH", message: "Yuz profildagi Face ID bilan mos kelmadi.", percent: result.percent });
+        return res.status(403).json({
+          code: "FACE_MISMATCH",
+          message: result.reason === "LOOKALIKE" ? "Yuz boshqa xodimga o‘xshab chiqdi — har kim faqat o‘zi belgilaydi. HR’ga xabar berildi." : "Yuz profildagi Face ID bilan mos kelmadi.",
+          percent: result.percent,
+        });
       res.json({ proof: signFaceProof(auth.employeeId, auth.companyId, "FACE"), percent: result.percent, score: result.percent });
     }),
   );

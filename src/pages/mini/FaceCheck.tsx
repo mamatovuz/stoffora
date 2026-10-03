@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { matchPercent } from "@/lib/face";
 import { ArrowLeft, Check, LoaderCircle, MapPin, Navigation, RotateCcw, ScanFace } from "lucide-react";
 import { ApiError, api, errorText, post } from "../../api";
 import { capturePhoto, faceQuality, geometry, preloadFaceModels, type FaceCapture } from "../../components/FaceScanner";
@@ -25,7 +26,8 @@ type Status = "loading" | "none" | "far" | "near" | "offcenter" | "tilted" | "da
 const HOLD_MS = 900;
 const distance = (a: number[], b: number[]) => Math.sqrt(a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0));
 const mean = (rows: number[][]) => rows[0].map((_, i) => rows.reduce((s, r) => s + r[i], 0) / rows.length);
-const percentOf = (d: number) => Math.max(0, Math.min(100, Math.round(100 - d * 70)));
+// Server bilan bir xil shkala: chegara = 75%, chegaradan oshganda tez tushadi.
+const percentOf = (d: number, threshold: number) => matchPercent(d, threshold);
 
 let referenceCache: { at: number; value: Reference } | null = null;
 async function loadReference(): Promise<Reference | null> {
@@ -300,7 +302,7 @@ export function FaceCheck({
         const descriptor = Array.from(Array.isArray(raw) ? raw[0] : raw);
         let current = passPercent;
         if (reference) {
-          const pct = percentOf(liveDistance(reference, descriptor));
+          const pct = percentOf(liveDistance(reference, descriptor), reference.threshold);
           smooth = smooth === null ? pct : Math.round(smooth * 0.55 + pct * 0.45);
           current = smooth;
           setPercent(current);
@@ -340,6 +342,8 @@ export function FaceCheck({
         try {
           const result = await post<{ proof: string; score: number }>("/mini/face/verify", {
             descriptor: capture.descriptor,
+            // Har bir ushlab turilgan kadr ham — server mediana va 1:N (boshqa xodimlar) bo‘yicha qaror qiladi.
+            frames: collected.slice(-5).map((c) => c.descriptor),
             liveness: { challenge: "hold", passed: true, frames },
             photoDataUrl: photo,
             photoQuality: Number(Math.max(0, Math.min(1, best.quality)).toFixed(3)),

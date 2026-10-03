@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { matchFace } from "../lib/face";
 import type { Database, Employee } from "../lib/types";
 import { describeFace } from "./face-server";
@@ -37,4 +38,18 @@ export function applyPanelReference(db: Database, employee: Employee, photoDataU
   employee.photoQuality = undefined;
   employee.faceEnrolledAt = now;
   return { actor, at: now };
+}
+
+/** 1:N tekshiruvda boshqa xodimga o‘xshab chiqqan urinish — HR’ga xabar (kim o‘rniga kim). */
+export function lookalikeAlert(db: Database, companyId: string, employee: Employee, lookalikeId: string | undefined, channel: string) {
+  const other = db.employees.find((e) => e.id === lookalikeId);
+  db.notifications.unshift({
+    id: randomUUID(),
+    companyId,
+    title: "Shubhali Face ID urinishi",
+    body: `${employee.firstName} ${employee.lastName} hisobidan Face ID — yuz ${other ? `${other.firstName} ${other.lastName}` : "boshqa xodim"}ga o‘xshadi (${channel}). Belgi qabul qilinmadi.`,
+    type: "ATTENDANCE",
+    read: false,
+    createdAt: new Date().toISOString(),
+  });
 }

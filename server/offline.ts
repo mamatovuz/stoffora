@@ -4,7 +4,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 import { z } from "zod";
 import { calculateAttendance, haversineDistance } from "../lib/attendance";
 import { tashkentClock, tashkentIsoDate } from "../lib/format";
-import { assertFaceDescriptor, faceMatchThreshold, isReplayedDescriptor, matchFace } from "../lib/face";
+import { assertFaceDescriptor, faceMatchThreshold, isReplayedDescriptor, matchFace, verifyIdentity } from "../lib/face";
 import { FLAG_LABELS, gpsFlags } from "../lib/gps";
 import { dayPlan } from "../lib/schedule";
 import { audit, dataIndexes, updateDb } from "../lib/store";
@@ -89,9 +89,10 @@ export function createMiniOfflineRouter() {
               continue;
             }
             const front = matchFace(profile, item.descriptor);
-            const turned = item.turnDescriptor ? matchFace(profile, item.turnDescriptor, faceMatchThreshold() + 0.1) : undefined;
-            if (!front.matched || (turned && !turned.matched)) {
-              fail("Yuz profildagi Face ID bilan mos kelmadi.");
+            const turned = item.turnDescriptor ? matchFace(profile, item.turnDescriptor, faceMatchThreshold() + 0.06) : undefined;
+            const identity = verifyIdentity(profile, [item.descriptor], db.faceProfiles.filter((p) => p.companyId === profile.companyId && p.employeeId !== profile.employeeId));
+            if (!front.matched || !identity.matched || (turned && !turned.matched)) {
+              fail(identity.reason === "LOOKALIKE" ? "Yuz boshqa xodimga o‘xshab chiqdi — belgi qabul qilinmadi." : "Yuz profildagi Face ID bilan mos kelmadi.");
               continue;
             }
             const allowance = Math.min(GPS_ACCURACY_ALLOWANCE, Math.max(0, item.accuracy || 0));

@@ -100,13 +100,14 @@ describe("kompensatsiya: kelmagan kunni dam kunida ishlab qoplash", () => {
 });
 
 describe("Face ID moslik foizi", () => {
-  it("chegara masofasi 0,5 = 65%; yaqinroq yuz — yuqoriroq foiz", () => {
-    expect(matchPercent(0.5)).toBe(65);
-    expect(matchPassPercent(0.5)).toBe(65);
-    expect(matchPercent(0.3)).toBe(79);
-    expect(matchPercent(0.7)).toBe(51);
-    expect(matchPercent(2)).toBe(0);
-    expect(matchPercent(0)).toBe(100);
+  it("chegara masofasi (0,4) = 75%; chegaradan oshganda foiz tez tushadi", () => {
+    expect(matchPercent(0.4, 0.4)).toBe(75);
+    expect(matchPassPercent(0.4)).toBe(75);
+    expect(matchPercent(0.2, 0.4)).toBe(88);
+    expect(matchPercent(0, 0.4)).toBe(100);
+    // Begona odam (masofa 0,45) — avval «71%» ko‘rinardi, endi aniq past.
+    expect(matchPercent(0.45, 0.4)).toBe(56);
+    expect(matchPercent(0.6, 0.4)).toBe(0);
   });
   it("bot xabaridagi «dam kuni» havolasi", () => {
     expect(parseDeepLink("dayoff")).toEqual({ tab: "leave", view: "dayoff", id: undefined });
