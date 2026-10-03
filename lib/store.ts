@@ -92,6 +92,9 @@ function normalizeDatabase(database: Database): Database {
   database.attendanceCorrections ||= [];
   database.rewardAwards ||= [];
   database.payrollWorkflows ||= [];
+  database.holidays ||= [];
+  database.branchTransfers ||= [];
+  database.assets ||= [];
   database.mobileDevices ||= [];
   database.mobileSessions ||= [];
   database.mobileActivationCodes ||= [];

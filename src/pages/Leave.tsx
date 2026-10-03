@@ -1,4 +1,5 @@
 import { DeviceRequestsPanel } from "../components/MobileDevices";
+import { LeaveBalancesPanel } from "./People";
 import { useMemo, useState } from "react";
 import { ArrowLeftRight, CalendarSync, Check, Plane, Plus, X } from "lucide-react";
 import { errorText, notifyChange, patch, post } from "../api";
@@ -24,7 +25,7 @@ import { useAuth } from "../auth";
 import { canAny } from "@/lib/permissions";
 
 type Row = LeaveRequest & { employee?: Employee };
-type Tab = "PENDING" | "APPROVED" | "ALL" | "SWAPS" | "DAYOFF" | "ADVANCES" | "DEVICES";
+type Tab = "PENDING" | "APPROVED" | "ALL" | "SWAPS" | "DAYOFF" | "ADVANCES" | "DEVICES" | "BALANCE";
 type DayOffRow = { id: string; employeeName: string; fromDate: string; toDate: string; fromWeekday: string; toWeekday: string; reason?: string; status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"; decidedBy?: string; createdAt: string };
 type SwapRow = ShiftSwapRequest & { requesterName: string; colleagueName: string; giveShift?: string; takeShift?: string };
 
@@ -103,10 +104,13 @@ export function LeavePage() {
               { value: "DAYOFF", label: "Dam kunini ko‘chirish", count: dayoffs.data?.filter((m) => m.status === "PENDING").length },
               ...(hrAdvances ? [{ value: "ADVANCES" as Tab, label: "Avans so‘rovlari", count: advances.data?.length }] : []),
               ...(hrAdvances ? [{ value: "DEVICES" as Tab, label: "Yangi telefon", count: deviceRequests.data?.length }] : []),
+              { value: "BALANCE" as Tab, label: "Ta’til balansi" },
             ]}
           />
         </div>
-        {tab === "ADVANCES" ? (
+        {tab === "BALANCE" ? (
+          <LeaveBalancesPanel />
+        ) : tab === "ADVANCES" ? (
           <div className="card-body">
             <AdvanceRequestsPanel mode="hr" onChanged={() => void advances.reload(true)} />
           </div>

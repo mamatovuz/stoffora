@@ -42,6 +42,7 @@ import {
   HandCoins,
   Gavel,
   Trophy,
+  Package,
   Inbox,
   Wallet,
 } from "lucide-react";
@@ -71,6 +72,7 @@ const sections: { label: string; items: NavItem[] }[] = [
       ["/attendance-requests", "Davomat so‘rovlari", ClockAlert, "corrections"],
       ["/registrations", "Arizalar", ClipboardCheck, "registrations"],
       ["/dismissed", "Ishdan bo‘shaganlar", UserMinus],
+      ["/assets", "Aktivlar", Package],
     ],
   },
   {

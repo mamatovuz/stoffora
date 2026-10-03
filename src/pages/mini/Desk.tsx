@@ -108,11 +108,14 @@ export function MiniDesk({ call, role, canAttendance, onOpen, onEmployee }: { ca
           </div>
         </section>
       ))}
-      <div className="desk-head">
-        <div className="mp-group-title">Sizning bugungi ishlaringiz</div>
-        <label>
-          <input type="checkbox" checked={onlyProblems} onChange={(e) => setOnlyProblems(e.target.checked)} /> Faqat muammolar
-        </label>
+      <div className="mp-group-title">Sizning bugungi ishlaringiz</div>
+      <div className="mini-seg" role="tablist">
+        <button role="tab" aria-selected={!onlyProblems} className={!onlyProblems ? "on" : ""} onClick={() => setOnlyProblems(false)}>
+          Hammasi
+        </button>
+        <button role="tab" aria-selected={onlyProblems} className={onlyProblems ? "on" : ""} onClick={() => setOnlyProblems(true)}>
+          Faqat muammolar
+        </button>
       </div>
       <section className="mini-card">
         {actions === null ? (

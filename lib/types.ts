@@ -24,6 +24,8 @@ export interface Company {
   payroll?: PayrollSettings;
   /** Rag‘batlantirish: ketma-ket vaqtida kelganlarga bonus. */
   rewards?: RewardSettings;
+  /** Yillik ta’til: kalendar kunlarida (standart 21). */
+  leavePolicy?: { annualDays: number };
   photoChannel?: PhotoChannelSettings;
   attendanceCounting?: AttendanceCountingSettings;
   /** Kompaniyaning o‘z Telegram boti (ro‘yxatdan o‘tish, xabarlar, Mini App). */
@@ -187,6 +189,51 @@ export interface Schedule {
   overtimeEnabled: boolean;
   days: ScheduleDay[];
 }
+/** Kompaniya kalendari: bayram (dam olish kuni bo‘lsa — kelmaslik hisoblanmaydi) yoki tadbir. */
+export interface Holiday {
+  id: string;
+  companyId: string;
+  date: string;
+  title: string;
+  kind: "HOLIDAY" | "EVENT";
+  /** true — shu kuni ishlanmaydi (grafikda dam olish). */
+  dayOff: boolean;
+  /** Bo‘sh — barcha filiallar. */
+  branchIds?: string[];
+  createdBy: string;
+  createdAt: string;
+}
+/** Filialga o‘tkazish: doimiy yoki vaqtinchalik (muddat tugagach avtomatik qaytadi). */
+export interface BranchTransfer {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  fromBranchId: string;
+  toBranchId: string;
+  startDate: string;
+  endDate?: string;
+  temporary: boolean;
+  reason?: string;
+  status: "PLANNED" | "ACTIVE" | "DONE" | "CANCELLED";
+  createdBy: string;
+  createdAt: string;
+}
+/** Aktiv (telefon, noutbuk, kalit, forma…) — kimga berilgan va tarixi. */
+export interface Asset {
+  id: string;
+  companyId: string;
+  name: string;
+  code?: string;
+  category: "PHONE" | "LAPTOP" | "KEY" | "UNIFORM" | "TOOL" | "OTHER";
+  quantity: number;
+  note?: string;
+  status: "IN_STOCK" | "ISSUED" | "RETURNED" | "LOST";
+  employeeId?: string;
+  issuedAt?: string;
+  returnedAt?: string;
+  history: { action: string; by: string; at: string; employeeId?: string }[];
+  createdAt: string;
+}
 export interface ReminderRule {
   enabled: boolean;
   offset: number;
@@ -254,6 +301,10 @@ export interface Employee {
    * manfiy — oldin («Avval 10 min»), musbat — keyin («Keyin 10 min»).
    */
   reminders?: { start: ReminderRule; end: ReminderRule };
+  /** Yillik ta’til kunlari (bo‘sh — kompaniya qoidasi). */
+  annualLeaveDays?: number;
+  /** Onboarding’ning qo‘lda belgilanadigan qadamlari (IT qurilma berdi, rahbar tanishtirdi, o‘qitish). */
+  onboardingManual?: Record<string, { done: boolean; by: string; at: string }>;
   createdAt: string;
   updatedAt: string;
 }
@@ -538,6 +589,9 @@ export interface Database {
   attendanceCorrections: AttendanceCorrection[];
   rewardAwards: RewardAward[];
   payrollWorkflows: PayrollWorkflow[];
+  holidays: Holiday[];
+  branchTransfers: BranchTransfer[];
+  assets: Asset[];
   /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
   mobileDevices: MobileDevice[];
   mobileSessions: MobileSession[];

@@ -1,11 +1,11 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import { errorText } from "@/lib/api";
 import { som } from "@/lib/format";
 import { can, mcall } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
-import { Card, Empty, ErrorBox, Group, GroupTitle, Icon, Loading } from "./ui";
+import { Card, Empty, ErrorBox, Group, GroupTitle, Icon, Loading, Segmented } from "./ui";
 
 /*
  * Ish stoli (ilova): Action Center — «bugun nima qilishim kerak» (rolga mos), direktor/HR uchun
@@ -131,13 +131,15 @@ export function DeskView({ role, onOpen, reloadKey }: { role: string; onOpen: (v
         </Card>
       ))}
 
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-        <GroupTitle>Sizning bugungi ishlaringiz</GroupTitle>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-          <Text style={{ color: c.muted, fontSize: 12.5 }}>Faqat muammolar</Text>
-          <Switch value={onlyProblems} onValueChange={setOnlyProblems} style={{ transform: [{ scale: 0.8 }] }} />
-        </View>
-      </View>
+      <GroupTitle>Sizning bugungi ishlaringiz</GroupTitle>
+      <Segmented<"all" | "problems">
+        value={onlyProblems ? "problems" : "all"}
+        onChange={(v) => setOnlyProblems(v === "problems")}
+        options={[
+          ["all", "Hammasi"],
+          ["problems", "Faqat muammolar"],
+        ]}
+      />
       {!actions ? (
         <Loading />
       ) : !list.length ? (

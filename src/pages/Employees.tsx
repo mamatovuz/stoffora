@@ -1,3 +1,4 @@
+import { EmployeeHrActions } from "./People";
 import { MobileDevicePanel } from "../components/MobileDevices";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -57,7 +58,7 @@ import {
   money,
   tashkentIsoDate,
 } from "@/lib/format";
-import type { Attendance, AuditLog, Employee, LeaveRequest } from "@/lib/types";
+import type { Attendance, AuditLog, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel, verificationLabel, weekdayShort, weekOrder, type Meta } from "../types";
 
 type EmployeeListRow = Employee & { todayAttendance?: Attendance };
@@ -924,7 +925,7 @@ export function EmployeeProfilePage() {
             )}
             {tab === "attendance" && <AttendanceTable rows={data.attendance} />}
             {tab === "documents" && <DocumentsPanel employeeId={e.id} canEdit={canEditDocs} />}
-            {tab === "lifecycle" && <LifecyclePanel employeeId={e.id} />}
+            {tab === "lifecycle" && <LifecyclePanel employee={e} branches={meta?.branches || []} />}
             {tab === "leave" &&
               (data.leave.length ? (
                 <div className="table-wrap">
@@ -1575,6 +1576,38 @@ export function DismissModal({
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Offboarding: nimalar avtomatik bajariladi, qaytarilmagan aktivlar va yakuniy hisob-kitob.
+  const { data: preview } = useApi<{
+    devices: number;
+    pending: number;
+    futureShifts: number;
+    assets: { id: string; name: string; code?: string }[];
+    leave: { remaining: number };
+    settlement: { earnedToDate: number; advance: number; fine: number; net: number } | null;
+  }>(`/employees/${employee.id}/offboarding-preview`);
+  const [result, setResult] = useState<{ done: string[]; unreturnedAssets: { id: string; name: string; code?: string }[] } | null>(null);
+  if (result)
+    return (
+      <Modal title="Offboarding bajarildi" subtitle={`${employee.firstName} ${employee.lastName}`} onClose={onDone} size="narrow">
+        <ul className="lc-steps">
+          {result.done.map((d) => (
+            <li key={d} className="done">
+              <span>✓</span> {d}
+            </li>
+          ))}
+        </ul>
+        {result.unreturnedAssets.length > 0 && (
+          <div className="alert warn" style={{ marginTop: 12 }}>
+            <b>Qaytarilmagan aktivlar:</b> {result.unreturnedAssets.map((a) => `${a.name}${a.code ? ` #${a.code}` : ""}`).join(", ")} — «Aktivlar» bo‘limida qaytarib oling.
+          </div>
+        )}
+        <div className="form-actions">
+          <button className="btn btn-primary" onClick={onDone}>
+            Tayyor
+          </button>
+        </div>
+      </Modal>
+    );
   return (
     <Modal
       title="Ishdan bo‘shatish"
@@ -1588,8 +1621,9 @@ export function DismissModal({
           setBusy(true);
           setError("");
           try {
-            await post(`/employees/${employee.id}/dismiss`, { date, reason: reason || undefined });
-            onDone();
+            const out = await post<{ offboarding?: { done: string[]; unreturnedAssets: { id: string; name: string; code?: string }[] } }>(`/employees/${employee.id}/dismiss`, { date, reason: reason || undefined });
+            if (out.offboarding) setResult(out.offboarding);
+            else onDone();
           } catch (reason) {
             setError(errorText(reason));
           } finally {
@@ -1601,6 +1635,18 @@ export function DismissModal({
           Xodim «Ishdan bo‘shaganlar» ro‘yxatiga o‘tadi, davomat belgilay olmaydi va ish haqi hisobiga
           kirmaydi. Keyin qayta ishga olish mumkin.
         </p>
+        {preview && (
+          <div className="ob-preview">
+            <b>Avtomatik bajariladi:</b>
+            <span>✓ {preview.devices ? `${preview.devices} ta telefon va ` : ""}barcha sessiyalar bekor qilinadi</span>
+            {preview.futureShifts > 0 && <span>✓ {preview.futureShifts} ta kelajak smena o‘zgarishi olib tashlanadi</span>}
+            {preview.pending > 0 && <span>✓ {preview.pending} ta kutilayotgan so‘rov bekor qilinadi</span>}
+            <span>✓ Panel / rahbar huquqlari o‘chiriladi</span>
+            {preview.assets.length > 0 && <span className="bad">⚠ Qaytarilmagan aktivlar: {preview.assets.map((a) => a.name).join(", ")}</span>}
+            <span>Ishlatilmagan ta’til: {preview.leave.remaining} kun</span>
+            {preview.settlement && <span>Yakuniy hisob (bugungacha): qo‘lga {money(preview.settlement.net)} (avans {money(preview.settlement.advance)}, jarima {money(preview.settlement.fine)})</span>}
+          </div>
+        )}
         <Field label="Bo‘shagan sana">
           <input className="input" type="date" value={date} max={tashkentIsoDate()} onChange={(e) => setDate(e.target.value)} required />
         </Field>
@@ -1834,11 +1880,12 @@ export function DismissedPage() {
 
 /* ------------------------------------------------- tarix va onboarding --- */
 type Lifecycle = {
-  onboarding: { steps: { key: string; label: string; done: boolean }[]; done: number; total: number };
+  onboarding: { steps: { key: string; label: string; done: boolean; manual?: boolean }[]; done: number; total: number };
   timeline: { date: string; icon: string; text: string }[];
 };
-function LifecyclePanel({ employeeId }: { employeeId: string }) {
-  const { data, loading, error } = useApi<Lifecycle>(`/workspace/employees/${employeeId}/lifecycle`);
+function LifecyclePanel({ employee, branches }: { employee: Employee; branches: Branch[] }) {
+  const employeeId = employee.id;
+  const { data, loading, error, reload } = useApi<Lifecycle>(`/workspace/employees/${employeeId}/lifecycle`);
   if (loading && !data) return <Loading />;
   if (error || !data) return <ErrorBox message={error || "Ma’lumot yo‘q"} />;
   const pct = Math.round((data.onboarding.done / data.onboarding.total) * 100);
@@ -1852,12 +1899,13 @@ function LifecyclePanel({ employeeId }: { employeeId: string }) {
           <i style={{ width: `${pct}%` }} />
         </div>
         <ul className="lc-steps">
-          {data.onboarding.steps.map((st) => (
+          {data.onboarding.steps.filter((st) => !st.manual).map((st) => (
             <li key={st.key} className={st.done ? "done" : ""}>
               <span>{st.done ? "✓" : "○"}</span> {st.label}
             </li>
           ))}
         </ul>
+        <EmployeeHrActions employee={employee} branches={branches} onboardingSteps={data.onboarding.steps} onChanged={() => void reload(true)} />
       </section>
       <section>
         <h3 className="lc-h">Xodim tarixi</h3>

@@ -1,3 +1,4 @@
+import { CompanyCalendarPanel } from "./People";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3 } from "lucide-react";
@@ -76,6 +77,7 @@ export function CalendarPage() {
           </div>
         }
       />
+      <CompanyCalendarPanel month={month} />
       {loading && !data ? (
         <Loading />
       ) : error ? (

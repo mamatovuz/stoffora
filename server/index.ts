@@ -92,6 +92,7 @@ import { createFinanceRouter } from "./finance";
 import { createRewardsRouter } from "./rewards";
 import { createWorkspaceRouter } from "./workspace";
 import { assertMonthOpen, createPayrollWorkflowRouter } from "./payroll-workflow";
+import { createAssetRouter, createPeopleRouter, offboard } from "./people";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
 import { startPushDispatcher } from "./push";
@@ -680,6 +681,8 @@ app.use("/api", createFinanceRouter());
 app.use("/api", createRewardsRouter());
 app.use("/api", createWorkspaceRouter());
 app.use("/api", createPayrollWorkflowRouter());
+app.use("/api", createPeopleRouter());
+app.use("/api", createAssetRouter());
 app.use("/api", createMobileAdminRouter());
 
 app.get("/api/telegram/status", (_req, res) => {
@@ -1837,12 +1840,12 @@ app.post(
       employee.dismissedAt = input.date;
       employee.dismissReason = input.reason || undefined;
       employee.updatedAt = new Date().toISOString();
-      // Ishdan ketgan xodimning panel huquqi (avtomatik) o‘chadi.
-      syncStaffRoles(db, tenant);
+      // Offboarding: telefonlar, sessiyalar, kelajak smenalari, kutilayotgan so‘rovlar, panel huquqi.
+      const result = offboard(db, employee, input.date, req.session!.name);
       db.auditLogs.unshift(
-        audit(tenant, req.session!.name, `Xodim ishdan bo‘shatildi (${input.date})`, "employee", employee.id, undefined, { reason: input.reason }),
+        audit(tenant, req.session!.name, `Xodim ishdan bo‘shatildi (${input.date})`, "employee", employee.id, undefined, { reason: input.reason, offboarding: result.done }),
       );
-      return employee;
+      return { ...employee, offboarding: result };
     });
     res.json(row);
   }),

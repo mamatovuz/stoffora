@@ -191,7 +191,10 @@ function ListRow({ icon, title, sub, extra, badge, onCancel, last }: { icon: Ico
 type Leave = { id: string; type: string; startDate: string; endDate: string; status: string; decidedBy?: string; documentId?: string; reason?: string };
 
 function LeaveTab({ create = 0 }: { create?: number }) {
+  const { c } = useTheme();
   const { data, error, reload } = useData<Leave[]>("/mini/leave");
+  const balance = useData<{ year: number; entitled: number; used: number; pending: number; remaining: number }>("/mini/leave-balance");
+  const calendar = useData<{ holidays: { id: string; date: string; title: string; dayOff: boolean }[] }>("/mini/calendar");
   const [open, setOpen] = useState(false);
   useEffect(() => {
     if (create) setOpen(true);
@@ -208,7 +211,29 @@ function LeaveTab({ create = 0 }: { create?: number }) {
   };
   return (
     <>
+      {balance.data ? (
+        <Card style={{ flexDirection: "row", paddingVertical: 14 }}>
+          {(
+            [
+              [balance.data.entitled, `${balance.data.year} yil haqqi`, c.ink],
+              [balance.data.used, "ishlatilgan", c.muted],
+              [balance.data.pending, "kutilmoqda", c.warn],
+              [balance.data.remaining, "qolgan", balance.data.remaining > 0 ? c.success : c.danger],
+            ] as const
+          ).map(([v, l, color], i) => (
+            <View key={l} style={[{ flex: 1, alignItems: "center" }, i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: c.line }]}>
+              <Text style={{ color, fontSize: 22, fontWeight: "700" }}>{v}</Text>
+              <Text style={{ color: c.muted, fontSize: 11.5 }}>{l}</Text>
+            </View>
+          ))}
+        </Card>
+      ) : null}
       <Button title="Yangi so‘rov" icon="add-circle-outline" onPress={() => setOpen(true)} />
+      {calendar.data?.holidays.length ? (
+        <Hint icon="calendar-outline">
+          Yaqin bayramlar: {calendar.data.holidays.slice(0, 3).map((h) => `${dateUz(h.date)} — ${h.title}${h.dayOff ? " (dam)" : ""}`).join("; ")}
+        </Hint>
+      ) : null}
       {error ? <ErrorBox text={error} onRetry={reload} /> : null}
       {!data ? (
         <Loading />

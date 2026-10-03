@@ -78,9 +78,16 @@ export function WorkspacePage() {
             <h3 className="ws-h">
               <ClipboardCheck size={17} /> Sizning bugungi ishlaringiz
             </h3>
-            <label className="ws-toggle">
-              <input type="checkbox" checked={onlyProblems} onChange={(e) => setOnlyProblems(e.target.checked)} /> Faqat muammolar
-            </label>
+          </div>
+          <div className="filters">
+            <Segmented<"all" | "problems">
+              value={onlyProblems ? "problems" : "all"}
+              onChange={(v) => setOnlyProblems(v === "problems")}
+              options={[
+                { value: "all", label: "Hammasi" },
+                { value: "problems", label: "Faqat muammolar" },
+              ]}
+            />
           </div>
           {actions.loading && !actions.data ? (
             <Loading />

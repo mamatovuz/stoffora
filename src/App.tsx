@@ -58,6 +58,7 @@ const AttendanceRequestsPage = lazy(() =>
   import("./pages/AttendanceRequests").then((m) => ({ default: m.AttendanceRequestsPage })),
 );
 const AdvancesPage = lazy(() => import("./pages/Money").then((m) => ({ default: m.AdvancesPage })));
+const AssetsPage = lazy(() => import("./pages/People").then((m) => ({ default: m.AssetsPage })));
 const TimesheetPage = lazy(() => import("./components/PayrollWorkspace").then((m) => ({ default: m.TimesheetPage })));
 const WorkspacePage = lazy(() => import("./pages/Workspace").then((m) => ({ default: m.WorkspacePage })));
 const InboxPage = lazy(() => import("./pages/Workspace").then((m) => ({ default: m.InboxPage })));
@@ -138,6 +139,7 @@ export default function App() {
           <Route path="/workspace" element={<WorkspacePage />} />
           <Route path="/inbox" element={<InboxPage />} />
           <Route path="/timesheet" element={<TimesheetPage />} />
+          <Route path="/assets" element={<AssetsPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/employees/new" element={<EmployeeFormPage />} />

@@ -8,6 +8,7 @@ import type { AuthedRequest } from "./auth";
 import { documentStatus } from "./documents";
 import { financeSummary } from "./finance";
 import { closedPeriod } from "./payroll-routes";
+import { MANUAL_STEPS } from "./people";
 
 /*
  * Ish stoli (har bir rol uchun):
@@ -377,6 +378,7 @@ export function onboarding(db: Database, e: Employee) {
     { key: "contract", label: "Mehnat shartnomasi yuklangan", done: docs.some((d) => d.type === "CONTRACT") },
     { key: "face", label: "Face ID sozlangan", done: Boolean(e.faceEnrolledAt) },
     { key: "first", label: "Birinchi keldi-ketdi qilingan", done: db.attendance.some((a) => a.employeeId === e.id && a.checkIn) },
+    ...Object.entries(MANUAL_STEPS).map(([key, label]) => ({ key, label, done: Boolean(e.onboardingManual?.[key]?.done), manual: true, by: e.onboardingManual?.[key]?.by })),
   ];
   return { steps, done: steps.filter((s) => s.done).length, total: steps.length };
 }

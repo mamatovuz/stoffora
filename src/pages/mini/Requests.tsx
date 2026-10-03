@@ -57,6 +57,12 @@ const statusChip: Record<string, [string, string]> = {
 
 function LeaveList({ onToast, focusId }: { onToast: Toast; focusId?: string }) {
   const [rows, setRows] = useState<LeaveRequest[] | null>(() => getCached<LeaveRequest[]>("leave"));
+  const [balance, setBalance] = useState<{ year: number; entitled: number; used: number; pending: number; remaining: number } | null>(null);
+  const [holidays, setHolidays] = useState<{ id: string; date: string; title: string; dayOff: boolean }[]>([]);
+  useEffect(() => {
+    void api<NonNullable<typeof balance>>("/mini/leave-balance").then(setBalance).catch(() => undefined);
+    void api<{ holidays: typeof holidays }>("/mini/calendar").then((r) => setHolidays(r.holidays)).catch(() => undefined);
+  }, []);
   const [open, setOpen] = useState(false);
   const load = useCallback(
     () =>
@@ -89,9 +95,35 @@ function LeaveList({ onToast, focusId }: { onToast: Toast; focusId?: string }) {
   }
   return (
     <>
+      {balance && (
+        <section className="desk-tiles">
+          <div>
+            <b>{balance.entitled}</b>
+            <small>{balance.year} yil haqqi</small>
+          </div>
+          <div>
+            <b>{balance.used}</b>
+            <small>ishlatilgan</small>
+          </div>
+          <div className="warn">
+            <b>{balance.pending}</b>
+            <small>kutilmoqda</small>
+          </div>
+          <div className={balance.remaining > 0 ? "ok" : "bad"}>
+            <b>{balance.remaining}</b>
+            <small>qolgan</small>
+          </div>
+        </section>
+      )}
       <button className="mini-btn" onClick={() => setOpen(true)}>
         <CalendarDays size={18} /> Yangi so‘rov
       </button>
+      {holidays.length > 0 && (
+        <div className="mh-hint info">
+          <CalendarDays size={16} />
+          <span>Yaqin bayramlar: {holidays.slice(0, 3).map((h) => `${dateUz(h.date)} — ${h.title}${h.dayOff ? " (dam)" : ""}`).join("; ")}</span>
+        </div>
+      )}
       <section className="mini-card">
         {rows === null ? (
           <SkeletonList rows={4} />

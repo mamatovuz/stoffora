@@ -137,6 +137,12 @@ export function startHrWorker() {
     await once("greetings", "09:00", () => runGreetings(today));
     await once("documents", "09:05", () => runDocumentReminders(today));
     await once("cleanup", "03:00", cleanupDocumentFiles);
+    // Filialga o‘tkazishlar: rejalangani boshlanadi, vaqtinchalik muddati tugagani qaytadi.
+    await once("transfers", "00:05", async () => {
+      const { applyTransfers } = await import("./people");
+      const { updateDb } = await import("../lib/store");
+      await updateDb((db) => applyTransfers(db, today));
+    });
     await once("digest", "08:30", async () => {
       const { sendWeeklyDigests } = await import("./analytics");
       await sendWeeklyDigests(today);

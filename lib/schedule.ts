@@ -21,7 +21,7 @@ export type DayPlan = {
 const DEFAULT_START = "09:00";
 const DEFAULT_END = "18:00";
 
-type Indexable = Pick<Database, "schedules" | "scheduleOverrides">;
+type Indexable = Pick<Database, "schedules" | "scheduleOverrides"> & { holidays?: Database["holidays"] };
 
 const overrideIndex = new WeakMap<Database["scheduleOverrides"], Map<string, Database["scheduleOverrides"][number]>>();
 function overrideFor(db: Indexable, employeeId: string, date: string) {
@@ -33,7 +33,15 @@ function overrideFor(db: Indexable, employeeId: string, date: string) {
   return index.get(`${employeeId}|${date}`);
 }
 
-type PlanEmployee = Pick<Employee, "id" | "scheduleId"> & { restDays?: number[] };
+type PlanEmployee = Pick<Employee, "id" | "scheduleId"> & { restDays?: number[]; companyId?: string; branchId?: string };
+
+/** Kompaniya bayrami (dam olish kuni) — shu xodimning filialiga tegishlimi. */
+export function holidayFor(db: { holidays?: Database["holidays"] }, employee: { companyId?: string; branchId?: string }, date: string) {
+  if (!db.holidays?.length || !employee.companyId) return undefined;
+  return db.holidays.find(
+    (h) => h.date === date && h.dayOff && h.companyId === employee.companyId && (!h.branchIds?.length || Boolean(employee.branchId && h.branchIds.includes(employee.branchId))),
+  );
+}
 
 /** Grafikning shu hafta kunidagi vaqti; o‘sha kun yopiq bo‘lsa — boshqa ish kunining vaqti. */
 export function weeklyHours(schedule: Database["schedules"][number] | undefined, weekday: number) {
@@ -59,6 +67,9 @@ export function dayPlan(db: Indexable, employee: PlanEmployee, date: string): Da
       reason: override.reason,
     };
   }
+  // Bayram (kompaniya kalendari) — ish kuni emas (alohida «ishlaydi» o‘zgarishi bo‘lsa, yuqorida ustun).
+  const holiday = holidayFor(db, employee, date);
+  if (holiday) return { enabled: false, start: hours.start, end: hours.end, graceMinutes, overridden: false, reason: holiday.title };
   if (employee.restDays?.includes(weekday))
     return { enabled: false, start: hours.start, end: hours.end, graceMinutes, overridden: false, reason: "Shaxsiy dam olish kuni", personalRest: true };
   return {
