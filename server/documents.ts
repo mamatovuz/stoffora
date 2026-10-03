@@ -6,6 +6,7 @@ import { audit, documentFiles, readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
 import type { DocumentType, EmployeeDocument } from "../lib/types";
 import type { AuthedRequest, EmployeeSession } from "./auth";
+import { auditDocumentAccess } from "./engage";
 
 /*
  * Xodim hujjatlari (pasport, diplom, tibbiy ma’lumotnoma, sanitariya daftarchasi…).
@@ -175,6 +176,8 @@ export function createDocumentRouter() {
       if (!doc || (scope && !scope.includes(owner?.branchId || ""))) throw httpError("Hujjat topilmadi.", 404);
       const row = await (await files()).getFile(doc.id);
       if (!row) throw httpError("Fayl topilmadi.", 404);
+      // Kim, qachon ko‘rdi — auditga (shaxsiy hujjatlarga kirish nazorati).
+      await updateDb((next) => auditDocumentAccess(next, { companyId: tenant, actor: req.session!.name, documentId: doc.id, employeeId: doc.employeeId, title: doc.title, via: "panel" }));
       res.setHeader("Content-Type", row.mime);
       res.setHeader("Cache-Control", "private, max-age=300");
       res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(doc.title)}${row.mime === "application/pdf" ? ".pdf" : ".jpg"}"`);

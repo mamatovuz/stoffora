@@ -97,7 +97,7 @@ export default function Settings() {
           value={push === "granted" ? "Yoqilgan" : push === "error" ? "Xato" : push === "unavailable" ? "Mavjud emas" : "O‘chiq"}
           onPress={push === "granted" ? undefined : () => void enablePush()}
         />
-        <Row icon="alarm" iconColor="#FF9500" label="Ish boshlanishi va oxiri haqida eslatma" sub="Avval yoki keyin, necha daqiqa — o‘zingiz sozlang" onPress={() => go("/reminders")} />
+        <Row icon="alarm" iconColor="#FF9500" label="Eslatmalar va bildirishnomalar" sub="Ish boshlanishi/oxiri eslatmasi, qaysi xabarlar telefonga kelsin" onPress={() => go("/reminders")} />
         <Row icon="mail-unread" iconColor="#34C759" label="Barcha bildirishnomalar" onPress={() => go("/notifications")} last />
       </Group>
       {push === "error" || (push === "unavailable" && lastPushError) ? <Hint tone="warn" icon="notifications-off-outline">{lastPushError}</Hint> : null}

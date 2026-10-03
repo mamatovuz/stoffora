@@ -395,6 +395,8 @@ export interface Employee {
    * manfiy — oldin («Avval 10 min»), musbat — keyin («Keyin 10 min»).
    */
   reminders?: { start: ReminderRule; end: ReminderRule };
+  /** Telefonga (push / Telegram) keladigan xabar toifalari: false — o‘chirilgan. */
+  notifyPrefs?: Partial<Record<"attendance" | "requests" | "money" | "announcements" | "tasks" | "docs" | "celebrations", boolean>>;
   /** Yillik ta’til kunlari (bo‘sh — kompaniya qoidasi). */
   annualLeaveDays?: number;
   /** Onboarding’ning qo‘lda belgilanadigan qadamlari (IT qurilma berdi, rahbar tanishtirdi, o‘qitish). */
@@ -506,6 +508,8 @@ export interface Announcement {
   createdBy?: string;
   /** Xodimdan «Tanishdim» tasdig‘i so‘raladi. */
   ackRequired?: boolean;
+  /** Oxirgi eslatma (o‘qimaganlarga) — soatiga bir martadan ko‘p emas. */
+  remindedAt?: string;
   /** So‘rovnoma: javob variantlari (bo‘sh — oddiy e’lon). */
   options?: string[];
   report?: {
@@ -546,6 +550,10 @@ export interface Notification {
   answer?: string;
   /** Mini App ichidagi bo‘lim (chuqur havola): leave, swaps, salary, payslip_2026-09… */
   go?: string;
+  /** Xodim o‘qigan vaqt (e’lon statistikasi uchun). */
+  readAt?: string;
+  /** E’lon eslatmasi necha marta qayta yuborilgan. */
+  reminded?: number;
   /** Mobil ilovaga push yuborilgan vaqt (takror yuborilmasin). */
   pushedAt?: string;
 }

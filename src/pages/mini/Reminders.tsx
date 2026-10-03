@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlarmClock } from "lucide-react";
+import { AlarmClock, BellRing } from "lucide-react";
 import { api, errorText, put } from "../../api";
 import { haptic } from "./tg";
 import type { Toast } from "./shared";
@@ -65,6 +65,45 @@ export function MiniReminders({ onToast }: { onToast: Toast }) {
         {row("start", "Ish kunining boshlanishi")}
         {row("end", "Ish kunining tugashi")}
       </section>
+    </>
+  );
+}
+
+/* Bildirishnoma toifalari: qaysi xabarlar telefonga (Telegram / push) kelsin. */
+type NotifyPrefs = { categories: { key: string; label: string; enabled: boolean }[]; note: string };
+
+export function MiniNotifyPrefs({ onToast }: { onToast: Toast }) {
+  const [data, setData] = useState<NotifyPrefs | null>(null);
+  useEffect(() => {
+    void api<NotifyPrefs>("/mini/notify-prefs")
+      .then(setData)
+      .catch(() => setData(null));
+  }, []);
+  if (!data) return null;
+  const toggle = async (key: string, enabled: boolean) => {
+    haptic.select();
+    setData({ ...data, categories: data.categories.map((c) => (c.key === key ? { ...c, enabled } : c)) });
+    try {
+      await put("/mini/notify-prefs", { [key]: enabled });
+    } catch (reason) {
+      onToast(errorText(reason, "Saqlanmadi."), "error");
+      setData(data);
+    }
+  };
+  return (
+    <>
+      <div className="mp-group-title">Bildirishnomalar</div>
+      <section className="mp-group">
+        {data.categories.map((c) => (
+          <label className="mp-row mp-switch" key={c.key}>
+            <span>
+              <BellRing size={15} /> {c.label}
+            </span>
+            <input type="checkbox" checked={c.enabled} onChange={(e) => void toggle(c.key, e.target.checked)} />
+          </label>
+        ))}
+      </section>
+      <p className="mp-note">{data.note}</p>
     </>
   );
 }

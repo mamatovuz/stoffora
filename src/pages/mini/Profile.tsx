@@ -3,7 +3,7 @@ import { Cake, ChevronRight, Fingerprint, ListChecks, ListTodo, MapPin, MessageC
 import type { HelpdeskView } from "./Helpdesk";
 import type { WorkView } from "./Work";
 import { MobileLinkRow } from "./MobileLink";
-import { MiniReminders } from "./Reminders";
+import { MiniNotifyPrefs, MiniReminders } from "./Reminders";
 import { dateUz, tashkentWeekday } from "@/lib/format";
 import type { Lang } from "../../i18n";
 import { weekdayShort, weekOrder } from "../../types";
@@ -359,6 +359,7 @@ export function MiniProfile({
       </section>
 
       <MiniReminders onToast={onToast} />
+      <MiniNotifyPrefs onToast={onToast} />
 
       <div className="mp-group-title">Til</div>
       <section className="mp-group">

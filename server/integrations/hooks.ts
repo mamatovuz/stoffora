@@ -1,6 +1,7 @@
 import { readDb } from "../../lib/store";
 import type { Attendance, Database, Employee } from "../../lib/types";
 import { sendTelegramMessage } from "../telegram";
+import { categoryOfRouting, wantsPush } from "../../lib/notify-prefs";
 import { activeIntegration, mappingByLocal, newId, SOURCE_KEY } from "./model";
 import { enqueueOutbox, logIntegration, upsertDelivery } from "./sqlstore";
 import { tashkentToIso } from "./transform";
@@ -66,7 +67,9 @@ export async function notifyEmployee(
   const integration = activeIntegration(db, employee.companyId);
   const channels = integration?.settings.routing[category] || ["staffora", "telegram"];
   const used: string[] = [];
-  const connected = Boolean(employee.telegramConnected && employee.telegramId && !employee.telegramId.startsWith("dev"));
+  // Xodim bu toifani o‘chirgan bo‘lsa — Telegram’ga yuborilmaydi (ilovadagi bildirishnoma qoladi).
+  const allowed = wantsPush(employee.notifyPrefs, categoryOfRouting(category));
+  const connected = allowed && Boolean(employee.telegramConnected && employee.telegramId && !employee.telegramId.startsWith("dev"));
   if (channels.includes("telegram") && connected) {
     const ok = await sendTelegramMessage(employee.telegramId!, text, { openButton: options.openButton, go: options.go }).catch(() => false);
     if (ok) used.push("telegram");

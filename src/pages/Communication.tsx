@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, CheckCheck, ClockAlert, Clock3, Megaphone, Plane, Plus, ScrollText, Send } from "lucide-react";
+import { BarChart3, Bell, BellRing, CheckCheck, ClockAlert, Clock3, Megaphone, Plane, Plus, ScrollText, Send } from "lucide-react";
 import { api, errorText, notifyChange, patch, post } from "../api";
 import { useApi } from "../hooks";
 import {
@@ -27,6 +27,7 @@ const time = (value: string) =>
 export function AnnouncementsPage() {
   const { data, loading, error, reload } = useApi<Announcement[]>("/announcements");
   const [open, setOpen] = useState(false);
+  const [statsId, setStatsId] = useState<string | null>(null);
   const toast = useToast();
   return (
     <div className="page narrow">
@@ -67,12 +68,18 @@ export function AnnouncementsPage() {
                     {a.createdBy ? ` · ${a.createdBy}` : ""}
                   </small>
                   <DeliveryReport a={a} />
+                  {a.report?.staffora && (
+                    <button className="btn btn-sm" style={{ marginTop: 8 }} onClick={() => setStatsId(a.id)}>
+                      <BarChart3 size={14} /> Kim o‘qidi
+                    </button>
+                  )}
                 </div>
               </article>
             ))}
           </div>
         )}
       </section>
+      {statsId && <AnnouncementStats id={statsId} onClose={() => setStatsId(null)} />}
       {open && (
         <AnnouncementForm
           onClose={() => setOpen(false)}
@@ -505,5 +512,154 @@ export function AuditPage() {
         )}
       </section>
     </div>
+  );
+}
+
+/* ------------------------------------------------- e’lon statistikasi --- */
+type Stats = {
+  announcement: { id: string; title: string; ackRequired: boolean; options?: string[]; remindedAt?: string };
+  totals: { recipients: number; read: number; acked: number; answered: number };
+  answers: Record<string, number>;
+  branches: { branch: string; total: number; read: number; acked: number }[];
+  rows: { employeeId: string; name: string; branch: string; read: boolean; readAt?: string; ackAt?: string; answer?: string }[];
+};
+
+function AnnouncementStats({ id, onClose }: { id: string; onClose: () => void }) {
+  const toast = useToast();
+  const { data, loading, error, reload } = useApi<Stats>(`/announcements/${id}/stats`);
+  const [filter, setFilter] = useState<"all" | "unread" | "unacked">("unread");
+  const [busy, setBusy] = useState(false);
+  const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
+  async function remind(who: "unread" | "unacked" | "unanswered") {
+    setBusy(true);
+    try {
+      const r = await post<{ reminded: number }>(`/announcements/${id}/remind`, { who });
+      toast(`Eslatma yuborildi: ${r.reminded} xodim`);
+      void reload(true);
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const t = data?.totals;
+  const rows = (data?.rows || []).filter((r) => (filter === "all" ? true : filter === "unread" ? !r.read : !r.ackAt));
+  return (
+    <Modal title={data?.announcement.title || "E’lon"} subtitle="Kim o‘qidi, kim tasdiqladi va javob berdi" onClose={onClose} size="wide">
+      {loading && !data ? (
+        <Loading />
+      ) : error || !data || !t ? (
+        <ErrorBox message={error || "Ma’lumot yo‘q"} />
+      ) : (
+        <div className="an-stats">
+          <div className="an-kpis">
+            <div>
+              <small>Qabul qildi</small>
+              <b>{t.recipients}</b>
+            </div>
+            <div>
+              <small>O‘qidi</small>
+              <b>
+                {t.read} <em>{pct(t.read, t.recipients)}%</em>
+              </b>
+              <i className="an-bar">
+                <span style={{ width: `${pct(t.read, t.recipients)}%` }} />
+              </i>
+            </div>
+            {data.announcement.ackRequired && (
+              <div>
+                <small>Tanishdim</small>
+                <b>
+                  {t.acked} <em>{pct(t.acked, t.recipients)}%</em>
+                </b>
+                <i className="an-bar ok">
+                  <span style={{ width: `${pct(t.acked, t.recipients)}%` }} />
+                </i>
+              </div>
+            )}
+            {!!data.announcement.options?.length && (
+              <div>
+                <small>Javob berdi</small>
+                <b>
+                  {t.answered} <em>{pct(t.answered, t.recipients)}%</em>
+                </b>
+              </div>
+            )}
+          </div>
+          {!!data.announcement.options?.length && (
+            <div className="an-answers">
+              {data.announcement.options.map((o) => (
+                <div key={o}>
+                  <span>{o}</span>
+                  <i className="an-bar violet">
+                    <span style={{ width: `${pct(data.answers[o] || 0, Math.max(1, t.answered))}%` }} />
+                  </i>
+                  <b>{data.answers[o] || 0}</b>
+                </div>
+              ))}
+            </div>
+          )}
+          {data.branches.length > 1 && (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Filial</th>
+                  <th>O‘qidi</th>
+                  {data.announcement.ackRequired && <th>Tanishdi</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {data.branches.map((b) => (
+                  <tr key={b.branch}>
+                    <td>{b.branch || "—"}</td>
+                    <td>
+                      {b.read}/{b.total} · {pct(b.read, b.total)}%
+                    </td>
+                    {data.announcement.ackRequired && (
+                      <td>
+                        {b.acked}/{b.total}
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          <div className="an-tools">
+            <Segmented
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { value: "unread", label: "O‘qimagan", count: t.recipients - t.read },
+                ...(data.announcement.ackRequired ? [{ value: "unacked" as const, label: "Tasdiqlamagan", count: t.recipients - t.acked }] : []),
+                { value: "all", label: "Hammasi", count: t.recipients },
+              ]}
+            />
+            <button className="btn btn-primary btn-sm" disabled={busy || (filter === "unacked" ? t.acked === t.recipients : t.read === t.recipients)} onClick={() => void remind(filter === "unacked" ? "unacked" : data.announcement.options?.length ? "unanswered" : "unread")}>
+              <BellRing size={14} /> Eslatma yuborish
+            </button>
+          </div>
+          {data.announcement.remindedAt && <p className="muted">Oxirgi eslatma: {dateUz(data.announcement.remindedAt)} {time(data.announcement.remindedAt)} (soatiga bir marta)</p>}
+          <div className="an-list">
+            {!rows.length ? (
+              <p className="muted">Bu ro‘yxatda hech kim yo‘q 🎉</p>
+            ) : (
+              rows.map((r) => (
+                <div key={r.employeeId} className="an-row">
+                  <span>
+                    <b>{r.name}</b>
+                    <small>{r.branch}</small>
+                  </span>
+                  <span className="an-state">
+                    {r.answer ? <span className="badge violet">{r.answer}</span> : null}
+                    {r.ackAt ? <span className="badge green">✓ Tanishdi {time(r.ackAt)}</span> : r.read ? <span className="badge blue">O‘qidi{r.readAt ? ` ${time(r.readAt)}` : ""}</span> : <span className="badge gray">O‘qimagan</span>}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }

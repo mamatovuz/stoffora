@@ -91,6 +91,7 @@ export default function Reminders() {
       <Hint icon="notifications-outline">
         Eslatma push-bildirishnoma va Telegram orqali keladi. Dam olish va ta’til kunlari eslatilmaydi.{saving ? " Saqlanmoqda…" : ""}
       </Hint>
+      <NotifyPrefsCard />
     </ScrollView>
   );
 }
@@ -99,3 +100,37 @@ const st = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 99 },
 });
+
+type NotifyPrefs = { categories: { key: string; label: string; enabled: boolean }[]; note: string };
+
+/** Qaysi toifadagi xabarlar telefonga (push / Telegram) kelsin. */
+function NotifyPrefsCard() {
+  const { c } = useTheme();
+  const { data, reload } = useData<NotifyPrefs>("/mini/notify-prefs", { maxAgeMs: 0 });
+  const [local, setLocal] = useState<NotifyPrefs | null>(null);
+  useEffect(() => {
+    if (data) setLocal(data);
+  }, [data]);
+  if (!local) return null;
+  const toggle = async (key: string, enabled: boolean) => {
+    haptic.select();
+    setLocal({ ...local, categories: local.categories.map((x) => (x.key === key ? { ...x, enabled } : x)) });
+    try {
+      await put("/mini/notify-prefs", { [key]: enabled });
+    } catch {
+      void reload();
+    }
+  };
+  return (
+    <Card style={{ gap: 4 }}>
+      <Text style={{ color: c.ink, fontSize: 16, fontWeight: "600", marginBottom: 6 }}>Bildirishnomalar</Text>
+      {local.categories.map((x, i) => (
+        <View key={x.key} style={[{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8 }, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: c.line }]}>
+          <Text style={{ flex: 1, color: c.ink, fontSize: 15 }}>{x.label}</Text>
+          <Switch value={x.enabled} onValueChange={(v) => void toggle(x.key, v)} />
+        </View>
+      ))}
+      <Text style={{ color: c.muted, fontSize: 12.5, marginTop: 6 }}>{local.note}</Text>
+    </Card>
+  );
+}

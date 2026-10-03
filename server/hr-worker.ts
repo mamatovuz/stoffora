@@ -90,7 +90,8 @@ export async function runGreetings(today = tashkentIsoDate()) {
   return keys.length;
 }
 
-const THRESHOLDS = [30, 7, 1, 0];
+// Hujjat muddati: 30, 14, 7 kun oldin, 1 kun qolganda va tugagan kuni.
+const THRESHOLDS = [30, 14, 7, 1, 0];
 
 export async function runDocumentReminders(today = tashkentIsoDate()) {
   const db = await readDb();

@@ -9429,3 +9429,24 @@ html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
 .mini-rows > * + * { border-top-color: var(--m-line); }
 .mg-kpis { gap: 10px; }
 .mg-kpis > div { border-radius: 14px; }
+
+/* E’lon statistikasi */
+.an-stats { display: grid; gap: 16px; }
+.an-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.an-kpis > div { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); }
+.an-kpis small { color: var(--muted); }
+.an-kpis b { font-size: 22px; }
+.an-kpis em { font-style: normal; font-size: 13px; color: var(--muted); font-weight: 500; }
+.an-bar { display: block; height: 6px; border-radius: 3px; background: var(--line-2); overflow: hidden; }
+.an-bar span { display: block; height: 100%; background: var(--brand); }
+.an-bar.ok span { background: var(--green); } .an-bar.violet span { background: var(--violet); }
+.an-answers { display: grid; gap: 8px; }
+.an-answers > div { display: grid; grid-template-columns: minmax(80px, 160px) 1fr 40px; gap: 10px; align-items: center; }
+.an-answers b { text-align: right; }
+.an-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.an-list { display: grid; max-height: 360px; overflow: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+.an-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; }
+.an-row + .an-row { border-top: 1px solid var(--line-2); }
+.an-row > span:first-child { display: grid; min-width: 0; }
+.an-row small { color: var(--muted); }
+.an-state { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }

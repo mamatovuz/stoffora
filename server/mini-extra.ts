@@ -481,6 +481,7 @@ export function createMiniExtraRouter() {
           item.answer = answer;
         }
         item.ackAt = new Date().toISOString();
+        item.readAt ||= item.ackAt;
         item.read = true;
         const announcement = item.announcementId ? db.announcements.find((a) => a.id === item.announcementId) : undefined;
         if (announcement) {

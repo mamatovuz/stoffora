@@ -1,5 +1,6 @@
 import { readDb, updateDb } from "../lib/store";
 import type { Database } from "../lib/types";
+import { categoryOfType, wantsPush } from "../lib/notify-prefs";
 
 /*
  * Native ilova push xabarnomalari — Expo Push Service (iOS: APNs, Android: FCM).
@@ -94,8 +95,12 @@ export async function dispatchPendingPushes() {
       const ids = new Set(pending.map((n) => n.id));
       for (const n of next.notifications) if (ids.has(n.id)) n.pushedAt = now;
     });
-    for (const n of pending)
+    for (const n of pending) {
+      // Xodim o‘chirgan toifa — telefonga yuborilmaydi (ilovadagi ro‘yxatda qoladi).
+      const employee = db.employees.find((e) => e.id === n.employeeId);
+      if (!wantsPush(employee?.notifyPrefs, categoryOfType(n.type), Boolean(n.ackRequired || n.options?.length))) continue;
       await pushToEmployee(n.employeeId!, { title: n.title.replace(/^📢\s*/, "📢 "), body: n.body, data: { go: routeFor(n.type, n.go), notificationId: n.id } }, db).catch(() => 0);
+    }
   } catch (error) {
     console.error("Push dispetcheri xatosi", error);
   } finally {

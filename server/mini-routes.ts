@@ -52,6 +52,7 @@ import { createMiniPeopleRouter } from "./people";
 import { createMiniOpsRouter } from "./ops";
 import { createMiniHistoryRouter, marksOf, saveMarkPhoto } from "./history";
 import { lookalikeAlert } from "./face-reference";
+import { createMiniEngageRouter } from "./engage";
 import { deviceFlags, isDeepLinkParam } from "../lib/mini";
 import { documentInputSchema, saveDocument } from "./documents";
 import {
@@ -338,6 +339,7 @@ export function createMiniRouter() {
   router.use(createMiniPeopleRouter());
   router.use(createMiniOpsRouter());
   router.use(createMiniHistoryRouter());
+  router.use(createMiniEngageRouter());
   router.use(createMiniMobileRouter());
   router.get(
     "/mini/home",
@@ -396,6 +398,7 @@ export function createMiniRouter() {
             (input.all || ids.has(item.id))
           ) {
             item.read = true;
+            item.readAt ||= new Date().toISOString();
             count += 1;
           }
         return count;
