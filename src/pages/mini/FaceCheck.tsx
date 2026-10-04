@@ -48,6 +48,19 @@ function liveDistance(ref: Reference, candidate: number[]) {
   return Math.min(center, (center + near) / 2);
 }
 
+/**
+ * Yuzning ko‘rinadigan markazi (peshona bilan) — 68 nuqta bo‘yicha. Detektor qutisi qoshdan iyakkacha:
+ * uning markazi burun-lab atrofida, shuning uchun ramka pastga siljib qolardi.
+ */
+function faceCenter(points: { x: number; y: number }[]) {
+  const chin = points[8].y;
+  const brow = Math.min(...points.slice(17, 27).map((p) => p.y));
+  // Peshona (soch chizig‘igacha) — qoshdan iyakkacha bo‘lgan masofaning ~45%.
+  const top = brow - (chin - brow) * 0.45;
+  const width = Math.abs(points[16].x - points[0].x);
+  return { x: (points[0].x + points[16].x) / 2, y: (top + chin) / 2, size: Math.max(width * 1.25, (chin - top) * 1.1) };
+}
+
 const messages: Record<Status, string> = {
   loading: "Kamera tayyorlanmoqda…",
   none: "Yuzingizni ramkaga joylang",
@@ -255,14 +268,15 @@ export function FaceCheck({
           continue;
         }
         const box = face.detection.box;
-        const side = Math.max(box.width, box.height) * 1.35 * coverOf(video).k;
-        const at = toScreen(video, box.x + box.width / 2, box.y + box.height / 2);
+        const center = faceCenter(face.landmarks.positions);
+        const side = center.size * coverOf(video).k;
+        const at = toScreen(video, center.x, center.y);
         setTrack({ x: at.x - side / 2, y: at.y - side / 2, size: side });
-        // Yuz qotirilgan ramka ichida bo‘lishi kerak: markazi yaqin, o‘lchami ramkaga mos.
+        // Yuz markaziy ramka ichida bo‘lishi kerak: markazi yaqin, o‘lchami ramkaga mos.
         const target = frameInVideo(video);
         const faceSize = Math.max(box.width, box.height);
-        const dx = (box.x + box.width / 2 - target.cx) / target.size;
-        const dy = (box.y + box.height / 2 - target.cy) / target.size;
+        const dx = (center.x - target.cx) / target.size;
+        const dy = (center.y - target.cy) / target.size;
         if (faceSize < target.size * 0.4) {
           reset("far");
           continue;
