@@ -668,11 +668,10 @@ export function FaceScanner({
               <video ref={videoRef} muted playsInline autoPlay style={{ opacity: showCamera ? 1 : 0 }} />
               {["center", "turn", "final"].includes(phase) && (
                 <>
-                  {/* Yuz joylashadigan oval yo‘riqnoma va skanerlash chizig‘i */}
+                  {/* Yuz joylashadigan oval yo‘riqnoma */}
                   <svg className={`faceid-guide ${quality.center === "ok" && quality.distance === "ok" ? "ok" : ""}`} viewBox="0 0 100 100" aria-hidden="true">
                     <ellipse cx="50" cy="48" rx="27" ry="35" />
                   </svg>
-                  <i className="faceid-scanline" aria-hidden="true" />
                 </>
               )}
               {(phase === "loading" || phase === "sending") && (

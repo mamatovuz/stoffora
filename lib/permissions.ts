@@ -20,16 +20,13 @@ const rolePermissions: Record<Role, string[]> = {
     "audit.view",
     "settings.manage",
     "registrations.*",
-    "ops.*",
-    "kb.*",
-    "learning.*",
   ],
   // «HR menejer» va «HR administrator» — bitta HR: huquqlar bir xil (eski hisoblar ham to‘liq HR).
   HR_MANAGER: [],
   // Moliya: faqat moliya (ish haqi, avans, jarima, rag‘batlantirish, moliyaviy eksport).
   // Xodimlar ro‘yxati, davomat va shaxsiy ma’lumotlar — ko‘rinmaydi.
   FINANCE: ["payroll.*"],
-  IT_ADMIN: ["dashboard.view", "employees.view", "org.view", "devices.*", "settings.manage", "audit.view", "incidents.it"],
+  IT_ADMIN: ["dashboard.view", "employees.view", "org.view", "devices.*", "settings.manage", "audit.view"],
   BRANCH_MANAGER: [
     "dashboard.view",
     "employees.view",
@@ -37,8 +34,6 @@ const rolePermissions: Record<Role, string[]> = {
     "attendance.edit",
     "org.view",
     "leave.view",
-    "ops.manage",
-    "learning.view",
   ],
   EMPLOYEE: ["profile.view", "attendance.self", "leave.self"],
 };
@@ -79,14 +74,7 @@ export const pagePermissions: Record<string, string[]> = {
   "/timesheet": ["employees.edit", "payroll.view", "payroll.edit"],
   "/assets": ["devices.manage", "employees.edit"],
   "/shift-planner": ["attendance.edit"],
-  "/tasks": ["ops.manage"],
-  "/checklists": ["ops.manage"],
-  "/incidents": ["ops.manage", "incidents.it"],
-  "/knowledge": [],
-  "/learning": ["learning.manage", "learning.view"],
   "/org-chart": ["org.view"],
-  "/activity": ["attendance.view", "employees.view", "audit.view"],
-  "/automation": ["employees.edit"],
   "/reports": ["reports.view"],
   "/analytics": ["dashboard.view"],
   "/announcements": ["announcements.view"],

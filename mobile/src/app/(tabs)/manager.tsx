@@ -6,7 +6,6 @@ import { BranchMap } from "@/components/BranchMap";
 import { FineSheet, MoneyView } from "@/components/MoneyTools";
 import { DevicesView } from "@/components/DevicesView";
 import { AttendanceOverview } from "@/components/AttendanceOverview";
-import { OpsView } from "@/components/OpsView";
 import { DeskView } from "@/components/DeskView";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
@@ -14,7 +13,7 @@ import { dateUz, dayTitle, som, tashkentIsoDate, timeAgo } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
 
-type MView = "desk" | "today" | "requests" | "map" | "week" | "money" | "devices" | "ops";
+type MView = "desk" | "today" | "requests" | "map" | "week" | "money" | "devices";
 type Emp = { id: string; firstName: string; lastName: string; photoDataUrl?: string; branchId: string };
 type RosterRow = {
   employee: Emp;
@@ -201,7 +200,6 @@ export default function Manager() {
   const canMoney = canMoneyAdvances;
   // Qurilmalar — IT va HR (direktor ham).
   const canDevices = can(role, "devices.manage") || can(role, "employees.edit");
-  const canOps = can(role, "ops.manage") || can(role, "incidents.it");
   const canAttendanceView = can(role, "attendance.view");
   // So‘rovlar: davomat/ta’til/avans/jarima bilan ishlaydiganlar (IT — yo‘q).
   const canRequests = canAttendanceView || can(role, "leave.approve") || can(role, "payroll.edit") || can(role, "employees.edit");
@@ -263,7 +261,6 @@ export default function Manager() {
           ...(can(role, "dashboard.view") ? ([["week", "Xulosa"]] as [MView, string][]) : []),
           ...(canMoney ? ([["money", "Moliya"]] as [MView, string][]) : []),
           ...(canDevices ? ([["devices", "Qurilmalar"]] as [MView, string][]) : []),
-          ...(canOps ? ([["ops", "Operatsiya"]] as [MView, string][]) : []),
         ]}
       />
       {error ? <ErrorBox text={error} onRetry={load} /> : null}
@@ -452,7 +449,6 @@ export default function Manager() {
 
       {view === "desk" && auth ? <DeskView role={auth.user.role} reloadKey={moneyKey + pending.length} onOpen={(v) => setView(v as MView)} /> : null}
       {view === "devices" && canDevices ? <DevicesView /> : null}
-      {view === "ops" && canOps ? <OpsView /> : null}
       {view === "money" && canMoney ? <MoneyView canAdvances={canMoneyAdvances} canFines={canMoneyAdvances} reloadKey={moneyKey} /> : null}
       <FineSheet
         visible={fining}

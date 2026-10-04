@@ -31,7 +31,6 @@ import { can } from "@/lib/permissions";
 import { dateLongUz, dateUz, tashkentIsoDate } from "@/lib/format";
 import { FineSheet, MoneyView } from "./mini/MoneyTools";
 import { DevicesView } from "./mini/DevicesView";
-import { OpsView } from "./mini/OpsView";
 import { useBadgeScanner } from "./mini/BadgeCheck";
 import { Donut } from "./mini/HistoryCalendar";
 import { MiniDesk } from "./mini/Desk";
@@ -178,8 +177,6 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   // Qurilmalar — IT va HR; «So‘rovlar» — davomat/ta’til/moliya bilan ishlaydiganlar (IT — yo‘q).
   const canDevices = can(role, "devices.manage") || can(role, "employees.edit");
   const canRequests = canAttendance || canLeave || canAdvances || fineDirect;
-  // Operatsiya: vazifalar, checklistlar, hodisalar (IT — faqat IT/jihoz hodisalari).
-  const canOps = can(role, "ops.manage") || can(role, "incidents.it");
   useEffect(() => {
     if (!canAttendance && (view === "today" || view === "map")) setView(canMoney ? "money" : canDevices && !canRequests ? "devices" : "requests");
   }, [canAttendance, canMoney, canDevices, canRequests, view]);
@@ -421,7 +418,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
         </span>
         {badge.sheet}
       </div>
-      <div className={`mini-seg ${["", "one", "", "three", "four", "five", "six"][[true, canAttendance, canRequests, canAttendance, canAnalytics, canMoney, canDevices, canOps].filter(Boolean).length] || "seven"}`} role="tablist">
+      <div className={`mini-seg ${["", "one", "", "three", "four", "five", "six"][[true, canAttendance, canRequests, canAttendance, canAnalytics, canMoney, canDevices].filter(Boolean).length] || "seven"}`} role="tablist">
         {(
           [
             ["desk", "Ish stoli", 0] as const,
@@ -431,7 +428,6 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
             ...(canAnalytics ? ([["week", "Xulosa", 0]] as const) : []),
             ...(canMoney ? ([["money", "Moliya", 0]] as const) : []),
             ...(canDevices ? ([["devices", "Qurilma", 0]] as const) : []),
-            ...(canOps ? ([["ops", "Operatsiya", 0]] as const) : []),
           ] as const
         ).map(([key, label, badge]) => (
           <button
@@ -812,7 +808,6 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
       )}
       {view === "desk" && <MiniDesk call={call} role={role} canAttendance={canAttendance} onOpen={(v) => setView(v as ManagerView)} onEmployee={setCardFor} />}
       {view === "devices" && canDevices && <DevicesView call={call} onToast={onToast} />}
-      {view === "ops" && canOps && <OpsView call={call} onToast={onToast} />}
       {view === "money" && canMoney && <MoneyView call={call} canAdvances={canMoney} canFines={canMoney} onError={onToast} />}
       {fining && (
         <FineSheet

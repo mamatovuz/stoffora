@@ -15,9 +15,8 @@ export type DeepLink =
   | { tab: "history"; view?: "calendar" | "schedule" | "stats" }
   | { tab: "leave"; view?: "leave" | "swap" | "overtime" | "dayoff" | "marks"; id?: string }
   | { tab: "profile"; section?: "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays"; id?: string }
-  | { tab: "manager"; view?: "desk" | "today" | "requests" | "map" | "week" | "money" | "devices" | "ops" }
-  | { tab: "work"; view: "tasks" | "checklist" | "incidents"; id?: string }
-  | { tab: "learn"; view: "courses" | "kb" | "badge"; id?: string };
+  | { tab: "manager"; view?: "desk" | "today" | "requests" | "map" | "week" | "money" | "devices" }
+  | { tab: "badge" };
 
 const MONTH = /^\d{4}-\d{2}$/;
 const SAFE_ID = /^[A-Za-z0-9-]{1,64}$/;
@@ -74,22 +73,9 @@ export function parseDeepLink(raw?: string | null): DeepLink | null {
     case "birthdays":
       return { tab: "profile", section: "birthdays" };
     case "manager":
-      return { tab: "manager", view: tail === "requests" || tail === "map" || tail === "week" || tail === "money" || tail === "devices" || tail === "today" || tail === "ops" ? tail : "desk" };
-    case "tasks":
-    case "task":
-      return { tab: "work", view: "tasks", id };
-    case "checklist":
-      return { tab: "work", view: "checklist" };
-    case "incident":
-    case "incidents":
-      return { tab: "work", view: "incidents", id };
-    case "course":
-    case "courses":
-      return { tab: "learn", view: "courses", id };
-    case "kb":
-      return { tab: "learn", view: "kb", id };
+      return { tab: "manager", view: tail === "requests" || tail === "map" || tail === "week" || tail === "money" || tail === "devices" || tail === "today" ? tail : "desk" };
     case "badge":
-      return { tab: "learn", view: "badge" };
+      return { tab: "badge" };
     default:
       return null;
   }

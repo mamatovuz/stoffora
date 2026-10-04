@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { matchPercent } from "@/lib/face";
-import { ArrowLeft, Check, LoaderCircle, MapPin, Navigation, RotateCcw, ScanFace } from "lucide-react";
+import { Check, LoaderCircle, MapPin, Navigation, RotateCcw, ScanFace } from "lucide-react";
 import { ApiError, api, errorText, post } from "../../api";
 import { capturePhoto, faceQuality, geometry, preloadFaceModels, type FaceCapture } from "../../components/FaceScanner";
 import { haversineDistance } from "@/lib/attendance";
@@ -11,8 +11,8 @@ import { TileMap, type MapPoint } from "./TileMap";
 import { haptic, reportError } from "./tg";
 
 /*
- * Kundalik Face ID (ro‘yxatdan o‘tgandan keyin): kamera kesilmasdan (to‘liq ko‘rish maydoni, zoom yo‘q),
- * markazda QOTIRILGAN ramka — xodim yuzini ramkaga o‘zi olib keladi.
+ * Kundalik Face ID (ro‘yxatdan o‘tgandan keyin) — ilovadagi bilan bir xil ko‘rinish:
+ *   • kamera tepani to‘liq egallaydi (zoom yo‘q); ramka — 4 burchak, yuzni kuzatadi, topilmasa markazda;
  *   • yuz yo‘q / qiyshiq / ramkadan tashqarida / moslik past — ramka QIZIL;
  *   • yuz to‘g‘ri va moslik ≥ 65% — YASHIL; ~0,9 soniya yashil turgach rasm olinadi va tasdiqlanadi.
  * Pastda xarita: filial, ruxsat etilgan radius va xodim turgan joy (GPS aniqligi bilan).
@@ -89,14 +89,11 @@ export function FaceCheck({
   const runId = useRef(0);
   const [status, setStatusState] = useState<Status>("loading");
   const [percent, setPercent] = useState<number | null>(null);
-  const [hold, setHold] = useState(0);
-  /** Kamera oynasi — video nisbatida, sahnaga sig‘adigan (kesilmaydi, kattalashtirilmaydi). */
-  const [view, setView] = useState<{ w: number; h: number } | null>(null);
-  const [seen, setSeen] = useState(false);
-  // Ramka yuzni kuzatadi: ekrandagi (oyna) koordinata, piksel. null — markazda.
+  /** Yuz topilmaganda ramkaning joyi (ekranda, piksel). */
+  const [rest, setRest] = useState<{ x: number; y: number; size: number } | null>(null);
+  // Ramka yuzni kuzatadi: ekrandagi koordinata, piksel. null — markazda.
   const [track, setTrack] = useState<{ x: number; y: number; size: number } | null>(null);
   const [error, setError] = useState("");
-  const [flash, setFlash] = useState(false);
   const [pass, setPass] = useState(65);
   const statusRef = useRef<Status>("loading");
   const setStatus = (next: Status) => {
@@ -147,22 +144,32 @@ export function FaceCheck({
     streamRef.current = null;
   };
 
-  /** Oyna o‘lchami: video nisbatini saqlab sahnaga sig‘diradi (kesilmaydi, kattalashtirilmaydi). */
+  /** Video sahnani «cover» bilan to‘ldiradi: kadr → ekran masshtabi. */
+  const coverOf = (video: HTMLVideoElement) => {
+    const cw = video.clientWidth || video.videoWidth;
+    const ch = video.clientHeight || video.videoHeight;
+    const k = Math.max(cw / video.videoWidth, ch / video.videoHeight);
+    return { cw, ch, k, visW: cw / k, visH: ch / k };
+  };
+  /** Markaziy ramka video kadrida (piksel): ko‘rinib turgan qism ichida, ekrandagi ramka bilan bir xil joy. */
+  const frameInVideo = (video: HTMLVideoElement) => {
+    const { visW, visH } = coverOf(video);
+    const size = Math.min(video.videoWidth * 0.5, visW * 0.72, visH * 0.5);
+    return { cx: video.videoWidth / 2, cy: video.videoHeight / 2 - visH * 0.05, size };
+  };
+  /** Kadr nuqtasi → ekran (old kamera ko‘zgudek — x teskari). */
+  const toScreen = (video: HTMLVideoElement, x: number, y: number) => {
+    const { cw, ch, k } = coverOf(video);
+    return { x: cw / 2 - (x - video.videoWidth / 2) * k, y: ch / 2 + (y - video.videoHeight / 2) * k };
+  };
   const layout = useCallback(() => {
-    const stage = stageRef.current;
     const video = videoRef.current;
-    if (!stage || !video?.videoWidth) return;
-    const maxW = stage.clientWidth - 24;
-    const pad = getComputedStyle(stage);
-    const maxH = stage.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom);
-    const ratio = video.videoWidth / video.videoHeight;
-    let w = maxW;
-    let h = w / ratio;
-    if (h > maxH) {
-      h = maxH;
-      w = h * ratio;
-    }
-    setView({ w: Math.round(w), h: Math.round(h) });
+    if (!video?.videoWidth) return;
+    const f = frameInVideo(video);
+    const c = toScreen(video, f.cx, f.cy);
+    const size = f.size * coverOf(video).k;
+    setRest({ x: c.x - size / 2, y: c.y - size / 2, size });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
     const stage = stageRef.current;
@@ -172,17 +179,10 @@ export function FaceCheck({
     return () => observer.disconnect();
   }, [layout]);
 
-  /** Qotirilgan ramka video kadrida (piksel): markazda, ekrandagi ramka bilan bir xil joy. */
-  const frameInVideo = (video: HTMLVideoElement) => {
-    const size = Math.min(video.videoWidth * 0.6, video.videoHeight * 0.62);
-    return { cx: video.videoWidth / 2, cy: video.videoHeight * 0.47, size };
-  };
-
   const run = useCallback(async () => {
     const id = ++runId.current;
     const active = () => alive.current && runId.current === id;
     setError("");
-    setHold(0);
     setPercent(null);
     statusRef.current = "loading";
     setStatusState("loading");
@@ -246,10 +246,8 @@ export function FaceCheck({
           setStatus(next);
           holdStart = 0;
           collected = [];
-          setHold(0);
         };
         if (!face) {
-          setSeen(false);
           setTrack(null);
           smooth = null;
           setPercent(null);
@@ -257,14 +255,9 @@ export function FaceCheck({
           continue;
         }
         const box = face.detection.box;
-        setSeen(true);
-        // Video oynaga to‘liq mos (nisbat saqlangan) va ko‘zgudek aks etgan — x teskari.
-        const viewW = video.clientWidth || video.videoWidth;
-        const k = viewW / video.videoWidth;
-        const side = Math.max(box.width, box.height) * 1.35 * k;
-        const cxView = viewW - (box.x + box.width / 2) * k;
-        const cyView = (box.y + box.height / 2) * k;
-        setTrack({ x: cxView - side / 2, y: cyView - side / 2, size: side });
+        const side = Math.max(box.width, box.height) * 1.35 * coverOf(video).k;
+        const at = toScreen(video, box.x + box.width / 2, box.y + box.height / 2);
+        setTrack({ x: at.x - side / 2, y: at.y - side / 2, size: side });
         // Yuz qotirilgan ramka ichida bo‘lishi kerak: markazi yaqin, o‘lchami ramkaga mos.
         const target = frameInVideo(video);
         const faceSize = Math.max(box.width, box.height);
@@ -316,7 +309,6 @@ export function FaceCheck({
         collected.push({ descriptor, quality, box: { x: box.x, y: box.y, width: box.width, height: box.height } });
         if (!holdStart) holdStart = performance.now();
         const progress = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
-        setHold(progress);
         if (progress < 1 || collected.length < 2) continue;
 
         /* ---------------------------------------- rasm va tasdiqlash --- */
@@ -328,9 +320,7 @@ export function FaceCheck({
         }
         const best = collected.reduce((a, b) => (b.quality > a.quality ? b : a));
         const photo = capturePhoto(video, best.box);
-        setFlash(true);
         haptic.success();
-        window.setTimeout(() => setFlash(false), 260);
         setStatus("sending");
         const capture: FaceCapture = { descriptor: mean(collected.slice(-5).map((c) => c.descriptor)), photo };
         onCapture?.(capture);
@@ -407,47 +397,38 @@ export function FaceCheck({
       : error || messages[status];
   const failed = status === "fail" && !!error && runId.current > 0;
 
+  const frame = track || rest;
   return (
     <div className={`fc ${tone}`} role="dialog" aria-modal="true" aria-label="Face ID">
+      {/* Kamera — tepada to‘liq; yuz turadigan joyda bitta ramka */}
       <div className="fc-stage" ref={stageRef}>
-        <div className="fc-view" style={view ? { width: view.w, height: view.h } : undefined}>
-          <video ref={videoRef} muted playsInline autoPlay />
-          <div className="fc-shade" aria-hidden />
-          <div
-            className={`fc-frame ${tone} ${seen ? "seen" : ""} ${track ? "tracking" : ""}`}
-            style={track ? { width: track.size, left: track.x, top: track.y } : view ? { width: Math.min(view.w * 0.6, view.h * 0.62) } : undefined}
-            aria-hidden
-          >
-          <i />
-          <i />
-          <i />
-          <i />
-          {status !== "ok" && status !== "sending" && status !== "done" && status !== "fail" && <b className="fc-scan" />}
-          {status === "ok" && (
-            <svg className="fc-hold" viewBox="0 0 100 100">
-              <rect x="2" y="2" width="96" height="96" rx="14" pathLength={100} strokeDasharray={`${hold * 100} 100`} />
-            </svg>
-          )}
+        <video ref={videoRef} muted playsInline autoPlay />
+        {frame && (
+          <div className={`fc-frame ${tone}`} style={{ width: frame.size, left: frame.x, top: frame.y }} aria-hidden>
+            <i />
+            <i />
+            <i />
+            <i />
           </div>
-          {flash && <div className="fc-flash" aria-hidden />}
-          <div className={`fc-pill ${tone}`} aria-live="polite">
-            {status === "sending" ? <LoaderCircle size={15} className="spin" /> : status === "done" ? <Check size={15} /> : status === "loading" ? <ScanFace size={15} /> : null}
+        )}
+        {status === "sending" && (
+          <div className="fc-busy" aria-hidden>
+            <LoaderCircle size={34} className="spin" />
+          </div>
+        )}
+        <header className="fc-top">
+          <b>{action === "CHECK_IN" ? "Ishga kelish" : "Ishdan ketish"}</b>
+          <small>
+            {tashkentClock()} · {branch?.name || "Filial"}
+          </small>
+        </header>
+        <div className="fc-status">
+          <div className={`fc-pill ${tone} ${status === "fail" ? "fail" : ""}`} aria-live="polite">
+            {status === "done" ? <Check size={15} /> : status === "loading" ? <ScanFace size={15} /> : null}
             {pill}
           </div>
-          {status !== "ok" && status !== "sending" && status !== "done" && percent !== null && status === "low" && <small className="fc-need">Kerak: {pass}% dan yuqori</small>}
+          {status === "low" && percent !== null && <small className="fc-need">Kerak: {pass}% dan yuqori</small>}
         </div>
-        <header className="fc-top">
-          <button onClick={onClose} aria-label="Orqaga">
-            <ArrowLeft size={20} />
-          </button>
-          <span>
-            <b>{action === "CHECK_IN" ? "Ishga kelish" : "Ishdan ketish"}</b>
-            <small>
-              {tashkentClock()} · {branch?.name || "Filial"}
-            </small>
-          </span>
-          {percent !== null && <em className={tone}>{percent}%</em>}
-        </header>
       </div>
 
       <section className="fc-panel">
@@ -457,7 +438,7 @@ export function FaceCheck({
               points={points}
               circles={[{ id: "radius", lat: branch.latitude, lng: branch.longitude, radius: branch.radiusMeters }]}
               fitKey={gps ? "gps" : "branch"}
-              height={190}
+              height={210}
               compact
             >
               <div className={`fc-gps ${gps ? (inside ? "ok" : "bad") : gpsError ? "bad" : ""}`}>
@@ -484,12 +465,10 @@ export function FaceCheck({
           <button className="fc-btn ghost" onClick={onClose}>
             Orqaga
           </button>
-          {failed ? (
-            <button className="fc-btn" onClick={() => void run()}>
+          {failed && (
+            <button className="fc-btn primary" onClick={() => void run()}>
               <RotateCcw size={16} /> Qayta urinish
             </button>
-          ) : (
-            <span className="fc-tip">{status === "ok" ? "Qimirlamang…" : `Yashil bo‘lsa — avtomatik ${action === "CHECK_IN" ? "keldi" : "ketdi"}`}</span>
           )}
         </div>
       </section>

@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, Cake, ChevronRight, GraduationCap, IdCard, Fingerprint, ListChecks, ListTodo, MapPin, MessageCircleQuestion, ScrollText, Share2, Smile, TriangleAlert, Users } from "lucide-react";
+import { Cake, ChevronRight, IdCard, Fingerprint, MapPin, MessageCircleQuestion, ScrollText, Share2, Smartphone, Smile, Users } from "lucide-react";
 import type { HelpdeskView } from "./Helpdesk";
-import type { WorkView } from "./Work";
-import type { LearnView } from "./Learn";
 import { MobileLinkRow } from "./MobileLink";
 import { MiniNotifyPrefs, MiniReminders } from "./Reminders";
 import { dateUz, tashkentWeekday } from "@/lib/format";
@@ -13,7 +11,7 @@ import type { MiniPrefs } from "../miniPrefs";
 import type { BioInfo } from "./biometric";
 import { biometricLabel } from "./biometric";
 import { PhotoAvatar, type HomeData, type Toast } from "./shared";
-import { confirmNative, haptic, openExternal, shareText, supports, tg } from "./tg";
+import { confirmNative, haptic, openExternal, shareText, tg, useHomeScreen } from "./tg";
 
 /** «09:00» → «9», «09:30» → «9:30» — haftalik jadval tor ustunlarga sig‘sin. */
 const short = (hhmm: string) => (hhmm.endsWith(":00") ? String(Number(hhmm.slice(0, 2))) : hhmm.replace(/^0/, ""));
@@ -35,8 +33,7 @@ export function MiniProfile({
   onEmojiStatus,
   onDirectory,
   onHelpdesk,
-  onWork,
-  onLearn,
+  onBadge,
   onBirthdays,
 }: {
   data: HomeData;
@@ -53,23 +50,10 @@ export function MiniProfile({
   onEmojiStatus: (enable: boolean) => void;
   onDirectory: () => void;
   onHelpdesk: (view: HelpdeskView) => void;
-  onWork: (view: WorkView) => void;
-  onLearn: (view: LearnView) => void;
+  onBadge: () => void;
   onBirthdays: () => void;
 }) {
-  const [homeScreen, setHomeScreen] = useState<"unsupported" | "unknown" | "added" | "missed">("unsupported");
-  useEffect(() => {
-    const webApp = tg();
-    if (!supports("8.0") || !webApp?.checkHomeScreenStatus) return;
-    try {
-      webApp.checkHomeScreenStatus((status) => setHomeScreen(status));
-    } catch {
-      /* qo‘llab-quvvatlanmaydi */
-    }
-    const onAdded = () => setHomeScreen("added");
-    webApp.onEvent?.("homeScreenAdded", onAdded);
-    return () => webApp.offEvent?.("homeScreenAdded", onAdded);
-  }, []);
+  const homeScreen = useHomeScreen();
   // Chuqur havola yoki «Sozlamalar» tugmasi — kerakli bo‘limga aylantiramiz.
   const settingsRef = useRef<HTMLDivElement>(null);
   const docsRef = useRef<HTMLDivElement>(null);
@@ -166,43 +150,9 @@ export function MiniProfile({
         )}
       </section>
 
-      <div className="mp-group-title">Ishlarim</div>
+      <div className="mp-group-title">Raqamli ID</div>
       <section className="mp-group">
-        <button className="mp-row link" onClick={() => onWork("tasks")}>
-          <span>
-            <ListTodo size={15} /> Vazifalar
-          </span>
-          <ChevronRight size={16} />
-        </button>
-        <button className="mp-row link" onClick={() => onWork("checklist")}>
-          <span>
-            <ListChecks size={15} /> Bugungi checklist
-          </span>
-          <ChevronRight size={16} />
-        </button>
-        <button className="mp-row link" onClick={() => onWork("incidents")}>
-          <span>
-            <TriangleAlert size={15} /> Muammo haqida xabar berish
-          </span>
-          <ChevronRight size={16} />
-        </button>
-      </section>
-
-      <div className="mp-group-title">O‘qish va ID</div>
-      <section className="mp-group">
-        <button className="mp-row link" onClick={() => onLearn("courses")}>
-          <span>
-            <GraduationCap size={15} /> Kurslar va testlar
-          </span>
-          <ChevronRight size={16} />
-        </button>
-        <button className="mp-row link" onClick={() => onLearn("kb")}>
-          <span>
-            <BookOpen size={15} /> Bilimlar bazasi (qoidalar, yo‘riqnomalar)
-          </span>
-          <ChevronRight size={16} />
-        </button>
-        <button className="mp-row link" onClick={() => onLearn("badge")}>
+        <button className="mp-row link" onClick={onBadge}>
           <span>
             <IdCard size={15} /> Mening ID (QR guvohnoma)
           </span>
@@ -354,19 +304,21 @@ export function MiniProfile({
           <span>Yuqori kontrast</span>
           <input type="checkbox" checked={prefs.contrast} onChange={(e) => onPrefs({ ...prefs, contrast: e.target.checked })} />
         </label>
-        {(homeScreen === "missed" || homeScreen === "unknown") && (
+        {homeScreen.canAdd && (
           <button
             className="mp-row link mp-homescreen"
             onClick={() => {
               haptic.tap();
-              tg()?.addToHomeScreen?.();
+              homeScreen.add();
             }}
           >
-            <span>📲 Telefon ekraniga Staffora yorlig‘ini qo‘shish</span>
+            <span>
+              <Smartphone size={15} /> Bosh ekranga qo‘shish
+            </span>
             <ChevronRight size={16} />
           </button>
         )}
-        {homeScreen === "added" && (
+        {homeScreen.status === "added" && (
           <div className="mp-row">
             <span>Telefon ekranida yorliq</span>
             <b>Qo‘shilgan ✓</b>

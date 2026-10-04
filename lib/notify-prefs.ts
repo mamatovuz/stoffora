@@ -8,7 +8,6 @@ export const NOTIFY_CATEGORIES = {
   requests: "So‘rovlar (ta’til, smena, belgilash)",
   money: "Ish haqi, avans, jarima, bonus",
   announcements: "E’lonlar va so‘rovnomalar",
-  tasks: "Vazifalar, checklist, hodisalar",
   docs: "Hujjatlar muddati",
   celebrations: "Tug‘ilgan kunlar va tabriklar",
 } as const;
@@ -24,7 +23,6 @@ const BY_TYPE: Record<string, NotifyCategory> = {
   FINE: "money",
   BONUS: "money",
   ANNOUNCEMENT: "announcements",
-  OPS: "tasks",
   DOCUMENT: "docs",
   BIRTHDAY: "celebrations",
 };

@@ -1,26 +1,28 @@
 import { useEffect, useState } from "react";
 import {
   AlertCircle,
+  Cake,
   CalendarCheck,
   CalendarRange,
   CheckCircle2,
   ChevronRight,
   Coffee,
+  FileText,
   Fingerprint,
   Hourglass,
+  IdCard,
   LoaderCircle,
   LogOut,
   MapPin,
+  MessageCircleQuestion,
+  Navigation,
   ScanFace,
   ShieldCheck,
+  Smartphone,
   TrendingUp,
   Users,
   Wallet,
-  FileText,
-  MessageCircleQuestion,
-  Navigation,
-  ListChecks,
-  ListTodo,
+  X,
 } from "lucide-react";
 import { haversineDistance } from "@/lib/attendance";
 import { BirthdayCard } from "./Birthdays";
@@ -33,7 +35,7 @@ import { SalaryCard } from "../MiniMoney";
 import { getCached, setCached } from "../miniCache";
 import { NotifItem } from "./Notifications";
 import { clockDuration, Sheet, toMinutes, useClock, type Action, type HomeData, type Toast } from "./shared";
-import { haptic, shareText } from "./tg";
+import { haptic, shareText, useHomeScreen } from "./tg";
 
 type Stats = { streak: { current: number; best: number; badge: { emoji: string; label: string } | null } };
 
@@ -258,10 +260,12 @@ export function MiniHome({
 
       <SalaryCard onOpen={onSalary} offline={offline} />
 
+      <HomeScreenCard />
+
       <section className="mh-quick" aria-label="Tezkor bo‘limlar">
         <QuickTile icon={<CalendarRange size={19} />} label="Grafigim" onClick={() => onNavigate({ tab: "history", view: "schedule" })} />
         <QuickTile icon={<TrendingUp size={19} />} label="Statistika" onClick={() => onNavigate({ tab: "history", view: "stats" })} />
-        <QuickTile icon={<ListTodo size={19} />} label="Vazifalar" onClick={() => onNavigate({ tab: "work", view: "tasks" })} />
+        <QuickTile icon={<IdCard size={19} />} label="Mening ID" onClick={() => onNavigate({ tab: "badge" })} />
         {data.features?.directory !== false ? (
           <QuickTile icon={<Users size={19} />} label="Hamkasblar" onClick={() => onNavigate({ tab: "profile", section: "directory" })} />
         ) : (
@@ -270,7 +274,7 @@ export function MiniHome({
         <QuickTile icon={<Wallet size={19} />} label="Hisob varaqa" onClick={() => onNavigate({ tab: "profile", section: "payslips" })} />
         <QuickTile icon={<CalendarCheck size={19} />} label="Ta’til" onClick={() => onNavigate({ tab: "leave", view: "leave" })} />
         <QuickTile icon={<MessageCircleQuestion size={19} />} label="HR’ga savol" onClick={() => onHelpdesk("questions")} />
-        <QuickTile icon={<ListChecks size={19} />} label="Checklist" onClick={() => onNavigate({ tab: "work", view: "checklist" })} />
+        <QuickTile icon={<Cake size={19} />} label="Tug‘ilgan kunlar" onClick={onBirthdays} />
       </section>
 
       {data.month.practiceUntil && (
@@ -512,5 +516,50 @@ function LateSheet({ start, name, onClose, onSaved }: { start: string; name: str
       )}
       <p className="mp-note">Ogohlantirish kechikishni bekor qilmaydi, lekin rahbaringiz vaziyatdan xabardor bo‘ladi.</p>
     </Sheet>
+  );
+}
+
+const HOME_SCREEN_KEY = "staffora_homescreen_hidden";
+/** «Bosh ekranga qo‘shish» taklifi — yorliq qo‘shilguncha yoki yopilguncha. */
+function HomeScreenCard() {
+  const homeScreen = useHomeScreen();
+  const [hidden, setHidden] = useState(() => {
+    try {
+      return localStorage.getItem(HOME_SCREEN_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  if (!homeScreen.canAdd || hidden) return null;
+  const hide = () => {
+    setHidden(true);
+    try {
+      localStorage.setItem(HOME_SCREEN_KEY, "1");
+    } catch {
+      /* ignore */
+    }
+  };
+  return (
+    <section className="mh-homescreen">
+      <span className="mh-homescreen-ico">
+        <Smartphone size={20} />
+      </span>
+      <span>
+        <b>Bosh ekranga qo‘shing</b>
+        <small>Staffora telefon ekranidan bir bosishda ochiladi</small>
+      </span>
+      <button
+        className="mh-homescreen-add"
+        onClick={() => {
+          haptic.tap();
+          homeScreen.add();
+        }}
+      >
+        Qo‘shish
+      </button>
+      <button className="mh-homescreen-x" onClick={hide} aria-label="Yopish">
+        <X size={16} />
+      </button>
+    </section>
   );
 }

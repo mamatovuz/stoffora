@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, BookOpen, Building2, CornerDownLeft, FileText, GraduationCap, LayoutGrid, ListTodo, Megaphone, Network, Search, Siren, UserRound } from "lucide-react";
+import { ArrowRight, Building2, CornerDownLeft, FileText, LayoutGrid, Megaphone, Network, Search, UserRound } from "lucide-react";
 import { api } from "../api";
 import { useDebounced } from "../hooks";
 
 /*
- * Umumiy qidiruv (Ctrl+K): sahifalar + xodimlar, filiallar, bo‘limlar, lavozimlar, e’lonlar,
- * bilimlar bazasi, vazifalar, hodisalar, kurslar. ↑↓ — tanlash, Enter — ochish, Esc — yopish.
+ * Umumiy qidiruv (Ctrl+K): sahifalar + xodimlar, filiallar, bo‘limlar, lavozimlar, e’lonlar. ↑↓ — tanlash, Enter — ochish, Esc — yopish.
  */
 
 type Hit = { kind: string; id: string; title: string; sub?: string; link: string; photo?: string };
@@ -16,13 +15,9 @@ const ICONS: Record<string, typeof Search> = {
   branch: Building2,
   department: Network,
   position: Network,
-  kb: BookOpen,
   announcement: Megaphone,
-  task: ListTodo,
-  incident: Siren,
-  course: GraduationCap,
 };
-const GROUP: Record<string, string> = { page: "Sahifalar", employee: "Xodimlar", branch: "Filiallar", department: "Bo‘limlar", position: "Lavozimlar", kb: "Bilimlar bazasi", announcement: "E’lonlar", task: "Vazifalar", incident: "Hodisalar", course: "Kurslar" };
+const GROUP: Record<string, string> = { page: "Sahifalar", employee: "Xodimlar", branch: "Filiallar", department: "Bo‘limlar", position: "Lavozimlar", announcement: "E’lonlar" };
 const norm = (s: string) => s.toLowerCase().replace(/[‘’ʼ`']/g, "");
 
 export function CommandPalette({ open, onClose, pages }: { open: boolean; onClose: () => void; pages: [string, string][] }) {

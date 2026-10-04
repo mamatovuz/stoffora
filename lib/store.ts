@@ -97,15 +97,6 @@ function normalizeDatabase(database: Database): Database {
   database.assets ||= [];
   database.delegations ||= [];
   database.shiftTemplates ||= [];
-  database.tasks ||= [];
-  database.checklistTemplates ||= [];
-  database.checklistRuns ||= [];
-  database.incidents ||= [];
-  database.kbArticles ||= [];
-  database.courses ||= [];
-  database.courseAttempts ||= [];
-  database.automationRules ||= [];
-  database.ruleRuns ||= [];
   database.mobileDevices ||= [];
   database.mobileSessions ||= [];
   database.mobileActivationCodes ||= [];

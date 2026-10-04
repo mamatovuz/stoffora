@@ -153,12 +153,6 @@ export function startHrWorker() {
   const rewards = async () => {
     const { runRewards } = await import("./rewards");
     await runRewards(today()).catch((error) => console.error("Rag‘batlantirish xatosi", error));
-    // Checklist muddati va vazifa eslatmalari.
-    const { runOpsReminders } = await import("./ops");
-    await runOpsReminders().catch((error) => console.error("Operatsiya eslatmalari xatosi", error));
-    // Avtomatlashtirish qoidalari.
-    const { runRules } = await import("./rules");
-    await runRules().catch((error) => console.error("Qoidalar xatosi", error));
   };
   const today = () => tashkentIsoDate();
   timer = setInterval(() => void tick().then(rewards), 10 * 60_000);

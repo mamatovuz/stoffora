@@ -227,11 +227,11 @@ export default function Home() {
         <Tile icon="calendar-outline" label="Grafigim" onPress={() => go({ pathname: "/(tabs)/history", params: { view: "schedule" } })} />
         <Tile icon="stats-chart-outline" label="Statistika" onPress={() => go({ pathname: "/(tabs)/history", params: { view: "stats" } })} />
         <Tile icon="finger-print-outline" label="Belgilash" onPress={() => go("/mark-request")} />
-        <Tile icon="checkbox-outline" label="Vazifalar" onPress={() => go({ pathname: "/work", params: { view: "tasks" } })} />
+        <Tile icon="id-card-outline" label="Mening ID" onPress={() => go("/badge")} />
         <Tile icon="receipt-outline" label="Hisob varaqa" onPress={() => go("/payslips")} />
         <Tile icon="add-circle-outline" label="So‘rov" onPress={() => go({ pathname: "/(tabs)/requests", params: { create: String(Date.now()) } })} />
         <Tile icon="chatbubble-ellipses-outline" label="HR’ga savol" onPress={() => go({ pathname: "/helpdesk", params: { view: "questions" } })} />
-        <Tile icon="list-outline" label="Checklist" onPress={() => go({ pathname: "/work", params: { view: "checklist" } })} />
+        <Tile icon="gift-outline" label="Tug‘ilgan kunlar" onPress={() => go("/birthdays")} />
       </Card>
 
       {data.month.practiceUntil ? (

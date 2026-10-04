@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, post } from "../../api";
 
 /*
@@ -10,6 +10,30 @@ export const tg = () => window.Telegram?.WebApp;
 export const supports = (version: string) => Boolean(tg()?.isVersionAtLeast?.(version));
 export const isTelegram = () => Boolean(tg()?.initData);
 export const platform = () => tg()?.platform || "unknown";
+
+export type HomeScreenStatus = "unsupported" | "unknown" | "added" | "missed";
+/** Telefon bosh ekraniga yorliq (Telegram 8.0+, faqat Android / iOS). */
+export function useHomeScreen() {
+  const [status, setStatus] = useState<HomeScreenStatus>("unsupported");
+  useEffect(() => {
+    const webApp = tg();
+    if (!supports("8.0") || !webApp?.checkHomeScreenStatus) return;
+    try {
+      webApp.checkHomeScreenStatus((value) => setStatus(value));
+    } catch {
+      /* qo‘llab-quvvatlanmaydi */
+    }
+    const onAdded = () => setStatus("added");
+    webApp.onEvent?.("homeScreenAdded", onAdded);
+    return () => webApp.offEvent?.("homeScreenAdded", onAdded);
+  }, []);
+  return {
+    status,
+    /** Yorliq qo‘shish mumkin (hali qo‘shilmagan). */
+    canAdd: status === "missed" || status === "unknown",
+    add: () => tg()?.addToHomeScreen?.(),
+  };
+}
 export const isMobile = () => ["ios", "android", "android_x"].includes(platform());
 
 /* ------------------------------------------------------------ haptika --- */

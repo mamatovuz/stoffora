@@ -59,13 +59,6 @@ const AttendanceRequestsPage = lazy(() =>
 );
 const AdvancesPage = lazy(() => import("./pages/Money").then((m) => ({ default: m.AdvancesPage })));
 const OrgChartPage = lazy(() => import("./pages/Insight").then((m) => ({ default: m.OrgChartPage })));
-const ActivityPage = lazy(() => import("./pages/Insight").then((m) => ({ default: m.ActivityPage })));
-const AutomationPage = lazy(() => import("./pages/Insight").then((m) => ({ default: m.AutomationPage })));
-const KnowledgePage = lazy(() => import("./pages/Learn").then((m) => ({ default: m.KnowledgePage })));
-const LearningPage = lazy(() => import("./pages/Learn").then((m) => ({ default: m.LearningPage })));
-const TasksPage = lazy(() => import("./pages/Ops").then((m) => ({ default: m.TasksPage })));
-const ChecklistsPage = lazy(() => import("./pages/Ops").then((m) => ({ default: m.ChecklistsPage })));
-const IncidentsPage = lazy(() => import("./pages/Ops").then((m) => ({ default: m.IncidentsPage })));
 const ShiftPlannerPage = lazy(() => import("./pages/ShiftPlanner").then((m) => ({ default: m.ShiftPlannerPage })));
 const AssetsPage = lazy(() => import("./pages/People").then((m) => ({ default: m.AssetsPage })));
 const TimesheetPage = lazy(() => import("./components/PayrollWorkspace").then((m) => ({ default: m.TimesheetPage })));
@@ -150,14 +143,7 @@ export default function App() {
           <Route path="/timesheet" element={<TimesheetPage />} />
           <Route path="/assets" element={<AssetsPage />} />
           <Route path="/shift-planner" element={<ShiftPlannerPage />} />
-          <Route path="/tasks" element={<TasksPage />} />
-          <Route path="/checklists" element={<ChecklistsPage />} />
-          <Route path="/incidents" element={<IncidentsPage />} />
-          <Route path="/knowledge" element={<KnowledgePage />} />
-          <Route path="/learning" element={<LearningPage />} />
           <Route path="/org-chart" element={<OrgChartPage />} />
-          <Route path="/activity" element={<ActivityPage />} />
-          <Route path="/automation" element={<AutomationPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/employees" element={<EmployeesPage />} />
           <Route path="/employees/new" element={<EmployeeFormPage />} />

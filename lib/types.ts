@@ -257,137 +257,6 @@ export interface Delegation {
   createdAt: string;
   revokedAt?: string;
 }
-/** Operatsiya: vazifa (HR / filial rahbari → xodim). */
-export interface OpsTask {
-  id: string;
-  companyId: string;
-  title: string;
-  description?: string;
-  assigneeIds: string[];
-  branchId?: string;
-  dueDate?: string;
-  priority: "LOW" | "NORMAL" | "HIGH";
-  requirePhoto?: boolean;
-  status: "TODO" | "IN_PROGRESS" | "DONE" | "CANCELLED";
-  createdBy: string;
-  createdById?: string;
-  createdAt: string;
-  updatedAt: string;
-  doneAt?: string;
-  doneBy?: string;
-  photoIds: string[];
-  comments: { by: string; text: string; at: string; photoId?: string }[];
-}
-/** Takrorlanuvchi checklist shabloni (filial bo‘yicha, hafta kunlari). */
-export interface ChecklistTemplate {
-  id: string;
-  companyId: string;
-  title: string;
-  /** Bo‘sh — barcha filiallar. */
-  branchIds: string[];
-  /** 0 — yakshanba … 6 — shanba. */
-  weekdays: number[];
-  /** Shu vaqtgacha tugashi kerak (HH:MM). */
-  dueTime?: string;
-  items: { id: string; text: string; requirePhoto?: boolean }[];
-  active: boolean;
-  createdBy: string;
-  createdAt: string;
-}
-/** Checklistning bir kunlik bajarilishi (filial + sana). */
-export interface ChecklistRun {
-  id: string;
-  companyId: string;
-  templateId: string;
-  branchId: string;
-  date: string;
-  items: { itemId: string; done: boolean; by?: string; at?: string; photoId?: string; note?: string }[];
-  completedAt?: string;
-}
-/** Hodisa (incident): Ochiq → Jarayonda → Hal qilindi. */
-export interface Incident {
-  id: string;
-  companyId: string;
-  branchId: string;
-  title: string;
-  description?: string;
-  category: "EQUIPMENT" | "IT" | "SAFETY" | "CUSTOMER" | "CLEANING" | "OTHER";
-  severity: "LOW" | "MEDIUM" | "HIGH";
-  status: "OPEN" | "IN_PROGRESS" | "RESOLVED";
-  reporterEmployeeId?: string;
-  reporterName: string;
-  assignee?: string;
-  photoIds: string[];
-  history: { at: string; by: string; status: Incident["status"]; note?: string }[];
-  createdAt: string;
-  updatedAt: string;
-  resolvedAt?: string;
-}
-/** Bilimlar bazasi maqolasi. */
-export interface KbArticle {
-  id: string;
-  companyId: string;
-  title: string;
-  body: string;
-  category: string;
-  target: AnnouncementTarget;
-  pinned: boolean;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-  views: number;
-}
-/** O‘quv kursi: darslar + test (to‘g‘ri javob — faqat serverda). */
-export interface Course {
-  id: string;
-  companyId: string;
-  title: string;
-  description?: string;
-  lessons: { title: string; body: string }[];
-  questions: { id: string; q: string; options: string[]; correct: number }[];
-  passPercent: number;
-  target: AnnouncementTarget;
-  dueDate?: string;
-  required: boolean;
-  active: boolean;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-}
-export interface CourseAttempt {
-  id: string;
-  companyId: string;
-  courseId: string;
-  employeeId: string;
-  score: number;
-  passed: boolean;
-  answers: number[];
-  at: string;
-}
-/** Avtomatlashtirish qoidasi: AGAR hodisa → amallar. */
-export interface AutomationRule {
-  id: string;
-  companyId: string;
-  name: string;
-  active: boolean;
-  trigger: "LATE" | "ABSENT" | "NO_CHECKOUT" | "LATE_STREAK" | "DOC_EXPIRING" | "TASK_OVERDUE" | "INCIDENT_HIGH";
-  conditions: { minutes?: number; count?: number; days?: number; branchIds?: string[] };
-  actions: { type: "NOTIFY_EMPLOYEE" | "NOTIFY_MANAGER" | "NOTIFY_HR" | "CREATE_TASK" | "PROPOSE_FINE"; message?: string; amount?: number }[];
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-  lastRunAt?: string;
-  runs?: number;
-}
-export interface RuleRun {
-  id: string;
-  companyId: string;
-  ruleId: string;
-  at: string;
-  entity: string;
-  employeeId?: string;
-  summary: string;
-}
 /** Smena shabloni (Shift Planner). */
 export interface ShiftTemplate {
   id: string;
@@ -465,7 +334,7 @@ export interface Employee {
    */
   reminders?: { start: ReminderRule; end: ReminderRule };
   /** Telefonga (push / Telegram) keladigan xabar toifalari: false — o‘chirilgan. */
-  notifyPrefs?: Partial<Record<"attendance" | "requests" | "money" | "announcements" | "tasks" | "docs" | "celebrations", boolean>>;
+  notifyPrefs?: Partial<Record<"attendance" | "requests" | "money" | "announcements" | "docs" | "celebrations", boolean>>;
   /** Yillik ta’til kunlari (bo‘sh — kompaniya qoidasi). */
   annualLeaveDays?: number;
   /** Onboarding’ning qo‘lda belgilanadigan qadamlari (IT qurilma berdi, rahbar tanishtirdi, o‘qitish). */
@@ -782,15 +651,6 @@ export interface Database {
   assets: Asset[];
   delegations: Delegation[];
   shiftTemplates: ShiftTemplate[];
-  tasks: OpsTask[];
-  checklistTemplates: ChecklistTemplate[];
-  checklistRuns: ChecklistRun[];
-  incidents: Incident[];
-  kbArticles: KbArticle[];
-  courses: Course[];
-  courseAttempts: CourseAttempt[];
-  automationRules: AutomationRule[];
-  ruleRuns: RuleRun[];
   /* ---- Native mobil ilova (iOS/Android) — xodimlar o‘sha, faqat qurilma xavfsizligi ---- */
   mobileDevices: MobileDevice[];
   mobileSessions: MobileSession[];

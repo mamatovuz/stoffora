@@ -6,15 +6,13 @@ import express, { type NextFunction, type Request, type Response } from "express
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Database } from "../lib/types";
 
-/* Qidiruv (rol/filial chegarasi), tuzilma (halqa yo‘q), faoliyat lentasi, avtomatlashtirish qoidalari. */
+/* Qidiruv (rol/filial chegarasi), tuzilma (halqa yo‘q). */
 
 let dir: string;
 let base: string;
 let close: () => void;
 let store: typeof import("../lib/store");
-let rules: typeof import("../server/rules");
 let panel = { role: "HR_ADMIN", userId: "hr" };
-const today = () => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 10);
 
 async function call(method: string, url: string, body?: unknown) {
   const res = await fetch(base + url, { method, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -27,8 +25,6 @@ beforeAll(async () => {
   vi.resetModules();
   store = await import("../lib/store");
   const insight = await import("../server/insight");
-  rules = await import("../server/rules");
-  const now = new Date().toISOString();
   await store.updateDb((db: Database) => {
     db.companies.push({ id: "c1", name: "Gulnora Farm", status: "ACTIVE" } as Database["companies"][number]);
     db.schedules.push({ id: "s1", companyId: "c1", name: "Har kuni", type: "FIXED", graceMinutes: 0, overtimeEnabled: false, days: [0, 1, 2, 3, 4, 5, 6].map((d) => ({ day: d, enabled: true, start: "00:01", end: "23:59" })) } as Database["schedules"][number]);
@@ -40,8 +36,6 @@ beforeAll(async () => {
       ({ id, companyId: "c1", firstName: first, lastName: "Karimov", status: "ACTIVE", branchId, departmentId: "d2", positionId: "p1", scheduleId: "s1", startDate: "2026-01-01", employeeNo: `EMP-${id}`, phone: `+99890111${id.padStart(4, "0")}`, ...extra }) as unknown as Database["employees"][number];
     db.employees.push(emp("1", "Ozodbek", "b1"), emp("2", "Dilnoza", "b2"), emp("m", "Rahbar", "b1"));
     db.users.push({ id: "bm1", companyId: "c1", name: "BM", role: "BRANCH_MANAGER", branchIds: ["b1"] } as unknown as Database["users"][number]);
-    db.attendance.push({ id: "att1", companyId: "c1", employeeId: "1", branchId: "b1", date: today(), scheduledStart: "00:01", scheduledEnd: "23:59", checkIn: "00:40", lateMinutes: 39, earlyLeaveMinutes: 0, workedMinutes: 0, overtimeMinutes: 0, status: "LATE", verification: ["FACE"], updatedAt: now } as unknown as Database["attendance"][number]);
-    db.kbArticles.push({ id: "k1", companyId: "c1", title: "Kassa yo‘riqnomasi", body: "…", category: "Kassa", target: { type: "ALL", ids: [] }, pinned: false, createdBy: "HR", createdAt: now, updatedAt: now, views: 0 });
   });
   const app = express();
   app.use(express.json());
@@ -50,7 +44,6 @@ beforeAll(async () => {
     next();
   });
   app.use("/api", insight.createInsightRouter());
-  app.use("/api", rules.createRulesRouter());
   app.use((error: any, _req: Request, res: Response, _next: NextFunction) => res.status(error.status || (error.name === "ZodError" ? 400 : 500)).json({ message: error.message }));
   const server = app.listen(0);
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -66,10 +59,10 @@ afterAll(() => {
 });
 
 describe("umumiy qidiruv", () => {
-  it("ism, telefon raqami, filial, maqola; filial rahbari — faqat o‘z filiali; moliya — xodimlarsiz", async () => {
+  it("ism, telefon raqami, filial; filial rahbari — faqat o‘z filiali; moliya — xodimlarsiz", async () => {
     expect((await call("GET", "/api/search?q=ozod")).body.map((h: any) => h.title)).toContain("Ozodbek Karimov");
     expect((await call("GET", "/api/search?q=1110002")).body[0].title).toBe("Dilnoza Karimov");
-    expect((await call("GET", "/api/search?q=kassa")).body.some((h: any) => h.kind === "kb")).toBe(true);
+    expect((await call("GET", "/api/search?q=filial b2")).body.some((h: any) => h.kind === "branch")).toBe(true);
     panel = { role: "BRANCH_MANAGER", userId: "bm1" };
     const bm = (await call("GET", "/api/search?q=karimov")).body.filter((h: any) => h.kind === "employee").map((h: any) => h.title);
     expect(bm).not.toContain("Dilnoza Karimov");
@@ -88,34 +81,5 @@ describe("tuzilma", () => {
     expect(d2).toMatchObject({ parentId: "d1", count: 3 });
     expect(d2.head.name).toBe("Ozodbek Karimov");
     expect(tree.branches.find((b: any) => b.id === "b1").managers[0].name).toBe("Rahbar Karimov");
-  });
-});
-
-describe("faoliyat lentasi", () => {
-  it("kelish belgisi va panel amali ko‘rinadi", async () => {
-    const feed = (await call("GET", `/api/activity?date=${today()}`)).body;
-    expect(feed.events.some((e: any) => e.kind === "checkin" && e.title.includes("Ozodbek"))).toBe(true);
-    expect(feed.counts.checkin).toBe(1);
-  });
-});
-
-describe("avtomatlashtirish", () => {
-  it("kechikish → rahbarga xabar + jarima taklifi; ikkinchi marta ishlamaydi; o‘chiq qoida ishlamaydi", async () => {
-    const preview = (await call("POST", "/api/rules/preview", { name: "Kech", trigger: "LATE", conditions: { minutes: 15 }, actions: [{ type: "NOTIFY_MANAGER" }] })).body;
-    expect(preview.count).toBe(1);
-    const created = await call("POST", "/api/rules", { name: "15 daq kech", trigger: "LATE", conditions: { minutes: 15 }, actions: [{ type: "NOTIFY_MANAGER" }, { type: "PROPOSE_FINE", amount: 20000 }] });
-    expect(created.status).toBe(201);
-    await call("POST", "/api/rules", { name: "O‘chiq", active: false, trigger: "LATE", conditions: { minutes: 1 }, actions: [{ type: "NOTIFY_HR" }] });
-    expect(await rules.runRules()).toBe(1);
-    expect(await rules.runRules()).toBe(0);
-    const db = await store.readDb();
-    expect(db.notifications.some((n) => n.employeeId === "m" && n.title === "15 daq kech" && n.body.includes("39 daqiqa"))).toBe(true);
-    const fine = db.payrollAdjustments.find((a) => a.employeeId === "1" && a.type === "FINE")!;
-    expect(fine).toMatchObject({ amount: 20000, status: "PENDING" });
-    expect(db.ruleRuns).toHaveLength(1);
-    expect((await call("GET", "/api/rules/runs")).body[0].rule).toBe("15 daq kech");
-    panel = { role: "BRANCH_MANAGER", userId: "bm1" };
-    expect((await call("GET", "/api/rules")).status).toBe(403);
-    panel = { role: "HR_ADMIN", userId: "hr" };
   });
 });

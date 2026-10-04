@@ -49,11 +49,10 @@ import { createMiniDayOffRouter } from "./dayoff";
 import { createMiniCorrectionRouter } from "./corrections";
 import { createMiniReminderRouter } from "./reminders";
 import { createMiniPeopleRouter } from "./people";
-import { createMiniOpsRouter } from "./ops";
 import { createMiniHistoryRouter, marksOf, saveMarkPhoto } from "./history";
 import { lookalikeAlert } from "./face-reference";
 import { createMiniEngageRouter } from "./engage";
-import { createMiniLearnRouter } from "./learn";
+import { createMiniBadgeRouter } from "./badge";
 import { deviceFlags, isDeepLinkParam } from "../lib/mini";
 import { documentInputSchema, saveDocument } from "./documents";
 import {
@@ -338,10 +337,9 @@ export function createMiniRouter() {
   router.use(createMiniCorrectionRouter());
   router.use(createMiniReminderRouter());
   router.use(createMiniPeopleRouter());
-  router.use(createMiniOpsRouter());
   router.use(createMiniHistoryRouter());
   router.use(createMiniEngageRouter());
-  router.use(createMiniLearnRouter());
+  router.use(createMiniBadgeRouter());
   router.use(createMiniMobileRouter());
   router.get(
     "/mini/home",
