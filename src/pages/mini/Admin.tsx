@@ -1,3 +1,4 @@
+import { TimeInput } from "../../components/TimeInput";
 import {
   useCallback,
   useEffect,
@@ -16,6 +17,7 @@ import {
   FileSpreadsheet,
   Megaphone,
   MessagesSquare,
+  Network,
   Plane,
   Plus,
   ScrollText,
@@ -30,8 +32,10 @@ import type {
   Announcement,
   AuditLog,
   Branch,
+  Department,
   Employee,
   LeaveRequest,
+  Position,
   Role,
   Schedule,
   ScheduleDay,
@@ -44,6 +48,7 @@ import {
   type Meta,
 } from "../../types";
 import { roleLabels } from "../../auth";
+import { STAFF_ROLE_LABELS } from "@/lib/staff-roles";
 import { PhotoAvatar, Seg, Sheet, SkeletonList, som } from "./shared";
 import { confirmNative, haptic, openExternal, openTelegram, supports, tg } from "./tg";
 
@@ -69,6 +74,7 @@ export type AdminKey =
   | "registrations"
   | "schedules"
   | "branches"
+  | "org"
   | "announcements"
   | "helpdesk"
   | "reports"
@@ -134,6 +140,13 @@ export const ADMIN_ITEMS: {
     hint: "manzil, GPS hudud, rejim",
     path: "/branches",
     icon: <Building2 size={18} />,
+  },
+  {
+    key: "org",
+    label: "Bo‘lim va lavozimlar",
+    hint: "tuzilma, lavozimga panel huquqi",
+    path: "/departments",
+    icon: <Network size={18} />,
   },
   {
     key: "announcements",
@@ -253,6 +266,8 @@ export function AdminScreen({
       return <SchedulesScreen call={call} role={role} onToast={onToast} />;
     case "branches":
       return <BranchesScreen call={call} role={role} onToast={onToast} />;
+    case "org":
+      return <OrgScreen call={call} role={role} onToast={onToast} />;
     case "announcements":
       return <AnnouncementsScreen call={call} role={role} onToast={onToast} />;
     case "helpdesk":
@@ -921,7 +936,7 @@ type TimesheetRow = {
   leaveDays: number;
   absentDays: number;
 };
-const hm = (m: number) => (m ? `${Math.floor(m / 60)}s ${m % 60}d` : "0");
+const hm = (m: number) => (m ? duration(m) : "—");
 
 function PayrollScreen({
   call,
@@ -1013,7 +1028,6 @@ function PayrollScreen({
       setBusy(false);
     }
   }
-  const index = flow ? flow.stages.findIndex((s) => s.key === flow.stage) : -1;
   return (
     <>
       <label className="adm-month">
@@ -1027,29 +1041,7 @@ function PayrollScreen({
       </label>
       {flow && (
         <section className="mini-card adm-flow">
-          <ol>
-            {flow.stages.map((s, i) => (
-              <li
-                key={s.key}
-                className={
-                  i < index || flow.stage === "PAID"
-                    ? "done"
-                    : i === index
-                      ? "now"
-                      : ""
-                }
-              >
-                <span>{i < index || flow.stage === "PAID" ? "✓" : i + 1}</span>
-                {s.label}
-              </li>
-            ))}
-          </ol>
-          {flow.history.length > 0 && (
-            <small className="adm-muted">
-              Oxirgi: {flow.history[flow.history.length - 1].by} ·{" "}
-              {when(flow.history[flow.history.length - 1].at)}
-            </small>
-          )}
+          <small className="adm-muted">Holat: {flow.label}</small>
           <div className="adm-actions">
             {flow.can.hrCheck && (
               <button
@@ -1838,18 +1830,16 @@ function ScheduleSheet({
                 />
                 {weekdayNames[day]}
               </label>
-              <input
-                type="time"
+              <TimeInput
                 value={d.start}
                 disabled={!d.enabled}
-                onChange={(e) => update(day, { start: e.target.value })}
+                onChange={(v) => update(day, { start: v })}
                 aria-label="Boshlanish"
               />
-              <input
-                type="time"
+              <TimeInput
                 value={d.end}
                 disabled={!d.enabled}
-                onChange={(e) => update(day, { end: e.target.value })}
+                onChange={(v) => update(day, { end: v })}
                 aria-label="Tugash"
               />
               {d.enabled && d.start !== d.end && (
@@ -2087,7 +2077,194 @@ function BranchSheet({
   );
 }
 
+/* ================================================== Bo‘lim va lavozimlar === */
+function OrgScreen({ call, role, onToast }: { call: Call; role: Role; onToast: Toast }) {
+  const [tab, setTab] = useState<"departments" | "positions">("departments");
+  const [meta, setMeta] = useState<Meta | null>(null);
+  const [open, setOpen] = useState<Department | Position | "new" | null>(null);
+  const load = useCallback(() => {
+    call<Meta>("/meta")
+      .then(setMeta)
+      .catch((e) => fail(onToast)(e));
+  }, [call, onToast]);
+  useEffect(load, [load]);
+  const editable = can(role, "employees.edit");
+  const departments = meta?.departments || [];
+  const deptName = (id: string) => departments.find((d) => d.id === id)?.name || "—";
+  const rows: (Department | Position)[] = tab === "departments" ? departments : meta?.positions || [];
+  return (
+    <>
+      <Seg
+        value={tab}
+        options={[
+          ["departments", `Bo‘limlar ${departments.length}`],
+          ["positions", `Lavozimlar ${meta?.positions.length ?? 0}`],
+        ]}
+        onChange={setTab}
+      />
+      {editable && (tab === "departments" || departments.length > 0) && (
+        <AddButton text={tab === "departments" ? "Yangi bo‘lim" : "Yangi lavozim"} onClick={() => setOpen("new")} />
+      )}
+      {meta === null ? (
+        <SkeletonList rows={4} />
+      ) : !rows.length ? (
+        <div className="mini-empty">{tab === "departments" ? "Bo‘lim yo‘q" : departments.length ? "Lavozim yo‘q" : "Avval bo‘lim qo‘shing"}</div>
+      ) : (
+        <section className="mini-card">
+          <div className="mini-rows">
+            {rows.map((row) => {
+              const position = tab === "positions" ? (row as Position) : null;
+              return (
+                <button className="mini-row" key={row.id} onClick={() => editable && setOpen(row)}>
+                  <span className="mini-ico">
+                    <Network size={17} />
+                  </span>
+                  <span>
+                    <b>{row.name}</b>
+                    <small>
+                      {position
+                        ? [deptName(position.departmentId), position.panelRole && STAFF_ROLE_LABELS[position.panelRole], position.anyBranch && "istalgan filial"].filter(Boolean).join(" · ")
+                        : (row as Department).manager || "Rahbar ko‘rsatilmagan"}
+                    </small>
+                  </span>
+                  {editable && <ChevronRight size={16} />}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+      {open && meta && (
+        <OrgSheet
+          call={call}
+          type={tab}
+          row={open === "new" ? undefined : open}
+          departments={departments}
+          onClose={() => setOpen(null)}
+          onToast={onToast}
+          onSaved={() => {
+            setOpen(null);
+            load();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function OrgSheet({
+  call,
+  type,
+  row,
+  departments,
+  onClose,
+  onSaved,
+  onToast,
+}: {
+  call: Call;
+  type: "departments" | "positions";
+  row?: Department | Position;
+  departments: Department[];
+  onClose: () => void;
+  onSaved: () => void;
+  onToast: Toast;
+}) {
+  const isDept = type === "departments";
+  const [name, setName] = useState(row?.name || "");
+  const [manager, setManager] = useState((row as Department | undefined)?.manager || "");
+  const [departmentId, setDepartmentId] = useState((row as Position | undefined)?.departmentId || departments[0]?.id || "");
+  const [panelRole, setPanelRole] = useState<string>((row as Position | undefined)?.panelRole || "");
+  const [anyBranch, setAnyBranch] = useState(Boolean((row as Position | undefined)?.anyBranch));
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    if (name.trim().length < 2) return onToast("Nomini kiriting", "error");
+    setBusy(true);
+    try {
+      // Lavozimning filial ro‘yxati saytda sozlanadi — bu yerda o‘zgarmaydi.
+      const body = isDept ? { name: name.trim(), manager: manager.trim() } : { name: name.trim(), departmentId, panelRole, anyBranch };
+      if (row) await call(`/${type}/${row.id}`, body, "PUT");
+      else await call(`/${type}`, body);
+      haptic.success();
+      onToast("Saqlandi");
+      onSaved();
+    } catch (e) {
+      fail(onToast)(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove() {
+    if (!row || !(await confirmNative(`«${row.name}» o‘chirilsinmi?`, { ok: "O‘chirish", destructive: true }))) return;
+    setBusy(true);
+    try {
+      await call(`/${type}/${row.id}`, undefined, "DELETE");
+      onToast("O‘chirildi");
+      onSaved();
+    } catch (e) {
+      fail(onToast)(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Sheet
+      title={row ? row.name : isDept ? "Yangi bo‘lim" : "Yangi lavozim"}
+      onClose={onClose}
+      className="md-sheet"
+      primary={{ text: "Saqlash", onClick: () => void save(), busy }}
+    >
+      <form onSubmit={(e) => (e.preventDefault(), void save())}>
+        <label>
+          Nomi
+          <input value={name} onChange={(e) => setName(e.target.value)} />
+        </label>
+        {isDept ? (
+          <label>
+            Rahbar
+            <input value={manager} onChange={(e) => setManager(e.target.value)} />
+          </label>
+        ) : (
+          <>
+            <label>
+              Bo‘lim
+              <select value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
+                {departments.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Panel huquqi
+              <select value={panelRole} onChange={(e) => setPanelRole(e.target.value)}>
+                <option value="">Yo‘q — oddiy xodim</option>
+                {Object.entries(STAFF_ROLE_LABELS).map(([key, label]) => (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="adm-check">
+              <input type="checkbox" checked={anyBranch} onChange={(e) => setAnyBranch(e.target.checked)} /> Istalgan filialdan keldi-ketdi qila oladi
+            </label>
+          </>
+        )}
+      </form>
+      {row && (
+        <div className="adm-actions">
+          <button className="mini-btn ghost sm" disabled={busy} onClick={() => void remove()}>
+            O‘chirish
+          </button>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
 /* ================================================================ E’lonlar === */
+
 function AnnouncementsScreen({
   call,
   role,
@@ -2953,7 +3130,7 @@ function AttendanceFixScreen({ call, onToast }: { call: Call; onToast: Toast }) 
                   <b>{fullName(r.employee)}</b>
                   <small>
                     {r.record?.checkIn ? `${r.record.checkIn} → ${r.record.checkOut || "…"}` : STATE[r.state] || r.state}
-                    {r.record?.lateMinutes ? ` · ${r.record.lateMinutes} daq kech` : ""}
+                    {r.record?.lateMinutes ? ` · ${duration(r.record.lateMinutes)} kech` : ""}
                     {r.branch ? ` · ${r.branch}` : ""}
                   </small>
                 </span>
@@ -3008,11 +3185,11 @@ function AttendanceFixSheet({ call, date, row, onClose, onSaved, onToast }: { ca
         <div className="grid-2">
           <label>
             Keldi
-            <input type="time" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} required />
+            <TimeInput value={checkIn} onChange={(v) => setCheckIn(v)} required />
           </label>
           <label>
             Ketdi (ixtiyoriy)
-            <input type="time" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
+            <TimeInput value={checkOut} onChange={(v) => setCheckOut(v)} />
           </label>
         </div>
         {nextDay && <small className="adm-muted">Ketish ertasi kuni · {duration(forwardMinutes(checkIn, checkOut))} ishlagan</small>}

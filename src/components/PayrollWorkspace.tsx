@@ -3,7 +3,7 @@ import { Check, Download, Lock, LockOpen, RotateCcw, TrendingDown, TrendingUp } 
 import { errorText, post } from "../api";
 import { useApi } from "../hooks";
 import { Empty, ErrorBox, Field, Loading, Modal, useToast } from "./ui";
-import { money } from "@/lib/format";
+import { duration, money } from "@/lib/format";
 
 /*
  * Ish haqi jarayoni: Hisoblanmoqda → HR tekshirdi → Moliya tekshirdi → Direktor tasdiqladi → To‘landi 🔒.
@@ -23,17 +23,12 @@ export function PayrollWorkflowBar({ month, onChanged }: { month: string; onChan
   const toast = useToast();
   const { data, reload } = useApi<Workflow>(`/payroll/${month}/workflow`);
   const [busy, setBusy] = useState(false);
-  const [reopen, setReopen] = useState(false);
-  const [note, setNote] = useState("");
   if (!data) return null;
-  const index = data.stages.findIndex((s) => s.key === data.stage);
-  async function act(action: string, text: string, extra?: string) {
+  async function act(action: string, text: string) {
     setBusy(true);
     try {
-      await post(`/payroll/${month}/workflow`, { action, note: extra || undefined });
+      await post(`/payroll/${month}/workflow`, { action });
       toast(text);
-      setReopen(false);
-      setNote("");
       await reload(true);
       onChanged?.();
     } catch (reason) {
@@ -42,25 +37,13 @@ export function PayrollWorkflowBar({ month, onChanged }: { month: string; onChan
       setBusy(false);
     }
   }
-  const last = data.history[data.history.length - 1];
+  // Faqat shu foydalanuvchining navbatidagi tugma ko‘rinadi; bosqichlar ro‘yxati va tarix ko‘rsatilmaydi.
+  const { hrCheck, financeCheck, approve, markPaid, back } = data.can;
+  if (!hrCheck && !financeCheck && !approve && !markPaid && !back) return null;
   return (
     <section className="card pw-bar">
-      <ol className="pw-steps">
-        {data.stages.map((s, i) => (
-          <li key={s.key} className={i < index ? "done" : i === index ? "now" : ""}>
-            <span>{i < index || data.stage === "PAID" ? "✓" : i + 1}</span>
-            {s.label}
-            {s.key === "PAID" && data.stage === "PAID" ? " 🔒" : ""}
-          </li>
-        ))}
-      </ol>
       <div className="pw-actions">
-        {last && (
-          <small className="muted">
-            Oxirgi: {last.by} · {when(last.at)}
-            {last.note ? ` · «${last.note}»` : ""}
-          </small>
-        )}
+        <small className="muted">Holat: {data.label}</small>
         <span className="pw-buttons">
           {data.can.back && (
             <button className="btn btn-sm" disabled={busy} onClick={() => void act("back", "Qayta tekshirishga qaytarildi")}>
@@ -87,28 +70,8 @@ export function PayrollWorkflowBar({ month, onChanged }: { month: string; onChan
               <Check size={14} /> To‘landi
             </button>
           )}
-          {data.can.reopen && (
-            <button className="btn btn-sm" disabled={busy} onClick={() => setReopen(true)}>
-              <LockOpen size={14} /> Qayta ochish
-            </button>
-          )}
         </span>
       </div>
-      {reopen && (
-        <Modal title="Oyni qayta ochish" subtitle="Muzlatilgan vedomost bekor qilinadi, jarayon boshidan boshlanadi. Auditga yoziladi." onClose={() => setReopen(false)} size="narrow">
-          <Field label="Sabab (majburiy)">
-            <textarea className="input" rows={3} value={note} maxLength={300} onChange={(e) => setNote(e.target.value)} placeholder="Masalan: Chilonzor filiali davomatida xato" />
-          </Field>
-          <div className="form-actions">
-            <button className="btn" onClick={() => setReopen(false)}>
-              Bekor qilish
-            </button>
-            <button className="btn btn-danger" disabled={busy || note.trim().length < 3} onClick={() => void act("reopen", "Oy qayta ochildi", note.trim())}>
-              <LockOpen size={14} /> Qayta ochish
-            </button>
-          </div>
-        </Modal>
-      )}
     </section>
   );
 }
@@ -188,7 +151,7 @@ export function BankExportButton({ month }: { month: string }) {
 }
 
 type Sheet = { rows: { employeeId: string; name: string; employeeNo: string; branch: string; plannedMinutes: number; workedMinutes: number; lateMinutes: number; overtimeMinutes: number; days: number; leaveDays: number; absentDays: number; manualEdits: number }[] };
-const hm = (m: number) => (m ? `${Math.floor(m / 60)}s ${m % 60}m` : "—");
+const hm = (m: number) => (m ? duration(m) : "—");
 
 /** Timesheet — oy yakuni (HR tekshiradi va tasdiqlaydi). */
 export function TimesheetPage() {

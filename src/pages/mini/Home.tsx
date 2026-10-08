@@ -93,7 +93,7 @@ export function MiniHome({
     : openBreak
       ? { text: "Tanaffusda", tone: "late" }
       : working
-        ? { text: a?.lateMinutes ? `Ishdasiz · ${a.lateMinutes} daq kech` : "Ishdasiz", tone: a?.lateMinutes ? "late" : "on" }
+        ? { text: a?.lateMinutes ? `Ishdasiz · ${duration(a.lateMinutes)} kech` : "Ishdasiz", tone: a?.lateMinutes ? "late" : "on" }
         : data.todayLeave
           ? { text: "Bugun ta’tildasiz", tone: "off" }
           : !day?.enabled
@@ -137,7 +137,7 @@ export function MiniHome({
           <div>
             <small>Keldi</small>
             <b className={a?.checkIn ? "" : "is-blank"}>{a?.checkIn || "--:--"}</b>
-            {a?.checkIn && <em className={a.lateMinutes ? "late" : "ok"}>{a.lateMinutes ? `${a.lateMinutes} daq kech` : "vaqtida"}</em>}
+            {a?.checkIn && <em className={a.lateMinutes ? "late" : "ok"}>{a.lateMinutes ? `${duration(a.lateMinutes)} kech` : "vaqtida"}</em>}
           </div>
           <div>
             <small>{finished ? "Ketdi" : "Ishlangan"}</small>
@@ -222,7 +222,7 @@ export function MiniHome({
           <div className="mh-hint info">
             <Hourglass size={16} />
             <span>
-              Rahbaringiz ogohlantirildi: ~{data.lateNotice.minutes} daqiqa kechikasiz. «{data.lateNotice.reason}»
+              Rahbaringiz ogohlantirildi: ~{duration(data.lateNotice.minutes)} kechikasiz. «{data.lateNotice.reason}»
             </span>
           </div>
         ) : (
@@ -289,7 +289,7 @@ export function MiniHome({
         <div className="mh-hint warn">
           <AlertCircle size={16} />
           <span>
-            Bu oy {data.month.lateMinutes} daqiqa kechikdingiz
+            Bu oy {duration(data.month.lateMinutes)} kechikdingiz
             {data.month.deduction ? ` · ${data.month.deduction.toLocaleString("ru-RU")} so‘m ushlanadi` : ""}
           </span>
         </div>
@@ -439,7 +439,7 @@ function BreakCard({ data, now, onChanged, onToast }: { data: HomeData; now: Dat
       <span>
         <b>{open ? `Tanaffusda · ${open.start} dan` : "Tanaffus"}</b>
         <small>
-          Bugun: {total} daq{planned ? ` / ${planned} daq` : ""}
+          Bugun: {duration(total)}{planned ? ` / ${duration(planned)}` : ""}
         </small>
       </span>
       <button className={`mini-btn sm ${open ? "" : "soft"}`} disabled={busy} onClick={() => void toggle()}>
@@ -479,7 +479,7 @@ function LateSheet({ start, name, onClose, onSaved }: { start: string; name: str
       primary={{ text: `~${minutes} daqiqaga kechikaman`, onClick: () => void save(), busy, disabled: reason.trim().length < 3 }}
       secondary={{
         text: "Hamkasbga ulashish",
-        onClick: () => void shareText("Kechikaman", `⏳ ${name}: ishga ~${minutes} daqiqa kechikaman.${reason.trim() ? ` Sabab: ${reason.trim()}` : ""}`),
+        onClick: () => void shareText("Kechikaman", `⏳ ${name}: ishga ~${duration(minutes)} kechikaman.${reason.trim() ? ` Sabab: ${reason.trim()}` : ""}`),
       }}
     >
       <div className="ml-minutes" role="radiogroup" aria-label="Necha daqiqa">

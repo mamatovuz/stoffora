@@ -37,7 +37,7 @@ import {
   tashkentIsoDate,
   phoneKey,
 } from "../lib/format";
-import { can, canAny } from "../lib/permissions";
+import { can, canAny, homePage } from "../lib/permissions";
 import { isPracticeDay } from "../lib/counting";
 import { dayPlan } from "../lib/schedule";
 import { alignDepartment, assertEmployeeCapacity, limitInfo, purgeEmployees } from "../lib/limits";
@@ -101,7 +101,8 @@ import { createDelegationRouter, delegationMiddleware } from "./delegations";
 import { createShiftRouter } from "./shifts";
 import { createHistoryRouter } from "./history";
 import { createEngageRouter } from "./engage";
-import { createBadgeRouter } from "./badge";
+import { createBadgeRouter, createPublicBadgeRouter } from "./badge";
+import { createLeadAdminRouter, createPublicLeadRouter, indexWithConfig, landingHostGuard, siteConfig } from "./landing";
 import { createInsightRouter } from "./insight";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
@@ -210,6 +211,9 @@ app.use(
     crossOriginEmbedderPolicy: false,
   }),
 );
+const site = siteConfig(publicAppUrl);
+// Landing domeni (LANDING_URL) — faqat ochiq sahifa; panel manzillari app domeniga yo‘naltiriladi.
+app.use(landingHostGuard(site));
 app.use(cors({ origin: publicAppUrl, credentials: true }));
 // Javoblarni siqish (JSON 5–10 barobar kichrayadi). Rasmlar allaqachon siqilgan.
 app.use(compression({ threshold: 1024 }));
@@ -534,7 +538,7 @@ app.post(
     const session = await startPanelSession(req, res, user);
     return res.json({
       user: session,
-      redirect: user.role === "SUPER_ADMIN" ? "/super-admin" : "/workspace",
+      redirect: user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role),
     });
   }),
 );
@@ -607,7 +611,7 @@ app.post(
     const session = await startPanelSession(req, res, user);
     res.json({
       user: session,
-      redirect: user.role === "SUPER_ADMIN" ? "/super-admin" : "/workspace",
+      redirect: user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role),
     });
   }),
 );
@@ -658,6 +662,11 @@ app.use("/api", createManagerAuthRouter());
 app.use("/api", createIntegrationWebhookRouter());
 app.use("/api", createCompanyBotWebhookRouter());
 // Imzolangan hisobot havolasi (Mini App / ilova): yo‘l va sessiya tiklanadi, keyin odatiy marshrut ishlaydi.
+// Ochiq ID karta (QR’ni istalgan skaner ochadi) — kirishsiz, so‘rovlar soni cheklangan.
+app.use("/api/public", rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: true, legacyHeaders: false }));
+app.use("/api", createPublicBadgeRouter());
+app.use("/api/public/lead", rateLimit({ windowMs: 10 * 60_000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { message: "Juda ko‘p so‘rov. Birozdan keyin qayta urinib ko‘ring." } }));
+app.use("/api", createPublicLeadRouter());
 app.get("/api/file-link/:token", (req, res, next) => {
   const link = verifyFileLink(String(req.params.token));
   if (!link) return res.status(410).type("text/plain; charset=utf-8").send("Havola muddati tugagan. Qaytadan yuklab oling.");
@@ -3265,6 +3274,7 @@ app.patch(
   }),
 );
 
+app.use("/api", createLeadAdminRouter(requireRole("SUPER_ADMIN")));
 app.use("/api", (_req, res) =>
   res.status(404).json({ message: "API manzili topilmadi." }),
 );
@@ -3284,9 +3294,11 @@ if (existsSync(dist)) {
       },
     }),
   );
+  // index.html — sayt sozlamasi (panel/landing domenlari) bilan.
+  const indexHtml = indexWithConfig(path.join(dist, "index.html"), site);
   app.get("*", (_req, res) => {
     res.setHeader("Cache-Control", "no-cache");
-    res.sendFile(path.join(dist, "index.html"));
+    res.type("html").send(indexHtml);
   });
 }
 app.use(

@@ -176,6 +176,23 @@ export function PayrollPage() {
               <Download size={16} /> Excel
             </a>
             {closed && canEditPayroll && <BankExportButton month={month} />}
+            {closed && (
+              <button
+                className="btn"
+                title={`${closed.closedBy} · ${when(closed.closedAt)}`}
+                onClick={async () => {
+                  try {
+                    const r = await post<{ sent: number }>(`/payroll/${month}/payslips`, {});
+                    toast(`${r.sent} ta xodimga hisob varaqasi yuborildi`);
+                    void reload(true);
+                  } catch (reason) {
+                    toast(errorText(reason), "error");
+                  }
+                }}
+              >
+                <Send size={16} /> Varaqalarni yuborish
+              </button>
+            )}
             {closed ? (
               <button className="btn" onClick={() => setReopenOpen(true)}>
                 <LockOpen size={16} /> Qayta ochish
@@ -189,34 +206,6 @@ export function PayrollPage() {
         }
       />
       <PayrollWorkflowBar month={month} onChanged={() => void reload(true)} />
-      {closed && (
-        <div className="alert success" style={{ marginBottom: 16 }}>
-          <Lock size={18} />
-          <div style={{ flex: 1 }}>
-            <b>
-              {monthYearUz(`${month}-15`)} yopilgan — raqamlar muzlatilgan
-            </b>
-            <p>
-              {closed.closedBy} · {when(closed.closedAt)}
-              {closed.payslipsSentAt ? ` · hisob varaqalari xodimlarga yuborilgan (${when(closed.payslipsSentAt)})` : ""}
-            </p>
-          </div>
-          <button
-            className="btn btn-sm"
-            onClick={async () => {
-              try {
-                const r = await post<{ sent: number }>(`/payroll/${month}/payslips`, {});
-                toast(`${r.sent} ta xodimga hisob varaqasi yuborildi`);
-                void reload(true);
-              } catch (reason) {
-                toast(errorText(reason), "error");
-              }
-            }}
-          >
-            <Send size={14} /> Varaqalarni qayta yuborish
-          </button>
-        </div>
-      )}
       <div className="stat-grid">
         <StatCard label="Qo‘lga beriladi" value={money(total)} note={`${lines.length} xodim`} icon={Wallet} tone="green" />
         <StatCard label="Ushlanmalar" value={money(deductions)} note="kechikish · kelmaslik · jarima" icon={AlarmClock} tone="amber" />

@@ -1,3 +1,4 @@
+import { TimeInput } from "../components/TimeInput";
 import { useState } from "react";
 import { ClipboardList, Copy, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { del, errorText, post, put } from "../api";
@@ -233,6 +234,12 @@ function ScheduleForm({
           </button>
         </div>
         <div className="day-editor">
+          <div className="day-editor-head">
+            <span>Kun</span>
+            <span>Boshlanish</span>
+            <span>Tugash</span>
+            <span>Tanaffus</span>
+          </div>
           {weekOrder.map((day) => {
             const d = days.find((x) => x.day === day)!;
             return (
@@ -244,27 +251,30 @@ function ScheduleForm({
                   </span>
                   {weekdayNames[day]}
                 </label>
-                <input className="input" type="time" value={d.start} disabled={!d.enabled} onChange={(e) => update(day, { start: e.target.value })} aria-label="Boshlanish" />
+                <TimeInput className="input" value={d.start} disabled={!d.enabled} onChange={(v) => update(day, { start: v })} aria-label="Boshlanish" />
                 <div className="day-editor-end">
-                  <input className="input" type="time" value={d.end} disabled={!d.enabled} onChange={(e) => update(day, { end: e.target.value })} aria-label="Tugash" />
+                  <TimeInput className="input" value={d.end} disabled={!d.enabled} onChange={(v) => update(day, { end: v })} aria-label="Tugash" />
                   {d.enabled && d.start && d.end && d.start !== d.end && (
                     <small className={isOvernight(d.start, d.end) ? "next-day" : ""}>
                       {isOvernight(d.start, d.end) ? "ertasi kuni · " : ""}
                       {duration(shiftMinutes(d.start, d.end))}
+                      {d.breakMinutes > 0 && shiftMinutes(d.start, d.end) > d.breakMinutes ? `, sof ish ${duration(shiftMinutes(d.start, d.end) - d.breakMinutes)}` : ""}
                     </small>
                   )}
                 </div>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  max={480}
-                  value={d.breakMinutes}
-                  disabled={!d.enabled}
-                  onChange={(e) => update(day, { breakMinutes: Number(e.target.value) })}
-                  aria-label="Tanaffus (daq)"
-                  title="Tanaffus (daqiqa)"
-                />
+                <label className="day-editor-break" title="Tushlik va boshqa tanaffuslar — ish vaqtiga kirmaydi">
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={480}
+                    value={d.breakMinutes}
+                    disabled={!d.enabled}
+                    onChange={(e) => update(day, { breakMinutes: Number(e.target.value) })}
+                    aria-label="Tanaffus (daqiqa)"
+                  />
+                  <span>daq tanaffus</span>
+                </label>
               </div>
             );
           })}

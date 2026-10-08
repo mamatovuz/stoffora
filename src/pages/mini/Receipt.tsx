@@ -66,7 +66,7 @@ export function Receipt({
         <b className="rc-time">{time}</b>
         <span className="rc-date">{dateLongUz(row.date)}</span>
         <div className={`rc-badge ${late ? "warn" : "ok"}`}>
-          {action === "CHECK_IN" ? (late ? `${row.lateMinutes} daqiqa kechikish` : "Vaqtida! 👏") : `Ishlangan vaqt: ${duration(row.workedMinutes)}`}
+          {action === "CHECK_IN" ? (late ? `${duration(row.lateMinutes)} kechikish` : "Vaqtida! 👏") : `Ishlangan vaqt: ${duration(row.workedMinutes)}`}
         </div>
         <div className="rc-lines">
           {branch && (
@@ -82,7 +82,7 @@ export function Receipt({
           )}
           {action === "CHECK_OUT" && row.overtimeMinutes > 0 && (
             <span>
-              <Timer size={15} /> Qo‘shimcha ish: {row.overtimeMinutes} daq
+              <Timer size={15} /> Qo‘shimcha ish: {duration(row.overtimeMinutes)}
             </span>
           )}
           <span>

@@ -25,7 +25,7 @@ export function useBadgeScanner(call: Call) {
       return;
     }
     app.showScanQrPopup({ text: "Xodimning «Mening ID» QR kodini skanerlang" }, (text) => {
-      if (!text?.startsWith("staffora-badge:")) return false;
+      if (!/^staffora-badge:|\/id\//.test(text || "")) return false;
       app.closeScanQrPopup?.();
       setError("");
       void call<Result>(`/badge/verify?token=${encodeURIComponent(text)}`)

@@ -32,9 +32,10 @@ export const weekday = (iso: string) => WEEKDAYS[weekdayOf(iso)];
 export const weekdayShort = (iso: string) => WEEKDAYS_SHORT[weekdayOf(iso)];
 export const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 export const clockDuration = (minutes: number) => `${Math.floor(minutes / 60)}:${String(Math.max(0, minutes) % 60).padStart(2, "0")}`;
-export const duration = (minutes: number) => {
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
+export const duration = (minutes?: number) => {
+  const total = Math.max(0, Math.round(minutes || 0));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
   return h ? `${h} soat${m ? ` ${m} daq` : ""}` : `${m} daq`;
 };
 /** `from` dan `to` gacha oldinga (yarim tundan o‘tsa ham: 23:30 → 00:30 = 60). */

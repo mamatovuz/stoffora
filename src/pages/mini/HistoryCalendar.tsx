@@ -191,8 +191,8 @@ export function HistoryCalendar({ fetcher, base }: { fetcher: Fetcher; base: str
           <Block icon={<Clock3 size={18} />} title="Kun tafsilotlari">
             <Big small value={hours(day.plan.plannedMinutes)} label="Ish jadvali bo‘yicha" />
             <Big small value={hours(day.attendance?.workedMinutes || 0)} label="Ishlangan vaqt" />
-            {day.attendance?.lateMinutes ? <Big small tone="warn" value={`${day.attendance.lateMinutes} daq`} label="Kechikish" /> : null}
-            {day.attendance?.earlyLeaveMinutes ? <Big small tone="warn" value={`${day.attendance.earlyLeaveMinutes} daq`} label="Erta ketish" /> : null}
+            {day.attendance?.lateMinutes ? <Big small tone="warn" value={`${duration(day.attendance.lateMinutes)}`} label="Kechikish" /> : null}
+            {day.attendance?.earlyLeaveMinutes ? <Big small tone="warn" value={`${duration(day.attendance.earlyLeaveMinutes)}`} label="Erta ketish" /> : null}
             {day.attendance?.overtimeMinutes ? <Big small tone="ok" value={hours(day.attendance.overtimeMinutes)} label="Qo‘shimcha ish" /> : null}
             {!day.attendance && day.plan.working && day.date < today ? <Big small tone="bad" value={hours(day.plan.plannedMinutes)} label="Kelmagan (yo‘qlik)" /> : null}
           </Block>
@@ -257,7 +257,7 @@ export function HistoryCalendar({ fetcher, base }: { fetcher: Fetcher; base: str
           </div>
           {(s.lateMinutes > 0 || s.overtimeMinutes > 0) && (
             <div className="hc-pair">
-              <Big small value={`${s.lateMinutes} daq`} label="jami kechikish" />
+              <Big small value={`${duration(s.lateMinutes)}`} label="jami kechikish" />
               <Big small value={hours(s.overtimeMinutes)} label="qo‘shimcha ish" />
             </div>
           )}

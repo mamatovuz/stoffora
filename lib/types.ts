@@ -602,6 +602,18 @@ export interface QrNonce {
   usedAt?: string;
   usedEmployeeIds?: string[];
 }
+/** Saytdagi «Demo so‘rash» formasi. */
+export interface Lead {
+  id: string;
+  name: string;
+  company: string;
+  phone: string;
+  employees?: string;
+  message?: string;
+  status: "NEW" | "CONTACTED" | "CLOSED";
+  createdAt: string;
+}
+
 export interface Database {
   companies: Company[];
   branches: Branch[];
@@ -647,6 +659,8 @@ export interface Database {
   rewardAwards: RewardAward[];
   payrollWorkflows: PayrollWorkflow[];
   holidays: Holiday[];
+  /** Saytdan (landing) kelgan demo so‘rovlari. */
+  leads: Lead[];
   branchTransfers: BranchTransfer[];
   assets: Asset[];
   delegations: Delegation[];

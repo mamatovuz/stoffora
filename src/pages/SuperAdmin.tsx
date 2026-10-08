@@ -14,7 +14,7 @@ import {
 import { Logo } from "../components/Logo";
 import { useAuth } from "../auth";
 import { dateUz } from "@/lib/format";
-import type { Company } from "@/lib/types";
+import type { Company, Lead } from "@/lib/types";
 
 type Overview = {
   stats: { companies: number; active: number; trial: number; employees: number; eventsToday: number };
@@ -156,6 +156,7 @@ export function SuperAdminPage() {
                   </table>
                 </div>
               </section>
+              <LeadsCard />
             </>
           )
         )}
@@ -323,5 +324,77 @@ function LimitEditor({ company, onSaved }: { company: Company & { employees: num
         </Modal>
       )}
     </>
+  );
+}
+
+const LEAD_STATUS: Record<Lead["status"], string> = { NEW: "Yangi", CONTACTED: "Bog‘lanildi", CLOSED: "Yopildi" };
+
+/** Saytdagi «Demo so‘rash» formasidan kelgan arizalar. */
+function LeadsCard() {
+  const { data, reload } = useApi<Lead[]>("/admin/leads");
+  const toast = useToast();
+  async function setStatus(lead: Lead, status: Lead["status"]) {
+    try {
+      await patch(`/admin/leads/${lead.id}`, { status });
+      void reload(true);
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    }
+  }
+  const fresh = data?.filter((l) => l.status === "NEW").length || 0;
+  return (
+    <section className="card" style={{ marginTop: 16 }}>
+      <div className="card-head">
+        <div>
+          <h2>Saytdan demo so‘rovlari{fresh ? ` · ${fresh} yangi` : ""}</h2>
+          <p>Landing sahifadagi formadan</p>
+        </div>
+      </div>
+      {!data?.length ? (
+        <p className="muted" style={{ padding: "0 20px 20px" }}>
+          Hozircha so‘rov yo‘q
+        </p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table table-cards">
+            <thead>
+              <tr>
+                <th>Sana</th>
+                <th>Ism</th>
+                <th>Kompaniya</th>
+                <th>Telefon</th>
+                <th>Izoh</th>
+                <th>Holat</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((l) => (
+                <tr key={l.id}>
+                  <td data-label="Sana">{dateUz(l.createdAt)}</td>
+                  <td data-label="Ism">{l.name}</td>
+                  <td data-label="Kompaniya">
+                    {l.company}
+                    {l.employees ? <small className="muted"> · {l.employees} xodim</small> : null}
+                  </td>
+                  <td data-label="Telefon">
+                    <a href={`tel:${l.phone.replace(/[^\d+]/g, "")}`}>{l.phone}</a>
+                  </td>
+                  <td data-label="Izoh">{l.message || "—"}</td>
+                  <td data-label="Holat">
+                    <select className="select" value={l.status} onChange={(e) => void setStatus(l, e.target.value as Lead["status"])}>
+                      {Object.entries(LEAD_STATUS).map(([key, label]) => (
+                        <option key={key} value={key}>
+                          {label}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   );
 }

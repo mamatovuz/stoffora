@@ -166,7 +166,7 @@ function ScheduleView() {
             <small>
               Keldi {pick.checkIn}
               {pick.checkOut ? ` · ketdi ${pick.checkOut} · ${duration(pick.workedMinutes)}` : ""}
-              {pick.lateMinutes ? ` · ${pick.lateMinutes} daq kech` : ""}
+              {pick.lateMinutes ? ` · ${duration(pick.lateMinutes)} kech` : ""}
             </small>
           )}
         </section>

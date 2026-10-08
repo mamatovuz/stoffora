@@ -10,7 +10,7 @@ import { DeskView } from "@/components/DeskView";
 import { AdminBack, AdminMenu, AdminScreen, ADMIN_ITEMS, adminItemsFor, type AdminKey } from "@/components/AdminViews";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
-import { dateUz, dayTitle, som, tashkentIsoDate, timeAgo } from "@/lib/format";
+import { dateUz, dayTitle, duration, som, tashkentIsoDate, timeAgo } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
 
@@ -323,7 +323,7 @@ export default function Manager() {
                       <Icon name="hourglass-outline" size={18} color={c.warn} />
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: c.ink, fontWeight: "600" }}>
-                          {n.employeeName} · ~{n.minutes} daq
+                          {n.employeeName} · ~{duration(n.minutes)}
                         </Text>
                         <Text style={{ color: c.muted, fontSize: 13 }}>
                           «{n.reason}» · {timeAgo(n.createdAt)}
@@ -464,7 +464,7 @@ export default function Manager() {
                       <Icon name="alarm-outline" size={18} color={c.warn} />
                       <Text style={{ flex: 1, color: c.ink }}>{p.name}</Text>
                       <Text style={{ color: c.warn }}>
-                        {p.late} marta · {p.lateMinutes} daq
+                        {p.late} marta · {duration(p.lateMinutes)}
                       </Text>
                     </View>
                   ))}
@@ -513,7 +513,7 @@ function RosterLine({ row, last }: { row: RosterRow; last: boolean }) {
   const { c } = useTheme();
   const r = row;
   const state: Record<RosterRow["state"], [string, "ok" | "warn" | "bad" | "muted" | "info" | "rest"]> = {
-    IN: [r.late ? `${r.record?.checkIn} · ${r.record?.lateMinutes} daq kech` : `${r.record?.checkIn} · ishda`, r.late ? "warn" : "ok"],
+    IN: [r.late ? `${r.record?.checkIn} · ${duration(r.record?.lateMinutes)} kech` : `${r.record?.checkIn} · ishda`, r.late ? "warn" : "ok"],
     LEFT: [`${r.record?.checkIn}–${r.record?.checkOut}`, "muted"],
     ABSENT: ["Kelmadi", "bad"],
     NOT_YET: [r.scheduledStart ? `${r.scheduledStart} da` : "Hali yo‘q", "info"],

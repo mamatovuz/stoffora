@@ -166,8 +166,8 @@ export function HistoryCalendar({ fetcher, base }: { fetcher: Fetch; base: strin
           <Section icon="time-outline" title="Kun tafsilotlari">
             <Line value={hours(day.plan.plannedMinutes)} label="Ish jadvali bo‘yicha" />
             <Line value={hours(day.attendance?.workedMinutes || 0)} label="Ishlangan vaqt" />
-            {day.attendance?.lateMinutes ? <Line value={`${day.attendance.lateMinutes} daq`} label="Kechikish" tone={c.warn} /> : null}
-            {day.attendance?.earlyLeaveMinutes ? <Line value={`${day.attendance.earlyLeaveMinutes} daq`} label="Erta ketish" tone={c.warn} /> : null}
+            {day.attendance?.lateMinutes ? <Line value={`${duration(day.attendance.lateMinutes)}`} label="Kechikish" tone={c.warn} /> : null}
+            {day.attendance?.earlyLeaveMinutes ? <Line value={`${duration(day.attendance.earlyLeaveMinutes)}`} label="Erta ketish" tone={c.warn} /> : null}
             {day.attendance?.overtimeMinutes ? <Line value={hours(day.attendance.overtimeMinutes)} label="Qo‘shimcha ish" tone={c.success} /> : null}
             {!day.attendance && day.plan.working && day.date < today ? <Line value={hours(day.plan.plannedMinutes)} label="Kelmagan (yo‘qlik)" tone={c.danger} /> : null}
           </Section>
@@ -238,7 +238,7 @@ export function HistoryCalendar({ fetcher, base }: { fetcher: Fetch; base: strin
           </View>
           {s.lateMinutes || s.overtimeMinutes ? (
             <View style={{ flexDirection: "row", marginTop: 8 }}>
-              <Big value={`${s.lateMinutes} daq`} label="jami kechikish" small />
+              <Big value={`${duration(s.lateMinutes)}`} label="jami kechikish" small />
               <Big value={hours(s.overtimeMinutes)} label="qo‘shimcha ish" small />
             </View>
           ) : null}

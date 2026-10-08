@@ -52,7 +52,7 @@ export default function Home() {
     : openBreak
       ? { text: "Tanaffusda", color: c.warn }
       : working
-        ? { text: a?.lateMinutes ? `Ishdasiz · ${a.lateMinutes} daq kech` : "Ishdasiz", color: a?.lateMinutes ? c.warn : c.success }
+        ? { text: a?.lateMinutes ? `Ishdasiz · ${duration(a.lateMinutes)} kech` : "Ishdasiz", color: a?.lateMinutes ? c.warn : c.success }
         : data.todayLeave
           ? { text: "Bugun ta’tildasiz", color: c.violet }
           : !day?.enabled
@@ -129,7 +129,7 @@ export default function Home() {
             <Text style={[st.timeLabel, { color: c.muted }]}>Keldi</Text>
             <Text style={[st.timeValue, { color: a?.checkIn ? c.ink : c.muted }]}>{a?.checkIn || "--:--"}</Text>
             <Text style={{ color: a?.checkIn ? (a.lateMinutes ? c.warn : c.success) : c.muted, fontSize: 12, fontWeight: "600" }}>
-              {a?.checkIn ? (a.lateMinutes ? `${a.lateMinutes} daq kech` : "vaqtida") : "hali yo‘q"}
+              {a?.checkIn ? (a.lateMinutes ? `${duration(a.lateMinutes)} kech` : "vaqtida") : "hali yo‘q"}
             </Text>
           </View>
           <View style={[st.timeCell, { backgroundColor: c.tint }]}>
@@ -191,7 +191,7 @@ export default function Home() {
       {canNotifyLate ? (
         data.lateNotice ? (
           <Hint icon="hourglass">
-            Rahbaringiz ogohlantirildi: ~{data.lateNotice.minutes} daqiqa kechikasiz. «{data.lateNotice.reason}»
+            Rahbaringiz ogohlantirildi: ~{duration(data.lateNotice.minutes)} kechikasiz. «{data.lateNotice.reason}»
           </Hint>
         ) : (
           <Card onPress={() => setLateOpen(true)} style={st.lateCard}>
@@ -238,7 +238,7 @@ export default function Home() {
         <Hint icon="school-outline">{data.month.practiceUntil.split("-").reverse().join(".")} gacha mashq davri — kechikish va ushlanmalar hisoblanmaydi.</Hint>
       ) : data.month.lateMinutes > 0 ? (
         <Hint tone="warn" icon="alert-circle-outline">
-          Bu oy {data.month.lateMinutes} daqiqa kechikdingiz{data.month.deduction ? ` · ${data.month.deduction.toLocaleString("ru-RU")} so‘m ushlanadi` : ""}
+          Bu oy {duration(data.month.lateMinutes)} kechikdingiz{data.month.deduction ? ` · ${data.month.deduction.toLocaleString("ru-RU")} so‘m ushlanadi` : ""}
         </Hint>
       ) : null}
       {!data.employee.faceEnrolledAt && !finished && !missingSetup ? <Hint icon="scan-outline">Birinchi marta Face ID sozlanadi (~15 soniya). Yorug‘ joyda turing.</Hint> : null}

@@ -1,3 +1,4 @@
+import { TimeInput } from "../../components/TimeInput";
 import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, Building2, LogIn, LogOut, MessageSquareText, Plus } from "lucide-react";
 import { api, errorText, post } from "../../api";
@@ -177,7 +178,7 @@ function MarkSheet({ data, onClose, onSaved }: { data: MarksData; onClose: () =>
           </label>
           <label>
             Vaqt
-            <input type="time" value={time} max={date === data.today ? data.now : undefined} onChange={(e) => setTime(e.target.value)} required />
+            <TimeInput value={time} onChange={setTime} required />
           </label>
         </div>
         <label>

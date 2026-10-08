@@ -117,18 +117,10 @@ export function SetupChecklist({ data }: { data: SetupData }) {
             >
               <X size={16} />
             </button>
-            <h2 style={{ marginTop: 10 }}>Staffora’ni {steps.length} qadamda sozlang</h2>
-            <p>
-              Keldi-ketdi ishlashi uchun avval grafik va filial kerak. So‘ng
-              xodimlarni qo‘shing — ular botda telefon raqamini yuborib avtomatik
-              ulanadi.
-            </p>
-            <div className="progress" style={{ maxWidth: 320 }}>
+            <h2 style={{ marginTop: 10 }}>Sozlashni yakunlang · {setupDone} / {steps.length}</h2>
+            <div className="progress" style={{ maxWidth: 320, marginTop: 10 }}>
               <i style={{ width: `${(setupDone / steps.length) * 100}%` }} />
             </div>
-            <p className="hint" style={{ marginTop: 8 }}>
-              {setupDone} / {steps.length} bajarildi
-            </p>
             {data.bot.state !== "running" && (
               <div className="alert warn" style={{ marginTop: 16 }}>
                 <AlertTriangle size={18} />
@@ -143,11 +135,11 @@ export function SetupChecklist({ data }: { data: SetupData }) {
             )}
           </div>
           <div className="checklist">
-            {steps.map((step) => (
+            {steps.filter((step) => !step.done).map((step) => (
               <Link
                 key={step.title}
                 to={step.to}
-                className={`check-item ${step.done ? "done" : ""}`}
+                className="check-item"
               >
                 <span className="check-dot">
                   <Check size={14} strokeWidth={3} />

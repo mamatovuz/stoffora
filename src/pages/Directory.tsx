@@ -16,7 +16,6 @@ import {
   UserCog,
   XCircle,
 } from "lucide-react";
-import { PageLinks } from "../components/PageLinks";
 import { del, errorText, post, put } from "../api";
 import { useApi } from "../hooks";
 import {
@@ -60,7 +59,6 @@ export function DirectoryPage({ type }: { type: "departments" | "positions" }) {
         subtitle={isDept ? "Kompaniya tuzilmasi" : "Bo‘limlar bo‘yicha lavozimlar"}
         actions={
           <>
-            <PageLinks links={[isDept ? ["/positions", "Lavozimlar", BriefcaseBusiness] : ["/departments", "Bo‘limlar", Network]]} />
             <button
               className="btn btn-primary"
               onClick={() => setEditing("new")}
@@ -347,7 +345,6 @@ export function UsersPage() {
         subtitle="HR, buxgalter va filial rahbarlariga panelga kirish huquqi bering"
         actions={
           <>
-            <PageLinks links={[["/roles", "Rollar va ruxsatlar", ShieldCheck]]} />
             {canManage && (
               <button className="btn btn-primary" onClick={() => setOpen(true)}>
                 <Plus size={16} /> Foydalanuvchi qo‘shish

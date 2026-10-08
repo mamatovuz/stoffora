@@ -31,7 +31,6 @@ import {
   UserMinus,
   UserPlus,
   Users,
-  Package,
 } from "lucide-react";
 import { del, errorText, post, put } from "../api";
 import { useAuth } from "../auth";
@@ -61,7 +60,6 @@ import {
 } from "@/lib/format";
 import type { Attendance, AuditLog, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel, verificationLabel, weekdayShort, weekOrder, type Meta } from "../types";
-import { PageLinks } from "../components/PageLinks";
 
 type EmployeeListRow = Employee & { todayAttendance?: Attendance };
 type List = { items: EmployeeListRow[]; total: number; page: number; pages: number };
@@ -108,12 +106,6 @@ export function EmployeesPage() {
             <a className="btn" href="/api/reports/employees.xlsx" download>
               <Download size={16} /> Excel
             </a>
-            <PageLinks
-              links={[
-                ["/dismissed", "Bo‘shaganlar", UserMinus],
-                ["/assets", "Aktivlar", Package],
-              ]}
-            />
             {full ? (
               <button className="btn btn-primary" disabled title="Tarif chegarasiga yetildi">
                 <Plus size={16} /> Xodim qo‘shish

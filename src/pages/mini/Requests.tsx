@@ -3,7 +3,7 @@ import { AlertCircle, CalendarDays, Camera, CheckCircle2, Paperclip, Plane, Time
 import { DayOffPanel } from "./DayOff";
 import { MarksList } from "./Marks";
 import { api, errorText, patch, post } from "../../api";
-import { dateUz, tashkentIsoDate } from "@/lib/format";
+import { dateUz, duration, tashkentIsoDate } from "@/lib/format";
 import type { LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../../types";
 import { fileToDataUrl } from "../../components/Documents";
@@ -401,7 +401,7 @@ function OvertimeNoteSheet({ row, onClose, onSaved }: { row: OvertimeRow; onClos
   return (
     <Sheet
       title="Qo‘shimcha ish izohi"
-      subtitle={`${dateUz(row.date)} · ${row.overtimeMinutes} daqiqa`}
+      subtitle={`${dateUz(row.date)} · ${duration(row.overtimeMinutes)}`}
       onClose={onClose}
       primary={{ text: "Rahbarga yuborish", onClick: () => void save(), busy, disabled: note.trim().length < 3 }}
     >

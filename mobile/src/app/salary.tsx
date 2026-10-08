@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Row, Sheet, haptic } from "@/components/ui";
 import { errorText, post } from "@/lib/api";
-import { dateUz, som, tashkentIsoDate } from "@/lib/format";
+import { dateUz, duration, som, tashkentIsoDate } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
 import type { AdvanceRequest, Salary } from "@/lib/types";
 import { invalidate, useData } from "@/lib/useData";
@@ -114,7 +114,7 @@ export default function SalaryScreen() {
         <MoneyLine label="+ Mukofot" value={show(data.bonus)} sub />
         <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: c.line, marginVertical: 4 }} />
         <MoneyLine label="Ushlab qolindi" value={show(data.withheld ?? 0)} tone={c.danger} head />
-        <MoneyLine label={`− Kech kelish${data.lateMinutes ? ` (${data.lateMinutes} daq)` : ""}`} value={show(data.lateDeduction)} sub />
+        <MoneyLine label={`− Kech kelish${data.lateMinutes ? ` (${duration(data.lateMinutes)})` : ""}`} value={show(data.lateDeduction)} sub />
         <MoneyLine label={`− Kelmagan kunlar${data.absentDays ? ` (${data.absentDays})` : ""}`} value={show(data.absenceDeduction)} sub />
         <MoneyLine label="− Jarima" value={show(data.fine)} sub />
         {data.advance ? (
@@ -135,7 +135,7 @@ export default function SalaryScreen() {
         <MoneyLine label="1 ish kuni" value={show(data.workingDays ? Math.round(data.base / data.workingDays) : 0)} sub />
       </Card>
       {data.compensatedDays ? <Hint tone="ok" icon="checkmark-circle-outline">{data.compensatedDays} ta sababsiz kelmagan kun dam kunida ishlab qoplandi.</Hint> : null}
-      {data.pendingOvertimeMinutes ? <Hint icon="timer-outline">{data.pendingOvertimeMinutes} daqiqa qo‘shimcha ish rahbar tasdig‘ini kutmoqda.</Hint> : null}
+      {data.pendingOvertimeMinutes ? <Hint icon="timer-outline">{duration(data.pendingOvertimeMinutes)} qo‘shimcha ish rahbar tasdig‘ini kutmoqda.</Hint> : null}
 
       {data.current !== false && data.limit.enabled ? (
         <>

@@ -6,7 +6,7 @@ import { Alert, Pressable, StyleSheet, Text, TextInput, View } from "react-nativ
 import { DateStrip, addDays } from "@/components/DateStrip";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic, type IconName } from "@/components/ui";
 import { errorText, patch, post } from "@/lib/api";
-import { WEEKDAYS, WEEKDAYS_SHORT, dateUz, tashkentIsoDate } from "@/lib/format";
+import { WEEKDAYS, WEEKDAYS_SHORT, dateUz, duration, tashkentIsoDate } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
 import { invalidate, useData } from "@/lib/useData";
 
@@ -682,7 +682,7 @@ function OvertimeTab() {
           </Group>
         </>
       )}
-      <Sheet visible={Boolean(editing)} title="Qo‘shimcha ish izohi" subtitle={editing ? `${dateUz(editing.date)} · ${editing.overtimeMinutes} daqiqa` : undefined} onClose={() => setEditing(null)}>
+      <Sheet visible={Boolean(editing)} title="Qo‘shimcha ish izohi" subtitle={editing ? `${dateUz(editing.date)} · ${duration(editing.overtimeMinutes)}` : undefined} onClose={() => setEditing(null)}>
         <TextInput value={note} onChangeText={setNote} placeholder="Masalan: inventarizatsiya, mijoz buyurtmasi" placeholderTextColor={c.muted} multiline maxLength={300} style={[st.input, { color: c.ink, borderColor: c.line, backgroundColor: c.card }]} />
         <Button title="Rahbarga yuborish" icon="send" busy={busy} disabled={note.trim().length < 3} onPress={() => void saveNote()} />
       </Sheet>

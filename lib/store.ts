@@ -93,6 +93,7 @@ function normalizeDatabase(database: Database): Database {
   database.rewardAwards ||= [];
   database.payrollWorkflows ||= [];
   database.holidays ||= [];
+  database.leads ||= [];
   database.branchTransfers ||= [];
   database.assets ||= [];
   database.delegations ||= [];

@@ -1,3 +1,4 @@
+import { TimeInput } from "../../components/TimeInput";
 import { useCallback, useEffect, useState } from "react";
 import { HistoryCalendar } from "./HistoryCalendar";
 import { AlertTriangle, CalendarClock, FileText, Flame, Megaphone, MessageCircle, Phone, ShieldCheck, Sun } from "lucide-react";
@@ -270,7 +271,7 @@ export function EmployeeCardSheet({
                 <div>
                   <small>Kechikdi</small>
                   <b className={card.month.late ? "warn" : ""}>
-                    {card.month.late} <em className="down">{card.month.lateMinutes} daq</em>
+                    {card.month.late} <em className="down">{duration(card.month.lateMinutes)}</em>
                   </b>
                 </div>
                 <div>
@@ -330,7 +331,7 @@ export function EmployeeCardSheet({
                         </b>
                         <small>
                           {r.workedMinutes ? duration(r.workedMinutes) : ""}
-                          {r.lateMinutes ? ` · ${r.lateMinutes} daq kech` : ""}
+                          {r.lateMinutes ? ` · ${duration(r.lateMinutes)} kech` : ""}
                           {r.manual ? " · ✍️ qo‘lda" : ""}
                           {typeof r.distance === "number" ? ` · ${r.distance} m` : ""}
                         </small>
@@ -438,11 +439,11 @@ function ManualMarkSheet({
         <div className="grid-2">
           <label>
             Keldi
-            <input type="time" value={checkIn} onChange={(e) => setCheckIn(e.target.value)} required />
+            <TimeInput value={checkIn} onChange={(v) => setCheckIn(v)} required />
           </label>
           <label>
             Ketdi (ixtiyoriy)
-            <input type="time" value={checkOut} onChange={(e) => setCheckOut(e.target.value)} />
+            <TimeInput value={checkOut} onChange={(v) => setCheckOut(v)} />
           </label>
         </div>
         <div className="ms-chips">

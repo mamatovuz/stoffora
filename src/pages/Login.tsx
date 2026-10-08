@@ -1,3 +1,4 @@
+import { homePage } from "@/lib/permissions";
 import { useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -113,7 +114,7 @@ export function LoginPage() {
   if (user)
     return (
       <Navigate
-        to={user.role === "SUPER_ADMIN" ? "/super-admin" : "/workspace"}
+        to={user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role)}
         replace
       />
     );

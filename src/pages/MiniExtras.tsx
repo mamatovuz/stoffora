@@ -6,7 +6,7 @@ import { api, errorText, post } from "../api";
 import { SkeletonList } from "./mini/shared";
 import { getCached, setCached } from "./miniCache";
 import { fileToDataUrl, DOCUMENT_LABELS } from "../components/Documents";
-import { dateUz, tashkentIsoDate } from "@/lib/format";
+import { dateUz, duration, tashkentIsoDate } from "@/lib/format";
 import type { DocumentType, PayslipLine, ShiftSwapRequest } from "@/lib/types";
 
 /* Mini App qo‘shimcha bo‘limlari: smena almashish, hujjatlar, hisob varaqalari. */
@@ -417,7 +417,7 @@ export function MiniPayslips({ onToast, focusMonth }: { onToast?: Toast; focusMo
                 <Line label="Oylik" value={som(line.base)} />
                 {line.overtimeAmount > 0 && <Line label="Qo‘shimcha ish" value={`+${som(line.overtimeAmount)}`} tone="ok" />}
                 {line.bonus > 0 && <Line label="Bonus" value={`+${som(line.bonus)}`} tone="ok" />}
-                {line.lateDeduction > 0 && <Line label={`Kechikish (${line.lateMinutes} daq)`} value={`−${som(line.lateDeduction)}`} tone="bad" />}
+                {line.lateDeduction > 0 && <Line label={`Kechikish (${duration(line.lateMinutes)})`} value={`−${som(line.lateDeduction)}`} tone="bad" />}
                 {line.absenceDeduction > 0 && <Line label={`Kelmagan ${line.absentDays} kun`} value={`−${som(line.absenceDeduction)}`} tone="bad" />}
                 {line.fine > 0 && <Line label="Jarima" value={`−${som(line.fine)}`} tone="bad" />}
                 {line.advance > 0 && <Line label="Avans" value={`−${som(line.advance)}`} />}

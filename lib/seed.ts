@@ -45,6 +45,7 @@ export function emptyDatabase(): Database {
     rewardAwards: [],
     payrollWorkflows: [],
     holidays: [],
+    leads: [],
     branchTransfers: [],
     assets: [],
     delegations: [],

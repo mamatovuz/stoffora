@@ -15,7 +15,7 @@ import { Badge, Button, Card, Empty, Group, GroupTitle, Icon, Loading, Row, Segm
  * ko‘rinadi; saytning o‘z API’lari chaqiriladi — huquq, filial chegarasi va audit serverda.
  */
 
-export type AdminKey = "employees" | "attendance" | "payroll" | "leave" | "registrations" | "schedules" | "branches" | "announcements" | "helpdesk" | "reports" | "users" | "audit";
+export type AdminKey = "employees" | "attendance" | "payroll" | "leave" | "registrations" | "schedules" | "branches" | "org" | "announcements" | "helpdesk" | "reports" | "users" | "audit";
 type Role = string;
 
 export const ADMIN_ITEMS: { key: AdminKey; label: string; hint: string; path: string; icon: IconName; need?: string }[] = [
@@ -26,6 +26,7 @@ export const ADMIN_ITEMS: { key: AdminKey; label: string; hint: string; path: st
   { key: "registrations", label: "Arizalar", hint: "botdagi nomzodlar", path: "/registrations", icon: "clipboard-outline" },
   { key: "schedules", label: "Ish grafiklari", hint: "ish vaqti va dam kunlari", path: "/schedules", icon: "time-outline" },
   { key: "branches", label: "Filiallar", hint: "manzil, GPS hudud, rejim", path: "/branches", icon: "business-outline" },
+  { key: "org", label: "Bo‘lim va lavozimlar", hint: "tuzilma, lavozimga panel huquqi", path: "/departments", icon: "git-network-outline" },
   { key: "announcements", label: "E’lonlar", hint: "yuborilganlar va yangi e’lon", path: "/announcements", icon: "megaphone-outline" },
   { key: "helpdesk", label: "Murojaatlar", hint: "xodimlar savollariga javob", path: "/helpdesk", icon: "chatbubbles-outline" },
   { key: "reports", label: "Hisobotlar", hint: "Excel fayllar", path: "/reports", icon: "document-text-outline" },
@@ -181,6 +182,8 @@ export function AdminScreen({ screen, role }: { screen: AdminKey; role: Role }) 
       return <SchedulesScreen role={role} />;
     case "branches":
       return <BranchesScreen role={role} />;
+    case "org":
+      return <OrgScreen role={role} />;
     case "announcements":
       return <AnnouncementsScreen role={role} />;
     case "helpdesk":
@@ -374,12 +377,12 @@ function EmployeeSheet({ role, meta, employee, onClose, onSaved }: { role: Role;
 }
 
 /* ================================================================ Ish haqi === */
-type Workflow = { stage: string; stages: { key: string; label: string }[]; history: { by: string; at: string }[]; can: { hrCheck: boolean; financeCheck: boolean; approve: boolean; markPaid: boolean; reopen: boolean; back: boolean } };
+type Workflow = { stage: string; label: string; stages: { key: string; label: string }[]; history: { by: string; at: string }[]; can: { hrCheck: boolean; financeCheck: boolean; approve: boolean; markPaid: boolean; reopen: boolean; back: boolean } };
 type PayRow = { employee: { id: string; firstName: string; lastName: string; employeeNo: string }; days: number; expectedDays: number; net: number; deduction: number; absenceDeduction: number; fine: number; advance: number; overtimeAmount: number; bonus: number; explanation: string };
 type ClosedLine = { employeeId: string; employeeNo: string; name: string; net: number; days: number; expectedDays: number; lateDeduction: number; absenceDeduction: number; fine: number; advance: number; overtimeAmount: number; bonus: number; explanation: string };
 type Line = { id: string; name: string; net: number; days: number; expectedDays: number; deductions: number; plus: number; advance: number; explanation: string };
 type SheetRow = { employeeId: string; name: string; employeeNo: string; branch: string; plannedMinutes: number; workedMinutes: number; lateMinutes: number; overtimeMinutes: number; days: number; leaveDays: number; absentDays: number };
-const hm = (m: number) => (m ? `${Math.floor(m / 60)}s ${m % 60}d` : "0");
+const hm = (m: number) => (m ? duration(m) : "—");
 
 function PayrollScreen({ role }: { role: Role }) {
   const { c } = useTheme();
@@ -431,7 +434,6 @@ function PayrollScreen({ role }: { role: Role }) {
       setBusy(false);
     }
   }
-  const index = flow ? flow.stages.findIndex((s) => s.key === flow.stage) : -1;
   const filter = (text: string) => text.toLowerCase().includes(q.trim().toLowerCase());
   const total = (lines || []).reduce((s, l) => s + l.net, 0);
   return (
@@ -439,18 +441,7 @@ function PayrollScreen({ role }: { role: Role }) {
       <MonthStepper value={month} onChange={setMonth} max={thisMonth} />
       {flow ? (
         <Card style={{ gap: 8 }}>
-          {flow.stages.map((s, i) => {
-            const done = i < index || flow.stage === "PAID";
-            return (
-              <View key={s.key} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-                <View style={[st.step, { backgroundColor: done ? c.success : i === index ? c.accent : c.tint }]}>
-                  <Text style={{ color: done || i === index ? "#fff" : c.muted, fontSize: 12, fontWeight: "700" }}>{done ? "✓" : i + 1}</Text>
-                </View>
-                <Text style={{ color: i <= index ? c.ink : c.muted, fontWeight: i === index ? "700" : "400" }}>{s.label}</Text>
-              </View>
-            );
-          })}
-          {flow.history.length ? <Text style={{ color: c.muted, fontSize: 12.5 }}>Oxirgi: {flow.history[flow.history.length - 1].by} · {when(flow.history[flow.history.length - 1].at)}</Text> : null}
+          <Text style={{ color: c.muted, fontSize: 13 }}>Holat: {flow.label}</Text>
           {flow.can.hrCheck ? <Button title="Timesheet’ni tasdiqlash (HR)" busy={busy} onPress={() => void act("hr_check", "Timesheet tasdiqlansin")} /> : null}
           {flow.can.financeCheck ? <Button title="Hisobni tasdiqlash (Moliya)" busy={busy} onPress={() => void act("finance_check", "Hisob tasdiqlansin")} /> : null}
           {flow.can.approve ? <Button title="Tasdiqlash va yopish (Direktor)" busy={busy} onPress={() => void act("approve", "Tasdiqlab oy yopilsin")} /> : null}
@@ -951,6 +942,120 @@ function BranchSheet({ branch, onClose, onSaved }: { branch?: Branch; onClose: (
   );
 }
 
+/* =================================================== Bo‘lim va lavozimlar === */
+type Dept = { id: string; name: string; manager?: string };
+type Pos = { id: string; name: string; departmentId: string; panelRole?: string; anyBranch?: boolean };
+const PANEL_ROLE: [string, string][] = [
+  ["", "Yo‘q — oddiy xodim"],
+  ["HR_ADMIN", "HR"],
+  ["FINANCE", "Moliya"],
+  ["IT_ADMIN", "IT administrator"],
+  ["BRANCH_MANAGER", "Filial rahbari"],
+];
+
+function OrgScreen({ role }: { role: Role }) {
+  const [tab, setTab] = useState<"departments" | "positions">("departments");
+  const [data, setData] = useState<{ departments: Dept[]; positions: Pos[] } | null>(null);
+  const [open, setOpen] = useState<Dept | Pos | "new" | null>(null);
+  const load = useCallback(() => {
+    mcall<{ departments: Dept[]; positions: Pos[] }>("/meta")
+      .then(setData)
+      .catch((e) => (setData({ departments: [], positions: [] }), oops(e)));
+  }, []);
+  useEffect(load, [load]);
+  const editable = canWeb(role, "employees.edit");
+  const departments = data?.departments || [];
+  const deptName = (id: string) => departments.find((d) => d.id === id)?.name || "—";
+  const rows: (Dept | Pos)[] = tab === "departments" ? departments : data?.positions || [];
+  return (
+    <>
+      <Segmented<"departments" | "positions">
+        value={tab}
+        onChange={setTab}
+        options={[
+          ["departments", "Bo‘limlar", departments.length],
+          ["positions", "Lavozimlar", data?.positions.length ?? 0],
+        ]}
+      />
+      {editable && (tab === "departments" || departments.length > 0) ? <Button title={tab === "departments" ? "Yangi bo‘lim" : "Yangi lavozim"} icon="add" tone="soft" onPress={() => setOpen("new")} /> : null}
+      {data === null ? (
+        <Loading />
+      ) : !rows.length ? (
+        <Empty icon="git-network-outline" title={tab === "departments" ? "Bo‘lim yo‘q" : departments.length ? "Lavozim yo‘q" : "Avval bo‘lim qo‘shing"} />
+      ) : (
+        <Group>
+          {rows.map((row, i) => {
+            const p = tab === "positions" ? (row as Pos) : null;
+            const sub = p
+              ? [deptName(p.departmentId), PANEL_ROLE.find(([k]) => k && k === p.panelRole)?.[1], p.anyBranch ? "istalgan filial" : ""].filter(Boolean).join(" · ")
+              : (row as Dept).manager || "Rahbar ko‘rsatilmagan";
+            return <Row key={row.id} icon="git-network-outline" label={row.name} sub={sub} onPress={editable ? () => setOpen(row) : undefined} last={i === rows.length - 1} />;
+          })}
+        </Group>
+      )}
+      {open && data ? <OrgSheet type={tab} row={open === "new" ? undefined : open} departments={departments} onClose={() => setOpen(null)} onSaved={() => (setOpen(null), load())} /> : null}
+    </>
+  );
+}
+
+function OrgSheet({ type, row, departments, onClose, onSaved }: { type: "departments" | "positions"; row?: Dept | Pos; departments: Dept[]; onClose: () => void; onSaved: () => void }) {
+  const { c } = useTheme();
+  const isDept = type === "departments";
+  const [name, setName] = useState(row?.name || "");
+  const [manager, setManager] = useState((row as Dept | undefined)?.manager || "");
+  const [departmentId, setDepartmentId] = useState((row as Pos | undefined)?.departmentId || departments[0]?.id || "");
+  const [panelRole, setPanelRole] = useState((row as Pos | undefined)?.panelRole === "HR_MANAGER" ? "HR_ADMIN" : (row as Pos | undefined)?.panelRole || "");
+  const [anyBranch, setAnyBranch] = useState(Boolean((row as Pos | undefined)?.anyBranch));
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    if (name.trim().length < 2) return Alert.alert("Nomini kiriting");
+    setBusy(true);
+    try {
+      // Lavozimning filial ro‘yxati saytda sozlanadi — bu yerda o‘zgarmaydi.
+      const body = isDept ? { name: name.trim(), manager: manager.trim() } : { name: name.trim(), departmentId, panelRole, anyBranch };
+      if (row) await mcall(`/${type}/${row.id}`, body, "PUT");
+      else await mcall(`/${type}`, body);
+      haptic.success();
+      onSaved();
+    } catch (e) {
+      oops(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove() {
+    if (!row || !(await confirm("O‘chirish", `«${row.name}» o‘chiriladi.`, "O‘chirish", true))) return;
+    setBusy(true);
+    try {
+      await mcall(`/${type}/${row.id}`, undefined, "DELETE");
+      onSaved();
+    } catch (e) {
+      oops(e);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Sheet visible title={row ? row.name : isDept ? "Yangi bo‘lim" : "Yangi lavozim"} onClose={onClose}>
+      <Field label="Nomi" value={name} onChange={setName} />
+      {isDept ? (
+        <Field label="Rahbar" value={manager} onChange={setManager} />
+      ) : (
+        <>
+          <Choice label="Bo‘lim" value={departmentId} options={departments.map((d) => [d.id, d.name])} onChange={setDepartmentId} />
+          <Choice label="Panel huquqi" value={panelRole} options={PANEL_ROLE} onChange={setPanelRole} />
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <Text style={{ color: c.ink, flex: 1 }}>Istalgan filialdan keldi-ketdi qila oladi</Text>
+            <Switch value={anyBranch} onValueChange={setAnyBranch} />
+          </View>
+        </>
+      )}
+      <Button title="Saqlash" onPress={() => void save()} busy={busy} />
+      {row ? <Button title="O‘chirish" tone="ghost" disabled={busy} onPress={() => void remove()} /> : null}
+    </Sheet>
+  );
+}
+
 /* ================================================================ E’lonlar === */
 type Announcement = { id: string; title: string; message: string; scheduledAt: string; createdBy?: string; ackRequired?: boolean; options?: string[]; report?: { staffora?: { recipients: number; delivered: number; acknowledged?: number; answers?: Record<string, number> } } };
 
@@ -1365,7 +1470,7 @@ function AttendanceFixScreen() {
             <Row
               key={r.employee.id}
               label={fullName(r.employee)}
-              sub={`${r.record?.checkIn ? `${r.record.checkIn} → ${r.record.checkOut || "…"}` : STATE[r.state] || r.state}${r.record?.lateMinutes ? ` · ${r.record.lateMinutes} daq kech` : ""}${r.branch ? ` · ${r.branch}` : ""}`}
+              sub={`${r.record?.checkIn ? `${r.record.checkIn} → ${r.record.checkOut || "…"}` : STATE[r.state] || r.state}${r.record?.lateMinutes ? ` · ${duration(r.record.lateMinutes)} kech` : ""}${r.branch ? ` · ${r.branch}` : ""}`}
               onPress={() => setOpen(r)}
               last={i === list.length - 1}
             />
@@ -1433,7 +1538,6 @@ const st = StyleSheet.create({
   option: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth },
   search: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, borderRadius: 12, minHeight: 44 },
   month: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12 },
-  step: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   time: { width: 76, paddingHorizontal: 8, paddingVertical: 8, textAlign: "center" },
   chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, borderWidth: StyleSheet.hairlineWidth },
   bubble: { maxWidth: "88%", padding: 10, borderRadius: 14, gap: 2 },

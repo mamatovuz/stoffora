@@ -132,7 +132,7 @@ function ScheduleView() {
             <Text style={{ color: c.muted, fontSize: 13.5 }}>
               Keldi {pick.checkIn}
               {pick.checkOut ? ` · ketdi ${pick.checkOut} · ${duration(pick.workedMinutes)}` : ""}
-              {pick.lateMinutes ? ` · ${pick.lateMinutes} daq kech` : ""}
+              {pick.lateMinutes ? ` · ${duration(pick.lateMinutes)} kech` : ""}
             </Text>
           ) : null}
         </Card>

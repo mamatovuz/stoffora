@@ -7,7 +7,7 @@ import { TileMap } from "@/components/TileMap";
 import { Button, Icon, haptic } from "@/components/ui";
 import { ApiError, errorText, post } from "@/lib/api";
 import { FRAME, PLACEMENT_TEXT, grabFrame, placement, probeFace, verifyFaces, type Placement } from "@/lib/faceCamera";
-import { tashkentClock } from "@/lib/format";
+import { duration, tashkentClock } from "@/lib/format";
 import { currentFix, distanceMeters, locationPermission, quickFix, type Fix } from "@/lib/location";
 import type { Attendance, HomeData } from "@/lib/types";
 import { invalidate, useData } from "@/lib/useData";
@@ -435,7 +435,7 @@ function Receipt({ action, attendance, percent, branchName, distance }: { action
           <Icon name="checkmark" size={56} color="#fff" />
         </Animated.View>
         <Text style={{ color: "#fff", fontSize: 26, fontWeight: "700" }}>{action === "CHECK_IN" ? "Ishga keldingiz" : "Ishdan ketdingiz"}</Text>
-        <Text style={{ color: late ? "#FF9F0A" : "#8E8E93", fontSize: 15.5 }}>{late ? `${attendance.lateMinutes} daqiqa kechikdingiz` : action === "CHECK_IN" ? "Vaqtida — rahmat!" : "Yaxshi dam oling!"}</Text>
+        <Text style={{ color: late ? "#FF9F0A" : "#8E8E93", fontSize: 15.5 }}>{late ? `${duration(attendance.lateMinutes)} kechikdingiz` : action === "CHECK_IN" ? "Vaqtida — rahmat!" : "Yaxshi dam oling!"}</Text>
         <View style={st.receipt}>
           {rows.map(([k, v], i) => (
             <View key={k} style={[st.receiptRow, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#38383A" }]}>

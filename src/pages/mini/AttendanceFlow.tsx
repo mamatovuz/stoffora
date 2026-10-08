@@ -246,7 +246,7 @@ export function AttendanceFlow({
         onSuccess(
           row,
           flow.action === "CHECK_IN"
-            ? `Ishga kelish ${row.checkIn} da qayd etildi${row.lateMinutes ? ` (${row.lateMinutes} daq kechikish)` : ""}.`
+            ? `Ishga kelish ${row.checkIn} da qayd etildi${row.lateMinutes ? ` (${duration(row.lateMinutes)} kechikish)` : ""}.`
             : `Ketish ${row.checkOut} da qayd etildi. Ishlagan vaqt: ${duration(row.workedMinutes)}.`,
         );
       } catch (reason) {

@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
-import { Protected } from "./auth";
+import { Protected, useAuth } from "./auth";
+import { homePage } from "@/lib/permissions";
+import { onLandingHost } from "./site";
 import { Shell } from "./components/Shell";
 const LoginPage = lazy(() =>
   import("./pages/Login").then((m) => ({ default: m.LoginPage })),
@@ -96,9 +98,18 @@ const MapPage = lazy(() => import("./pages/MapPage").then((m) => ({ default: m.M
 const HelpdeskPage = lazy(() =>
   import("./pages/Helpdesk").then((m) => ({ default: m.HelpdeskPage })),
 );
+const LandingPage = lazy(() => import("./pages/Landing").then((m) => ({ default: m.LandingPage })));
+const IdCardPage = lazy(() => import("./pages/IdCard").then((m) => ({ default: m.IdCardPage })));
 const MiniAppPage = lazy(() =>
   import("./pages/MiniApp").then((m) => ({ default: m.MiniAppPage })),
 );
+
+/** Noma’lum manzil — rolning bosh sahifasiga (kirmagan bo‘lsa — kirish sahifasiga). */
+function HomeRedirect() {
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  return <Navigate to={!user ? "/login" : user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role)} replace />;
+}
 
 export default function App() {
   return (
@@ -113,6 +124,9 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/mini-app" element={<MiniAppPage />} />
+        <Route path="/id/:token" element={<IdCardPage />} />
+        <Route path="/landing" element={<LandingPage />} />
+        {onLandingHost() && <Route path="/" element={<LandingPage />} />}
         <Route
           path="/attendance-screen/:branchId"
           element={
@@ -176,7 +190,7 @@ export default function App() {
           <Route path="/users" element={<UsersPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/workspace" replace />} />
+        <Route path="*" element={<HomeRedirect />} />
       </Routes>
     </Suspense>
   );

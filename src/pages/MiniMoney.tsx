@@ -4,7 +4,7 @@ import { cardBrand, cardDigits, cardError, CARD_BRAND_LABELS, formatCard, holder
 import { api, del, errorText, post } from "../api";
 import { Sheet } from "./mini/shared";
 import { confirmNative, haptic } from "./mini/tg";
-import { dateUz } from "@/lib/format";
+import { dateUz, duration } from "@/lib/format";
 
 /*
  * «Mening oyligim» — oy davomida real vaqtda: ishlab topilgan, ushlanmalar,
@@ -290,7 +290,7 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
               <div className="ms-block-head sep">
                 Ushlab qolindi <b className="bad">{som(data.withheld ?? data.lateDeduction + data.absenceDeduction + data.fine)}</b>
               </div>
-              <Line label={`− Kech kelish${data.lateMinutes ? ` (${data.lateMinutes} daq)` : ""}`} value={som(data.lateDeduction)} />
+              <Line label={`− Kech kelish${data.lateMinutes ? ` (${duration(data.lateMinutes)})` : ""}`} value={som(data.lateDeduction)} />
               <Line label={`− Kelmagan kunlar${data.absentDays ? ` (${data.absentDays})` : ""}`} value={som(data.absenceDeduction)} />
               <Line label="− Jarima" value={som(data.fine)} />
               {(data.compensatedDays || 0) > 0 && (

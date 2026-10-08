@@ -9,17 +9,13 @@ import {
 import {
   Users,
   Clock3,
-  CalendarDays,
   Building2,
-  Network,
   ClipboardList,
-  Banknote,
   ChartNoAxesCombined,
   Megaphone,
   MessagesSquare,
   Bell,
   Settings,
-  ScrollText,
   Search,
   PanelLeftClose,
   PanelLeftOpen,
@@ -29,14 +25,11 @@ import {
   ChevronDown,
   CircleUserRound,
   Plane,
-  UserCog,
   Lock,
   ClipboardCheck,
-  TrendingUp,
-  HandCoins,
-  Gavel,
   Inbox,
   Wallet,
+  LayoutDashboard,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -49,77 +42,89 @@ import { api } from "../api";
 import { useApi, usePolling } from "../hooks";
 import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
 
-type NavItem = [string, string, typeof Users, string?];
-/*
- * Menyu ixcham: har kuni kerak bo‘ladigan bo‘limlar. Kamdan-kam ochiladiganlar
- * (xarita, kalendar, bo‘shaganlar, lavozimlar, rollar, rag‘batlantirish, aktivlar)
- * tegishli sahifa ichidagi havola orqali ochiladi; tasdiqlashlar — bitta «Tasdiqlashlar»da.
+/**
+ * Menyu — 12 ta band. Bir bandga tegishli sahifalar (masalan, Moliya: xulosa, ish haqi,
+ * tabel, avans, jarima, rag‘bat) sahifa tepasidagi tablarda. Rolga ruxsat etilmagan
+ * tab va bandlar ko‘rinmaydi; band birinchi ruxsat etilgan sahifaga olib boradi.
  */
-const sections: { label: string; items: NavItem[] }[] = [
+type NavItem = { label: string; icon: typeof Users; tabs: [string, string][]; count?: string };
+const menu: NavItem[] = [
+  { label: "Bosh sahifa", icon: LayoutDashboard, tabs: [["/dashboard", "Bosh sahifa"]] },
+  { label: "Ish stoli", icon: ClipboardCheck, tabs: [["/workspace", "Ish stoli"]] },
+  { label: "Tasdiqlashlar", icon: Inbox, tabs: [["/inbox", "Tasdiqlashlar"]], count: "inbox" },
   {
-    label: "Asosiy",
-    items: [
-      ["/workspace", "Ish stoli", ClipboardCheck],
-      ["/inbox", "Tasdiqlashlar", Inbox, "inbox"],
-      ["/attendance", "Keldi-ketdi", Clock3],
-      ["/employees", "Xodimlar", Users],
-      ["/leave", "Ta’til va yo‘qlik", Plane, "leave"],
-      ["/registrations", "Arizalar", ClipboardList, "registrations"],
+    label: "Keldi-ketdi",
+    icon: Clock3,
+    tabs: [
+      ["/attendance", "Bugun"],
+      ["/map", "Xarita"],
+      ["/calendar", "Kalendar"],
+      ["/attendance-requests", "Belgilash so‘rovlari"],
     ],
   },
   {
+    label: "Xodimlar",
+    icon: Users,
+    tabs: [
+      ["/employees", "Xodimlar"],
+      ["/dismissed", "Bo‘shaganlar"],
+      ["/assets", "Aktivlar"],
+    ],
+  },
+  { label: "Ta’til va yo‘qlik", icon: Plane, tabs: [["/leave", "Ta’til va yo‘qlik"]], count: "leave" },
+  { label: "Arizalar", icon: ClipboardList, tabs: [["/registrations", "Arizalar"]], count: "registrations" },
+  {
     label: "Tashkilot",
-    items: [
-      ["/branches", "Filiallar", Building2],
-      ["/schedules", "Ish grafiklari", CalendarDays],
-      ["/departments", "Bo‘lim va lavozimlar", Network],
+    icon: Building2,
+    tabs: [
+      ["/branches", "Filiallar"],
+      ["/schedules", "Ish grafiklari"],
+      ["/departments", "Bo‘limlar"],
+      ["/positions", "Lavozimlar"],
     ],
   },
   {
     label: "Moliya",
-    items: [
-      ["/finance", "Moliya xulosasi", Wallet],
-      ["/timesheet", "Tabel", ClipboardList],
-      ["/payroll", "Ish haqi", Banknote],
-      ["/advances", "Avanslar", HandCoins],
-      ["/fines", "Jarimalar", Gavel, "fines"],
+    icon: Wallet,
+    tabs: [
+      ["/finance", "Xulosa"],
+      ["/payroll", "Ish haqi"],
+      ["/timesheet", "Tabel"],
+      ["/advances", "Avanslar"],
+      ["/fines", "Jarimalar"],
+      ["/rewards", "Rag‘bat"],
     ],
+    count: "fines",
   },
+  { label: "E’lonlar", icon: Megaphone, tabs: [["/announcements", "E’lonlar"]] },
+  { label: "Murojaatlar", icon: MessagesSquare, tabs: [["/helpdesk", "Murojaatlar"]] },
   {
-    label: "Tahlil va aloqa",
-    items: [
-      ["/analytics", "Tahlil", TrendingUp],
-      ["/reports", "Hisobotlar", ChartNoAxesCombined],
-      ["/announcements", "E’lonlar", Megaphone],
-      ["/helpdesk", "Murojaatlar", MessagesSquare],
+    label: "Hisobotlar",
+    icon: ChartNoAxesCombined,
+    tabs: [
+      ["/reports", "Hisobotlar"],
+      ["/analytics", "Tahlil"],
     ],
   },
   {
     label: "Tizim",
-    items: [
-      ["/users", "Panel foydalanuvchilari", UserCog],
-      ["/audit", "Audit jurnali", ScrollText],
-      ["/settings", "Sozlamalar", Settings],
+    icon: Settings,
+    tabs: [
+      ["/users", "Foydalanuvchilar"],
+      ["/roles", "Rollar"],
+      ["/audit", "Audit"],
+      ["/settings", "Sozlamalar"],
     ],
   },
 ];
 
-/** Menyuda yo‘q, lekin ochiladigan sahifalar sarlavhasi (tepadagi «yo‘l» uchun). */
+/** Menyuda yo‘q, lekin ochiladigan sahifalar sarlavhasi. */
 const hiddenPages: [string, string][] = [
-  ["/dashboard", "Bosh sahifa"],
-  ["/map", "Xarita"],
-  ["/calendar", "Kalendar"],
-  ["/attendance-requests", "Davomat so‘rovlari"],
-  ["/dismissed", "Ishdan bo‘shaganlar"],
-  ["/assets", "Aktivlar"],
-  ["/positions", "Lavozimlar"],
-  ["/rewards", "Rag‘batlantirish"],
   ["/notifications", "Bildirishnomalar"],
-  ["/roles", "Rollar"],
 ];
 
-const pageNames = Object.fromEntries([
-  ...sections.flatMap((section) => section.items.map(([path, label]) => [path, label] as [string, string])),
+const pageNames: Record<string, string> = Object.fromEntries([
+  ...menu.flatMap((item) => item.tabs.map(([path, label]) => [path, item.tabs.length > 1 ? `${item.label} · ${label}` : label] as [string, string])),
   ...hiddenPages,
 ]);
 
@@ -150,16 +155,16 @@ export function Shell() {
     useApi<Notification[]>("/notifications");
   const { data: leave, reload: reloadLeave } =
     useApi<{ status: string }[]>(user && canOpenPage(user.role, "/leave") ? "/leave" : null);
-  // Faqat rolga ruxsat etilgan bo‘limlar ko‘rinadi.
-  const visibleSections = useMemo(
+  // Faqat rolga ruxsat etilgan bandlar va tablar ko‘rinadi.
+  const visibleMenu = useMemo(
     () =>
-      sections
-        .map((section) => ({
-          ...section,
-          items: section.items.filter(([path]) => (user ? canOpenPage(user.role, path) : false)),
-        }))
-        .filter((section) => section.items.length),
+      menu
+        .map((item) => ({ ...item, tabs: item.tabs.filter(([path]) => (user ? canOpenPage(user.role, path) : false)) }))
+        .filter((item) => item.tabs.length),
     [user],
+  );
+  const current = visibleMenu.find((item) =>
+    item.tabs.some(([path]) => location.pathname === path || location.pathname.startsWith(`${path}/`)),
   );
   usePolling(() => {
     void reloadNotifications(true);
@@ -299,34 +304,28 @@ export function Shell() {
           </span>
           <span>
             <b>{company?.name || "…"}</b>
-            <small>{company ? `${company.plan} tarif` : "Kompaniya"}</small>
+            <small>{company?.plan ? `${company.plan} tarif` : "Kompaniya"}</small>
           </span>
         </div>
 
         <nav className="nav" aria-label="Asosiy navigatsiya">
-          {visibleSections.map((section) => (
-            <div key={section.label}>
-              <div className="nav-label">{section.label}</div>
-              {section.items.map(([to, label, Icon, countKey]) => (
-                <NavLink
-                  to={to}
-                  key={to}
-                  className={({ isActive }) =>
-                    `nav-link ${isActive ? "active" : ""}`
-                  }
-                  title={collapsed ? label : undefined}
-                >
-                  <Icon size={18} strokeWidth={1.9} />
-                  <span>{label}</span>
-                  {countKey && counts[countKey] > 0 && (
-                    <em className="nav-count">
-                      {counts[countKey] > 99 ? "99+" : counts[countKey]}
-                    </em>
-                  )}
-                </NavLink>
-              ))}
-            </div>
-          ))}
+          {visibleMenu.map(({ label, icon: Icon, tabs, count }) => {
+            const active = current?.label === label;
+            const total = count ? counts[count] : 0;
+            return (
+              <Link
+                to={tabs[0][0]}
+                key={label}
+                className={`nav-link ${active ? "active" : ""}`}
+                aria-current={active ? "page" : undefined}
+                title={collapsed ? label : undefined}
+              >
+                <Icon size={18} strokeWidth={1.9} />
+                <span>{label}</span>
+                {total > 0 && <em className="nav-count">{total > 99 ? "99+" : total}</em>}
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="sidebar-foot">
@@ -357,14 +356,14 @@ export function Shell() {
           </button>
           <div className="topbar-title">
             <small>{company?.name || "Staffora"}</small>
-            <b>{pageTitle}</b>
+            <b>{current && current.tabs.length > 1 && current.tabs.some(([path]) => path === location.pathname) ? current.label : pageTitle}</b>
           </div>
           <button type="button" className="search search-btn" onClick={() => setPalette(true)} aria-label="Qidiruv (Ctrl+K)">
             <Search size={16} />
             <span>Qidirish: xodim, filial, sahifa…</span>
             <kbd>Ctrl K</kbd>
           </button>
-          <CommandPalette open={palette} onClose={() => setPalette(false)} pages={visibleSections.flatMap((section) => section.items.map(([path, label]) => [path, label] as [string, string]))} />
+          <CommandPalette open={palette} onClose={() => setPalette(false)} pages={visibleMenu.flatMap((item) => item.tabs.map(([path]) => [path, pageNames[path]] as [string, string]))} />
           <div className="top-actions">
             <button
               className="lang-toggle"
@@ -442,6 +441,15 @@ export function Shell() {
           </div>
         </header>
         <main id="main-content" tabIndex={-1}>
+          {current && current.tabs.length > 1 && current.tabs.some(([path]) => path === location.pathname) && (
+            <nav className="section-tabs" aria-label={current.label}>
+              {current.tabs.map(([path, label]) => (
+                <NavLink key={path} to={path} end className={({ isActive }) => (isActive ? "active" : "")}>
+                  {label}
+                </NavLink>
+              ))}
+            </nav>
+          )}
           <Fragment key={pageKey}>
             <Outlet />
           </Fragment>

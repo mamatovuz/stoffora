@@ -92,8 +92,13 @@ export const tashkentIsoDate = (value: string | Date = new Date()) => {
 export const tashkentWeekday = (value: string | Date = new Date()) =>
   dateParts(value).weekday;
 export const timeUz = (value?: string) => (value ? value.slice(0, 5) : "—");
-export const duration = (minutes: number) =>
-  `${Math.floor(minutes / 60)}s ${minutes % 60}d`;
+/** Daqiqa → «45 daq», «1 soat», «1 soat 40 daq». */
+export const duration = (minutes?: number) => {
+  const total = Math.max(0, Math.round(minutes || 0));
+  const h = Math.floor(total / 60);
+  const m = total % 60;
+  return h ? `${h} soat${m ? ` ${m} daq` : ""}` : `${m} daq`;
+};
 export const initials = (first: string, last = "") =>
   `${first[0] || ""}${last[0] || ""}`.toUpperCase();
 /** Telefon raqamini solishtirish uchun oxirgi 9 raqam (O‘zbekiston formati). */

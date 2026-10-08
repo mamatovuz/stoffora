@@ -1,3 +1,4 @@
+import { TimeInput } from "../components/TimeInput";
 import { useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
@@ -17,9 +18,6 @@ import {
   UserX,
   Users,
   AlertTriangle,
-  MapPinned,
-  ClockAlert,
-  CalendarDays,
 } from "lucide-react";
 import { del, errorText, post, put } from "../api";
 import { useApi, usePolling } from "../hooks";
@@ -48,7 +46,6 @@ import {
   type RosterRow,
   type RosterStats,
 } from "../types";
-import { PageLinks } from "../components/PageLinks";
 
 type Day = { date: string; stats: RosterStats; rows: RosterRow[] };
 type Filter =
@@ -166,13 +163,6 @@ export function AttendancePage() {
             >
               <Download size={16} /> Excel
             </a>
-            <PageLinks
-              links={[
-                ["/map", "Xarita", MapPinned],
-                ["/calendar", "Kalendar", CalendarDays],
-                ["/attendance-requests", "Belgilash so‘rovlari", ClockAlert],
-              ]}
-            />
           </>
         }
       />
@@ -653,11 +643,11 @@ function AttendanceForm({
             label="Kelish vaqti"
             hint={row.scheduledStart ? `Grafik: ${row.scheduledStart}` : undefined}
           >
-            <input
+            <TimeInput
               className="input"
-              type="time"
+             
               value={checkIn}
-              onChange={(e) => setCheckIn(e.target.value)}
+              onChange={(v) => setCheckIn(v)}
               required
             />
           </Field>
@@ -671,11 +661,11 @@ function AttendanceForm({
                   : "Bo‘sh qoldirsa — hali ishda"
             }
           >
-            <input
+            <TimeInput
               className="input"
-              type="time"
+             
               value={checkOut}
-              onChange={(e) => setCheckOut(e.target.value)}
+              onChange={(v) => setCheckOut(v)}
             />
           </Field>
           <Field label="Izoh (sabab)" className="span-2">

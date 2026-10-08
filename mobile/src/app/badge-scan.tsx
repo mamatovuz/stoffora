@@ -24,7 +24,7 @@ export default function BadgeScan() {
   const busy = useRef(false);
   const onScan = (e: BarcodeScanningResult) => {
     if (busy.current || result || error) return;
-    if (!e.data.startsWith("staffora-badge:")) return;
+    if (!/^staffora-badge:|\/id\//.test(e.data || "")) return;
     busy.current = true;
     haptic.medium();
     void mcall<Result>(`/badge/verify?token=${encodeURIComponent(e.data)}`)

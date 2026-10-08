@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { ApiError } from "../api";
 import { can } from "@/lib/permissions";
-import { dateLongUz, dateUz, tashkentIsoDate } from "@/lib/format";
+import { dateLongUz, dateUz, duration, tashkentIsoDate } from "@/lib/format";
 import { FineSheet, MoneyView } from "./mini/MoneyTools";
 import { DevicesView } from "./mini/DevicesView";
 import { useBadgeScanner } from "./mini/BadgeCheck";
@@ -399,7 +399,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                           </small>
                           {notice && !r.record?.checkIn && (
                             <small className="mg-notice">
-                              ⏳ ~{notice.minutes} daq · {notice.reason}
+                              ⏳ ~{duration(notice.minutes)} · {notice.reason}
                             </small>
                           )}
                         </span>
@@ -520,7 +520,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               <div className="mg-alert info">
                 <Hourglass size={17} />
                 <span>
-                  {notices.length} kishi kechikishini oldindan aytdi: {notices.slice(0, 3).map((n) => `${n.employeeName.split(" ")[0]} (~${n.minutes} daq)`).join(", ")}
+                  {notices.length} kishi kechikishini oldindan aytdi: {notices.slice(0, 3).map((n) => `${n.employeeName.split(" ")[0]} (~${duration(n.minutes)})`).join(", ")}
                   {notices.length > 3 ? "…" : ""}
                 </span>
               </div>
@@ -781,7 +781,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                   <span>
                     <b>{o.name}</b>
                     <small>
-                      {dateUz(o.date)} · +{o.overtimeMinutes} daq · {o.checkIn} → {o.checkOut}
+                      {dateUz(o.date)} · +{duration(o.overtimeMinutes)} · {o.checkIn} → {o.checkOut}
                     </small>
                   </span>
                 </div>
@@ -1247,7 +1247,7 @@ function WeekSummary({ call, onError }: { call: <T>(url: string) => Promise<T>; 
               <div className="mp-row" key={p.id}>
                 <span>{p.name}</span>
                 <b className="warn">
-                  {p.late} marta · {p.lateMinutes} daq
+                  {p.late} marta · {duration(p.lateMinutes)}
                 </b>
               </div>
             ))}
@@ -1305,7 +1305,7 @@ const order = (r: RosterRow) => (r.state === "ABSENT" ? 0 : r.state === "NOT_YET
 const stateTone = (r: RosterRow) => (r.state === "ABSENT" ? "bad" : r.late ? "warn" : r.state === "IN" || r.state === "LEFT" ? "ok" : "");
 const chipTone = (r: RosterRow) => (r.record?.flags?.length && !r.record.flagsReviewedBy ? "bad" : stateTone(r));
 function stateLabel(r: RosterRow) {
-  if (r.state === "IN") return r.late ? `${r.record?.lateMinutes} daq kech` : "Ishda";
+  if (r.state === "IN") return r.late ? `${duration(r.record?.lateMinutes)} kech` : "Ishda";
   if (r.state === "LEFT") return "Ketdi";
   if (r.state === "ABSENT") return "Kelmadi";
   if (r.state === "NOT_YET") return "Hali yo‘q";

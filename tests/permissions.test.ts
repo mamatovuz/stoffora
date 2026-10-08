@@ -17,7 +17,8 @@ describe("rollar va sahifalar", () => {
     expect(canOpenPage("BRANCH_MANAGER", "/attendance")).toBe(true);
     expect(canOpenPage("BRANCH_MANAGER", "/payroll")).toBe(false);
     expect(canOpenPage("BRANCH_MANAGER", "/users")).toBe(false);
-    expect(homePage("BRANCH_MANAGER")).toBe("/workspace");
+    expect(homePage("BRANCH_MANAGER")).toBe("/dashboard");
+    expect(homePage("COMPANY_OWNER")).toBe("/dashboard");
   });
 
   it("HR arizalarni ko‘radi, egasi hammasini", () => {
