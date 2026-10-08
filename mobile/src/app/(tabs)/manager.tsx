@@ -7,13 +7,14 @@ import { FineSheet, MoneyView } from "@/components/MoneyTools";
 import { DevicesView } from "@/components/DevicesView";
 import { AttendanceOverview } from "@/components/AttendanceOverview";
 import { DeskView } from "@/components/DeskView";
+import { AdminBack, AdminMenu, AdminScreen, ADMIN_ITEMS, adminItemsFor, type AdminKey } from "@/components/AdminViews";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
 import { dateUz, dayTitle, som, tashkentIsoDate, timeAgo } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
 
-type MView = "desk" | "today" | "requests" | "map" | "week" | "money" | "devices";
+type MView = "desk" | "today" | "requests" | "map" | "week" | "money" | "devices" | "admin";
 type Emp = { id: string; firstName: string; lastName: string; photoDataUrl?: string; branchId: string };
 type RosterRow = {
   employee: Emp;
@@ -60,6 +61,8 @@ export default function Manager() {
   const [auth, setAuth] = useState<ManagerAuth | null>(null);
   const params = useLocalSearchParams<{ view?: MView; t?: string }>();
   const [view, setView] = useState<MView>(params.view || "desk");
+  // «Boshqaruv» ichidagi bo‘lim (xodimlar, ish haqi, grafiklar…).
+  const [adminScreen, setAdminScreen] = useState<AdminKey | null>(null);
   useEffect(() => {
     if (params.view) setView(params.view);
   }, [params.view, params.t]);
@@ -208,6 +211,13 @@ export default function Manager() {
   useEffect(() => {
     if (noAttendance && (view === "today" || view === "map")) setView(canMoney ? "money" : canDevices && !canRequests ? "devices" : "requests");
   }, [noAttendance, view, canMoney, canDevices]);
+  const adminExtra = [
+    ...(can(role, "dashboard.view") ? [{ key: "week", label: "Xulosa va trendlar", hint: "davomat reytingi, diqqat talab qilganlar", icon: "stats-chart-outline" as const }] : []),
+    ...(canMoney ? [{ key: "money", label: "Moliya, avans va jarimalar", hint: "oy xulosasi, avans to‘lash", icon: "wallet-outline" as const }] : []),
+    ...(canDevices ? [{ key: "devices", label: "Telefonlar (qurilmalar)", hint: "ulash, almashtirish, o‘chirish", icon: "phone-portrait-outline" as const }] : []),
+  ];
+  const hasAdmin = adminExtra.length > 0 || adminItemsFor(role).length > 0;
+  const tabOf = (v: MView): MView => (v === "map" ? "today" : v === "week" || v === "money" || v === "devices" ? "admin" : v);
   const marks = pending.filter((p) => p.kind === "mark");
   const others = pending.filter((p) => p.kind !== "mark");
   const markDays = [...new Set(marks.map((p) => p.date!))].sort((a, b) => b.localeCompare(a));
@@ -250,19 +260,52 @@ export default function Manager() {
       }
     >
       <Segmented<MView>
-        value={view}
-        onChange={setView}
+        value={tabOf(view)}
+        onChange={(v) => {
+          setView(v);
+          if (v === "admin") setAdminScreen(null);
+        }}
         options={[
-          // Faqat rolga tegishli bo‘limlar (moliya va IT uchun bo‘sh «Bugun/Xarita» ko‘rinmaydi).
+          // Ixcham 4 ta tab: Ish stoli · Bugun (ro‘yxat/xarita) · So‘rovlar · Boshqaruv (qolgan hammasi).
           ["desk", "Ish stoli"],
           ...(canAttendanceView ? ([["today", "Bugun"]] as [MView, string][]) : []),
           ...(canRequests ? ([["requests", "So‘rovlar", pending.length]] as [MView, string, number][]) : []),
-          ...(canAttendanceView ? ([["map", "Xarita"]] as [MView, string][]) : []),
-          ...(can(role, "dashboard.view") ? ([["week", "Xulosa"]] as [MView, string][]) : []),
-          ...(canMoney ? ([["money", "Moliya"]] as [MView, string][]) : []),
-          ...(canDevices ? ([["devices", "Qurilmalar"]] as [MView, string][]) : []),
+          ...(hasAdmin ? ([["admin", "Boshqaruv"]] as [MView, string][]) : []),
         ]}
       />
+      {(view === "today" || view === "map") && canAttendanceView ? (
+        <Segmented<MView>
+          value={view}
+          onChange={setView}
+          options={[
+            ["today", "Ro‘yxat"],
+            ["map", "Xarita"],
+          ]}
+        />
+      ) : null}
+      {tabOf(view) === "admin" && (view !== "admin" || adminScreen) ? (
+        <AdminBack
+          title={(adminScreen ? ADMIN_ITEMS.find((i) => i.key === adminScreen)?.label : adminExtra.find((i) => i.key === view)?.label) || ""}
+          onBack={() => {
+            setView("admin");
+            setAdminScreen(null);
+          }}
+        />
+      ) : null}
+      {view === "admin" && auth ? (
+        adminScreen ? (
+          <AdminScreen screen={adminScreen} role={auth.user.role} />
+        ) : (
+          <AdminMenu
+            role={auth.user.role}
+            extra={adminExtra}
+            onOpen={(key) => {
+              if (ADMIN_ITEMS.some((i) => i.key === key)) setAdminScreen(key as AdminKey);
+              else setView(key as MView);
+            }}
+          />
+        )
+      ) : null}
       {error ? <ErrorBox text={error} onRetry={load} /> : null}
 
       {view === "today" ? (

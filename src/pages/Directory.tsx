@@ -16,6 +16,7 @@ import {
   UserCog,
   XCircle,
 } from "lucide-react";
+import { PageLinks } from "../components/PageLinks";
 import { del, errorText, post, put } from "../api";
 import { useApi } from "../hooks";
 import {
@@ -58,13 +59,16 @@ export function DirectoryPage({ type }: { type: "departments" | "positions" }) {
         title={title}
         subtitle={isDept ? "Kompaniya tuzilmasi" : "Bo‘limlar bo‘yicha lavozimlar"}
         actions={
-          <button
-            className="btn btn-primary"
-            onClick={() => setEditing("new")}
-            disabled={!isDept && !data?.departments.length}
-          >
-            <Plus size={16} /> Qo‘shish
-          </button>
+          <>
+            <PageLinks links={[isDept ? ["/positions", "Lavozimlar", BriefcaseBusiness] : ["/departments", "Bo‘limlar", Network]]} />
+            <button
+              className="btn btn-primary"
+              onClick={() => setEditing("new")}
+              disabled={!isDept && !data?.departments.length}
+            >
+              <Plus size={16} /> Qo‘shish
+            </button>
+          </>
         }
       />
       {!isDept && data && !data.departments.length && (
@@ -342,11 +346,14 @@ export function UsersPage() {
         title="Panel foydalanuvchilari"
         subtitle="HR, buxgalter va filial rahbarlariga panelga kirish huquqi bering"
         actions={
-          canManage && (
-            <button className="btn btn-primary" onClick={() => setOpen(true)}>
-              <Plus size={16} /> Foydalanuvchi qo‘shish
-            </button>
-          )
+          <>
+            <PageLinks links={[["/roles", "Rollar va ruxsatlar", ShieldCheck]]} />
+            {canManage && (
+              <button className="btn btn-primary" onClick={() => setOpen(true)}>
+                <Plus size={16} /> Foydalanuvchi qo‘shish
+              </button>
+            )}
+          </>
         }
       />
       <section className="card">

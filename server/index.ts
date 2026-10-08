@@ -30,6 +30,7 @@ import {
   updateDb,
 } from "../lib/store";
 import { calculateAttendance, isValidClockTime } from "../lib/attendance";
+import { isOvernight } from "../lib/shift-time";
 import {
   dateParts,
   tashkentClock,
@@ -55,9 +56,12 @@ import type {
 } from "../lib/types";
 import { normalizePayrollSettings } from "../lib/payroll";
 import {
+  FILE_LINK_PATH,
   requireAuth,
   requireRole,
+  signFileLink,
   signSession,
+  verifyFileLink,
   type AuthedRequest,
   type Session,
 } from "./auth";
@@ -653,9 +657,26 @@ app.use("/api", createMiniPublicRouter());
 app.use("/api", createManagerAuthRouter());
 app.use("/api", createIntegrationWebhookRouter());
 app.use("/api", createCompanyBotWebhookRouter());
+// Imzolangan hisobot havolasi (Mini App / ilova): yo‘l va sessiya tiklanadi, keyin odatiy marshrut ishlaydi.
+app.get("/api/file-link/:token", (req, res, next) => {
+  const link = verifyFileLink(String(req.params.token));
+  if (!link) return res.status(410).type("text/plain; charset=utf-8").send("Havola muddati tugagan. Qaytadan yuklab oling.");
+  req.headers.authorization = `Bearer ${link.s}`;
+  req.url = `/api${link.p}`;
+  next();
+});
 app.use("/api", requireAuth);
 // Vaqtincha berilgan tasdiqlash vakolati (faqat tasdiqlash yo‘llarida).
 app.use("/api", delegationMiddleware());
+app.post(
+  "/api/file-link",
+  asyncRoute(async (req, res) => {
+    const { path } = z.object({ path: z.string().max(300).regex(FILE_LINK_PATH, "Bu faylni yuklab bo‘lmaydi.") }).parse(req.body);
+    const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : req.cookies?.staffora_session;
+    if (!bearer) throw httpError("Sessiya topilmadi.", 401);
+    res.json({ path: `/api/file-link/${signFileLink(path, bearer)}` });
+  }),
+);
 // Oylik — moliyaviy ma’lumot: moliya, direktor va HR (xodim qo‘shishda kiritadi) ko‘radi.
 // Filial rahbari, IT va boshqalar uchun javoblardan «baseSalary» olib tashlanadi.
 app.use("/api", (req, res, next) => {
@@ -1308,7 +1329,8 @@ function computeDayRoster(db: Database, tenant: string, date: string) {
       else if (leave) state = "ON_LEAVE";
       else if (!day?.enabled) state = "DAY_OFF";
       else if (date > today) state = "UPCOMING";
-      else if (date === today && nowClock < day.end) {
+      // Kechki smena (14:00 → 00:00) bugun tugamaydi — boshlanish+imtiyozgacha «hali kelmagan».
+      else if (date === today && (isOvernight(day.start, day.end) || nowClock < day.end)) {
         const [h, m] = day.start.split(":").map(Number);
         const deadline = h * 60 + m + (schedule?.graceMinutes || 0);
         const [nh, nm] = nowClock.split(":").map(Number);

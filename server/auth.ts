@@ -32,6 +32,23 @@ const employeeSecret = process.env.JWT_SECRET || `${secret}-employee`;
 export function signSession(session: Session) {
   return jwt.sign(session, secret, { expiresIn: "8h", issuer: "staffora" });
 }
+/*
+ * Rahbar Mini App’i va mobil ilovasi hisobotni (Excel/CSV) Telegram yoki telefon
+ * orqali yuklaydi — u yerda sessiya sarlavhasi yuborilmaydi. Shuning uchun 5 daqiqalik
+ * imzolangan havola: ichida yo‘l va o‘sha foydalanuvchining sessiyasi (huquqlar o‘zgarmaydi).
+ */
+export const FILE_LINK_PATH = /^\/(reports\/[\w.-]+\.(xlsx|csv)|payroll\/\d{4}-\d{2}\/bank\.csv)(\?[\w=&%.-]*)?$/;
+export function signFileLink(path: string, sessionToken: string) {
+  return jwt.sign({ t: "FILE_LINK", p: path, s: sessionToken }, `${secret}-file-link`, { expiresIn: 300, issuer: "staffora" });
+}
+export function verifyFileLink(token: string) {
+  try {
+    const payload = jwt.verify(token, `${secret}-file-link`, { issuer: "staffora" }) as { t: string; p: string; s: string };
+    return payload.t === "FILE_LINK" && FILE_LINK_PATH.test(payload.p) ? payload : undefined;
+  } catch {
+    return undefined;
+  }
+}
 const lastSeenWrites = new Map<string, number>();
 export async function requireAuth(
   req: AuthedRequest,

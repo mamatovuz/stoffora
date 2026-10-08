@@ -7,6 +7,7 @@ import { Avatar, Empty, Field, Loading, Modal, PageHeader, Segmented, StatCard, 
 import { useAuth } from "../auth";
 import { can, canAny } from "@/lib/permissions";
 import { money } from "@/lib/format";
+import { SetupChecklist, type SetupData } from "../components/SetupChecklist";
 
 /*
  * Ish stoli — har bir rol kirganda: «bugun nima qilishim kerak» (Action Center), yagona tasdiqlashlar
@@ -57,6 +58,8 @@ export function WorkspacePage() {
   const actions = useApi<{ actions: Action[]; inbox: { total: number; urgent: number } }>("/workspace/actions");
   const overview = useApi<Overview>(can(role, "attendance.view") && role !== "BRANCH_MANAGER" ? "/workspace/overview" : null);
   const shifts = useApi<Shift[]>(role === "BRANCH_MANAGER" ? "/workspace/branch-shift" : null);
+  // Yangi kompaniya: sozlash qadamlari (egasi va HR) — «Bosh sahifa» menyudan olib tashlangan.
+  const dashboard = useApi<SetupData>(role === "COMPANY_OWNER" || role === "HR_ADMIN" ? "/dashboard?days=7" : null);
   const devices = useApi<Devices>(canAny(role, ["devices.manage"]) && !can(role, "employees.edit") ? "/workspace/devices" : null);
   usePolling(() => {
     void actions.reload(true);
@@ -69,6 +72,7 @@ export function WorkspacePage() {
   return (
     <div className="page">
       <PageHeader title="Ish stoli" subtitle={`${user?.name || ""} · bugun nima qilish kerak`} />
+      {dashboard.data && <SetupChecklist data={dashboard.data} />}
       {overview.data && <ControlCenter data={overview.data} />}
       {shifts.data?.map((s) => <ShiftCenter key={s.id} shift={s} />)}
       {devices.data && <DeviceCenter data={devices.data} />}

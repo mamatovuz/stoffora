@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Banknote, Check, CreditCard, Download, Eye, Flame, Gavel, HandCoins, Plus, Search, Trash2, Trophy, Wallet, X } from "lucide-react";
+import { PageLinks } from "../components/PageLinks";
 import { api, errorText, notifyChange, post, put } from "../api";
 import { useApi, useDebounced, usePolling } from "../hooks";
 import { Confirm, Empty, ErrorBox, Field, Loading, Modal, PageHeader, Person, Segmented, StatCard, Status, useToast } from "../components/ui";
@@ -757,6 +758,7 @@ export function FinancePage() {
             <a className="btn" href={`/api/reports/payroll.xlsx?month=${month}`} download>
               <Download size={16} /> Vedomost (Excel)
             </a>
+            <PageLinks links={[["/rewards", "Rag‘batlantirish", Trophy]]} />
           </>
         }
       />

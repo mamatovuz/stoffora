@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { can, canOpenPage, homePage } from "../lib/permissions";
+import { can, canOpenPage, homePage, pagePermissions } from "../lib/permissions";
+import * as mobile from "../mobile/src/lib/permissions";
 
 describe("rollar va sahifalar", () => {
   it("Moliya faqat moliya bo‘limlarini ko‘radi (xodimlar, davomat hisobotlari — yo‘q)", () => {
@@ -29,5 +30,17 @@ describe("rollar va sahifalar", () => {
     expect(canOpenPage("FINANCE", "/registrations")).toBe(false);
     expect(canOpenPage("COMPANY_OWNER", "/payroll")).toBe(true);
     expect(canOpenPage("COMPANY_OWNER", "/users")).toBe(true);
+  });
+
+  it("mobil ilovadagi ruxsatlar nusxasi saytdagi bilan bir xil", () => {
+    const roles = ["COMPANY_OWNER", "HR_ADMIN", "HR_MANAGER", "FINANCE", "IT_ADMIN", "BRANCH_MANAGER", "EMPLOYEE"] as const;
+    const perms = ["dashboard.view", "employees.view", "employees.edit", "employees.create", "attendance.view", "attendance.edit", "branches.edit", "org.view", "leave.view", "leave.approve", "reports.view", "announcements.create", "audit.view", "settings.manage", "registrations.approve", "payroll.view", "payroll.edit", "devices.manage"];
+    for (const role of roles) {
+      for (const p of perms) expect(mobile.canWeb(role, p), `${role} ${p}`).toBe(can(role, p));
+      for (const path of Object.keys(mobile.WEB_PAGE_PERMS)) {
+        expect(mobile.WEB_PAGE_PERMS[path], path).toEqual(pagePermissions[path]);
+        expect(mobile.canOpenPage(role, path), `${role} ${path}`).toBe(canOpenPage(role, path));
+      }
+    }
   });
 });

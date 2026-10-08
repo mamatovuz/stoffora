@@ -17,6 +17,9 @@ import {
   UserX,
   Users,
   AlertTriangle,
+  MapPinned,
+  ClockAlert,
+  CalendarDays,
 } from "lucide-react";
 import { del, errorText, post, put } from "../api";
 import { useApi, usePolling } from "../hooks";
@@ -45,6 +48,7 @@ import {
   type RosterRow,
   type RosterStats,
 } from "../types";
+import { PageLinks } from "../components/PageLinks";
 
 type Day = { date: string; stats: RosterStats; rows: RosterRow[] };
 type Filter =
@@ -162,6 +166,13 @@ export function AttendancePage() {
             >
               <Download size={16} /> Excel
             </a>
+            <PageLinks
+              links={[
+                ["/map", "Xarita", MapPinned],
+                ["/calendar", "Kalendar", CalendarDays],
+                ["/attendance-requests", "Belgilash so‘rovlari", ClockAlert],
+              ]}
+            />
           </>
         }
       />

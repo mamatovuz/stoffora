@@ -57,3 +57,6 @@ const ROLE_PERMS: Record<string, string[]> = {
   BRANCH_MANAGER: ["attendance.view", "attendance.edit", "dashboard.view", "ops.manage"],
 };
 export const can = (role: Role, permission: string) => (ROLE_PERMS[role] || []).some((p) => p === "*" || p === permission);
+
+
+export { canOpenPage, canWeb } from "./permissions";

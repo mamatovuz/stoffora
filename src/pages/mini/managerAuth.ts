@@ -10,7 +10,7 @@ export type ManagerAuth = {
   user: { id: string; name: string; role: Role; branchIds: string[]; photoDataUrl?: string };
   company: { id: string; name: string };
 };
-export type ManagerView = "desk" | "today" | "requests" | "map" | "week" | "money" | "devices";
+export type ManagerView = "desk" | "today" | "requests" | "map" | "week" | "money" | "devices" | "admin";
 
 /** Rahbar sessiyasini so‘raydi. Rahbar bo‘lmasa null (jim). */
 export async function requestManagerAuth(initData: string): Promise<ManagerAuth | null> {

@@ -7,22 +7,18 @@ import {
   useNavigate,
 } from "react-router-dom";
 import {
-  LayoutDashboard,
   Users,
   Clock3,
   CalendarDays,
   Building2,
   Network,
-  BriefcaseBusiness,
   ClipboardList,
   Banknote,
   ChartNoAxesCombined,
   Megaphone,
   MessagesSquare,
-  MapPinned,
   Bell,
   Settings,
-  ShieldCheck,
   ScrollText,
   Search,
   PanelLeftClose,
@@ -34,16 +30,11 @@ import {
   CircleUserRound,
   Plane,
   UserCog,
-  UserMinus,
   Lock,
   ClipboardCheck,
   TrendingUp,
-  ClockAlert,
   HandCoins,
   Gavel,
-  Trophy,
-  CalendarRange,
-  Package,
   Inbox,
   Wallet,
 } from "lucide-react";
@@ -59,44 +50,39 @@ import { useApi, usePolling } from "../hooks";
 import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
 
 type NavItem = [string, string, typeof Users, string?];
+/*
+ * Menyu ixcham: har kuni kerak bo‘ladigan bo‘limlar. Kamdan-kam ochiladiganlar
+ * (xarita, kalendar, bo‘shaganlar, lavozimlar, rollar, rag‘batlantirish, aktivlar)
+ * tegishli sahifa ichidagi havola orqali ochiladi; tasdiqlashlar — bitta «Tasdiqlashlar»da.
+ */
 const sections: { label: string; items: NavItem[] }[] = [
   {
     label: "Asosiy",
     items: [
       ["/workspace", "Ish stoli", ClipboardCheck],
       ["/inbox", "Tasdiqlashlar", Inbox, "inbox"],
-      ["/dashboard", "Bosh sahifa", LayoutDashboard],
       ["/attendance", "Keldi-ketdi", Clock3],
-      ["/map", "Xarita", MapPinned],
       ["/employees", "Xodimlar", Users],
-      ["/calendar", "Kalendar", CalendarDays],
       ["/leave", "Ta’til va yo‘qlik", Plane, "leave"],
-      ["/attendance-requests", "Davomat so‘rovlari", ClockAlert, "corrections"],
-      ["/registrations", "Arizalar", ClipboardCheck, "registrations"],
-      ["/dismissed", "Ishdan bo‘shaganlar", UserMinus],
-      ["/assets", "Aktivlar", Package],
+      ["/registrations", "Arizalar", ClipboardList, "registrations"],
     ],
   },
   {
     label: "Tashkilot",
     items: [
       ["/branches", "Filiallar", Building2],
-      ["/schedules", "Ish grafiklari", ClipboardList],
-      ["/shift-planner", "Smena rejasi", CalendarRange],
-      ["/org-chart", "Tashkiliy tuzilma", Network],
-      ["/departments", "Bo‘limlar", Network],
-      ["/positions", "Lavozimlar", BriefcaseBusiness],
+      ["/schedules", "Ish grafiklari", CalendarDays],
+      ["/departments", "Bo‘lim va lavozimlar", Network],
     ],
   },
   {
     label: "Moliya",
     items: [
       ["/finance", "Moliya xulosasi", Wallet],
-      ["/timesheet", "Timesheet", ClipboardList],
+      ["/timesheet", "Tabel", ClipboardList],
       ["/payroll", "Ish haqi", Banknote],
-      ["/advances", "Avans oluvchilar", HandCoins],
+      ["/advances", "Avanslar", HandCoins],
       ["/fines", "Jarimalar", Gavel, "fines"],
-      ["/rewards", "Rag‘batlantirish", Trophy],
     ],
   },
   {
@@ -106,25 +92,36 @@ const sections: { label: string; items: NavItem[] }[] = [
       ["/reports", "Hisobotlar", ChartNoAxesCombined],
       ["/announcements", "E’lonlar", Megaphone],
       ["/helpdesk", "Murojaatlar", MessagesSquare],
-      ["/notifications", "Bildirishnomalar", Bell, "notifications"],
     ],
   },
   {
     label: "Tizim",
     items: [
       ["/users", "Panel foydalanuvchilari", UserCog],
-      ["/roles", "Rollar", ShieldCheck],
       ["/audit", "Audit jurnali", ScrollText],
       ["/settings", "Sozlamalar", Settings],
     ],
   },
 ];
 
-const pageNames = Object.fromEntries(
-  sections.flatMap((section) =>
-    section.items.map(([path, label]) => [path, label]),
-  ),
-);
+/** Menyuda yo‘q, lekin ochiladigan sahifalar sarlavhasi (tepadagi «yo‘l» uchun). */
+const hiddenPages: [string, string][] = [
+  ["/dashboard", "Bosh sahifa"],
+  ["/map", "Xarita"],
+  ["/calendar", "Kalendar"],
+  ["/attendance-requests", "Davomat so‘rovlari"],
+  ["/dismissed", "Ishdan bo‘shaganlar"],
+  ["/assets", "Aktivlar"],
+  ["/positions", "Lavozimlar"],
+  ["/rewards", "Rag‘batlantirish"],
+  ["/notifications", "Bildirishnomalar"],
+  ["/roles", "Rollar"],
+];
+
+const pageNames = Object.fromEntries([
+  ...sections.flatMap((section) => section.items.map(([path, label]) => [path, label] as [string, string])),
+  ...hiddenPages,
+]);
 
 export function Shell() {
   const { user, refresh } = useAuth();
@@ -180,21 +177,18 @@ export function Shell() {
     };
   }, [reloadNotifications, reloadLeave]);
 
-  const { data: corrections, reload: reloadCorrections } = useApi<{ status: string }[]>(
-    user && canOpenPage(user.role, "/attendance-requests") ? "/attendance-corrections?status=PENDING" : null,
-  );
-  usePolling(() => void reloadCorrections(true), 30_000);
+  const { data: workspace, reload: reloadWorkspace } = useApi<{ inbox: { total: number } }>(user ? "/workspace/actions" : null);
+  usePolling(() => void reloadWorkspace(true), 60_000);
+  // Biror so‘rov tasdiqlansa — «Tasdiqlashlar» hisoblagichi darhol yangilanadi.
   useEffect(() => {
-    const on = () => void reloadCorrections(true);
+    const on = () => void reloadWorkspace(true);
     window.addEventListener("staffora:leave", on);
     window.addEventListener("staffora:notifications", on);
     return () => {
       window.removeEventListener("staffora:leave", on);
       window.removeEventListener("staffora:notifications", on);
     };
-  }, [reloadCorrections]);
-  const { data: workspace, reload: reloadWorkspace } = useApi<{ inbox: { total: number } }>(user ? "/workspace/actions" : null);
-  usePolling(() => void reloadWorkspace(true), 60_000);
+  }, [reloadWorkspace]);
   const { data: pendingFines, reload: reloadFines } = useApi<{ id: string }[]>(
     user && canAny(user.role, ["employees.edit", "payroll.edit"]) ? "/fines?status=PENDING" : null,
   );
@@ -207,7 +201,6 @@ export function Shell() {
     registrations: registrations?.counts.PENDING || 0,
     notifications: notifications?.filter((item) => !item.read).length || 0,
     leave: leave?.filter((item) => item.status === "PENDING").length || 0,
-    corrections: corrections?.length || 0,
     fines: pendingFines?.length || 0,
     inbox: workspace?.inbox.total || 0,
   };

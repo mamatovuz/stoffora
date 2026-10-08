@@ -43,6 +43,7 @@ import { FLAG_LABELS } from "@/lib/gps";
 import { Briefing, EmployeeCardSheet, QuickAnnounceSheet, TrendsList, type TrendRow } from "./mini/ManagerTools";
 import type { ManagerAuth, ManagerView } from "./mini/managerAuth";
 import { confirmNative, haptic, useMainButton, useSecondaryButton } from "./mini/tg";
+import { AdminMenu, AdminScreen, ADMIN_ITEMS, adminItemsFor, type AdminKey } from "./mini/Admin";
 
 /*
  * Rahbar rejimi: panelga kirmasdan Telegram’dan bugungi holat, so‘rovlar,
@@ -130,6 +131,8 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const call = useMemo(() => client(auth.token), [auth.token]);
   const role = auth.user.role;
   const [view, setView] = useState<ManagerView>(initialView || "desk");
+  // «Boshqaruv» ichidagi bo‘lim (xodimlar, ish haqi, grafiklar…).
+  const [adminScreen, setAdminScreen] = useState<AdminKey | null>(null);
   const [day, setDay] = useState<Day | null>(null);
   const [leaves, setLeaves] = useState<LeaveRow[]>([]);
   const [swaps, setSwaps] = useState<SwapRow[]>([]);
@@ -336,6 +339,21 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
     )
     .sort((a, b) => order(a) - order(b) || `${a.employee.firstName}`.localeCompare(`${b.employee.firstName}`));
   const pendingCount = fines.length + marks.length + leaves.length + swaps.length + dayoffs.length + advances.length + overtime.length;
+  // Ixcham 4 ta tab: Ish stoli · Bugun (ro‘yxat/xarita) · So‘rovlar · Boshqaruv (qolgan hammasi).
+  const adminExtra = [
+    ...(canAnalytics ? [{ key: "week", label: "Xulosa va trendlar", hint: "davomat reytingi, diqqat talab qilganlar", icon: <TrendingUp size={18} /> }] : []),
+    ...(canMoney ? [{ key: "money", label: "Moliya, avans va jarimalar", hint: "oy xulosasi, avans to‘lash", icon: <HandCoins size={18} /> }] : []),
+    ...(canDevices ? [{ key: "devices", label: "Telefonlar (qurilmalar)", hint: "ulash, almashtirish, o‘chirish", icon: <LogIn size={18} /> }] : []),
+  ];
+  const hasAdmin = adminExtra.length > 0 || adminItemsFor(role).length > 0;
+  const tabs = [
+    ["desk", "Ish stoli", 0] as const,
+    ...(canAttendance ? ([["today", "Bugun", 0]] as const) : []),
+    ...(canRequests ? ([["requests", "So‘rovlar", pendingCount]] as const) : []),
+    ...(hasAdmin ? ([["admin", "Boshqaruv", 0]] as const) : []),
+  ];
+  const tabOf = (v: ManagerView): ManagerView => (v === "map" ? "today" : v === "week" || v === "money" || v === "devices" ? "admin" : v);
+
   const markDays = [...new Set(marks.map((m) => m.date))].sort((a, b) => b.localeCompare(a));
   const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
 
@@ -418,26 +436,17 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
         </span>
         {badge.sheet}
       </div>
-      <div className={`mini-seg ${["", "one", "", "three", "four", "five", "six"][[true, canAttendance, canRequests, canAttendance, canAnalytics, canMoney, canDevices].filter(Boolean).length] || "seven"}`} role="tablist">
-        {(
-          [
-            ["desk", "Ish stoli", 0] as const,
-            ...(canAttendance ? ([["today", "Bugun", 0]] as const) : []),
-            ...(canRequests ? ([["requests", "So‘rovlar", pendingCount]] as const) : []),
-            ...(canAttendance ? ([["map", "Xarita", 0]] as const) : []),
-            ...(canAnalytics ? ([["week", "Xulosa", 0]] as const) : []),
-            ...(canMoney ? ([["money", "Moliya", 0]] as const) : []),
-            ...(canDevices ? ([["devices", "Qurilma", 0]] as const) : []),
-          ] as const
-        ).map(([key, label, badge]) => (
+      <div className={`mini-seg ${["", "one", "", "three", "four"][tabs.length] || "four"}`} role="tablist">
+        {tabs.map(([key, label, badge]) => (
           <button
             key={key}
             role="tab"
-            aria-selected={view === key}
-            className={view === key ? "on" : ""}
+            aria-selected={tabOf(view) === key}
+            className={tabOf(view) === key ? "on" : ""}
             onClick={() => {
               haptic.select();
               setView(key);
+              if (key === "admin") setAdminScreen(null);
             }}
           >
             {label}
@@ -445,6 +454,45 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           </button>
         ))}
       </div>
+      {(view === "today" || view === "map") && canAttendance && (
+        <div className="mini-seg mg-subseg" role="tablist">
+          {(
+            [
+              ["today", "Ro‘yxat"],
+              ["map", "Xarita"],
+            ] as const
+          ).map(([key, label]) => (
+            <button key={key} role="tab" aria-selected={view === key} className={view === key ? "on" : ""} onClick={() => setView(key)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+      {tabOf(view) === "admin" && (view !== "admin" || adminScreen) ? (
+        <button
+          className="adm-back"
+          onClick={() => {
+            setView("admin");
+            setAdminScreen(null);
+          }}
+        >
+          ‹ Boshqaruv
+          <b>{adminScreen ? ADMIN_ITEMS.find((i) => i.key === adminScreen)?.label : adminExtra.find((i) => i.key === view)?.label}</b>
+        </button>
+      ) : null}
+      {view === "admin" &&
+        (adminScreen ? (
+          <AdminScreen screen={adminScreen} call={call} role={role} onToast={onToast} />
+        ) : (
+          <AdminMenu
+            role={role}
+            extra={adminExtra}
+            onOpen={(key) => {
+              if (ADMIN_ITEMS.some((i) => i.key === key)) setAdminScreen(key as AdminKey);
+              else setView(key as ManagerView);
+            }}
+          />
+        ))}
 
       {view === "today" &&
         (!canAttendance ? (

@@ -1,24 +1,14 @@
 import { Link, useNavigate } from "react-router-dom";
 import {
-  AlertTriangle,
   ArrowRight,
   Bell,
-  Building2,
   CalendarClock,
-  Check,
-  ClipboardList,
   Clock3,
-  Network,
   Plane,
   ScanFace,
-  Send,
   UserPlus,
   Users,
-  Bot,
-  Wallet,
-  Banknote,
   PartyPopper,
-  X,
 } from "lucide-react";
 import {
   Area,
@@ -48,26 +38,15 @@ import {
 import type { Notification } from "@/lib/types";
 import { dateLongUz, dateUz, weekdayShortUz } from "@/lib/format";
 import type { RosterRow, RosterStats } from "../types";
+import { SetupChecklist, type SetupData } from "../components/SetupChecklist";
 
 type Dashboard = {
   stats: RosterStats;
   roster: RosterRow[];
   weekly: { date: string; present: number; late: number; absent: number; rate: number | null }[];
-  setup: {
-    branches: number;
-    departments: number;
-    positions: number;
-    schedules: number;
-    employees: number;
-    telegramLinked: number;
-    faceEnrolled: number;
-    salaries: number;
-    payrollConfigured: boolean;
-    companyBot: boolean;
-    panelUsers: number;
-  };
+  setup: SetupData["setup"];
   celebrations: { employeeId: string; name: string; kind: "BIRTHDAY" | "ANNIVERSARY"; date: string; daysLeft: number; years: number }[];
-  bot: { state: string; username?: string };
+  bot: SetupData["bot"];
   notifications: Notification[];
   leave: number;
 };
@@ -91,15 +70,6 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const [days, setDays] = useState<"7" | "14" | "30">("7");
   const { data, loading, error, reload } = useApi<Dashboard>(`/dashboard?days=${days}`);
-  // Yashirilgan bo‘lsa — yangi qadam bajarilgunicha ko‘rinmaydi.
-  const [hiddenAt, setHiddenAt] = useState<number | null>(() => {
-    try {
-      const value = localStorage.getItem("staffora_hide_setup");
-      return value === null ? null : Number(value);
-    } catch {
-      return null;
-    }
-  });
   usePolling(() => void reload(true), 30_000);
 
   if (loading && !data)
@@ -116,75 +86,12 @@ export function DashboardPage() {
     );
 
   const s = data.stats;
+  const setup = data.setup;
   const expected = Math.max(0, s.total - s.dayOff - s.leave);
   const rate = expected ? Math.round((s.present / expected) * 100) : 0;
   const onTime = Math.max(0, s.present - s.late);
   const bar = (value: number) =>
     s.total ? `${(value / s.total) * 100}%` : "0%";
-  const setup = data.setup;
-  const steps = [
-    {
-      done: setup.schedules > 0,
-      title: "Ish grafigini yarating",
-      text: "Ish vaqti, tanaffus va kechikish imtiyozi",
-      to: "/schedules",
-      icon: ClipboardList,
-    },
-    {
-      done: setup.branches > 0,
-      title: "Filial qo‘shing",
-      text: "Manzil, GPS nuqta va davomat radiusi",
-      to: "/branches",
-      icon: Building2,
-    },
-    {
-      done: setup.departments > 0 && setup.positions > 0,
-      title: "Bo‘lim va lavozimlar",
-      text: "Tashkiliy tuzilmani belgilang",
-      to: setup.departments ? "/positions" : "/departments",
-      icon: Network,
-    },
-    {
-      done: setup.employees > 0,
-      title: "Xodimlarni qo‘shing",
-      text: "Telefon raqami bilan — bot orqali ulanadi",
-      to: "/employees/new",
-      icon: UserPlus,
-    },
-    {
-      done: setup.companyBot,
-      title: "Ro‘yxat botini ulang",
-      text: "Xodimlar botda anketa to‘ldirib o‘zlari qo‘shiladi",
-      to: "/settings?tab=regbot",
-      icon: Bot,
-    },
-    {
-      done: setup.employees > 0 && setup.telegramLinked > 0,
-      title: "Xodimlar Telegram’ni ulasin",
-      text: data.bot.username
-        ? `@${data.bot.username} → /start → telefon raqam`
-        : "Bot tokenini sozlang",
-      to: "/employees",
-      icon: Send,
-    },
-    {
-      done: setup.payrollConfigured,
-      title: "Ish haqi qoidalari",
-      text: "Kechikish jarimasi, qo‘shimcha ish, kelmaslik ushlanmasi",
-      to: "/settings?tab=payroll",
-      icon: Wallet,
-    },
-    {
-      done: setup.employees > 0 && setup.salaries >= setup.employees,
-      title: "Oyliklarni kiriting",
-      text: `${setup.salaries} / ${setup.employees} xodimning oyligi kiritilgan`,
-      to: "/payroll",
-      icon: Banknote,
-    },
-  ];
-  const setupDone = steps.filter((step) => step.done).length;
-  const canSetup = user?.role === "COMPANY_OWNER" || user?.role === "HR_ADMIN";
-  const hideSetup = hiddenAt !== null && hiddenAt >= setupDone;
   const todayIso = data.weekly[data.weekly.length - 1]?.date;
   const chart = data.weekly.map((item) => ({
     ...item,
@@ -217,70 +124,7 @@ export function DashboardPage() {
         }
       />
 
-      {canSetup && setupDone < steps.length && !hideSetup && (
-        <section className="card onboarding">
-          <div>
-            <span className="badge blue plain">Boshlash</span>
-            <button
-              className="icon-btn onboarding-close"
-              aria-label="Yashirish"
-              title="Keyinroq"
-              onClick={() => {
-                setHiddenAt(setupDone);
-                try {
-                  localStorage.setItem("staffora_hide_setup", String(setupDone));
-                } catch {
-                  /* e’tiborsiz */
-                }
-              }}
-            >
-              <X size={16} />
-            </button>
-            <h2 style={{ marginTop: 10 }}>Staffora’ni {steps.length} qadamda sozlang</h2>
-            <p>
-              Keldi-ketdi ishlashi uchun avval grafik va filial kerak. So‘ng
-              xodimlarni qo‘shing — ular botda telefon raqamini yuborib avtomatik
-              ulanadi.
-            </p>
-            <div className="progress" style={{ maxWidth: 320 }}>
-              <i style={{ width: `${(setupDone / steps.length) * 100}%` }} />
-            </div>
-            <p className="hint" style={{ marginTop: 8 }}>
-              {setupDone} / {steps.length} bajarildi
-            </p>
-            {data.bot.state !== "running" && (
-              <div className="alert warn" style={{ marginTop: 16 }}>
-                <AlertTriangle size={18} />
-                <div>
-                  <b>Telegram bot ishlamayapti</b>
-                  <p>
-                    Serverda TELEGRAM_BOT_TOKEN va HTTPS APP_URL sozlanganini
-                    tekshiring. Holat: {data.bot.state}.
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
-          <div className="checklist">
-            {steps.map((step) => (
-              <Link
-                key={step.title}
-                to={step.to}
-                className={`check-item ${step.done ? "done" : ""}`}
-              >
-                <span className="check-dot">
-                  <Check size={14} strokeWidth={3} />
-                </span>
-                <span>
-                  <b>{step.title}</b>
-                  <small>{step.text}</small>
-                </span>
-                <step.icon size={17} className="faint" />
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
+      <SetupChecklist data={data} />
 
       <section className="hero">
         <div>
