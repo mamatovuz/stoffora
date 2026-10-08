@@ -1,14 +1,15 @@
 import { dataIndexes, readDb } from "../lib/store";
 import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { notifyEmployee } from "./integrations/hooks";
-import { dayPlan } from "../lib/schedule";
+import { dayPlan, type DayPlan } from "../lib/schedule";
+import { addDays, DAY_MINUTES, isOvernight, shiftWindow } from "../lib/shift-time";
 import { isPracticeDay } from "../lib/counting";
 import { notifyManagers } from "./mini-extra";
 import { pushToEmployee } from "./push";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { updateDb } from "../lib/store";
-import type { Employee } from "../lib/types";
+import type { Attendance, Employee } from "../lib/types";
 import type { EmployeeSession } from "./auth";
 
 /** Standart: kelmagan bo‘lsa — boshlanishdan 15 daqiqa keyin; chiqmagan bo‘lsa — tugashdan 20 daqiqa keyin. */
@@ -73,7 +74,10 @@ export function startAttendanceReminders() {
     try {
       const date = tashkentIsoDate();
       if (date !== currentDate) {
+        // Kechki smenaning ketish eslatmasi yarim tundan keyin qayta yuborilmasin.
+        const keep = [...sent].filter((key) => key.endsWith(`:out:${currentDate}`));
         sent.clear();
+        for (const key of keep) sent.add(key);
         currentDate = date;
       }
       const now = toMinutes(tashkentClock());
@@ -100,6 +104,36 @@ export function startAttendanceReminders() {
         void weekday;
         // Mashq davri va smena almashish hisobga olinadi.
         const day = dayPlan(db, employee, date);
+        const reachable =
+          Boolean(process.env.TELEGRAM_BOT_TOKEN) &&
+          ((employee.telegramConnected && employee.telegramId && !employee.telegramId.startsWith("dev")) || hasBotLink(employee.id, employee.companyId));
+        // Mobil ilova: faol (ishonchli qurilmadagi) push tokeni bor xodim.
+        const pushable = process.env.MOBILE_PUSH !== "false" && withPush.has(employee.id);
+        const prefs = reminderPrefs(employee);
+        // Ketish eslatmasi. `nowOnShift`, `endOnShift` — smena boshlangan kunning 00:00 idan daqiqa.
+        const remindCheckout = (plan: DayPlan, record: Attendance | undefined, nowOnShift: number, endOnShift: number, key: string) => {
+          const outAt = endOnShift + prefs.end.offset;
+          if (!prefs.end.enabled || !record?.checkIn || record.checkOut || nowOnShift < outAt || nowOnShift >= outAt + 300 || sent.has(key)) return;
+          sent.add(key);
+          const before = prefs.end.offset < 0;
+          const text = before
+            ? `🏁 ${employee.firstName}, ish ${plan.end} da tugaydi (${Math.abs(prefs.end.offset)} daqiqadan keyin). Ketayotganda «Ishdan ketdim»ni bosishni unutmang.`
+            : `🏁 ${employee.firstName}, ish vaqti ${plan.end} da tugadi. Ketishni belgilashni unutmang.`;
+          if (reachable) void notifyEmployee(db, employee, "attendance", text, { openButton: true, go: "checkout" }).catch(() => undefined);
+          if (pushable)
+            void pushToEmployee(
+              employee.id,
+              before
+                ? { title: `🏁 Ish ${plan.end} da tugaydi`, body: `${Math.abs(prefs.end.offset)} daqiqa qoldi. Ketishni belgilashni unutmang.`, data: { go: "checkout" } }
+                : { title: "🏁 Ish vaqti tugadi", body: `Ish ${plan.end} da tugadi. Ketishni belgilashni unutmang.`, data: { go: "checkout" } },
+              db,
+            ).catch(() => 0);
+        };
+        // Kechagi kechki smena (14:00 → 00:00, 22:00 → 06:00) yarim tundan keyin ham davom etadi.
+        const yesterday = addDays(date, -1);
+        const lastNight = dayPlan(db, employee, yesterday);
+        if ((reachable || pushable) && lastNight.enabled && isOvernight(lastNight.start, lastNight.end))
+          remindCheckout(lastNight, index.attendanceByKey.get(`${employee.id}|${yesterday}`), now + DAY_MINUTES, shiftWindow(lastNight.start, lastNight.end).to, `${employee.id}:out:${yesterday}`);
         if (!day.enabled) continue;
         const record = index.attendanceByKey.get(`${employee.id}|${date}`);
         const company = db.companies.find((c) => c.id === employee.companyId);
@@ -118,19 +152,10 @@ export function startAttendanceReminders() {
           if (notice) group.noticed += 1;
           missing.set(digestKey, group);
         }
-        const reachable =
-          Boolean(process.env.TELEGRAM_BOT_TOKEN) &&
-          ((employee.telegramConnected && employee.telegramId && !employee.telegramId.startsWith("dev")) || hasBotLink(employee.id, employee.companyId));
-        // Mobil ilova: faol (ishonchli qurilmadagi) push tokeni bor xodim.
-        const pushable = process.env.MOBILE_PUSH !== "false" && withPush.has(employee.id);
         if (!reachable && !pushable) continue;
-        const start = toMinutes(day.start);
-        let end = toMinutes(day.end);
         // Tungi smena (masalan 14:00–00:00): tugash ertasi kunga o‘tadi.
-        if (end <= start) end += 24 * 60;
-        const prefs = reminderPrefs(employee);
+        const { from: start, to: end } = shiftWindow(day.start, day.end);
         const inKey = `${employee.id}:in`;
-        const outKey = `${employee.id}:out`;
         const inAt = start + prefs.start.offset;
         if (prefs.start.enabled && !record?.checkIn && now >= inAt && now < inAt + 180 && now < end && !sent.has(inKey)) {
           sent.add(inKey);
@@ -148,23 +173,7 @@ export function startAttendanceReminders() {
               db,
             ).catch(() => 0);
         }
-        const outAt = end + prefs.end.offset;
-        if (prefs.end.enabled && record?.checkIn && !record.checkOut && now >= outAt && now < outAt + 300 && !sent.has(outKey)) {
-          sent.add(outKey);
-          const before = prefs.end.offset < 0;
-          const text = before
-            ? `🏁 ${employee.firstName}, ish ${day.end} da tugaydi (${Math.abs(prefs.end.offset)} daqiqadan keyin). Ketayotganda «Ishdan ketdim»ni bosishni unutmang.`
-            : `🏁 ${employee.firstName}, ish vaqti ${day.end} da tugadi. Ketishni belgilashni unutmang.`;
-          if (reachable) void notifyEmployee(db, employee, "attendance", text, { openButton: true, go: "checkout" }).catch(() => undefined);
-          if (pushable)
-            void pushToEmployee(
-              employee.id,
-              before
-                ? { title: `🏁 Ish ${day.end} da tugaydi`, body: `${Math.abs(prefs.end.offset)} daqiqa qoldi. Ketishni belgilashni unutmang.`, data: { go: "checkout" } }
-                : { title: "🏁 Ish vaqti tugadi", body: `Ish ${day.end} da tugadi. Ketishni belgilashni unutmang.`, data: { go: "checkout" } },
-              db,
-            ).catch(() => 0);
-        }
+        remindCheckout(day, record, now, end, `${employee.id}:out:${date}`);
       }
       for (const [key, group] of missing) {
         sent.add(key);

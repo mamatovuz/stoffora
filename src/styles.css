@@ -2457,6 +2457,18 @@ a.check-item:hover {
 .day-editor-row .input {
   min-height: 34px;
 }
+.day-editor-end {
+  display: grid;
+  gap: 2px;
+}
+.day-editor-end small {
+  font-size: 11px;
+  color: var(--muted);
+}
+.day-editor-end small.next-day {
+  color: var(--brand-600);
+  font-weight: 600;
+}
 .mode-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

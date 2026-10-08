@@ -35,6 +35,7 @@ import {
   useToast,
 } from "../components/ui";
 import { dateLongUz, duration, tashkentClock, tashkentIsoDate } from "@/lib/format";
+import { forwardMinutes, isOvernight } from "@/lib/shift-time";
 import { FLAG_LABELS } from "@/lib/gps";
 import {
   addDays,
@@ -651,7 +652,13 @@ function AttendanceForm({
           </Field>
           <Field
             label="Ketish vaqti"
-            hint={row.scheduledEnd ? `Grafik: ${row.scheduledEnd}` : "Bo‘sh qoldirsa — hali ishda"}
+            hint={
+              checkIn && checkOut && checkOut < checkIn
+                ? `Ertasi kuni · ${duration(forwardMinutes(checkIn, checkOut))} ishlagan`
+                : row.scheduledEnd
+                  ? `Grafik: ${row.scheduledEnd}${row.scheduledStart && isOvernight(row.scheduledStart, row.scheduledEnd) ? " (ertasi kuni)" : ""}`
+                  : "Bo‘sh qoldirsa — hali ishda"
+            }
           >
             <input
               className="input"

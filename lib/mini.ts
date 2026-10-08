@@ -1,4 +1,5 @@
 import type { AttendanceFlag, BiometricDevice } from "./types";
+import { forwardMinutes } from "./shift-time";
 
 /*
  * Mini App’ning sof (I/O siz) mantiqi — server ham, frontend ham, testlar ham ishlatadi.
@@ -172,9 +173,9 @@ export function biometricNeedsFace(device: Pick<BiometricDevice, "uses" | "lastF
 }
 
 /* --------------------------------------------------------- tanaffuslar --- */
-const toMin = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 
 /** Tanaffuslarning jami davomiyligi (daqiqa); tugamagani `now` gacha hisoblanadi. */
 export function breakMinutes(breaks: { start: string; end?: string }[] | undefined, now: string) {
-  return (breaks || []).reduce((sum, b) => sum + Math.max(0, toMin(b.end || now) - toMin(b.start)), 0);
+  // Yarim tundan o‘tgan tanaffus ham (23:50 → 00:10 = 20 daqiqa).
+  return (breaks || []).reduce((sum, b) => sum + forwardMinutes(b.start, b.end || now), 0);
 }

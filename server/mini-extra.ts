@@ -5,7 +5,7 @@ import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { audit, dataIndexes, readDb, updateDb } from "../lib/store";
 import { tashkentClock, tashkentIsoDate } from "../lib/format";
-import { dayPlan } from "../lib/schedule";
+import { dayPlan, shiftDateAt } from "../lib/schedule";
 import { can } from "../lib/permissions";
 import { attendanceStreak, biometricNeedsFace, breakMinutes, DEFAULT_FACE_EVERY, streakBadge, type StreakDay } from "../lib/mini";
 import { countingStartDate } from "../lib/counting";
@@ -441,10 +441,10 @@ export function createMiniExtraRouter() {
     route(async (req, res) => {
       const auth = sessionOf(req);
       const { action } = z.object({ action: z.enum(["start", "end"]) }).parse(req.body);
-      const date = tashkentIsoDate();
       const time = tashkentClock();
       const row = await updateDb((db) => {
         const employee = ownEmployee(db, auth);
+        const date = shiftDateAt(db, employee, tashkentIsoDate(), time);
         if (!miniFeatures(db, employee).breaks) throw httpError("Tanaffus belgilash kompaniyada yoqilmagan.", 403);
         const record = db.attendance.find((a) => a.employeeId === employee.id && a.date === date);
         if (!record?.checkIn || record.checkOut) throw httpError("Tanaffus faqat ish vaqtida belgilanadi.", 409);
@@ -456,7 +456,7 @@ export function createMiniExtraRouter() {
           record.breaks.push({ start: time });
         } else {
           if (!open) throw httpError("Ochiq tanaffus yo‘q.", 409);
-          open.end = time < open.start ? open.start : time;
+          open.end = time;
         }
         record.updatedAt = new Date().toISOString();
         return { breaks: record.breaks, totalMinutes: breakMinutes(record.breaks, time) };

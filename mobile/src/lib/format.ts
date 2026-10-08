@@ -37,7 +37,10 @@ export const duration = (minutes: number) => {
   const m = minutes % 60;
   return h ? `${h} soat${m ? ` ${m} daq` : ""}` : `${m} daq`;
 };
-export const minutesSince = (hhmm: string, now = new Date()) => Math.max(0, toMinutes(tashkentClock(now)) - toMinutes(hhmm));
+/** `from` dan `to` gacha oldinga (yarim tundan o‘tsa ham: 23:30 → 00:30 = 60). */
+export const forwardMinutes = (from: string, to: string) => (toMinutes(to) - toMinutes(from) + 1440) % 1440;
+/** Kelgandan beri — kechki smenada (14:00 → 00:00) yarim tundan keyin ham to‘g‘ri. */
+export const minutesSince = (hhmm: string, now = new Date()) => forwardMinutes(hhmm, tashkentClock(now));
 export const som = (value: number) => `${Math.round(value).toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m`;
 export const timeAgo = (iso: string) => {
   const minutes = Math.round((Date.now() - Date.parse(iso)) / 60_000);

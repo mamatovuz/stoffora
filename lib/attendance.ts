@@ -1,5 +1,10 @@
 import type { Attendance, QrNonce } from "./types";
+import { clockOnShiftDay, forwardMinutes, shiftWindow } from "./shift-time";
 
+/** Keyingi kunga o‘tadigan davomatda eng uzun ish vaqti (kirish → chiqish). */
+export const NEXT_DAY_MAX_MINUTES = 16 * 60;
+
+/** Bir kun ichidagi farq (manfiy bo‘lsa 0). Smena hisoblari — `lib/shift-time`. */
 export function minutesBetween(start: string, end: string) {
   const [sh, sm] = start.split(":").map(Number);
   const [eh, em] = end.split(":").map(Number);
@@ -12,6 +17,10 @@ export function isValidClockTime(value: string) {
   return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59;
 }
 
+/**
+ * Chiqish kirishdan kichik bo‘lsa (14:00 → 00:30) — chiqish keyingi kunda deb olinadi.
+ * Bunday holatda ish vaqti NEXT_DAY_MAX_MINUTES dan oshmasligi kerak (17:00 → 16:00 kabi xatoni ushlaydi).
+ */
 export function assertAttendanceTimeOrder(checkIn: string, checkOut?: string) {
   if (!isValidClockTime(checkIn) || (checkOut && !isValidClockTime(checkOut)))
     throw Object.assign(
@@ -20,13 +29,20 @@ export function assertAttendanceTimeOrder(checkIn: string, checkOut?: string) {
         status: 400,
       },
     );
-  if (checkOut && minutesBetween(checkIn, checkOut) === 0)
+  if (!checkOut) return;
+  const worked = forwardMinutes(checkIn, checkOut);
+  if (worked === 0 || (checkOut < checkIn && worked > NEXT_DAY_MAX_MINUTES))
     throw Object.assign(
-      new Error("Chiqish vaqti kirish vaqtidan keyin bo‘lishi kerak."),
+      new Error("Chiqish vaqti kirish vaqtidan keyin bo‘lishi kerak (keyingi kunga o‘tsa — 16 soatgacha)."),
       { status: 400 },
     );
 }
 
+/**
+ * Kechikish, erta ketish, ishlangan vaqt va qo‘shimcha ish — smena boshlangan ish
+ * kuni o‘qida, shuning uchun kechasi tugaydigan smenalar ham to‘g‘ri:
+ * 14:00 → 00:00, 18:00 → 02:00, 22:00 → 06:00, 23:30 → 00:30.
+ */
 export function calculateAttendance(input: {
   scheduledStart: string;
   scheduledEnd: string;
@@ -35,17 +51,14 @@ export function calculateAttendance(input: {
   graceMinutes: number;
 }) {
   assertAttendanceTimeOrder(input.checkIn, input.checkOut);
-  const rawLate = minutesBetween(input.scheduledStart, input.checkIn);
+  const plan = shiftWindow(input.scheduledStart, input.scheduledEnd);
+  const arrived = clockOnShiftDay(input.checkIn, input.scheduledStart, input.scheduledEnd);
+  const left = input.checkOut ? arrived + forwardMinutes(input.checkIn, input.checkOut) : undefined;
+  const rawLate = Math.max(0, arrived - plan.from);
   const lateMinutes = rawLate > input.graceMinutes ? rawLate : 0;
-  const earlyLeaveMinutes = input.checkOut
-    ? minutesBetween(input.checkOut, input.scheduledEnd)
-    : 0;
-  const workedMinutes = input.checkOut
-    ? minutesBetween(input.checkIn, input.checkOut)
-    : 0;
-  const overtimeMinutes = input.checkOut
-    ? minutesBetween(input.scheduledEnd, input.checkOut)
-    : 0;
+  const earlyLeaveMinutes = left === undefined ? 0 : Math.max(0, plan.to - left);
+  const workedMinutes = left === undefined ? 0 : left - arrived;
+  const overtimeMinutes = left === undefined ? 0 : Math.max(0, left - Math.max(plan.to, arrived));
   return {
     lateMinutes,
     earlyLeaveMinutes,

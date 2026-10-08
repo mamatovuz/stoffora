@@ -4,7 +4,7 @@ import { rateLimit } from "express-rate-limit";
 import { z } from "zod";
 import { audit, readDb, updateDb } from "../lib/store";
 import { canAny } from "../lib/permissions";
-import { calculateAttendance } from "../lib/attendance";
+import { assertAttendanceTimeOrder, calculateAttendance } from "../lib/attendance";
 import { allowedBranches } from "../lib/branches";
 import { tashkentClock, tashkentIsoDate } from "../lib/format";
 import { dayPlan } from "../lib/schedule";
@@ -141,7 +141,10 @@ export function createMiniCorrectionRouter() {
           const pendingIn = mine.find((r) => r.date === input.date && r.kind === "IN");
           if (!record?.checkIn && !pendingIn) throw httpError(`${dmy(input.date)} kuni kirish qaydi yo‘q — avval «Kirish» so‘rovini yuboring.`, 422);
           const from = record?.checkIn || pendingIn!.time;
+          // Chiqish kirishdan kichik bo‘lsa — keyingi kunda (kechki smena: 14:00 → 00:30).
           if (input.time === from) throw httpError("Chiqish vaqti kirish vaqtidan farq qilishi kerak.", 422);
+          if (input.time < from && input.date === today) throw httpError("Kelajakdagi vaqt uchun so‘rov yuborib bo‘lmaydi.", 422);
+          assertAttendanceTimeOrder(from, input.time);
         }
         const now = new Date().toISOString();
         const row: AttendanceCorrection = {

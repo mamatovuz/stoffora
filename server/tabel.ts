@@ -1,4 +1,5 @@
 import ExcelJS from "exceljs";
+import { forwardMinutes } from "../lib/shift-time";
 import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import { z } from "zod";
 import { dataIndexes, readDb } from "../lib/store";
@@ -45,10 +46,8 @@ export type T13Row = {
 };
 
 const round1 = (value: number) => Math.round(value * 10) / 10;
-const minutesBetween = (start: string, end: string) => {
-  const toMin = (v: string) => Number(v.slice(0, 2)) * 60 + Number(v.slice(3, 5));
-  return Math.max(0, toMin(end) - toMin(start));
-};
+/** Kirish → chiqish yoki grafik boshi → oxiri (yarim tundan o‘tsa ham). */
+const minutesBetween = forwardMinutes;
 
 /** T-13 tabeli qatorlari (sof funksiya — test qilinadi). */
 export function t13Rows(db: Database, tenant: string, month: string, today = tashkentIsoDate()): T13Row[] {

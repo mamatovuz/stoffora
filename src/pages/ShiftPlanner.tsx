@@ -3,6 +3,8 @@ import { CalendarRange, ChevronLeft, ChevronRight, Coffee, Plus, RotateCcw, Wand
 import { errorText, post, put } from "../api";
 import { useApi } from "../hooks";
 import { Empty, ErrorBox, Field, Loading, Modal, PageHeader, useToast } from "../components/ui";
+import { duration } from "@/lib/format";
+import { isOvernight, shiftMinutes } from "@/lib/shift-time";
 import type { Branch } from "@/lib/types";
 
 /*
@@ -300,7 +302,7 @@ function TemplateModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
         <Field label="Boshlanish">
           <input className="input" type="time" value={form.start} onChange={(e) => setForm({ ...form, start: e.target.value })} />
         </Field>
-        <Field label="Tugash">
+        <Field label="Tugash" hint={form.start !== form.end ? `${isOvernight(form.start, form.end) ? "Ertasi kuni · " : ""}${duration(shiftMinutes(form.start, form.end))}` : "Boshlanishdan farq qilsin"}>
           <input className="input" type="time" value={form.end} onChange={(e) => setForm({ ...form, end: e.target.value })} />
         </Field>
       </div>
@@ -311,7 +313,7 @@ function TemplateModal({ onClose, onDone }: { onClose: () => void; onDone: () =>
         <button className="btn" onClick={onClose}>
           Bekor qilish
         </button>
-        <button className="btn btn-primary" disabled={form.name.trim().length < 2} onClick={() => void save()}>
+        <button className="btn btn-primary" disabled={form.name.trim().length < 2 || form.start === form.end} onClick={() => void save()}>
           Saqlash
         </button>
       </div>

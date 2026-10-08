@@ -10,9 +10,9 @@ import {
   webhookCallback,
 } from "grammy";
 import { audit, readDb, updateDb } from "../lib/store";
-import { phoneKey, tashkentIsoDate } from "../lib/format";
+import { phoneKey, tashkentClock, tashkentIsoDate } from "../lib/format";
 import type { Database, Employee } from "../lib/types";
-import { dayPlan } from "../lib/schedule";
+import { dayPlan, shiftDateAt } from "../lib/schedule";
 
 type TelegramBotState = {
   state: "disabled" | "starting" | "running" | "error";
@@ -450,10 +450,12 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
     const lang = botLang(from, employee);
     const branch = db.branches.find((item) => item.id === employee.branchId);
     // Shaxsiy dam kuni va ko‘chirishlar hisobga olingan bugungi reja.
-    const day = dayPlan(db, employee, tashkentIsoDate());
+    // Kechki smena yarim tundan o‘tgan bo‘lsa — hali o‘sha smena.
+    const shiftDate = shiftDateAt(db, employee, tashkentIsoDate(), tashkentClock());
+    const day = dayPlan(db, employee, shiftDate);
     const today = db.attendance.find(
       (item) =>
-        item.employeeId === employee.id && item.date === tashkentIsoDate(),
+        item.employeeId === employee.id && item.date === shiftDate,
     );
     const companyName = db.companies.find((c) => c.id === employee.companyId)?.name || "—";
     await ctx.reply(
@@ -708,8 +710,9 @@ async function employeeCommand(
       extra,
     );
   }
+  const shiftDate = shiftDateAt(db, employee, tashkentIsoDate(), tashkentClock());
   const attendance = db.attendance.find(
-    (a) => a.employeeId === employee.id && a.date === tashkentIsoDate(),
+    (a) => a.employeeId === employee.id && a.date === shiftDate,
   );
   return ctx.reply(
     `📋 Bugungi davomat\n\nHolat: ${attendance ? statusLabel[attendance.status] || attendance.status : "Hali qayd etilmagan"}\nKelish: ${attendance?.checkIn || "—"}\nKetish: ${attendance?.checkOut || "—"}${attendance?.lateMinutes ? `\nKechikish: ${attendance.lateMinutes} daqiqa` : ""}`,

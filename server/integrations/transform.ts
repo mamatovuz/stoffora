@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { clockMinutes, DAY_MINUTES, shiftWindow } from "../../lib/shift-time";
 import { tashkentClock, tashkentIsoDate } from "../../lib/format";
 import type { Attendance, Branch, Department, Employee, Position } from "../../lib/types";
 
@@ -275,9 +276,10 @@ export function attendanceFromRemote(
   const workedMinutes = Math.max(0, Math.round(Number(remote.worked_seconds ?? (remote.worked_minutes || 0) * 60) / 60));
   const scheduledStart = schedule?.start || checkIn.clock;
   const scheduledEnd = schedule?.end || checkOut?.clock || checkIn.clock;
-  const toMin = (clock: string) => Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3, 5));
+  // Smena boshlangan kun o‘qida: kechki smena (14:00 → 00:00) va ertasi kungi ketish ham.
+  const dayOffset = (iso: string) => Math.round((Date.parse(`${iso}T12:00:00Z`) - Date.parse(`${date}T12:00:00Z`)) / 86_400_000) * DAY_MINUTES;
   const overtimeMinutes =
-    checkOut && schedule && checkOut.date === date ? Math.max(0, toMin(checkOut.clock) - toMin(schedule.end)) : 0;
+    checkOut && schedule ? Math.max(0, dayOffset(checkOut.date) + clockMinutes(checkOut.clock) - shiftWindow(schedule.start, schedule.end).to) : 0;
   const methods = [remote.verification_method, remote.check_out_verification_method]
     .map((m) => (m ? verificationMap[m] : undefined))
     .filter((m): m is Attendance["verification"][number] => Boolean(m));

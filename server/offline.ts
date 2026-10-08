@@ -6,7 +6,7 @@ import { calculateAttendance, haversineDistance } from "../lib/attendance";
 import { tashkentClock, tashkentIsoDate } from "../lib/format";
 import { assertFaceDescriptor, faceMatchThreshold, isReplayedDescriptor, matchFace, verifyIdentity } from "../lib/face";
 import { FLAG_LABELS, gpsFlags } from "../lib/gps";
-import { dayPlan } from "../lib/schedule";
+import { dayPlan, minutesSinceCheckIn, shiftDateAt } from "../lib/schedule";
 import { audit, dataIndexes, updateDb } from "../lib/store";
 import { isPracticeDay } from "../lib/counting";
 import type { Attendance, AttendanceFlag } from "../lib/types";
@@ -110,8 +110,10 @@ export function createMiniOfflineRouter() {
               continue;
             }
             const at = new Date(Date.now() - item.ageMs);
-            const date = tashkentIsoDate(at);
+            const calendarDate = tashkentIsoDate(at);
             const time = tashkentClock(at);
+            // Smena boshlangan ish kuni (kechki smenaning yarim tundan keyingi ketishi — kechagi qaydga).
+            const date = shiftDateAt(db, employee, calendarDate, time);
             const day = dayPlan(db, employee, date);
             const schedule = db.schedules.find((s) => s.id === employee.scheduleId);
             let attendance = db.attendance.find((a) => a.employeeId === employee.id && a.date === date);
@@ -158,7 +160,7 @@ export function createMiniOfflineRouter() {
                 fail(`Ketish allaqachon ${attendance.checkOut} da qayd etilgan.`);
                 continue;
               }
-              if (time <= attendance.checkIn) {
+              if (minutesSinceCheckIn(attendance, calendarDate, time) <= 0) {
                 fail("Ketish vaqti kelishdan keyin bo‘lishi kerak.");
                 continue;
               }

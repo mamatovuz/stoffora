@@ -17,7 +17,8 @@ import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
 import { MiniHome } from "./mini/Home";
 import { AttendanceFlow, getPosition, prefetchPosition, takePrefetchedPosition, type Flow } from "./mini/AttendanceFlow";
 import { biometricInfo, disableBiometric, enableBiometric, quickProof, type BioInfo } from "./mini/biometric";
-import { PhotoAvatar, toMinutes, usePullToRefresh, type Action, type HomeData, type Tab } from "./mini/shared";
+import { PhotoAvatar, usePullToRefresh, type Action, type HomeData, type Tab } from "./mini/shared";
+import { forwardMinutes } from "@/lib/shift-time";
 import {
   askWriteAccessOnce,
   bindErrorReporting,
@@ -540,7 +541,7 @@ export function MiniAppPage() {
     const current = homeRef.current;
     if (row.checkIn && !row.checkOut && emojiStatus && current?.features?.workEmojiId) {
       const end = current.schedule?.days.find((d) => d.enabled && d.end)?.end;
-      const minutes = end ? toMinutes(row.scheduledEnd || end) - toMinutes(row.checkIn) : 480;
+      const minutes = end ? forwardMinutes(row.checkIn, row.scheduledEnd || end) : 480;
       void setWorkEmojiStatus(current.features.workEmojiId, Math.max(30, minutes));
     }
     // Birinchi marta Face ID bilan belgilaganlarga biometriyani taklif qilamiz (ko‘pi bilan 2 marta).

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { dataIndexes, documentFiles, readDb } from "../lib/store";
 import { tashkentClock, tashkentIsoDate } from "../lib/format";
 import { dayPlan } from "../lib/schedule";
+import { isOvernight } from "../lib/shift-time";
 import { can } from "../lib/permissions";
 import { countingStartDate } from "../lib/counting";
 import type { Attendance, AttendanceMark, Database, Employee } from "../lib/types";
@@ -80,11 +81,14 @@ export function historyMonth(db: Database, employee: Employee, month: string, to
     const working = plan.enabled && !leave;
     const before = date < (employee.startDate || "0000");
     let tone: Tone;
-    if (a?.checkIn) tone = !plan.enabled ? "restwork" : !a.checkOut && date === today ? (a.lateMinutes ? "late" : "working") : a.lateMinutes ? "late" : "ontime";
+    // Kechki smena (14:00 → 00:00) ertasi kuni tugash vaqtigacha davom etadi.
+    const overnight = isOvernight(plan.start, plan.end);
+    const inProgress = date === today || (overnight && date === addDays(today, -1) && clock < plan.end);
+    if (a?.checkIn) tone = !plan.enabled ? "restwork" : !a.checkOut && inProgress ? (a.lateMinutes ? "late" : "working") : a.lateMinutes ? "late" : "ontime";
     else if (leave) tone = "leave";
     else if (!plan.enabled) tone = "off";
     else if (before) tone = "none";
-    else if (date > today || (date === today && clock < plan.end)) tone = "future";
+    else if (date > today || (date === today && (overnight || clock < plan.end)) || (inProgress && date < today)) tone = "future";
     else tone = date >= from ? "absent" : "none";
     if (working) stats.plannedMinutes += span(plan.start, plan.end);
     if (a) {

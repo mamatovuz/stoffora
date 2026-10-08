@@ -50,13 +50,15 @@ describe("attendance rules", () => {
   });
   it("ishlangan vaqtni hisoblaydi", () =>
     expect(minutesBetween("08:04", "17:02")).toBe(538));
-  it("chiqish kirishdan oldin yoki teng bo‘lsa rad etadi", () => {
-    expect(() => assertAttendanceTimeOrder("17:00", "08:00")).toThrow(
+  it("chiqish teng yoki keyingi kunga 16 soatdan oshsa rad etadi", () => {
+    expect(() => assertAttendanceTimeOrder("17:00", "16:00")).toThrow(
       "kirish vaqtidan keyin",
     );
     expect(() => assertAttendanceTimeOrder("08:00", "08:00")).toThrow(
       "kirish vaqtidan keyin",
     );
+    // Kechki smena: chiqish ertasi kuni.
+    expect(() => assertAttendanceTimeOrder("14:00", "00:00")).not.toThrow();
   });
   it("noto‘g‘ri soat qiymatini rad etadi", () => {
     expect(() => assertAttendanceTimeOrder("25:00")).toThrow("haqiqiy");

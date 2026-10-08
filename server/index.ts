@@ -2312,9 +2312,10 @@ const scheduleSchema = z.object({
       }),
     )
     .length(7)
+    // Tugash boshlanishdan kichik bo‘lsa — smena keyingi kunga o‘tadi (14:00 → 00:00, 22:00 → 06:00).
     .refine(
-      (days) => days.every((d) => !d.enabled || d.end > d.start),
-      "Ish tugash vaqti boshlanishdan keyin bo‘lishi kerak.",
+      (days) => days.every((d) => !d.enabled || d.end !== d.start),
+      "Boshlanish va tugash vaqti bir xil bo‘lmasin.",
     ),
 });
 app.get(

@@ -13,6 +13,8 @@ import {
   useToast,
 } from "../components/ui";
 import type { Schedule, ScheduleDay } from "@/lib/types";
+import { duration } from "@/lib/format";
+import { isOvernight, shiftMinutes } from "@/lib/shift-time";
 import { weekdayNames, weekdayShort, weekOrder } from "../types";
 
 type Row = Schedule & { employees: number };
@@ -74,7 +76,9 @@ export function SchedulesPage() {
                         <div key={day} className={d?.enabled ? "" : "off"}>
                           <b>{weekdayShort[day]}</b>
                           <small>{d?.enabled ? d.start : "—"}</small>
-                          <small>{d?.enabled ? d.end : ""}</small>
+                          <small title={d?.enabled && isOvernight(d.start, d.end) ? "Ertasi kuni tugaydi" : undefined}>
+                            {d?.enabled ? `${d.end}${isOvernight(d.start, d.end) ? " +1" : ""}` : ""}
+                          </small>
                         </div>
                       );
                     })}
@@ -186,6 +190,12 @@ function ScheduleForm({
       setError("Kamida bitta ish kunini yoqing.");
       return;
     }
+    // Tugash boshlanishdan kichik bo‘lsa — smena ertasi kuni tugaydi (14:00 → 00:00). Faqat teng vaqt xato.
+    const same = days.find((d) => d.enabled && d.start === d.end);
+    if (same) {
+      setError(`${weekdayNames[same.day]}: boshlanish va tugash vaqti bir xil bo‘lmasin.`);
+      return;
+    }
     setSaving(true);
     try {
       const body = { name, type, graceMinutes: grace, overtimeEnabled: overtime, days };
@@ -235,7 +245,15 @@ function ScheduleForm({
                   {weekdayNames[day]}
                 </label>
                 <input className="input" type="time" value={d.start} disabled={!d.enabled} onChange={(e) => update(day, { start: e.target.value })} aria-label="Boshlanish" />
-                <input className="input" type="time" value={d.end} disabled={!d.enabled} onChange={(e) => update(day, { end: e.target.value })} aria-label="Tugash" />
+                <div className="day-editor-end">
+                  <input className="input" type="time" value={d.end} disabled={!d.enabled} onChange={(e) => update(day, { end: e.target.value })} aria-label="Tugash" />
+                  {d.enabled && d.start && d.end && d.start !== d.end && (
+                    <small className={isOvernight(d.start, d.end) ? "next-day" : ""}>
+                      {isOvernight(d.start, d.end) ? "ertasi kuni · " : ""}
+                      {duration(shiftMinutes(d.start, d.end))}
+                    </small>
+                  )}
+                </div>
                 <input
                   className="input"
                   type="number"

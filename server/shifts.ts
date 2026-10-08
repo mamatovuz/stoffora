@@ -210,7 +210,11 @@ export function createShiftRouter() {
     "/shift-templates",
     permit,
     route(async (req, res) => {
-      const input = z.object({ name: z.string().trim().min(2).max(40), start: timeSchema, end: timeSchema, color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#2563eb") }).parse(req.body);
+      const input = z
+        .object({ name: z.string().trim().min(2).max(40), start: timeSchema, end: timeSchema, color: z.string().regex(/^#[0-9a-f]{6}$/i).default("#2563eb") })
+        // Tugash boshlanishdan kichik bo‘lsa — smena ertasi kuni tugaydi (22:00 → 07:00).
+        .refine((t) => t.start !== t.end, "Boshlanish va tugash vaqti bir xil bo‘lmasin.")
+        .parse(req.body);
       const row = await updateDb((db) => {
         const tenant = req.session!.companyId!;
         // Birinchi o‘z shabloni qo‘shilganda standartlari ham saqlanadi (yo‘qolib qolmasin).

@@ -32,7 +32,7 @@ import type { Attendance, Database, Employee, LeaveRequest } from "../lib/types"
 import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
 import { onStafforaAttendance } from "./integrations/hooks";
 import { verifyViaEmployeeBot } from "./integrations/identity";
-import { dayPlan } from "../lib/schedule";
+import { dayPlan, minutesSinceCheckIn, shiftDateAt } from "../lib/schedule";
 import { FLAG_LABELS, gpsFlags } from "../lib/gps";
 import { createMiniDocumentRouter } from "./documents";
 import { createMiniSwapRouter } from "./swaps";
@@ -114,7 +114,8 @@ function monthSummary(db: Database, employeeId: string) {
 }
 
 function buildHome(db: Database, employee: Employee) {
-  const date = tashkentIsoDate();
+  // Kechki smena yarim tundan o‘tgan bo‘lsa — hali o‘sha (kechagi) smena ko‘rsatiladi.
+  const date = shiftDateAt(db, employee, tashkentIsoDate(), tashkentClock());
   const notifications = ownNotifications(db, employee.id, employee.companyId);
   const todayLeave = db.leaveRequests.find(
     (item) =>
@@ -800,7 +801,8 @@ export function createMiniRouter() {
             "Sizga faol filial biriktirilmagan. HR bilan bog‘laning.",
             422,
           );
-        const date = tashkentIsoDate();
+        // Kechasi tugaydigan smena: yarim tundan keyingi ketish kechagi qaydga.
+        const date = shiftDateAt(db, employee, tashkentIsoDate(), tashkentClock());
         const attendance = db.attendance.find(
           (item) => item.employeeId === employee.id && item.date === date,
         );
@@ -956,8 +958,10 @@ export function createMiniRouter() {
         const schedule = db.schedules.find(
           (item) => item.id === employee.scheduleId,
         );
-        const date = tashkentIsoDate();
+        const today = tashkentIsoDate();
         const time = tashkentClock();
+        // Smena boshlangan ish kuni (14:00 → 00:00 smenada 00:05 dagi ketish — kechagi kunga).
+        const date = shiftDateAt(db, employee, today, time);
         // Smena almashish bo‘lsa — o‘sha kungi o‘zgargan grafik.
         const day = dayPlan(db, employee, date);
         let attendance = db.attendance.find(
@@ -1004,7 +1008,7 @@ export function createMiniRouter() {
             throw httpError("Ishga kelish qayd etilmagan.", 409);
           if (attendance.checkOut)
             throw httpError("Ketish allaqachon qayd etilgan.", 409);
-          if (time <= attendance.checkIn)
+          if (minutesSinceCheckIn(attendance, today, time) <= 0)
             throw httpError(
               "Ketish vaqti kelish vaqtidan keyin bo‘lishi kerak.",
               409,

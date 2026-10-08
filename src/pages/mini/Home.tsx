@@ -34,13 +34,15 @@ import { breakMinutes, type DeepLink } from "@/lib/mini";
 import { SalaryCard } from "../MiniMoney";
 import { getCached, setCached } from "../miniCache";
 import { NotifItem } from "./Notifications";
-import { clockDuration, Sheet, toMinutes, useClock, type Action, type HomeData, type Toast } from "./shared";
+import { clockDuration, Sheet, useClock, type Action, type HomeData, type Toast } from "./shared";
 import { haptic, shareText, useHomeScreen } from "./tg";
+import { forwardMinutes, shiftMinutes } from "@/lib/shift-time";
 
 type Stats = { streak: { current: number; best: number; badge: { emoji: string; label: string } | null } };
 
+/** Kelgandan beri (kechki smenada yarim tundan o‘tsa ham). */
 function minutesSince(checkIn: string) {
-  return Math.max(0, toMinutes(tashkentClock()) - toMinutes(checkIn));
+  return forwardMinutes(checkIn, tashkentClock());
 }
 
 /** Bugungi reja: serverdan (shaxsiy dam kuni, ko‘chirish hisobga olingan), bo‘lmasa haftalik grafik. */
@@ -349,10 +351,10 @@ function QuickTile({ icon, label, onClick }: { icon: React.ReactNode; label: str
 
 /** Ish kuni halqasi: necha foiz o‘tgani va qancha qolgani. */
 export function ShiftProgress({ start, end, now }: { start: string; end: string; now: Date }) {
-  const current = toMinutes(tashkentClock(now));
-  const total = Math.max(1, toMinutes(end) - toMinutes(start));
-  const done = Math.min(total, Math.max(0, current - toMinutes(start)));
-  const left = Math.max(0, toMinutes(end) - current);
+  // Kechki smena (14:00 → 00:00) ham: tugash ertasi kunda bo‘lishi mumkin.
+  const total = Math.max(1, forwardMinutes(start, end));
+  const done = Math.min(total, forwardMinutes(start, tashkentClock(now)));
+  const left = total - done;
   const percent = Math.round((done / total) * 100);
   const R = 26;
   const C = 2 * Math.PI * R;
@@ -384,8 +386,7 @@ function useGeofence(enabled: boolean, data: HomeData) {
     setNear(null);
     if (!enabled || !branch || !day?.enabled) return;
     // Faqat ish boshlanishidan 90 daqiqa oldin — tugashigacha.
-    const now = toMinutes(tashkentClock());
-    if (now < toMinutes(day.start) - 90 || now > toMinutes(day.end)) return;
+    if (forwardMinutes(day.start, tashkentClock()) > shiftMinutes(day.start, day.end) && forwardMinutes(tashkentClock(), day.start) > 90) return;
     let notified = false;
     let alive = true;
     // Ruxsat so‘ramaydigan joylashuv (allaqachon berilgan bo‘lsa) — har 45 soniyada.

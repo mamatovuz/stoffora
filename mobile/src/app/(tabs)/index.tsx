@@ -6,7 +6,7 @@ import Svg, { Circle } from "react-native-svg";
 import { Badge, Button, Card, ErrorBox, GroupTitle, Hint, Icon, Loading, Screen, Sheet, haptic, type IconName } from "@/components/ui";
 import { mediaUri } from "@/lib/config";
 import { errorText, post } from "@/lib/api";
-import { clockDuration, dateLongUz, duration, minutesSince, som, tashkentClock, timeAgo, toMinutes } from "@/lib/format";
+import { clockDuration, dateLongUz, duration, forwardMinutes, minutesSince, som, tashkentClock, timeAgo } from "@/lib/format";
 import { elevation, ios, radius, useTheme } from "@/lib/theme";
 import type { HomeData, Notification, Salary, Stats } from "@/lib/types";
 import { invalidate, useData } from "@/lib/useData";
@@ -364,10 +364,10 @@ function NotifLine({ item }: { item: Notification }) {
 /** Ish kuni halqasi: necha foiz o‘tgani va qancha qolgani. */
 function ShiftProgress({ start, end, now }: { start: string; end: string; now: Date }) {
   const { c } = useTheme();
-  const current = toMinutes(tashkentClock(now));
-  const total = Math.max(1, toMinutes(end) - toMinutes(start));
-  const done = Math.min(total, Math.max(0, current - toMinutes(start)));
-  const left = Math.max(0, toMinutes(end) - current);
+  // Kechki smena (14:00 → 00:00) ham: tugash ertasi kunda bo‘lishi mumkin.
+  const total = Math.max(1, forwardMinutes(start, end));
+  const done = Math.min(total, forwardMinutes(start, tashkentClock(now)));
+  const left = total - done;
   const percent = Math.round((done / total) * 100);
   const R = 24;
   const C = 2 * Math.PI * R;

@@ -1,5 +1,7 @@
 import type { Database, Employee } from "./types";
 import { dateParts } from "./format";
+import { NEXT_DAY_MAX_MINUTES } from "./attendance";
+import { addDays, clockMinutes, clockOnShiftDay, DAY_MINUTES, isOvernight, shiftMinutes } from "./shift-time";
 
 /*
  * Xodimning ma’lum kundagi ish rejasi. Avval o‘sha kunga grafik o‘zgarishi
@@ -91,4 +93,54 @@ export function workingDaysInMonth(db: Indexable, employee: PlanEmployee, month:
     if (dayPlan(db, employee, date).enabled) count += 1;
   }
   return count;
+}
+
+/* ---------------------------------------------- kechasi tugaydigan smena --- */
+
+type Attendances = Pick<Database, "attendance">;
+const attendanceIndex = new WeakMap<Database["attendance"], Map<string, Database["attendance"][number]>>();
+function attendanceOn(db: Attendances, employeeId: string, date: string) {
+  let index = attendanceIndex.get(db.attendance);
+  if (!index || index.size !== db.attendance.length) {
+    index = new Map(db.attendance.map((a) => [`${a.employeeId}|${a.date}`, a]));
+    attendanceIndex.set(db.attendance, index);
+  }
+  return index.get(`${employeeId}|${date}`);
+}
+
+const dayNumber = (iso: string) => Math.round(Date.parse(`${iso}T12:00:00Z`) / 86_400_000);
+
+/**
+ * Kelishdan beri o‘tgan daqiqa: `date` kuni `clock` paytida, davomat qaydi esa
+ * o‘z ish kuniga (smena boshlangan kunga) tegishli. Kechki smenada ham to‘g‘ri:
+ * Dushanba 14:00 kelgan, Seshanba 00:05 da — 605.
+ */
+export function minutesSinceCheckIn(record: Pick<Database["attendance"][number], "date" | "checkIn" | "scheduledStart" | "scheduledEnd">, date: string, clock: string) {
+  if (!record.checkIn) return 0;
+  const arrived = clockOnShiftDay(record.checkIn, record.scheduledStart, record.scheduledEnd);
+  return (dayNumber(date) - dayNumber(record.date)) * DAY_MINUTES + clockMinutes(clock) - arrived;
+}
+
+/**
+ * Hozirgi payt (kalendar sanasi + soat) qaysi ish kunining smenasiga tegishli.
+ * Smena — boshlangan kuniga: Dushanba 14:00 → Seshanba 00:00 smenasidagi
+ * Seshanba 00:05 dagi ketish Dushanba qaydiga yoziladi.
+ *  - kechagi qayd ochiq (kelgan, ketmagan) va smena hali «tirik» bo‘lsa — kecha;
+ *  - kechagi smena yarim tundan o‘tadi, xodim hali kelmagan va tugash vaqti
+ *    o‘tmagan bo‘lsa (22:00 → 06:00, 01:00 da keldi) — kecha (kechikish bilan);
+ *  - aks holda — bugun.
+ */
+export function shiftDateAt(db: Indexable & Attendances, employee: PlanEmployee, date: string, clock: string) {
+  if (attendanceOn(db, employee.id, date)?.checkIn) return date;
+  const previous = addDays(date, -1);
+  const open = attendanceOn(db, employee.id, previous);
+  if (open?.checkIn) {
+    if (open.checkOut) return date;
+    const since = minutesSinceCheckIn(open, date, clock);
+    const alive = Math.min(NEXT_DAY_MAX_MINUTES, Math.max(shiftMinutes(open.scheduledStart, open.scheduledEnd), 8 * 60) + 6 * 60);
+    return since > 0 && since <= alive ? previous : date;
+  }
+  const plan = dayPlan(db, employee, previous);
+  if (plan.enabled && isOvernight(plan.start, plan.end) && clockMinutes(clock) < clockMinutes(plan.end)) return previous;
+  return date;
 }
