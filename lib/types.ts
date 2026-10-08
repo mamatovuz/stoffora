@@ -923,7 +923,7 @@ export interface MobileActivationCode {
   revokedAt?: string;
   attempts: number;
 }
-/** Yangi telefon: eski faol qurilma bor — HR tasdiqlaydi, eskisi bekor qilinadi. */
+/** Eski oqim (HR tasdig‘i bilan almashtirish) — endi yaratilmaydi, eski yozuvlar uchun saqlanadi. */
 export interface DeviceChangeRequest {
   id: string;
   companyId: string;

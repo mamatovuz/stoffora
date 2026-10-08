@@ -46,7 +46,7 @@ Kamera, joylashuv, push va biometriya native modullar — **Expo Go’da emas, d
   Faollashtirish va har bir sessiya yangilanishi server bergan bir martalik challenge’ni imzolash bilan.
   *Halol izoh:* imzo dastur xotirasida bajariladi (Secure Enclave’dagi chiqarib bo‘lmaydigan kalit emas).
 - **Bir xodim — bitta ishonchli telefon; bitta telefon — bitta xodim** (server tekshiradi).
-  Yangi telefon → almashtirish so‘rovi → HR tasdiqlaydi → eski telefon, uning sessiyalari, push tokenlari va rahbar sessiyalari bekor.
+  Yangi telefon → Mini App’dan kod → yangi telefonda kiritiladi → darhol kiradi (HR so‘rovi yo‘q); eski telefon, uning sessiyalari, push tokenlari va rahbar sessiyalari bekor. Telefonda boshqa xodim kirgan bo‘lsa — u shu telefondan chiqariladi.
 - **Sessiya:** 15 daqiqalik access token (xotirada) + almashinuvchi refresh token (Keychain/Keystore’da).
   Eski refresh token qayta kelsa — sessiya yopiladi. Chiqish (logout) qurilma bog‘lanishini **o‘chirmaydi**.
 - **Davomat:** Face ID qarori serverda (kadrlar serverda tahlil qilinadi, ilova natijani «yaratib» bera olmaydi);

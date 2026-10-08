@@ -148,21 +148,6 @@ describe("mobil ilova: faollashtirish va ishonchli qurilma", () => {
     expect((await call("GET", "/api/mini/ping", undefined, session.accessToken)).body.employeeId).toBe("a");
   });
 
-  it("B xodim X telefonni bog‘lay olmaydi", async () => {
-    const res = await activate(phoneX, await newCode("b"));
-    expect(res.status).toBe(409);
-    expect(res.body.code).toBe("DEVICE_BOUND_OTHER");
-  });
-
-  it("A xodim Y telefonni jimgina faollashtira olmaydi — HR tasdig‘i kerak", async () => {
-    const res = await activate(phoneY, await newCode("a"));
-    expect(res.status).toBe(202);
-    expect(res.body.status).toBe("PENDING");
-    const db = await store.readDb();
-    expect(db.mobileDevices.filter((d) => d.employeeId === "a" && d.status === "ACTIVE")).toHaveLength(1);
-    session.requestId = res.body.requestId;
-  });
-
   it("refresh rotatsiyasi; eski refresh qayta ishlatilsa sessiya yopiladi", async () => {
     const first = await refresh(phoneX, session.deviceId, session.sessionId, session.refreshToken);
     expect(first.status).toBe(200);
@@ -181,15 +166,31 @@ describe("mobil ilova: faollashtirish va ishonchli qurilma", () => {
     expect((await call("GET", "/api/mobile/me", undefined, first.body.accessToken)).status).toBe(401);
   });
 
-  it("logout qurilmani uzmaydi: B baribir X’ni ololmaydi, A qayta kira oladi", async () => {
+  it("logout qurilmani uzmaydi: A yangi kod bilan qayta kira oladi", async () => {
     const login = await activate(phoneX, await newCode("a"));
     expect(login.status).toBe(201);
     expect((await call("POST", "/api/mobile/auth/logout", { sessionId: login.body.sessionId, refreshToken: login.body.refreshToken })).status).toBe(200);
     expect((await call("GET", "/api/mobile/me", undefined, login.body.accessToken)).status).toBe(401);
     const db = await store.readDb();
     expect(db.mobileDevices.find((d) => d.id === login.body.deviceId)!.status).toBe("ACTIVE");
-    expect((await activate(phoneX, await newCode("b"))).body.code).toBe("DEVICE_BOUND_OTHER");
-    session = { ...session, ...(await activate(phoneX, await newCode("a"))).body };
+    const again = await activate(phoneX, await newCode("a"));
+    expect(again.status).toBe(201);
+    expect(again.body.deviceId).toBe(login.body.deviceId);
+    session = again.body;
+  });
+
+  it("boshqa xodim (B) shu telefonda o‘z kodi bilan kiradi — A shu telefondan chiqadi; A qaytsa — B chiqadi", async () => {
+    const b = await activate(phoneX, await newCode("b"));
+    expect(b.status).toBe(201);
+    expect(b.body.employee.id).toBe("b");
+    expect((await call("GET", "/api/mobile/me", undefined, session.accessToken)).body.code).toBe("DEVICE_REVOKED");
+    const a = await activate(phoneX, await newCode("a"));
+    expect(a.status).toBe(201);
+    expect(a.body.employee.id).toBe("a");
+    expect((await call("GET", "/api/mobile/me", undefined, b.body.accessToken)).status).toBe(401);
+    const db = await store.readDb();
+    expect(db.mobileDevices.filter((d) => d.status === "ACTIVE" && (d.employeeId === "a" || d.employeeId === "b"))).toHaveLength(1);
+    session = a.body;
   });
 
   it("push token ro‘yxatdan o‘tadi va aylanadi", async () => {
@@ -206,34 +207,29 @@ describe("mobil ilova: faollashtirish va ishonchli qurilma", () => {
     expect((await call("POST", "/api/mobile/push-token", { token: t1, platform: "android" }, tg)).status).toBe(403);
   });
 
-  it("RBAC va tenant: moliya va boshqa kompaniya almashtirishni tasdiqlay olmaydi", async () => {
-    panelRole = "FINANCE";
-    expect((await call("POST", `/api/mobile/device-requests/${session.requestId}/decide`, { approve: true })).status).toBe(403);
-    panelRole = "HR_MANAGER";
-    panelCompany = "c2";
-    expect((await call("POST", `/api/mobile/device-requests/${session.requestId}/decide`, { approve: true })).status).toBe(404);
-    expect((await call("GET", "/api/employees/a/mobile-devices")).status).toBe(404);
-    panelCompany = "c1";
-  });
-
-  it("HR almashtirishni tasdiqlaydi: eski X va uning sessiyalari bekor, Y ishlaydi", async () => {
-    expect((await call("POST", `/api/mobile/device-requests/${session.requestId}/decide`, { approve: true })).status).toBe(200);
+  it("A yangi Y telefonga HR so‘rovisiz o‘tadi: eski X, sessiyalari va push tokenlari bekor", async () => {
+    const res = await activate(phoneY, await newCode("a"));
+    expect(res.status).toBe(201);
+    expect(res.body.accessToken).toBeTruthy();
     expect((await call("GET", "/api/mobile/me", undefined, session.accessToken)).body.code).toBe("DEVICE_REVOKED");
     expect((await refresh(phoneX, session.deviceId, session.sessionId, session.refreshToken)).status).toBeGreaterThanOrEqual(400);
-    const { body: ch } = await call("POST", "/api/mobile/activation/challenge", { publicKey: phoneY.raw });
-    const status = await call("POST", "/api/mobile/activation/status", {
-      requestId: session.requestId,
-      publicKey: phoneY.raw,
-      nonce: ch.nonce,
-      signature: signAs(phoneY, `staffora:status:${ch.nonce}:${session.requestId}`),
-    });
-    expect(status.body.status).toBe("APPROVED");
-    expect((await call("GET", "/api/mobile/me", undefined, status.body.accessToken)).body.device.status).toBe("ACTIVE");
+    expect((await call("GET", "/api/mobile/me", undefined, res.body.accessToken)).body.device.status).toBe("ACTIVE");
     const db = await store.readDb();
     expect(db.mobileDevices.filter((d) => d.employeeId === "a" && d.status === "ACTIVE")).toHaveLength(1);
     expect(db.mobilePushTokens.filter((t) => t.employeeId === "a" && t.active)).toHaveLength(0);
-    expect(db.auditLogs.some((l) => l.action.includes("almashtirish tasdiqlandi"))).toBe(true);
-    session = status.body;
+    expect(db.deviceChangeRequests.filter((r) => r.employeeId === "a" && r.status === "PENDING")).toHaveLength(0);
+    expect(db.notifications.some((n) => n.employeeId === "a" && n.title === "Ilova yangi telefonda ulandi")).toBe(true);
+    session = res.body;
+  });
+
+  it("RBAC va tenant: moliya va boshqa kompaniya telefonni o‘chira olmaydi", async () => {
+    panelRole = "FINANCE";
+    expect((await call("POST", `/api/mobile-devices/${session.deviceId}/revoke`, {})).status).toBe(403);
+    panelRole = "HR_MANAGER";
+    panelCompany = "c2";
+    expect((await call("POST", `/api/mobile-devices/${session.deviceId}/revoke`, {})).status).toBe(404);
+    expect((await call("GET", "/api/employees/a/mobile-devices")).status).toBe(404);
+    panelCompany = "c1";
   });
 
   it("HR bekor qilgan qurilma bloklanadi; challenge ham berilmaydi", async () => {
@@ -313,7 +309,7 @@ describe("mobil ilova: push dispetcheri", () => {
 });
 
 describe("mobil ilova: Sozlamalar → Ilovalar", () => {
-  it("ro‘yxat ko‘rinadi; uzilgan telefonga boshqa xodim kira oladi", async () => {
+  it("ro‘yxat ko‘rinadi; HR uzgan telefonga boshqa xodim kira oladi", async () => {
     await store.updateDb((db) => {
       db.employees.push(employee("q"), employee("r"));
     });
@@ -322,8 +318,6 @@ describe("mobil ilova: Sozlamalar → Ilovalar", () => {
     const shared = phone();
     const q = await activate(shared, await newCode("q"));
     expect(q.status).toBe(201);
-    // Hozircha boshqa xodim shu telefonga kira olmaydi.
-    expect((await activate(shared, await newCode("r"))).body.code).toBe("DEVICE_BOUND_OTHER");
     const list = await call("GET", "/api/mobile-devices");
     const row = list.body.rows.find((x: { id: string }) => x.id === q.body.deviceId);
     expect(row.employeeName).toBe("Q Test");

@@ -1,11 +1,15 @@
 import { Link, useNavigate } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowRight,
   Bell,
+  Building2,
   CalendarClock,
+  CheckCircle2,
   Clock3,
   Plane,
   ScanFace,
+  Search,
   UserPlus,
   Users,
   PartyPopper,
@@ -23,7 +27,7 @@ import {
   YAxis,
   type TooltipProps,
 } from "recharts";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useApi, usePolling } from "../hooks";
 import { useAuth } from "../auth";
 import {
@@ -51,6 +55,36 @@ type Dashboard = {
   leave: number;
 };
 
+type Action = { level: "red" | "orange" | "yellow" | "info"; text: string; count: number; link?: string };
+type TeamFilter = "ALL" | "IN" | "LATE" | "ABSENT" | "WAIT";
+
+const TEAM_FILTERS: Record<TeamFilter, (row: RosterRow) => boolean> = {
+  ALL: () => true,
+  IN: (row) => row.state === "IN",
+  LATE: (row) => row.late,
+  ABSENT: (row) => row.state === "ABSENT",
+  WAIT: (row) => row.state === "NOT_YET" || row.state === "UPCOMING",
+};
+
+/** Filiallar kesimida bugungi davomat (roster’dan): eng sust filial birinchi. */
+function branchBreakdown(roster: RosterRow[]) {
+  const map = new Map<string, { name: string; expected: number; came: number; late: number; absent: number; waiting: number }>();
+  for (const row of roster) {
+    if (row.state === "ON_LEAVE" || row.state === "DAY_OFF") continue;
+    const name = row.branch || "Filialsiz";
+    const b = map.get(name) || { name, expected: 0, came: 0, late: 0, absent: 0, waiting: 0 };
+    b.expected += 1;
+    if (row.state === "IN" || row.state === "LEFT") b.came += 1;
+    if (row.late) b.late += 1;
+    if (row.state === "ABSENT") b.absent += 1;
+    if (row.state === "NOT_YET" || row.state === "UPCOMING") b.waiting += 1;
+    map.set(name, b);
+  }
+  return [...map.values()]
+    .map((b) => ({ ...b, rate: b.expected ? Math.round((b.came / b.expected) * 100) : 0 }))
+    .sort((a, b) => a.rate - b.rate || b.expected - a.expected);
+}
+
 function greeting() {
   const hour = Number(
     new Intl.DateTimeFormat("en-GB", {
@@ -70,7 +104,21 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const [days, setDays] = useState<"7" | "14" | "30">("7");
   const { data, loading, error, reload } = useApi<Dashboard>(`/dashboard?days=${days}`);
-  usePolling(() => void reload(true), 30_000);
+  const actions = useApi<{ actions: Action[] }>("/workspace/actions");
+  const [team, setTeam] = useState<TeamFilter>("ALL");
+  const [query, setQuery] = useState("");
+  const [limit, setLimit] = useState(12);
+  usePolling(() => {
+    void reload(true);
+    void actions.reload(true);
+  }, 30_000);
+  const branches = useMemo(() => branchBreakdown(data?.roster || []), [data?.roster]);
+  const teamRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (data?.roster || []).filter(
+      (row) => TEAM_FILTERS[team](row) && (!q || `${row.employee.firstName} ${row.employee.lastName} ${row.branch || ""} ${row.position || ""}`.toLowerCase().includes(q)),
+    );
+  }, [data?.roster, team, query]);
 
   if (loading && !data)
     return (
@@ -188,6 +236,83 @@ export function DashboardPage() {
           ))}
         </div>
       </section>
+
+      <div className="dash-grid even">
+        <section className="card dash-actions">
+          <div className="card-head">
+            <div>
+              <h2>Diqqat talab qiladi</h2>
+              <p>Bugun hal qilinishi kerak bo‘lgan ishlar</p>
+            </div>
+            <Link to="/workspace" className="link">
+              Ish stoli <ArrowRight size={14} />
+            </Link>
+          </div>
+          {actions.data?.actions.length ? (
+            <ul className="action-list">
+              {actions.data.actions.slice(0, 6).map((a) => (
+                <li key={a.text}>
+                  <Link to={a.link || "/workspace"} className={`action-row ${a.level}`}>
+                    <span className="action-count">{a.count}</span>
+                    <span className="action-text">{a.text}</span>
+                    <ArrowRight size={15} />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : actions.loading ? (
+            <div className="action-empty">Yuklanmoqda…</div>
+          ) : (
+            <div className="action-empty ok">
+              <CheckCircle2 size={22} />
+              <span>
+                <b>Hammasi joyida</b>
+                <small>Kutilayotgan so‘rov yoki muammo yo‘q.</small>
+              </span>
+            </div>
+          )}
+        </section>
+
+        <section className="card dash-branches">
+          <div className="card-head">
+            <div>
+              <h2>Filiallar bugun</h2>
+              <p>Kelganlar ulushi · eng sust filial yuqorida</p>
+            </div>
+            <Link to="/map" className="link">
+              Xarita <ArrowRight size={14} />
+            </Link>
+          </div>
+          {branches.length ? (
+            <ul className="branch-list">
+              {branches.slice(0, 6).map((b) => (
+                <li key={b.name}>
+                  <div className="branch-top">
+                    <b>
+                      <Building2 size={14} /> {b.name}
+                    </b>
+                    <span className={b.rate < 70 && b.waiting < b.expected ? "bad" : b.rate < 90 ? "warn" : "ok"}>
+                      {b.came}/{b.expected} · {b.rate}%
+                    </span>
+                  </div>
+                  <div className="branch-bar">
+                    <i className="ok" style={{ width: `${((b.came - b.late) / b.expected) * 100}%` }} />
+                    <i className="warn" style={{ width: `${(b.late / b.expected) * 100}%` }} />
+                    <i className="bad" style={{ width: `${(b.absent / b.expected) * 100}%` }} />
+                  </div>
+                  <small>
+                    {b.late ? `${b.late} kechikkan` : "kechikish yo‘q"}
+                    {b.absent ? ` · ${b.absent} kelmagan` : ""}
+                    {b.waiting ? ` · ${b.waiting} kutilmoqda` : ""}
+                  </small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <Empty icon={Building2} title="Bugun reja yo‘q" text="Grafik bo‘yicha bugun ishlaydigan xodimlar shu yerda filiallar kesimida ko‘rinadi." />
+          )}
+        </section>
+      </div>
 
       <div className="dash-grid">
         <section className="card">
@@ -367,7 +492,31 @@ export function DashboardPage() {
             Keldi-ketdi <ArrowRight size={14} />
           </Link>
         </div>
-        {data.roster.length ? (
+        {data.roster.length > 0 && (
+          <div className="team-tools">
+            <Segmented<TeamFilter>
+              value={team}
+              onChange={(v) => {
+                setTeam(v);
+                setLimit(12);
+              }}
+              options={[
+                { value: "ALL", label: "Hammasi", count: data.roster.length },
+                { value: "IN", label: "Ishda", count: data.roster.filter(TEAM_FILTERS.IN).length },
+                { value: "LATE", label: "Kechikkan", count: data.roster.filter(TEAM_FILTERS.LATE).length },
+                { value: "ABSENT", label: "Kelmagan", count: data.roster.filter(TEAM_FILTERS.ABSENT).length },
+                { value: "WAIT", label: "Kutilmoqda", count: data.roster.filter(TEAM_FILTERS.WAIT).length },
+              ]}
+            />
+            <label className="team-search">
+              <Search size={15} />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Ism, filial yoki lavozim" aria-label="Xodim qidirish" />
+            </label>
+          </div>
+        )}
+        {data.roster.length && !teamRows.length ? (
+          <Empty icon={Search} title="Mos xodim topilmadi" text="Filtrni yoki qidiruvni o‘zgartirib ko‘ring." />
+        ) : data.roster.length ? (
           <div className="table-wrap">
             <table className="table table-cards">
               <thead>
@@ -380,7 +529,7 @@ export function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.roster.slice(0, 10).map((row) => (
+                {teamRows.slice(0, limit).map((row) => (
                   <tr
                     key={row.employee.id}
                     className="clickable"
@@ -421,6 +570,11 @@ export function DashboardPage() {
                 ))}
               </tbody>
             </table>
+            {teamRows.length > limit && (
+              <button className="btn team-more" onClick={() => setLimit((n) => n + 24)}>
+                Yana {Math.min(24, teamRows.length - limit)} ta ko‘rsatish · jami {teamRows.length}
+              </button>
+            )}
           </div>
         ) : (
           <Empty

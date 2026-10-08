@@ -20,7 +20,7 @@ const THEMES: [NonNullable<Prefs["theme"]>, string][] = [
 
 /**
  * Sozlamalar (Verifix uslubida guruhlangan): interfeys, xavfsizlik, bildirishnomalar, ishonchli telefon,
- * ilova haqida. Telefon almashtirish faqat HR tasdig‘i bilan; «Chiqish» qurilma bog‘lanishini o‘chirmaydi.
+ * ilova haqida. Yangi telefon — Mini App kodi bilan darhol (eski telefon o‘chadi); «Chiqish» faqat sessiyani yopadi.
  */
 export default function Settings() {
   const { c } = useTheme();
@@ -109,7 +109,7 @@ export default function Settings() {
         <Row icon="scan" iconColor="#34C759" label="Davomat Face ID" value={data?.faceEnrolled ? "Sozlangan" : "Sozlanmagan"} last />
       </Group>
       <Hint icon="shield-checkmark-outline">
-        Har bir xodimda bitta ishonchli telefon. Telefon kaliti qurilmadan chiqmaydi. Yangi telefonga o‘tsangiz, Mini App’dan kod olib yangi telefonda kiriting — HR tasdiqlagach shu telefon o‘chiriladi.
+        Har bir xodimda bitta faol telefon. Yangi telefonga o‘tsangiz, Mini App → Profil → «Telefon ilovasi»dan kod olib yangi telefonda kiriting — darhol kirasiz, bu telefondan esa avtomatik chiqiladi.
       </Hint>
 
       <GroupTitle>Ilova haqida</GroupTitle>

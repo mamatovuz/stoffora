@@ -7,7 +7,7 @@ import { audit, readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
 import { adaptProfile, assertConsistentSamples, faceMatchThreshold, isReplayedDescriptor, matchFace, matchPassPercent, matchPercent, verifyIdentity } from "../lib/face";
 import { lookalikeAlert } from "./face-reference";
-import type { Database, DeviceChangeRequest, Employee, MobileDevice, MobileSession, PanelSession, User } from "../lib/types";
+import type { Database, Employee, MobileDevice, MobileSession, PanelSession, User } from "../lib/types";
 import { MOBILE_ACCESS_TTL_SECONDS, requireEmployee, signMobileAccess, signSession, type AuthedRequest, type EmployeeSession, type Session } from "./auth";
 import { signFaceProof } from "./face-proof";
 import { describeFace } from "./face-server";
@@ -29,8 +29,9 @@ import { sendTelegramMessage } from "./telegram";
  * Native mobil ilova (iOS / Android) — o‘sha Staffora backend va o‘sha xodimlar bazasi.
  *
  * Faollashtirish:  bir martalik kod (Mini App’dan yoki HR’dan) + qurilma kaliti imzosi
- * Qoida:           bir xodim — bitta faol ishonchli qurilma; bitta qurilma — bitta xodim
- * Yangi telefon:   almashtirish so‘rovi → HR tasdiqlaydi → eski qurilma va sessiyalar bekor
+ * Qoida:           bir xodim — bitta faol telefon; bitta telefon — bitta faol xodim
+ * Yangi telefon:   Mini App’dan kod → yangi telefonda kiritiladi → darhol kiradi, eski telefon o‘chiriladi
+ *                  (HR tasdig‘i yo‘q: davomat baribir Face ID bilan, kodni faqat Telegram egasi oladi)
  * Sessiya:         15 daqiqalik access token + almashadigan refresh token (qurilma imzosi bilan)
  * Chiqish (logout) qurilma bog‘lanishini O‘CHIRMAYDI — faqat sessiyani yopadi.
  */
@@ -155,8 +156,8 @@ export function createMobilePublicRouter() {
   /**
    * Faollashtirish: kod + qurilma kaliti + challenge imzosi.
    *  - kod: xeshi bo‘yicha, muddati, bir martalik, bekor qilinmagan, ≤5 urinish;
-   *  - bu kalit boshqa xodimga bog‘langan bo‘lsa — rad (bitta qurilma — bitta xodim);
-   *  - xodimning boshqa faol qurilmasi bo‘lsa — almashtirish so‘rovi (HR tasdiqlaydi).
+   *  - telefonda boshqa xodim kirgan bo‘lsa — u shu telefondan chiqariladi;
+   *  - xodimning boshqa faol telefoni bo‘lsa — u o‘chiriladi, yangisi darhol ishlaydi.
    */
   router.post(
     "/mobile/activate",
@@ -188,52 +189,37 @@ export function createMobilePublicRouter() {
         const company = db.companies.find((c) => c.id === employee.companyId);
         if (company?.status === "SUSPENDED") throw httpError("Kompaniya hisobi to‘xtatilgan.", 403, "COMPANY_SUSPENDED");
 
-        // Bitta qurilma — bitta xodim: bu kalit boshqa xodimda faol bo‘lsa — rad.
-        const keyOwner = db.mobileDevices.find((d) => d.keyFingerprint === key.fingerprint && d.status === "ACTIVE");
-        if (keyOwner && keyOwner.employeeId !== employee.id) {
-          securityLog(db, employee.companyId, nameOf(employee), "Boshqa xodimga bog‘langan qurilmada faollashtirishga urinish", employee.id, { platform: input.platform, otherEmployeeId: keyOwner.employeeId });
-          return fail("Bu telefon boshqa xodimga bog‘langan. Har bir xodim o‘z telefonidan foydalanishi kerak.", 409, "DEVICE_BOUND_OTHER");
-        }
         code.usedAt = now.toISOString();
+        const keyOwner = db.mobileDevices.find((d) => d.keyFingerprint === key.fingerprint && d.status === "ACTIVE");
         // Shu xodimning o‘sha telefoni (qayta o‘rnatish/qayta kirish) — yangi sessiya.
-        if (keyOwner) {
+        if (keyOwner && keyOwner.employeeId === employee.id) {
           keyOwner.lastSeenAt = now.toISOString();
           keyOwner.appVersion = input.appVersion || keyOwner.appVersion;
           const { session, refreshToken } = issueSession(db, employee, keyOwner);
           securityLog(db, employee.companyId, nameOf(employee), "Mobil ilovaga qayta kirildi (o‘sha qurilma)", employee.id, { platform: keyOwner.platform });
           return { kind: "session" as const, out: tokens(employee, keyOwner, session, refreshToken) };
         }
-        // Bitta xodim — bitta faol qurilma: boshqasi bor — almashtirish so‘rovi.
-        const active = db.mobileDevices.find((d) => d.employeeId === employee.id && d.status === "ACTIVE");
-        if (active) {
-          for (const r of db.deviceChangeRequests) if (r.employeeId === employee.id && r.status === "PENDING") r.status = "CANCELLED";
-          const request: DeviceChangeRequest = {
-            id: randomUUID(),
-            companyId: employee.companyId,
-            employeeId: employee.id,
-            oldDeviceId: active.id,
-            publicKey: key.spki,
-            keyFingerprint: key.fingerprint,
-            platform: input.platform,
-            model: input.model,
-            osVersion: input.osVersion,
-            appVersion: input.appVersion,
-            status: "PENDING",
-            createdAt: now.toISOString(),
-          };
-          db.deviceChangeRequests.unshift(request);
+        // Telefonda boshqa xodim kirgan edi — u shu telefondan chiqariladi (uning hisobi o‘zgarmaydi,
+        // o‘z kodi bilan istalgan telefonda qayta kira oladi). Davomat baribir Face ID bilan.
+        if (keyOwner) {
+          revokeDevice(db, keyOwner, nameOf(employee), "Telefonda boshqa xodim kirdi");
+          securityLog(db, employee.companyId, nameOf(employee), "Telefonda avval boshqa xodim kirgan edi — u shu telefondan chiqarildi", keyOwner.employeeId, { platform: input.platform, newEmployeeId: employee.id });
+        }
+        // Yangi telefon: HR so‘rovisiz — kod Telegram orqali xodimning o‘ziga berilgan. Eski telefon o‘chiriladi.
+        for (const r of db.deviceChangeRequests) if (r.employeeId === employee.id && r.status === "PENDING") r.status = "CANCELLED";
+        const previous = db.mobileDevices.filter((d) => d.employeeId === employee.id && d.status === "ACTIVE");
+        for (const d of previous) revokeDevice(db, d, nameOf(employee), "Yangi telefonga o‘tildi");
+        if (previous.length)
           db.notifications.unshift({
             id: randomUUID(),
             companyId: employee.companyId,
-            title: "Yangi telefon so‘rovi",
-            body: `${nameOf(employee)} mobil ilovani yangi telefonda (${input.model || input.platform}) faollashtirmoqchi. Xodim profili → Mobil qurilma bo‘limida tasdiqlang.`,
+            employeeId: employee.id,
+            title: "Ilova yangi telefonda ulandi",
+            body: `Staffora ilovasi ${input.model || input.platform} telefoniga ulandi. Eski telefondagi ilovadan chiqildi. Siz qilmagan bo‘lsangiz — HR’ga xabar bering.`,
             type: "SECURITY",
             read: false,
             createdAt: now.toISOString(),
           });
-          securityLog(db, employee.companyId, nameOf(employee), "Qurilma almashtirish so‘rovi yaratildi", employee.id, { platform: input.platform, model: input.model });
-          return { kind: "pending" as const, out: { requestId: request.id, status: "PENDING", message: "Sizda boshqa faol telefon bor. HR tasdiqlagach shu telefon ishlaydi, eskisi o‘chiriladi." } };
-        }
         const device: MobileDevice = {
           id: randomUUID(),
           companyId: employee.companyId,
@@ -253,12 +239,11 @@ export function createMobilePublicRouter() {
         securityLog(db, employee.companyId, nameOf(employee), "Mobil ilova faollashtirildi (ishonchli qurilma)", employee.id, { platform: device.platform, model: device.model, source: code.source });
         return { kind: "session" as const, out: tokens(employee, device, session, refreshToken) };
       }));
-      if (result.kind === "pending") return res.status(202).json(result.out);
       res.status(201).json(result.out);
     }),
   );
 
-  /** Almashtirish so‘rovi holati — yangi telefon kaliti bilan imzolanadi; tasdiqlansa sessiya beriladi. */
+  /** Eski (HR tasdig‘ini kutayotgan) almashtirish so‘rovlari holati — eski ilova versiyalari uchun saqlanadi. */
   router.post(
     "/mobile/activation/status",
     normal,

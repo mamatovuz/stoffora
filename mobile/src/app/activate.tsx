@@ -1,10 +1,11 @@
 import * as Application from "expo-application";
+import * as Clipboard from "expo-clipboard";
 import * as Device from "expo-device";
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { Image, KeyboardAvoidingView, Pressable, Platform, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Button, Hint, haptic } from "@/components/ui";
+import { Button, Hint, Icon, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
 import { APP_VERSION } from "@/lib/config";
 import { useSession } from "@/lib/session";
@@ -14,11 +15,17 @@ import { ios, useTheme } from "@/lib/theme";
  * Faollashtirish: xodim Mini App (Profil → Telefon ilovasi) yoki HR’dan bir martalik kod oladi.
  * Kod + shu telefonda yaratilgan kalit imzosi bilan server telefonni xodimga bog‘laydi.
  * Telefon raqamini yozish yetarli emas — kod faqat Telegram orqali tasdiqlangan xodimga beriladi.
+ * HR tasdig‘i kerak emas: boshqa telefonda kirilsa, eski telefondan avtomatik chiqiladi.
  */
+const STEPS = [
+  ["paper-plane", "Telegram’da kompaniya botining Mini App’ini oching"],
+  ["person-circle", "Profil → «Telefon ilovasi» → «Ulash kodini olish»"],
+  ["keypad", "8 belgili kodni shu yerga kiriting yoki qo‘ying"],
+] as const;
 const clean = (value: string) => value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "").slice(0, 8);
 
 const REASONS: Record<string, string> = {
-  DEVICE_REVOKED: "Bu telefon HR tomonidan o‘chirildi yoki boshqa telefon tasdiqlandi. Yangi kod bilan qayta ulang.",
+  DEVICE_REVOKED: "Hisobingiz boshqa telefonda ochildi yoki bu telefonda boshqa xodim kirdi. Qayta kirish uchun Mini App’dan yangi kod oling.",
   SESSION_REUSED: "Xavfsizlik uchun sessiya yopildi. Qayta ulang.",
   SESSION_EXPIRED: "Sessiya muddati tugadi. Qayta ulang.",
 };
@@ -54,6 +61,19 @@ export default function Activate() {
     } finally {
       setBusy(false);
     }
+  };
+  /** Mini App’dan nusxalangan kodni bir bosishda qo‘yish. */
+  const paste = async () => {
+    const text = clean(await Clipboard.getStringAsync().catch(() => ""));
+    if (!text) {
+      haptic.warning();
+      setError("Buferda kod topilmadi. Mini App’da kodni bosib nusxalang.");
+      return;
+    }
+    haptic.tap();
+    setError("");
+    setCode(text);
+    if (text.length === 8) void submit(text);
   };
   // Havola orqali kelgan kod (staffora://activate?code=…) — avtomatik yuboriladi.
   useEffect(() => {
@@ -113,10 +133,26 @@ export default function Activate() {
           {error ? <Text style={{ color: c.danger, fontSize: 13.5, textAlign: "center" }}>{error}</Text> : null}
         </View>
         <Button title="Davom etish" onPress={() => void submit()} busy={busy} disabled={code.length !== 8} big />
+        <Button title="Nusxalangan kodni qo‘yish" icon="clipboard-outline" tone="ghost" onPress={() => void paste()} disabled={busy} />
+
+        <View style={[st.steps, { backgroundColor: c.card }]}>
+          <Text style={{ color: c.muted, fontSize: 12.5, fontWeight: "600", textTransform: "uppercase", letterSpacing: 0.4 }}>Kodni qayerdan olaman?</Text>
+          {STEPS.map(([icon, text], i) => (
+            <View key={text} style={st.step}>
+              <View style={[st.stepIcon, { backgroundColor: `${c.accent}18` }]}>
+                <Icon name={icon} size={16} color={c.accent} />
+              </View>
+              <Text style={{ flex: 1, color: c.ink, fontSize: 14, lineHeight: 19 }}>
+                <Text style={{ color: c.muted }}>{i + 1}. </Text>
+                {text}
+              </Text>
+            </View>
+          ))}
+        </View>
 
         <View style={{ flex: 1 }} />
         <Text style={{ color: c.muted, fontSize: 12.5, textAlign: "center", lineHeight: 18 }}>
-          Kod 15 daqiqa amal qiladi va bir marta ishlaydi.{"\n"}Telefon faqat sizga bog‘lanadi.
+          Kod 15 daqiqa amal qiladi va bir marta ishlaydi.{"\n"}Boshqa telefonda kirsangiz, bu yerdan avtomatik chiqasiz.
         </Text>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -132,4 +168,7 @@ const st = StyleSheet.create({
   cell: { width: 36, height: 50, borderRadius: 10, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
   cellText: { fontSize: 22, fontWeight: "600", fontFamily: ios ? "Menlo" : "monospace" },
   hidden: { position: "absolute", width: 1, height: 1, opacity: 0 },
+  steps: { borderRadius: 16, padding: 14, gap: 12 },
+  step: { flexDirection: "row", alignItems: "center", gap: 12 },
+  stepIcon: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
 });
