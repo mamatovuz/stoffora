@@ -29,26 +29,55 @@ export function restoreBearerToken() {
   return bearerToken;
 }
 
+/** So‘rov 20 soniyadan oshsa to‘xtatiladi — ekran cheksiz «yuklanmoqda»da qolmasin. */
+const REQUEST_TIMEOUT_MS = 20_000;
+/** Mobil tarmoqdagi qisqa uzilishlarda qayta urinish oraliqlari (ms). */
+const RETRY_DELAYS = [600, 1500];
+
 export async function api<T>(
   url: string,
-  options: RequestInit = {},
+  options: RequestInit & { retry?: boolean } = {},
 ): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`/api${url}`, {
-      credentials: "include",
-      ...options,
-      headers: {
-        ...(options.body ? { "content-type": "application/json" } : {}),
-        ...(bearerToken ? { authorization: `Bearer ${bearerToken}` } : {}),
-        ...options.headers,
-      },
-    });
-  } catch {
-    throw new ApiError(
-      "Server bilan aloqa yo‘q. Internetni tekshirib, qayta urinib ko‘ring.",
-      0,
-    );
+  const { retry, ...init } = options;
+  // O‘qish so‘rovlari va aniq ruxsat berilganlar (masalan, kirish) qayta uriniladi;
+  // ma’lumot o‘zgartiradigan so‘rovlar ikki marta bajarilib qolmasligi uchun — yo‘q.
+  const retriable = retry ?? (!init.method || init.method === "GET");
+  let response: Response | undefined;
+  for (let attempt = 0; ; attempt += 1) {
+    const controller = init.signal ? undefined : new AbortController();
+    const timer = controller ? window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : undefined;
+    try {
+      response = await fetch(`/api${url}`, {
+        credentials: "include",
+        ...init,
+        signal: init.signal || controller?.signal,
+        headers: {
+          ...(init.body ? { "content-type": "application/json" } : {}),
+          ...(bearerToken ? { authorization: `Bearer ${bearerToken}` } : {}),
+          ...init.headers,
+        },
+      });
+      // Server qayta ishga tushayotgan (502/503/504) bo‘lsa — o‘qish so‘rovi qayta uriniladi.
+      if (retriable && [502, 503, 504].includes(response.status) && attempt < RETRY_DELAYS.length) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+        continue;
+      }
+      break;
+    } catch (reason) {
+      if (init.signal?.aborted) throw reason;
+      if (retriable && attempt < RETRY_DELAYS.length && navigator.onLine !== false) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS[attempt]));
+        continue;
+      }
+      throw new ApiError(
+        controller?.signal.aborted
+          ? "Server javob bermadi. Birozdan keyin qayta urinib ko‘ring."
+          : "Server bilan aloqa yo‘q. Internetni tekshirib, qayta urinib ko‘ring.",
+        0,
+      );
+    } finally {
+      if (timer) window.clearTimeout(timer);
+    }
   }
   if (response.status === 423) window.dispatchEvent(new Event("staffora:locked"));
   if (!response.ok) {

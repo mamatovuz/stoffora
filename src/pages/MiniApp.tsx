@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, ArrowDown, Bell, BriefcaseBusiness, CheckCircle2, Clock3, Home, LoaderCircle, Plane, RefreshCw, RotateCcw, Send, UserRound, WifiOff } from "lucide-react";
 import { ApiError, api, errorText, post, restoreBearerToken, setBearerToken } from "../api";
-import { FaceScanner, preloadFaceModels, type FaceCapture } from "../components/FaceScanner";
+import { FaceScanner, type FaceCapture } from "../components/FaceScanner";
 import { enqueueOffline, isNetworkError, readQueue, restoreQueueBackup, syncOfflineQueue } from "./miniOffline";
 import { tashkentClock } from "@/lib/format";
 import { haversineDistance } from "@/lib/attendance";
@@ -238,7 +238,7 @@ export function MiniAppPage() {
         }
         throw Object.assign(new Error("Mini App Telegram tashqarisida ochildi. Uni botdagi «Staffora» tugmasi orqali oching."), { code: "NO_INIT_DATA" });
       }
-      const result = await post<{ token: string; home?: HomeData }>("/telegram/auth", { initData: webApp?.initData || "" });
+      const result = await api<{ token: string; home?: HomeData }>("/telegram/auth", { method: "POST", body: JSON.stringify({ initData: webApp?.initData || "" }), retry: true });
       setBearerToken(result.token);
       setOffline(false);
       // Server bosh sahifani auth javobida qaytaradi — alohida so‘rov kerak emas.
@@ -300,22 +300,11 @@ export function MiniAppPage() {
   }, [authenticate]);
 
   /*
-   * Face ID modeli (~6 MB, WebGL) faqat kerak bo‘lganda oldindan yuklanadi: bosh sahifada,
-   * xodim bugun hali belgilashi kerak bo‘lsa va brauzer bo‘sh turganda. Rahbar xarita ko‘rayotganda
-   * yoki ish kuni tugaganda telefon protsessori va GPU’si band qilinmaydi.
+   * Face ID modeli (~6 MB, WebGL) ilova ochilganda YUKLANMAYDI: modelni ishga tushirish va WebGL
+   * shaderlarini tayyorlash asosiy oqimni bir necha soniya band qiladi — kuchli telefonda ham
+   * ekran qotib qolardi. Model faqat xodim «Ishga keldim»ga tekkanda (MiniHome) yoki yuz
+   * tekshiruvi ochilganda yuklanadi; kamera esa darhol ko‘rinadi.
    */
-  const needsFace = Boolean(home && nav.tab === "home" && home.branch && !home.attendance?.checkOut && !home.todayLeave);
-  useEffect(() => {
-    if (!needsFace) return;
-    const run = () => void preloadFaceModels().catch(() => undefined);
-    const idle = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
-    if (idle.requestIdleCallback) {
-      const handle = idle.requestIdleCallback(run, { timeout: 2500 });
-      return () => idle.cancelIdleCallback?.(handle);
-    }
-    const timer = window.setTimeout(run, 1200);
-    return () => window.clearTimeout(timer);
-  }, [needsFace]);
 
   // Ilova qayta ochilganda (fon rejimidan) ma’lumotni yangilaymiz.
   useEffect(() => {

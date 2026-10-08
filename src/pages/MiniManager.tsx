@@ -54,16 +54,34 @@ type Toast = (text: string, tone?: "ok" | "error") => void;
 
 function client(token: string) {
   return async function call<T>(url: string, body?: unknown, method = body === undefined ? "GET" : "POST"): Promise<T> {
-    let response: Response;
-    try {
-      response = await fetch(`/api${url}`, {
-        method,
-        credentials: "omit",
-        headers: { authorization: `Bearer ${token}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
-        body: body !== undefined ? JSON.stringify(body) : undefined,
-      });
-    } catch {
-      throw new ApiError("Server bilan aloqa yo‘q.", 0);
+    let response: Response | undefined;
+    // O‘qish so‘rovlari mobil tarmoqdagi qisqa uzilishda 2 marta qayta uriniladi (qarorlar — yo‘q).
+    const delays = method === "GET" ? [600, 1500] : [];
+    for (let attempt = 0; ; attempt += 1) {
+      const controller = new AbortController();
+      const timer = window.setTimeout(() => controller.abort(), 20_000);
+      try {
+        response = await fetch(`/api${url}`, {
+          method,
+          credentials: "omit",
+          signal: controller.signal,
+          headers: { authorization: `Bearer ${token}`, ...(body !== undefined ? { "content-type": "application/json" } : {}) },
+          body: body !== undefined ? JSON.stringify(body) : undefined,
+        });
+        if ([502, 503, 504].includes(response.status) && attempt < delays.length) {
+          await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+          continue;
+        }
+        break;
+      } catch {
+        if (attempt < delays.length && navigator.onLine !== false) {
+          await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
+          continue;
+        }
+        throw new ApiError(controller.signal.aborted ? "Server javob bermadi. Birozdan keyin qayta urinib ko‘ring." : "Server bilan aloqa yo‘q.", 0);
+      } finally {
+        window.clearTimeout(timer);
+      }
     }
     if (!response.ok) {
       const data = (await response.json().catch(() => ({}))) as { message?: string };

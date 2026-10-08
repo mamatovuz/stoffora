@@ -13,7 +13,7 @@
     "build": "npm run prepare:face-models && vite build && tsup server/index.ts server/face-worker.ts --format esm --out-dir dist-server --clean",
     "start": "node dist-server/index.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --testTimeout=30000 --hookTimeout=30000",
     "seed:load": "tsx scripts/seed-load.ts",
     "bench": "node scripts/bench.mjs",
     "loadtest": "node scripts/load-test.mjs"

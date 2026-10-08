@@ -25,6 +25,7 @@ import {
   X,
 } from "lucide-react";
 import { haversineDistance } from "@/lib/attendance";
+import { preloadFaceModels } from "../../components/FaceScanner";
 import { BirthdayCard } from "./Birthdays";
 import { quietPosition } from "./AttendanceFlow";
 import type { HelpdeskView } from "./Helpdesk";
@@ -115,6 +116,9 @@ export function MiniHome({
   }, [offline]);
   const streak = stats?.streak.current || 0;
   const near = useGeofence(Boolean(!a?.checkIn && day?.enabled && !data.todayLeave && !offline && !stale), data);
+  useEffect(() => {
+    if (near !== null) void preloadFaceModels().catch(() => undefined);
+  }, [near]);
 
   return (
     <div className="mini-body mh">
@@ -166,7 +170,13 @@ export function MiniHome({
             </button>
           </div>
         ) : (
-          <button className={`mh-action ${working ? "out" : ""}`} disabled={stale || Boolean(openBreak)} onClick={() => onAction(working ? "CHECK_OUT" : "CHECK_IN")}>
+          <button
+            className={`mh-action ${working ? "out" : ""}`}
+            disabled={stale || Boolean(openBreak)}
+            // Barmoq tekkan zahoti model yuklana boshlaydi — bosish tugaguncha bir necha yuz ms yutiladi.
+            onPointerDown={() => void preloadFaceModels().catch(() => undefined)}
+            onClick={() => onAction(working ? "CHECK_OUT" : "CHECK_IN")}
+          >
             {stale ? (
               <LoaderCircle size={19} className="spin" />
             ) : working ? (

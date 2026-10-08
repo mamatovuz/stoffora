@@ -80,14 +80,14 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
 
-  // Mini App sahifasi: tarmoq birinchi (yangi versiya), sekin yoki aloqa yo‘q bo‘lsa — kesh.
+  // Mini App sahifasi: tarmoq birinchi (yangi versiya); 1,2 soniyada kelmasa yoki aloqa yo‘q bo‘lsa — kesh.
   if (request.mode === "navigate") {
     if (!url.pathname.startsWith("/mini-app")) return;
     event.respondWith(
       (async () => {
         const cache = await caches.open(VERSION);
         try {
-          const response = await networkWithTimeout(request, 3000);
+          const response = await networkWithTimeout(request, 1200);
           if (response.ok) {
             const copy = response.clone();
             event.waitUntil(

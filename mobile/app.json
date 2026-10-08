@@ -144,7 +144,8 @@
           ]
         }
       ],
-      "expo-task-manager"
+      "expo-task-manager",
+      "./plugins/withWorkManagerAlign"
     ],
     "experiments": {
       "typedRoutes": true
