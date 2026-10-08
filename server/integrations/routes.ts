@@ -33,11 +33,14 @@ import {
   createSyncJob,
   fetchRemote,
   isSyncRunning,
+  matchLocal,
+  NO_BRANCH,
   resolveConflict,
   runSyncJob,
   type BotEventEnvelope,
 } from "./sync";
 import { verifySignature } from "./webhook";
+import type { RemoteBranch, RemoteEmployee } from "./transform";
 import { processRecordedEvent, runWorkerOnce } from "./worker";
 import { accessCandidates, inviteLink, issueInvite, revokeInvites, runAccessSendJob } from "./access";
 import { mappingByLocal } from "./model";
@@ -206,6 +209,7 @@ const settingsSchema = z
         z.string().trim().regex(/^(https:\/\/)?t\.me\/[A-Za-z0-9_]{5,32}\/[A-Za-z0-9_]{3,30}\/?$/i, "Havola https://t.me/<bot>/<nomi> ko‘rinishida bo‘lsin."),
       ])
       .optional(),
+    branchIds: z.array(z.string().trim().min(1).max(64)).max(500).nullable(),
     routing: z
       .object(
         Object.fromEntries(
@@ -353,6 +357,44 @@ export function createIntegrationRouter() {
       const remote = await fetchRemote(client, new Set(["branch", "department", "position", "employee", "attendance"]));
       remote.company = { name: integration.remote?.companyName };
       res.json(await buildPreview(integration, remote));
+    }),
+  );
+
+  /**
+   * Bot filiallari — import uchun tanlash ro‘yxati: har birida xodimlar soni, tanlanganmi,
+   * saytda allaqachon bormi (mapping yoki nomi bo‘yicha). «Filialsiz xodimlar» alohida qator.
+   */
+  router.get(
+    "/integrations/:id/branches",
+    manage,
+    route(async (req, res) => {
+      const integration = await load(req);
+      requireConnected(integration);
+      const client = clientFor(integration);
+      const [branches, employees] = await Promise.all([client.all<RemoteBranch>("/branches"), client.all<RemoteEmployee>("/employees")]);
+      const db = await readDb();
+      const counts = new Map<string, number>();
+      for (const e of employees.items) {
+        const key = e.branch?.id ? String(e.branch.id) : NO_BRANCH;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+      const selected = integration.settings.branchIds;
+      const rows = branches.items.map((b) => {
+        const match = matchLocal(db, integration, "branch", b as never);
+        return {
+          id: String(b.id),
+          name: b.name,
+          address: b.address || undefined,
+          employees: counts.get(String(b.id)) || 0,
+          selected: !selected || selected.includes(String(b.id)),
+          local: match.local ? { id: String(match.local.id), name: String(match.local.name || "") } : undefined,
+          linked: Boolean(match.mapping),
+        };
+      });
+      const unassigned = counts.get(NO_BRANCH) || 0;
+      if (unassigned)
+        rows.push({ id: NO_BRANCH, name: "Filialsiz xodimlar", address: undefined, employees: unassigned, selected: !selected || selected.includes(NO_BRANCH), local: undefined, linked: false });
+      res.json({ all: !selected, rows });
     }),
   );
 

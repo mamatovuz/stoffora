@@ -641,6 +641,53 @@ describe("bot'dagi o‘chirish va hisoblash sanasi", () => {
   });
 });
 
+describe("filial tanlovi va saytdagi ma’lumot ustunligi", () => {
+  it("faqat belgilangan filiallar va ularning xodimlari import qilinadi", async () => {
+    ctx = await boot({ branches: 3, employees: 6 });
+    const id = await ctx.connect();
+    const list = await ctx.call("GET", `/integrations/${id}/branches`);
+    expect(list.status).toBe(200);
+    expect(list.body.all).toBe(true);
+    expect(list.body.rows.map((r: { id: string; employees: number }) => [r.id, r.employees])).toEqual([
+      ["1", 2],
+      ["2", 2],
+      ["3", 2],
+    ]);
+    const saved = await ctx.call("PUT", `/integrations/${id}/settings`, { branchIds: ["1", "3"] });
+    expect(saved.status).toBe(200);
+    const job = await ctx.initialSync(id);
+    expect(job.counters.branch).toMatchObject({ created: 2, skipped: 1 });
+    expect(job.counters.employee).toMatchObject({ created: 4, skipped: 2 });
+    const db = await ctx.store.readDb();
+    expect(db.branches.filter((b) => b.companyId === "c1").map((b) => b.name).sort()).toEqual(["Filial 1", "Filial 3"]);
+    expect(db.employees.filter((e) => e.companyId === "c1")).toHaveLength(4);
+    // Tanlov bekor qilinsa (null) — hammasi.
+    await ctx.call("PUT", `/integrations/${id}/settings`, { branchIds: null });
+    const again = await ctx.call("GET", `/integrations/${id}/branches`);
+    expect(again.body.all).toBe(true);
+  });
+
+  it("saytda bor xodim: sayt ma’lumoti saqlanadi, botdagisi olinmaydi, «allaqachon bor» deb belgilanadi", async () => {
+    ctx = await boot();
+    await ctx.store.updateDb((db) => {
+      db.employees.push({
+        id: "existing", companyId: "c1", employeeNo: "EMP-0001", firstName: "Saytdagi", lastName: "Ism", phone: "+998 90 000 00 02", email: "",
+        address: "Saytdagi manzil", departmentId: "", positionId: "", branchId: "", scheduleId: "", employmentType: "FULL_TIME", startDate: "2026-01-01",
+        baseSalary: 0, currency: "UZS", telegramConnected: false, deviceStatus: "PENDING", status: "ACTIVE", createdAt: "", updatedAt: "",
+      });
+    });
+    const id = await ctx.connect();
+    const preview = await ctx.call("GET", `/integrations/${id}/preview`);
+    const sample = preview.body.rows.find((r: { entity: string }) => r.entity === "employee").samples.find((s: { externalId: string }) => s.externalId === "2");
+    expect(sample).toMatchObject({ action: "linked", matchedBy: "phone", reason: "Saytda allaqachon bor — sayt ma’lumoti saqlandi" });
+    await ctx.initialSync(id);
+    const db = await ctx.store.readDb();
+    expect(db.employees.find((e) => e.id === "existing")).toMatchObject({ firstName: "Saytdagi", lastName: "Ism", address: "Saytdagi manzil", baseSalary: 0 });
+    expect(db.integrationConflicts.filter((c) => c.localId === "existing")).toHaveLength(0);
+    expect(db.employees.filter((e) => e.companyId === "c1")).toHaveLength(3);
+  });
+});
+
 async function rawPost(c: Ctx, integrationId: string, body: string, signature: string) {
   // Imzo aynan shu matn uchun — call() ishlatilmaydi (u tanani qayta seriyalaydi).
   return fetch(`${c.base}/integrations/${integrationId}/webhook`, {

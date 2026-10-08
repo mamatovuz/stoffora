@@ -1,12 +1,12 @@
 import { useState, type ReactNode } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, Icon, haptic } from "./ui";
-import { Donut } from "./Donut";
+import { StackBar } from "./ManagerExtras";
 import { dateLongUz, tashkentIsoDate } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
 
 /*
- * Rahbar / HR — kunlik davomat: halqa diagramma (vaqtida, kechikkan, hali kelmagan, kelmagan,
+ * Rahbar / HR — kunlik davomat: chiziqli diagramma (vaqtida, kechikkan, hali kelmagan, kelmagan,
  * ta’til, dam olish, ish vaqti boshlanmagan) va pastda har bir guruh bo‘yicha xodimlar
  * (5 tadan, «Barchasini ko‘rsatish»). Kunni ‹ › bilan almashtirish mumkin.
  */
@@ -49,7 +49,7 @@ export function AttendanceOverview<T extends OverviewRow>({ rows, date, onDate, 
             <Icon name="chevron-forward" size={18} color={c.ink} />
           </Pressable>
         </View>
-        <Donut slices={buckets.map((b) => ({ label: b.label, value: b.rows.length, color: b.color }))} center={String(rows.length)} />
+        <StackBar total={rows.length} slices={buckets.map((b) => ({ key: b.key, label: b.label, value: b.rows.length, color: b.color }))} />
       </Card>
       {buckets
         .filter((b) => b.rows.length)

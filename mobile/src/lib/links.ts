@@ -10,9 +10,12 @@ export function routeForGo(go?: string | null): Href | null {
   const value = go.trim().replace(/^go[_-]/, "");
   const [head] = value.split("_");
   switch (head) {
-    case "home":
+    // Kelish/ketish eslatmasi — darhol yuz tekshiruvi (go/[target] ekrani holatni tekshiradi).
     case "checkin":
+      return { pathname: "/go/[target]", params: { target: "checkin" } };
     case "checkout":
+      return { pathname: "/go/[target]", params: { target: "checkout" } };
+    case "home":
     case "late":
       return "/(tabs)";
     case "notifs":

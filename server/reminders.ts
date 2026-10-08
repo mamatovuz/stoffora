@@ -11,6 +11,12 @@ import { z } from "zod";
 import { updateDb } from "../lib/store";
 import type { Attendance, Employee } from "../lib/types";
 import type { EmployeeSession } from "./auth";
+import { randomUUID } from "node:crypto";
+import { InlineKeyboard } from "grammy";
+import { branchManagers } from "./mini-extra";
+import { miniAppUrl, sendTelegramMessage } from "./telegram";
+import { pushToManager } from "./request-actions";
+import { salarySnapshot } from "./advances";
 
 /** Standart: kelmagan bo‘lsa — boshlanishdan 15 daqiqa keyin; chiqmagan bo‘lsa — tugashdan 20 daqiqa keyin. */
 export const DEFAULT_REMINDERS = { start: { enabled: true, offset: 15 }, end: { enabled: true, offset: 20 } };
@@ -118,14 +124,14 @@ export function startAttendanceReminders() {
           const before = prefs.end.offset < 0;
           const text = before
             ? `🏁 ${employee.firstName}, ish ${plan.end} da tugaydi (${Math.abs(prefs.end.offset)} daqiqadan keyin). Ketayotganda «Ishdan ketdim»ni bosishni unutmang.`
-            : `🏁 ${employee.firstName}, ish vaqti ${plan.end} da tugadi. Ketishni belgilashni unutmang.`;
+            : `🏁 ${employee.firstName}, ketishni belgilamadingiz. Ish ${plan.end} da tugagan — ketayotgan bo‘lsangiz «Ishdan ketdim»ni bosing.`;
           if (reachable) void notifyEmployee(db, employee, "attendance", text, { openButton: true, go: "checkout" }).catch(() => undefined);
           if (pushable)
             void pushToEmployee(
               employee.id,
               before
                 ? { title: `🏁 Ish ${plan.end} da tugaydi`, body: `${Math.abs(prefs.end.offset)} daqiqa qoldi. Ketishni belgilashni unutmang.`, data: { go: "checkout" } }
-                : { title: "🏁 Ish vaqti tugadi", body: `Ish ${plan.end} da tugadi. Ketishni belgilashni unutmang.`, data: { go: "checkout" } },
+                : { title: "🏁 Ketishni belgilamadingiz", body: `Ish ${plan.end} da tugagan. Ketayotgan bo‘lsangiz «Ishdan ketdim»ni bosing.`, data: { go: "checkout" } },
               db,
             ).catch(() => 0);
         };
@@ -173,6 +179,15 @@ export function startAttendanceReminders() {
               db,
             ).catch(() => 0);
         }
+        // Ertalabki eslatma: ish boshlanishidan 10 daqiqa oldin (xodim o‘zi oldindan eslatma sozlamagan bo‘lsa).
+        const preKey = `${employee.id}:pre`;
+        if (prefs.start.enabled && prefs.start.offset >= 0 && !record?.checkIn && start >= PRE_REMINDER && now >= start - PRE_REMINDER && now < start && !sent.has(preKey)) {
+          sent.add(preKey);
+          const text = `⏰ ${employee.firstName}, ish ${day.start} da boshlanadi. Belgilashni unutmang — filialga yetib kelgach «Ishga keldim»ni bosing.`;
+          if (reachable) void notifyEmployee(db, employee, "attendance", text, { openButton: true, go: "checkin" }).catch(() => undefined);
+          if (pushable)
+            void pushToEmployee(employee.id, { title: `⏰ Ish ${day.start} da boshlanadi`, body: "Belgilashni unutmang — kelganingizda «Ishga keldim»ni bosing.", data: { go: "checkin" } }, db).catch(() => 0);
+        }
         remindCheckout(day, record, now, end, `${employee.id}:out:${date}`);
       }
       for (const [key, group] of missing) {
@@ -189,6 +204,7 @@ export function startAttendanceReminders() {
           "manager",
         ).catch(() => undefined);
       }
+      await runDailyJobs(db, date, now).catch((error) => console.error("Kunlik hisobot xatosi", error));
     } catch (error) {
       console.error("Davomat eslatmalari xatosi", error);
     } finally {
@@ -196,4 +212,135 @@ export function startAttendanceReminders() {
     }
   };
   setInterval(() => void tick(), 60_000).unref();
+}
+
+const PRE_REMINDER = 10;
+/** Rahbarga kunlik hisobot vaqti (Toshkent): 10:00. */
+const REPORT_AT = 10 * 60;
+/** Oy yakuni xati: oyning oxirgi kuni 19:00 da. */
+const MONTH_SUMMARY_AT = 19 * 60;
+const nameOf = (e: Pick<Employee, "firstName" | "lastName">) => `${e.firstName} ${e.lastName}`.trim();
+const som = (value: number) => `${Math.round(value).toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m`;
+type Db = Awaited<ReturnType<typeof readDb>>;
+
+/** Kuniga bir martalik ishlar; takror yubormaslik uchun sentGreetings (server qayta ishga tushsa ham). */
+async function runDailyJobs(db: Db, date: string, now: number) {
+  const done = new Set(db.sentGreetings.map((g) => g.key));
+  const keys: string[] = [];
+  if (now >= REPORT_AT && now < REPORT_AT + 60) keys.push(...(await managerReports(db, date, now, done)));
+  if (addDays(date, 1).slice(0, 7) !== date.slice(0, 7) && now >= MONTH_SUMMARY_AT) keys.push(...(await monthSummaries(db, date, done)));
+  if (!keys.length) return;
+  await updateDb((next) => {
+    const at = new Date().toISOString();
+    for (const key of keys) next.sentGreetings.push({ key, at });
+  });
+}
+
+/**
+ * 10:00 — rahbarga (egasi, HR, filial rahbari) kim kelmadi va kim kechikdi ro‘yxati.
+ * Ro‘yxatdagi xodimga Telegram’da bir bosishda yozish tugmalari bilan; ilovaga push.
+ */
+async function managerReports(db: Db, date: string, now: number, done: Set<string>) {
+  const keys: string[] = [];
+  if (!process.env.TELEGRAM_BOT_TOKEN && process.env.MOBILE_PUSH === "false") return keys;
+  const index = dataIndexes(db);
+  type Row = { employee: Employee; late: number };
+  for (const company of db.companies) {
+    if (company.status === "SUSPENDED" || company.miniApp?.managerDigest === false) continue;
+    const key = `MREPORT:${company.id}:${date}`;
+    if (done.has(key)) continue;
+    keys.push(key);
+    const absent: Row[] = [];
+    const late: Row[] = [];
+    let planned = 0;
+    for (const employee of db.employees) {
+      if (employee.companyId !== company.id || employee.status !== "ACTIVE") continue;
+      const onLeave = (index.approvedLeaveByEmployee.get(employee.id) || []).some((l) => l.startDate <= date && l.endDate >= date);
+      if (onLeave) continue;
+      const plan = dayPlan(db, employee, date);
+      if (!plan.enabled || toMinutes(plan.start) > now) continue;
+      planned += 1;
+      const record = index.attendanceByKey.get(`${employee.id}|${date}`);
+      if (!record?.checkIn) absent.push({ employee, late: 0 });
+      else if (record.lateMinutes > 0 && !isPracticeDay(date, company, employee)) late.push({ employee, late: record.lateMinutes });
+    }
+    if (!planned) continue;
+    for (const manager of branchManagers(db, company.id)) {
+      const scope = manager.role === "BRANCH_MANAGER" ? new Set(manager.branchIds || []) : null;
+      const inScope = (r: Row) => !scope || scope.has(r.employee.branchId);
+      const a = absent.filter(inScope);
+      const l = late.filter(inScope).sort((x, y) => y.late - x.late);
+      if (scope && !a.length && !l.length && !db.employees.some((e) => e.companyId === company.id && scope.has(e.branchId))) continue;
+      const list = (rows: Row[], suffix: (r: Row) => string) =>
+        rows
+          .slice(0, 12)
+          .map((r) => `• ${nameOf(r.employee)}${suffix(r)}`)
+          .join("\n") + (rows.length > 12 ? `\n… yana ${rows.length - 12} kishi` : "");
+      const text = [
+        `📋 <b>Bugungi davomat · ${tashkentClock().slice(0, 5)}</b>`,
+        !a.length && !l.length ? "✅ Hamma o‘z vaqtida keldi." : "",
+        a.length ? `\n❌ <b>Kelmadi — ${a.length}</b>\n${list(a, (r) => (r.employee.phone ? ` · ${r.employee.phone}` : ""))}` : "",
+        l.length ? `\n⏰ <b>Kechikdi — ${l.length}</b>\n${list(l, (r) => ` · ${r.late} daq`)}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      // «Xodimga yozish»: Telegram’i ulangan xodimlar (ko‘pi bilan 8 ta tugma).
+      const writable = [...a, ...l].filter((r) => r.employee.telegramConnected && /^\d+$/.test(r.employee.telegramId || "")).slice(0, 8);
+      const keyboard = new InlineKeyboard();
+      writable.forEach((r, i) => {
+        keyboard.url(`✉️ ${r.employee.firstName}`, `tg://user?id=${r.employee.telegramId}`);
+        if (i % 2 === 1) keyboard.row();
+      });
+      const panel = miniAppUrl("manager");
+      if (panel) keyboard.row().webApp("📊 Rahbar paneli", panel);
+      if (process.env.TELEGRAM_BOT_TOKEN && manager.telegramId) {
+        const ok = await sendTelegramMessage(manager.telegramId, text, { keyboard }).catch(() => false);
+        // Xodimning maxfiylik sozlamasi tugmani taqiqlasa — xabar tugmalarsiz qayta yuboriladi.
+        if (!ok && writable.length) await sendTelegramMessage(manager.telegramId, text, { go: "manager" }).catch(() => false);
+      }
+      await pushToManager(db, manager, "📋 Bugungi davomat", !a.length && !l.length ? "Hamma o‘z vaqtida keldi." : `Kelmadi: ${a.length} · Kechikdi: ${l.length}`, "manager").catch(() => 0);
+    }
+  }
+  return keys;
+}
+
+/** Oyning oxirgi kuni kechqurun — xodimga oy xulosasi: kunlar, kechikishlar, qo‘lga tegadigan summa. */
+async function monthSummaries(db: Db, date: string, done: Set<string>) {
+  const keys: string[] = [];
+  const month = date.slice(0, 7);
+  const index = dataIndexes(db);
+  const rows: { companyId: string; employeeId: string; title: string; body: string }[] = [];
+  for (const employee of db.employees) {
+    if (employee.status !== "ACTIVE") continue;
+    const key = `MONTH:${employee.id}:${month}`;
+    if (done.has(key)) continue;
+    keys.push(key);
+    const snap = salarySnapshot(db, employee, month);
+    if (!snap.days && !snap.base) continue;
+    const late = (index.attendanceByEmployee.get(employee.id) || []).filter((r) => r.date.startsWith(month) && r.lateMinutes > 0).length;
+    const text = [
+      `📊 <b>${snap.label} xulosasi</b>`,
+      `Ishlagan kunlar: ${snap.days}${snap.expectedDays ? ` / ${snap.expectedDays}` : ""}`,
+      `Kechikishlar: ${late}`,
+      snap.base ? `Qo‘lga tegadigan (taxminiy): <b>${som(snap.net)}</b>` : "",
+      snap.advance ? `Avans olingan: ${som(snap.advance)}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+    await notifyEmployee(db, employee, "payroll", text, { openButton: true, go: "salary" }).catch(() => undefined);
+    rows.push({
+      companyId: employee.companyId,
+      employeeId: employee.id,
+      title: `📊 ${snap.label} xulosasi`,
+      body: `${snap.days} kun · ${late} kechikish${snap.base ? ` · ${som(snap.net)}` : ""}`,
+    });
+  }
+  // Ilovadagi bildirishnoma (push dispetcheri telefonga ham yuboradi).
+  if (rows.length)
+    await updateDb((next) => {
+      const at = new Date().toISOString();
+      for (const r of rows)
+        next.notifications.unshift({ id: randomUUID(), companyId: r.companyId, employeeId: r.employeeId, title: r.title, body: r.body, type: "PAYROLL", read: false, createdAt: at, go: "salary" });
+    });
+  return keys;
 }

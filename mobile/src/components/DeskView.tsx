@@ -116,7 +116,7 @@ export function DeskView({ role, onOpen, reloadKey }: { role: string; onOpen: (v
           {s.issues.slice(0, 8).map((i) => (
             <Pressable key={`${i.employeeId}:${i.text}`} onPress={() => router.push({ pathname: "/employee/[id]", params: { id: i.employeeId } })}>
               <Text style={{ color: i.tone === "bad" ? c.danger : c.warn, fontSize: 14 }}>
-                ⚠ {i.name} — {i.text}
+                {i.name} — {i.text}
               </Text>
             </Pressable>
           ))}
@@ -126,7 +126,7 @@ export function DeskView({ role, onOpen, reloadKey }: { role: string; onOpen: (v
               Rejada {s.tomorrow.planned} xodim{s.tomorrow.required ? ` · kerak ${s.tomorrow.required}` : ""}
               {s.tomorrow.onLeave ? ` · ta’tilda ${s.tomorrow.onLeave}` : ""}
             </Text>
-            {s.tomorrow.shortage ? <Text style={{ color: c.danger, fontWeight: "600" }}>⚠ {s.tomorrow.shortage} xodim yetishmaydi</Text> : s.tomorrow.required ? <Text style={{ color: c.success }}>✓ Smena tayyor</Text> : null}
+            {s.tomorrow.shortage ? <Text style={{ color: c.danger, fontWeight: "600" }}>{s.tomorrow.shortage} xodim yetishmaydi</Text> : s.tomorrow.required ? <Text style={{ color: c.success }}>Smena tayyor</Text> : null}
           </View>
         </Card>
       ))}

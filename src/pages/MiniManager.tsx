@@ -32,7 +32,6 @@ import { dateLongUz, dateUz, duration, tashkentIsoDate } from "@/lib/format";
 import { FineSheet, MoneyView } from "./mini/MoneyTools";
 import { DevicesView } from "./mini/DevicesView";
 import { useBadgeScanner } from "./mini/BadgeCheck";
-import { Donut } from "./mini/HistoryCalendar";
 import { MiniDesk } from "./mini/Desk";
 import type { Attendance, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { leaveTypeLabel } from "../types";
@@ -347,8 +346,8 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   ];
   const hasAdmin = adminExtra.length > 0 || adminItemsFor(role).length > 0;
   const tabs = [
-    ["desk", "Ish stoli", 0] as const,
-    ...(canAttendance ? ([["today", "Bugun", 0]] as const) : []),
+    ["desk", "Umumiy", 0] as const,
+    ...(canAttendance ? ([["today", "Davomat", 0]] as const) : []),
     ...(canRequests ? ([["requests", "So‘rovlar", pendingCount]] as const) : []),
     ...(hasAdmin ? ([["admin", "Boshqaruv", 0]] as const) : []),
   ];
@@ -395,11 +394,11 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                           <small>
                             {r.branch}
                             {r.record?.checkIn ? ` · ${r.record.checkIn}${r.record.checkOut ? ` → ${r.record.checkOut}` : ""}` : r.scheduledStart ? ` · grafik ${r.scheduledStart}` : ""}
-                            {r.record?.breaks?.some((b) => !b.end) ? " · ☕ tanaffusda" : ""}
+                            {r.record?.breaks?.some((b) => !b.end) ? " · tanaffusda" : ""}
                           </small>
                           {notice && !r.record?.checkIn && (
                             <small className="mg-notice">
-                              ⏳ ~{duration(notice.minutes)} · {notice.reason}
+                              Kechikadi ~{duration(notice.minutes)} · {notice.reason}
                             </small>
                           )}
                         </span>
@@ -413,28 +412,28 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
     <div className="mini-body mg">
       <div className="mg-head">
         <div>
-          <small>Rahbar paneli · {auth.company.name}</small>
-          <h1>{auth.user.name}</h1>
+          <small>{auth.company.name}</small>
+          <h1>Rahbar paneli</h1>
         </div>
-        <span className="mg-head-actions">
-          {canFine && (
-            <button className="mg-refresh" onClick={() => setFining(true)} aria-label={fineDirect ? "Jarima yozish" : "Jarima taklif qilish"}>
-              <Gavel size={18} />
-            </button>
-          )}
-          {canAnnounce && (
-            <button className="mg-refresh" onClick={() => setAnnouncing(true)} aria-label="Tezkor e’lon">
-              <Megaphone size={18} />
-            </button>
-          )}
-          <button className="mg-refresh" onClick={badge.scan} aria-label="Xodim ID QR tekshirish">
-            {badge.icon}
-          </button>
-          <button className="mg-refresh" onClick={() => void load()} aria-label="Yangilash" disabled={loading}>
-            <RefreshCw size={18} className={loading ? "spin" : ""} />
-          </button>
-        </span>
+        <button className="mg-refresh" onClick={() => void load()} aria-label="Yangilash" disabled={loading}>
+          <RefreshCw size={18} className={loading ? "spin" : ""} />
+        </button>
         {badge.sheet}
+      </div>
+      <div className="mg-quick" aria-label="Tezkor amallar">
+        {canAnnounce && (
+          <button onClick={() => setAnnouncing(true)}>
+            <Megaphone size={16} /> E’lon yuborish
+          </button>
+        )}
+        {canFine && (
+          <button onClick={() => setFining(true)}>
+            <Gavel size={16} /> {fineDirect ? "Jarima yozish" : "Jarima taklifi"}
+          </button>
+        )}
+        <button onClick={badge.scan}>
+          {badge.icon} ID tekshirish
+        </button>
       </div>
       <div className={`mini-seg ${["", "one", "", "three", "four"][tabs.length] || "four"}`} role="tablist">
         {tabs.map(([key, label, badge]) => (
@@ -514,7 +513,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               }}
             />
             <section className="mini-card">
-              <Donut slices={TODAY_GROUPS.map((g) => ({ label: g.label, value: scoped.filter(g.test).length, color: g.color }))} center={String(scoped.length)} />
+              <StackBar total={scoped.length} slices={TODAY_GROUPS.map((g) => ({ key: g.key, label: g.label, value: scoped.filter(g.test).length, color: g.color }))} />
             </section>
             {notices.length > 0 && (
               <div className="mg-alert info">
@@ -583,7 +582,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                 )}
               </section>
             )}
-            <p className="mp-note">Xodimga bosing — karta: oylik tarix, trendlar, hujjatlar, yozish va qo‘lda belgilash.</p>
+            <p className="mp-note">Xodim ustiga bosing — tarix, hujjatlar va qo‘lda belgilash.</p>
           </>
         ))}
 
@@ -695,7 +694,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                   <span>
                     <b>
                       {l.employee?.firstName} {l.employee?.lastName}
-                      {l.documentId ? " 📎" : ""}
+                      {l.documentId ? " · hujjat bor" : ""}
                     </b>
                     <small>
                       {leaveTypeLabel[l.type] || l.type} · {dateUz(l.startDate)} – {dateUz(l.endDate)}
@@ -876,6 +875,32 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
 }
 
 /** So‘nggi belgilar lentasi: bugun kim qachon keldi/ketdi (eng yangisi tepada). */
+/** Bugungi davomat: bitta gorizontal chiziq va izoh — diagrammadan tezroq o‘qiladi. */
+function StackBar({ total, slices }: { total: number; slices: { key: string; label: string; value: number; color: string }[] }) {
+  const shown = slices.filter((s) => s.value > 0);
+  return (
+    <div className="mg-bar">
+      <div className="mg-bar-top">
+        <b>{total}</b> <span>xodim bugun</span>
+      </div>
+      <div className="mg-bar-line" aria-hidden>
+        {shown.map((s) => (
+          <i key={s.key} style={{ flexGrow: s.value, background: s.color }} />
+        ))}
+      </div>
+      <ul className="mg-bar-legend">
+        {shown.map((s) => (
+          <li key={s.key}>
+            <i style={{ background: s.color }} />
+            {s.label}
+            <b>{s.value}</b>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function LiveFeed({ rows, onOpen }: { rows: RosterRow[]; onOpen: (employeeId: string) => void }) {
   const events = rows
     .flatMap((r) => [

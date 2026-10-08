@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { Card, ErrorBox, Hint, Loading, Segmented, haptic } from "@/components/ui";
 import { errorText, put } from "@/lib/api";
 import { useTheme } from "@/lib/theme";
 import { useData } from "@/lib/useData";
+import { disableGeofence, enableGeofence, geofenceEnabled } from "@/lib/geofence";
+import type { HomeData } from "@/lib/types";
 
 type Rule = { enabled: boolean; offset: number };
 type Prefs = { start: Rule; end: Rule };
@@ -91,6 +93,7 @@ export default function Reminders() {
       <Hint icon="notifications-outline">
         Eslatma push-bildirishnoma va Telegram orqali keladi. Dam olish va ta’til kunlari eslatilmaydi.{saving ? " Saqlanmoqda…" : ""}
       </Hint>
+      <GeofenceCard />
       <NotifyPrefsCard />
     </ScrollView>
   );
@@ -131,6 +134,63 @@ function NotifyPrefsCard() {
         </View>
       ))}
       <Text style={{ color: c.muted, fontSize: 12.5, marginTop: 6 }}>{local.note}</Text>
+    </Card>
+  );
+}
+
+/** Filialga yaqinlashganda «Ishga keldingizmi?» (fon geofence) — ixtiyoriy. */
+function GeofenceCard() {
+  const { c } = useTheme();
+  const home = useData<HomeData>("/mini/home", { refetchOnFocus: false });
+  const [on, setOn] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void geofenceEnabled().then(setOn);
+  }, []);
+  const toggle = async (next: boolean) => {
+    if (!home.data) return;
+    setBusy(true);
+    try {
+      if (!next) {
+        await disableGeofence();
+        setOn(false);
+        return;
+      }
+      const result = await enableGeofence(home.data);
+      if (result === "on") {
+        haptic.select();
+        setOn(true);
+      } else if (result === "no-branch") Alert.alert("Filial yo‘q", "Sizga filial biriktirilmagan — HR bilan bog‘laning.");
+      else
+        Alert.alert(
+          "Ruxsat kerak",
+          result === "background-denied"
+            ? "Sozlamalarda joylashuvga «Har doim» (Always) ruxsatini bering — shunda ilova yopiq bo‘lsa ham filialga kelganingizni eslatadi."
+            : "Joylashuvga ruxsat berilmadi.",
+          [
+            { text: "Bekor", style: "cancel" },
+            { text: "Sozlamalar", onPress: () => void Linking.openSettings() },
+          ],
+        );
+    } catch (e) {
+      Alert.alert("Xatolik", errorText(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (on === null) return null;
+  return (
+    <Card style={{ gap: 8 }}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <Text style={{ color: c.ink, fontSize: 16, fontWeight: "600" }}>Filialga kelganda eslatish</Text>
+          <Text style={{ color: c.muted, fontSize: 13 }}>Ilova yopiq bo‘lsa ham «Ishga keldingizmi?» deb so‘raydi</Text>
+        </View>
+        <Switch value={on} disabled={busy || !home.data} onValueChange={(v) => void toggle(v)} />
+      </View>
+      <Text style={{ color: c.muted, fontSize: 12.5 }}>
+        Telefon faqat filial hududiga kirganingizni sezadi — joylashuvingiz serverga yuborilmaydi. Kuniga bir martadan ko‘p eslatilmaydi, kelish belgilangan kuni eslatilmaydi.
+      </Text>
     </Card>
   );
 }

@@ -42,6 +42,7 @@ interface Settings {
   pollIntervalSeconds: number;
   inviteTtlHours: number;
   miniAppLink?: string;
+  branchIds?: string[];
   routing: Record<Category, Channel[]>;
 }
 interface Integration {
@@ -94,6 +95,7 @@ interface TestResult {
   features: { label: string; enabled: boolean; missing: string[] }[];
 }
 interface PreviewRow { entity: string; total: number; create: number; link: number; update: number; skip: number; samples: { externalId: string; name: string; action: string; matchedBy?: string; reason?: string }[] }
+interface BranchOption { id: string; name: string; address?: string; employees: number; selected: boolean; local?: { id: string; name: string }; linked: boolean }
 interface Counting { startDate?: string; note?: string; updatedAt?: string; updatedBy?: string }
 
 const entityLabels: Record<string, string> = {
@@ -106,7 +108,7 @@ const entityLabels: Record<string, string> = {
 };
 const entityIcons: Record<string, typeof Users> = { branch: Building2, department: Layers, position: Briefcase, employee: Users, attendance: CalendarCheck };
 const modeLabels: Record<SyncMode, string> = { TWO_WAY: "Ikki tomonlama", IMPORT: "Botdan → Staffora", EXPORT: "Staffora → botga", OFF: "O‘chirilgan" };
-const actionLabels: Record<string, string> = { created: "Yaratiladi", linked: "Bog‘lanadi", updated: "Yangilanadi", unchanged: "O‘zgarishsiz", skipped: "O‘tkazib yuboriladi", conflict: "Konflikt" };
+const actionLabels: Record<string, string> = { created: "Yangi qo‘shiladi", linked: "Saytda bor", updated: "Yangilanadi", unchanged: "O‘zgarishsiz", skipped: "O‘tkazib yuboriladi", conflict: "Konflikt" };
 const matchLabels: Record<string, string> = { mapping: "mapping", external_id: "Staffora ID", telegram_id: "Telegram ID", phone: "telefon", name: "nomi" };
 
 const ago = (iso?: string) => {
@@ -192,7 +194,7 @@ export function IntegrationCenter() {
 
 /* --------------------------------------------------------- ulash ustasi --- */
 
-const wizardSteps = ["Ulanish", "Bot ma’lumoti", "Hisoblash sanasi", "Ko‘rib chiqish", "Import", "Natija"];
+const wizardSteps = ["Ulanish", "Bot ma’lumoti", "Hisoblash sanasi", "Filiallar", "Ko‘rib chiqish", "Import"];
 
 function ConnectWizard({ initialUrl, counting, onClose }: { initialUrl?: string; counting: Counting | null; onClose: () => void }) {
   const toast = useToast();
@@ -208,6 +210,14 @@ function ConnectWizard({ initialUrl, counting, onClose }: { initialUrl?: string;
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // «Importni boshlash» oldingi tugma o‘rnida paydo bo‘ladi — ikki marta bosish tasodifan importni boshlamasin.
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    setArmed(false);
+    if (!preview) return;
+    const timer = window.setTimeout(() => setArmed(true), 900);
+    return () => window.clearTimeout(timer);
+  }, [preview]);
 
   const run = async (action: () => Promise<void>) => {
     setBusy(true);
@@ -388,18 +398,30 @@ function ConnectWizard({ initialUrl, counting, onClose }: { initialUrl?: string;
                 void run(async () => {
                   await put("/company/attendance-counting", { startDate: useCounting ? startDate : null, note: "Xodimlar boti integratsiyasi" });
                   setStep(3);
-                  const result = await api<{ rows: PreviewRow[]; warnings: string[] }>(`/integrations/${integrationId}/preview`);
-                  setPreview(result);
                 })
               }
             >
-              {busy && <LoaderCircle size={16} className="spin" />} Saqlash va ma’lumotlarni ko‘rish
+              {busy && <LoaderCircle size={16} className="spin" />} Saqlash va davom etish
             </button>
           </div>
         </div>
       )}
 
       {step === 3 && (
+        <BranchPicker
+          integrationId={integrationId}
+          saveLabel="Saqlash va ma’lumotlarni ko‘rish"
+          onSaved={() =>
+            void run(async () => {
+              setPreview(null);
+              setStep(4);
+              setPreview(await api<{ rows: PreviewRow[]; warnings: string[] }>(`/integrations/${integrationId}/preview`));
+            })
+          }
+        />
+      )}
+
+      {step === 4 && (
         <div className="stack">
           {!preview ? (
             <div className="ic-loading">
@@ -425,14 +447,14 @@ function ConnectWizard({ initialUrl, counting, onClose }: { initialUrl?: string;
             </button>
             <button
               className="btn btn-primary"
-              disabled={busy || !preview}
+              disabled={busy || !preview || !armed}
               onClick={() =>
                 void run(async () => {
                   const started = await post<Job>(`/integrations/${integrationId}/sync`, { type: "INITIAL" });
                   setJob(started);
-                  setStep(4);
-                  const final = await waitForJob(integrationId, started.id, setJob);
                   setStep(5);
+                  const final = await waitForJob(integrationId, started.id, setJob);
+                  setStep(6);
                   if (final.status === "FAILED") setError(final.errors.at(-1)?.message || "Import muvaffaqiyatsiz");
                 })
               }
@@ -443,11 +465,11 @@ function ConnectWizard({ initialUrl, counting, onClose }: { initialUrl?: string;
         </div>
       )}
 
-      {step >= 4 && job && (
+      {step >= 5 && job && (
         <div className="stack">
           <JobProgress job={job} />
           <ErrorBox message={error} />
-          {step === 5 && (
+          {step === 6 && (
             <>
               {job.status !== "FAILED" && (
                 <div className="alert success">
@@ -471,6 +493,93 @@ function ConnectWizard({ initialUrl, counting, onClose }: { initialUrl?: string;
   );
 }
 
+/**
+ * Filial tanlovi: botdagi barcha filiallar ro‘yxati — belgilanganlari (va ularning xodimlari,
+ * davomati) Staffora'ga qo‘shiladi, belgilanmaganlari qo‘shilmaydi.
+ */
+function BranchPicker({ integrationId, saveLabel, onSaved }: { integrationId: string; saveLabel: string; onSaved: () => void }) {
+  const toast = useToast();
+  const { data, loading, error, reload } = useApi<{ all: boolean; rows: BranchOption[] }>(`/integrations/${integrationId}/branches`);
+  const [picked, setPicked] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  useEffect(() => {
+    if (data && picked === null) setPicked(data.rows.filter((r) => r.selected).map((r) => r.id));
+  }, [data, picked]);
+  if (loading && !data)
+    return (
+      <div className="ic-loading">
+        <LoaderCircle size={20} className="spin" /> Bot filiallari olinmoqda…
+      </div>
+    );
+  if (error || !data) return <ErrorBox message={error || "Filiallar olinmadi"} />;
+  const chosen = picked || [];
+  const all = data.rows.length > 0 && chosen.length === data.rows.length;
+  const employees = data.rows.filter((r) => chosen.includes(r.id)).reduce((sum, r) => sum + r.employees, 0);
+  const toggle = (id: string) => setPicked(chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id]);
+  const save = async () => {
+    setBusy(true);
+    setSaveError("");
+    try {
+      // Hammasi belgilangan — «barcha filiallar» (bot’da keyin qo‘shiladigan yangi filial ham keladi).
+      await put(`/integrations/${integrationId}/settings`, { branchIds: all ? null : chosen });
+      toast("Filial tanlovi saqlandi");
+      void reload(true);
+      onSaved();
+    } catch (reason) {
+      setSaveError(errorText(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="stack">
+      <div className="ic-branch-head">
+        <div>
+          <b>Qaysi filiallar qo‘shilsin?</b>
+          <p>Belgilangan filiallar va ularning xodimlari, davomati saytga qo‘shiladi. Belgilanmaganlari qo‘shilmaydi.</p>
+        </div>
+        <button type="button" className="btn btn-sm" onClick={() => setPicked(all ? [] : data.rows.map((r) => r.id))}>
+          {all ? "Hammasini olib tashlash" : "Hammasini belgilash"}
+        </button>
+      </div>
+      {!data.rows.length ? (
+        <Empty title="Botda filial yo‘q" text="Bot’da filial qo‘shilgach shu yerda paydo bo‘ladi." />
+      ) : (
+        <div className="ic-branch-list">
+          {data.rows.map((row) => (
+            <label key={row.id} className={`ic-branch ${chosen.includes(row.id) ? "on" : ""}`}>
+              <input type="checkbox" checked={chosen.includes(row.id)} onChange={() => toggle(row.id)} />
+              <span className="ic-branch-text">
+                <b>{row.name}</b>
+                <small>
+                  {row.employees} xodim{row.address ? ` · ${row.address}` : ""}
+                </small>
+              </span>
+              {row.linked ? (
+                <span className="badge green">Ulangan</span>
+              ) : row.local ? (
+                <span className="badge gray" title={`Saytdagi «${row.local.name}» bilan birlashtiriladi — saytdagi ma’lumot saqlanadi`}>
+                  Saytda bor
+                </span>
+              ) : null}
+            </label>
+          ))}
+        </div>
+      )}
+      <p className="ic-branch-sum">
+        Tanlandi: <b>{chosen.length}</b> ta filial · <b>{employees}</b> ta xodim. Saytda allaqachon bor xodim qayta qo‘shilmaydi — saytdagi ma’lumoti saqlanadi.
+      </p>
+      <ErrorBox message={saveError} />
+      <div className="form-actions">
+        <button className="btn btn-primary" disabled={busy || !chosen.length} onClick={() => void save()}>
+          {busy && <LoaderCircle size={16} className="spin" />} {saveLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function PreviewTable({ rows }: { rows: PreviewRow[] }) {
   const [open, setOpen] = useState<string | null>(null);
   return (
@@ -481,7 +590,7 @@ function PreviewTable({ rows }: { rows: PreviewRow[] }) {
             <th>Ma’lumot</th>
             <th className="num">Botda topildi</th>
             <th className="num">Yangi</th>
-            <th className="num">Bog‘lanadi</th>
+            <th className="num">Saytda bor</th>
             <th className="num">Yangilanadi</th>
             <th className="num">O‘tkaziladi</th>
           </tr>
@@ -550,7 +659,7 @@ function JobProgress({ job }: { job: Job }) {
               <b>{c.total}</b>
               <small>
                 {c.created ? `+${c.created} yangi ` : ""}
-                {c.linked ? `${c.linked} bog‘landi ` : ""}
+                {c.linked ? `${c.linked} saytda bor ` : ""}
                 {c.updated ? `${c.updated} yangilandi ` : ""}
                 {c.skipped ? `${c.skipped} o‘tkazildi ` : ""}
                 {c.failed ? <em className="late-text">{c.failed} xato</em> : ""}
@@ -578,7 +687,7 @@ function JobProgress({ job }: { job: Job }) {
 
 /* --------------------------------------------------------------- panel --- */
 
-type DashTab = "access" | "settings" | "conflicts" | "logs" | "history";
+type DashTab = "access" | "branches" | "settings" | "conflicts" | "logs" | "history";
 
 function IntegrationDashboard({ id, onChanged }: { id: string; onChanged: () => void }) {
   const toast = useToast();
@@ -738,6 +847,7 @@ function IntegrationDashboard({ id, onChanged }: { id: string; onChanged: () => 
             onChange={setTab}
             options={[
               { value: "access", label: "Xodimlar kirishi" },
+              { value: "branches", label: "Filiallar" },
               { value: "settings", label: "Sozlamalar" },
               { value: "conflicts", label: "Konfliktlar", count: stats.conflicts || undefined },
               { value: "logs", label: "Jurnal" },
@@ -756,6 +866,7 @@ function IntegrationDashboard({ id, onChanged }: { id: string; onChanged: () => 
               onSaved={() => void reload(true)}
             />
           )}
+          {tab === "branches" && <BranchPicker integrationId={id} saveLabel="Tanlovni saqlash" onSaved={() => void reload(true)} />}
           {tab === "settings" && <SettingsPanel integration={integration} onSaved={() => void reload(true)} />}
           {tab === "conflicts" && <ConflictsPanel integrationId={id} onResolved={() => void reload(true)} />}
           {tab === "logs" && <LogsPanel integrationId={id} />}
@@ -816,7 +927,7 @@ function SyncModal({ integrationId, initial, onClose }: { integrationId: string;
             })}
           </div>
           <p className="muted" style={{ fontSize: 12.5 }}>
-            Xodimlar tanlansa, ularning filial/bo‘lim/lavozim bog‘lanishlari ham avtomatik moslanadi. Dublikat yaratilmaydi: mapping → Telegram ID → telefon bo‘yicha tekshiriladi.
+            Faqat «Filiallar» bo‘limida belgilangan filiallar va ularning xodimlari olinadi. Saytda allaqachon bor xodim (Telegram ID yoki telefon bo‘yicha) qayta qo‘shilmaydi — saytdagi ma’lumoti saqlanadi.
           </p>
           {preview && <PreviewTable rows={preview.rows.filter((r) => selected.includes(r.entity as Entity))} />}
           <ErrorBox message={error} />

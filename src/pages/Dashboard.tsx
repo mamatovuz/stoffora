@@ -364,16 +364,16 @@ export function DashboardPage() {
               <ComposedChart data={chart} margin={{ left: -18, right: 0, top: 12 }} barCategoryGap={days === "30" ? "18%" : "34%"}>
                 <defs>
                   <linearGradient id="g-present" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#2fbf6c" />
-                    <stop offset="100%" stopColor="#1d9150" />
+                    <stop offset="0%" stopColor="#22a05a" />
+                    <stop offset="100%" stopColor="#22a05a" />
                   </linearGradient>
                   <linearGradient id="g-late" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f2a93b" />
-                    <stop offset="100%" stopColor="#d9861d" />
+                    <stop offset="0%" stopColor="#e5962b" />
+                    <stop offset="100%" stopColor="#e5962b" />
                   </linearGradient>
                   <linearGradient id="g-absent" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f0595e" />
-                    <stop offset="100%" stopColor="#d63c41" />
+                    <stop offset="0%" stopColor="#e5484d" />
+                    <stop offset="100%" stopColor="#e5484d" />
                   </linearGradient>
                   <linearGradient id="g-rate" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#2563eb" stopOpacity={0.16} />

@@ -9,11 +9,11 @@ import { sendTelegramMessage } from "./telegram";
 /*
  * Ochiq sayt (landing) va panel domenini ajratish.
  *
- *   LANDING_URL=https://staffora.uz      → bu domen (va www.) faqat landing sahifani ochadi;
+ *   LANDING_URL=https://staffora.uz      → bu domen (va www.) panel domeniga yo‘naltiriladi;
  *   APP_URL=https://app.staffora.uz      → panel, Mini App, ID karta havolalari shu domenda.
  *
- * LANDING_URL berilmasa — hammasi avvalgidek bitta domenda (landing /landing manzilida ko‘rinadi).
- * Landing domenida boshqa manzil ochilsa (masalan /login) — panel domeniga yo‘naltiriladi.
+ * LANDING_URL berilmasa — hammasi bitta domenda. Berilsa — asosiy domenga kirgan har kim
+ * panel domeniga yo‘naltiriladi (u yerda «/» → kirish sahifasi yoki /dashboard).
  */
 
 const hostOf = (url?: string) => {
@@ -37,12 +37,12 @@ export function siteConfig(appOrigin: string) {
   };
 }
 
-/** Landing domenida faqat «/», statik fayllar va ochiq API; qolgani panel domeniga. */
+/** Landing sahifasi yo‘q: asosiy domen panel domeniga yo‘naltiriladi; faqat ochiq API qoladi. */
 export function landingHostGuard(config: ReturnType<typeof siteConfig>) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!config.landingHosts.length || !config.landingHosts.includes((req.hostname || "").toLowerCase())) return next();
     const p = req.path;
-    if (p === "/" || p.startsWith("/api/public/") || p.startsWith("/assets/") || /^\/[\w.-]+\.(svg|png|ico|txt|webmanifest|xml|js)$/.test(p)) return next();
+    if (p.startsWith("/api/public/")) return next();
     if (p.startsWith("/api/")) return res.status(404).json({ message: "API panel domenida." });
     res.redirect(301, `${config.app}${req.originalUrl}`);
   };

@@ -8,6 +8,21 @@ import { dayPlan } from "../lib/schedule";
 import type { Database, Employee, ShiftSwapRequest } from "../lib/types";
 import type { AuthedRequest, EmployeeSession } from "./auth";
 import { notifyEmployee } from "./integrations/hooks";
+import { notifyRequest } from "./request-actions";
+
+/** Ikkala tomon rozi — rahbarga tasdiqlash tugmalari bilan xabar. */
+async function alertManagers(db: Database, swap: ShiftSwapRequest) {
+  const requester = db.employees.find((e) => e.id === swap.requesterId);
+  const colleague = db.employees.find((e) => e.id === swap.colleagueId);
+  await notifyRequest(db, {
+    companyId: swap.companyId,
+    branchId: requester?.branchId,
+    kind: "swap",
+    id: swap.id,
+    text: `🔄 <b>Smena almashish</b>\n${nameOf(requester)} → ${nameOf(colleague)}\n${dmy(swap.giveDate)}${swap.takeDate ? ` / ${dmy(swap.takeDate)}` : ""}${swap.reason ? `\nSabab: ${swap.reason}` : ""}`,
+    pushTitle: "Smena almashish — tasdiq kerak",
+  }).catch(() => 0);
+}
 
 /*
  * Smena almashish:
@@ -219,6 +234,7 @@ export function createMiniSwapRouter() {
           : `❌ Hamkasbingiz ${dmy(swap.giveDate)} kungi smena almashishni rad etdi.`,
         accept ? "Hamkasb rozi bo‘ldi" : "Smena almashish rad etildi",
       );
+      if (accept) void alertManagers(db, swap);
       res.json(describe(db, swap));
     }),
   );
@@ -251,6 +267,7 @@ export function createMiniSwapRouter() {
       });
       const db = await readDb();
       await notify(db, swap.requesterId, `🙌 ${nameOf(db.employees.find((e) => e.id === swap.colleagueId))} ${dmy(swap.giveDate)} kungi smenangizni oldi. Endi rahbar tasdiqlaydi.`, "Smenangizni olishdi");
+      void alertManagers(db, swap);
       res.json(describe(db, swap));
     }),
   );

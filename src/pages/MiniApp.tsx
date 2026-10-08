@@ -624,7 +624,9 @@ export function MiniAppPage() {
   return (
     <div className="mini">
       <main className="mini-app">
-        <header className="mini-top">
+        {/* Rahbar bo‘limining o‘z sarlavhasi bor — xodim salomlashuvi takrorlanmasin. */}
+        {nav.tab !== "manager" && (
+          <header className="mini-top">
           <PhotoAvatar employee={home.employee} />
           <div>
             <small>{home.company?.name}</small>
@@ -641,7 +643,8 @@ export function MiniAppPage() {
             <Bell size={21} />
             {(home.unreadNotifications || 0) > 0 && <span className="mini-badge">{Math.min(99, home.unreadNotifications || 0)}</span>}
           </button>
-        </header>
+          </header>
+        )}
         <div className={`ptr ${ptr.ready ? "ready" : ""}`} style={{ height: ptr.refreshing ? 36 : ptr.pull }} aria-hidden>
           {ptr.refreshing ? <LoaderCircle size={20} className="spin" /> : <ArrowDown size={20} />}
         </div>

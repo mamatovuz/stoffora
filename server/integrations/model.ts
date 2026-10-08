@@ -48,6 +48,9 @@ export function normalizeSettings(value?: Partial<IntegrationSettings>): Integra
   merged.pollIntervalSeconds = poll === 0 ? 0 : Math.min(3600, Math.max(15, poll || 60));
   merged.inviteTtlHours = Math.min(24 * 30, Math.max(1, Math.round(Number(merged.inviteTtlHours) || 168)));
   merged.miniAppLink = normalizeMiniAppLink(merged.miniAppLink);
+  // null / noto‘g‘ri qiymat — «barcha filiallar».
+  if (!Array.isArray(merged.branchIds)) delete merged.branchIds;
+  else merged.branchIds = [...new Set(merged.branchIds.map(String))].slice(0, 500);
   return merged;
 }
 

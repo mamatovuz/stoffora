@@ -63,6 +63,25 @@ export interface ApplyResult {
   matchedBy?: "mapping" | "external_id" | "telegram_id" | "phone" | "name";
 }
 
+/** Filiali yo‘q xodimlar uchun tanlov kaliti («Filialsiz xodimlar»). */
+export const NO_BRANCH = "__none__";
+
+/**
+ * Filial tanlovi: sozlamada `branchIds` berilgan bo‘lsa — faqat belgilangan bot filiallari
+ * (va ularning xodimlari, davomati) import qilinadi. Berilmagan bo‘lsa — hammasi.
+ */
+export function branchAllowed(integration: Integration, remoteBranchId?: string | number | null) {
+  const ids = integration.settings.branchIds;
+  if (!ids) return true;
+  const key = remoteBranchId === undefined || remoteBranchId === null || remoteBranchId === "" ? NO_BRANCH : String(remoteBranchId);
+  return ids.includes(key);
+}
+
+/** Saytdagi mos yozuv (mapping, Staffora ID, Telegram ID, telefon yoki nomi bo‘yicha) — o‘zgartirmasdan. */
+export function matchLocal(db: Database, integration: Integration, entity: LocalEntity, remote: Remote) {
+  return findExisting(db, integration, entity, remote);
+}
+
 const DEFAULT_DEPARTMENT = "Umumiy";
 const DEFAULT_POSITION = "Xodim";
 
@@ -409,6 +428,9 @@ function assignField(local: Record<string, unknown>, key: string, value: unknown
 export function applyRemoteEntity(db: Database, integration: Integration, entity: LocalEntity, remote: Remote): ApplyResult {
   const mode = integration.settings.syncModes[entity];
   if (mode === "OFF") return { action: "skipped", reason: "sinxronlash o‘chirilgan" };
+  if (entity === "branch" && !branchAllowed(integration, remote.id)) return { action: "skipped", reason: "filial tanlanmagan" };
+  if (entity === "employee" && !branchAllowed(integration, (remote as T.RemoteEmployee).branch?.id))
+    return { action: "skipped", reason: "filiali tanlanmagan" };
   const keys = KEYS[entity];
   const fields = resolveRemoteFields(db, integration, entity, remote);
   const remoteFields = T.pick(fields, keys);
@@ -442,10 +464,17 @@ export function applyRemoteEntity(db: Database, integration: Integration, entity
   const strategy = mode === "IMPORT" ? "BOT_WINS" : integration.settings.conflictStrategy;
   const localTime = typeof local.updatedAt === "string" ? Date.parse(local.updatedAt) : NaN;
   const remoteTime = remote.updated_at ? Date.parse(remote.updated_at) : NaN;
+  // Saytda allaqachon bor yozuv bilan birinchi bog‘lanish: sayt ma’lumoti o‘zgarmaydi, botdagisi
+  // olinmaydi. Asos sifatida bot qiymatlari eslab qolinadi — keyin faqat bot’dagi yangi o‘zgarishlar keladi.
+  const firstLink = !existing.mapping;
 
   for (const key of keys) {
     const r = remoteFields[key];
     const l = localFields[key];
+    if (firstLink) {
+      nextBase[key] = r === undefined ? l : r;
+      continue;
+    }
     if (r === undefined && REF_KEYS.has(key)) continue;
     if (!base) {
       // Birinchi bog‘lash: bo‘sh maydonlar to‘ldiriladi; farq qilganlari — konflikt.
@@ -494,7 +523,8 @@ export function applyRemoteEntity(db: Database, integration: Integration, entity
   if (entity === "employee") {
     const r = remote as T.RemoteEmployee;
     // Bot bergan Telegram ID: xodim hali o‘zi ulamagan bo‘lsa yoziladi (ulanishda tekshiriladi).
-    if (r.telegram_id && !local.telegramConnected && local.telegramId !== String(r.telegram_id)) {
+    // Saytda bor xodimda — faqat Telegram ID umuman bo‘lmasa (bot orqali xabar yuborish uchun).
+    if (r.telegram_id && !local.telegramConnected && local.telegramId !== String(r.telegram_id) && (!firstLink || !local.telegramId)) {
       const taken = db.employees.some((e) => e.id !== local.id && e.companyId === tenant && e.telegramId === String(r.telegram_id) && e.telegramConnected);
       if (!taken) {
         local.telegramId = String(r.telegram_id);
@@ -502,9 +532,9 @@ export function applyRemoteEntity(db: Database, integration: Integration, entity
         changed = true;
       }
     }
-    if (r.telegram_username && !local.telegramUsername) local.telegramUsername = r.telegram_username;
+    if (r.telegram_username && !local.telegramUsername && !firstLink) local.telegramUsername = r.telegram_username;
     // Maosh: Staffora'da kiritilmagan (0) bo‘lsa botdagisi olinadi; kiritilgani hech qachon ustidan yozilmaydi.
-    if (typeof fields.baseSalary === "number" && !Number(local.baseSalary)) {
+    if (typeof fields.baseSalary === "number" && !Number(local.baseSalary) && !firstLink) {
       local.baseSalary = fields.baseSalary;
       changed = true;
     }
@@ -518,7 +548,7 @@ export function applyRemoteEntity(db: Database, integration: Integration, entity
   if (changed)
     db.auditLogs.unshift(audit(tenant, actorName(integration), `${entityLabel[entity]} botdan yangilandi`, entity, String(local.id), before, { ...local }));
   if (!existing.mapping)
-    return { action: "linked", localId: String(local.id), matchedBy: existing.matchedBy };
+    return { action: "linked", localId: String(local.id), matchedBy: existing.matchedBy, reason: "Saytda allaqachon bor — sayt ma’lumoti saqlandi" };
   if (conflicts.length) return { action: "conflict", localId: String(local.id) };
   return { action: changed ? "updated" : "unchanged", localId: String(local.id), matchedBy: existing.matchedBy };
 }
@@ -594,6 +624,8 @@ export function applyRemoteAttendance(
   const employeeMap = mappingByExternal(db, integration.id, "employee", remote.employee.id);
   const employee = employeeMap ? db.employees.find((e) => e.id === employeeMap.localId && e.companyId === tenant) : undefined;
   if (!employee) return { action: "skipped", reason: `xodim #${remote.employee.id} Staffora'ga bog‘lanmagan` };
+  const employeeBranch = (employeeMap?.snapshot?.raw as { branch?: { id?: number | string } } | undefined)?.branch?.id;
+  if (!branchAllowed(integration, employeeBranch)) return { action: "skipped", reason: "xodimning filiali tanlanmagan" };
   const date = /^\d{4}-\d{2}-\d{2}$/.test(remote.date) ? remote.date : T.isoToTashkent(remote.check_in)?.date;
   if (!date) return { action: "skipped", reason: "sana yo‘q" };
   const weekday = new Date(`${date}T12:00:00+05:00`).getDay();

@@ -1,12 +1,13 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { mediaUri } from "@/lib/config";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { BranchMap } from "@/components/BranchMap";
 import { FineSheet, MoneyView } from "@/components/MoneyTools";
 import { DevicesView } from "@/components/DevicesView";
 import { AttendanceOverview } from "@/components/AttendanceOverview";
 import { DeskView } from "@/components/DeskView";
+import { BranchChips, Briefing, LiveFeed, TrendsList, type BriefTarget, type TrendRow } from "@/components/ManagerExtras";
 import { AdminBack, AdminMenu, AdminScreen, ADMIN_ITEMS, adminItemsFor, type AdminKey } from "@/components/AdminViews";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
@@ -51,7 +52,7 @@ type Analytics = {
   latecomers: { id: string; name: string; lateMinutes: number; late: number }[];
   branches: { id: string; name: string; employees: number; attendanceRate: number; punctuality: number; score: number | null }[];
 };
-type Filter = "ALL" | "IN" | "LATE" | "ABSENT" | "NOT_YET" | "ON_LEAVE";
+type Filter = "ALL" | "IN" | "LATE" | "ABSENT" | "NOT_YET" | "ON_LEAVE" | "FLAGGED";
 const LEAVE: Record<string, string> = { VACATION: "Mehnat ta’tili", SICK: "Kasallik", PERMISSION: "Ruxsat", UNPAID: "Haq to‘lanmaydigan", OTHER: "Boshqa" };
 const name = (e: { firstName: string; lastName: string }) => `${e.firstName} ${e.lastName}`;
 
@@ -90,6 +91,11 @@ export default function Manager() {
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("ALL");
   const [query, setQuery] = useState("");
+  const [branch, setBranch] = useState("");
+  const [trends, setTrends] = useState<TrendRow[] | null>(null);
+  // Ommaviy tasdiqlash (Mini App’dagidek): belgilab, bir bosishda tasdiqlash.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
   const [announcing, setAnnouncing] = useState(false);
   const [fining, setFining] = useState(false);
   const [expiring, setExpiring] = useState<{ id: string; title: string; expiresAt: string; status: string; employeeId: string; employeeName: string; branchName: string }[]>([]);
@@ -136,6 +142,7 @@ export default function Manager() {
       setUpdatedAt(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tashkent" }));
       if (can(role, "employees.view") || can(role, "attendance.view")) void mcall<typeof expiring>("/documents/expiring").then(setExpiring).catch(() => setExpiring([]));
       if (can(role, "dashboard.view")) void mcall<Analytics>(`/analytics?month=${month}`).then(setAnalytics).catch(() => undefined);
+      if (canAtt) void mcall<TrendRow[]>("/trends").then(setTrends).catch(() => setTrends([]));
     } catch (e) {
       setError(e instanceof ApiError && e.code === "NOT_MANAGER" ? "Rahbar huquqi topilmadi." : errorText(e));
     } finally {
@@ -175,8 +182,37 @@ export default function Manager() {
     }
   };
 
+  const bulkApprove = async () => {
+    const items = pending.filter((p) => selected.includes(p.id));
+    if (!items.length) return;
+    const ok = await new Promise<boolean>((r) =>
+      Alert.alert("Tasdiqlash", `${items.length} ta so‘rov tasdiqlansinmi?`, [
+        { text: "Yo‘q", style: "cancel", onPress: () => r(false) },
+        { text: "Tasdiqlash", onPress: () => r(true) },
+      ]),
+    );
+    if (!ok) return;
+    setBusy("bulk");
+    let done = 0;
+    for (const item of items)
+      try {
+        await mcall(item.spec.path, item.spec.approve, item.spec.method);
+        done += 1;
+      } catch {
+        /* qolganlari davom etadi — natija oxirida aytiladi */
+      }
+    setBusy(null);
+    setSelected([]);
+    setSelecting(false);
+    if (done) haptic.success();
+    Alert.alert(done === items.length ? "Tayyor" : "Qisman bajarildi", done === items.length ? `${done} ta so‘rov tasdiqlandi.` : `${done} / ${items.length} ta tasdiqlandi.`);
+    void load();
+  };
+
   const shownDay = dayDate === tashkentIsoDate() ? day : otherDay;
-  const rows = shownDay?.rows || [];
+  const allRows = shownDay?.rows || [];
+  const branchNames = [...new Set(allRows.map((r) => r.branch).filter(Boolean))] as string[];
+  const rows = branch ? allRows.filter((r) => r.branch === branch) : allRows;
   const stats = useMemo(() => {
     const expected = rows.filter((r) => !["ON_LEAVE", "DAY_OFF", "UPCOMING"].includes(r.state)).length;
     return {
@@ -191,7 +227,8 @@ export default function Manager() {
   }, [rows]);
   const visible = rows.filter(
     (r) =>
-      (filter === "ALL" || (filter === "IN" ? r.state === "IN" || r.state === "LEFT" : filter === "LATE" ? r.late : r.state === filter)) &&
+      (filter === "ALL" ||
+        (filter === "IN" ? r.state === "IN" || r.state === "LEFT" : filter === "LATE" ? r.late : filter === "FLAGGED" ? Boolean(r.record?.flags?.length) : r.state === filter)) &&
       (!query.trim() || name(r.employee).toLowerCase().includes(query.trim().toLowerCase())),
   );
   const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
@@ -241,24 +278,26 @@ export default function Manager() {
       subtitle={`${auth.company.name}${updatedAt ? ` · ${updatedAt}` : ""}`}
       refreshing={loading}
       onRefresh={load}
-      right={
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          {canFine ? (
-            <Pressable onPress={() => setFining(true)} style={[st.round, { backgroundColor: c.card }]} accessibilityLabel="Jarima">
-              <Icon name="hammer-outline" size={20} color={c.danger} />
-            </Pressable>
-          ) : null}
-          <Pressable onPress={() => router.push("/badge-scan")} style={[st.round, { backgroundColor: c.card }]} accessibilityLabel="Xodim ID QR tekshirish">
-            <Icon name="scan-outline" size={20} color={c.ink} />
-          </Pressable>
-          {can(auth.user.role, "announcements.create") || auth.user.role === "BRANCH_MANAGER" ? (
-            <Pressable onPress={() => setAnnouncing(true)} style={[st.round, { backgroundColor: c.card }]} accessibilityLabel="Tezkor e’lon">
-              <Icon name="megaphone-outline" size={20} color={c.accent} />
-            </Pressable>
-          ) : null}
-        </View>
-      }
     >
+      {/* Tezkor amallar — yozuvli tugmalar (faqat ikonkadan nima qilishi tushunarsiz edi). */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ flexGrow: 0 }}>
+        {can(auth.user.role, "announcements.create") || auth.user.role === "BRANCH_MANAGER" ? (
+          <Pressable onPress={() => setAnnouncing(true)} style={[st.quick, { backgroundColor: c.card }]}>
+            <Icon name="megaphone-outline" size={17} color={c.accent} />
+            <Text style={[st.quickText, { color: c.ink }]}>E’lon yuborish</Text>
+          </Pressable>
+        ) : null}
+        {canFine ? (
+          <Pressable onPress={() => setFining(true)} style={[st.quick, { backgroundColor: c.card }]}>
+            <Icon name="hammer-outline" size={17} color={c.accent} />
+            <Text style={[st.quickText, { color: c.ink }]}>Jarima</Text>
+          </Pressable>
+        ) : null}
+        <Pressable onPress={() => router.push("/badge-scan")} style={[st.quick, { backgroundColor: c.card }]}>
+          <Icon name="scan-outline" size={17} color={c.accent} />
+          <Text style={[st.quickText, { color: c.ink }]}>ID tekshirish</Text>
+        </Pressable>
+      </ScrollView>
       <Segmented<MView>
         value={tabOf(view)}
         onChange={(v) => {
@@ -266,9 +305,9 @@ export default function Manager() {
           if (v === "admin") setAdminScreen(null);
         }}
         options={[
-          // Ixcham 4 ta tab: Ish stoli · Bugun (ro‘yxat/xarita) · So‘rovlar · Boshqaruv (qolgan hammasi).
-          ["desk", "Ish stoli"],
-          ...(canAttendanceView ? ([["today", "Bugun"]] as [MView, string][]) : []),
+          // Ixcham 4 ta tab: Umumiy · Davomat (ro‘yxat/xarita) · So‘rovlar · Boshqaruv (qolgan hammasi).
+          ["desk", "Umumiy"],
+          ...(canAttendanceView ? ([["today", "Davomat"]] as [MView, string][]) : []),
           ...(canRequests ? ([["requests", "So‘rovlar", pending.length]] as [MView, string, number][]) : []),
           ...(hasAdmin ? ([["admin", "Boshqaruv"]] as [MView, string][]) : []),
         ]}
@@ -313,7 +352,29 @@ export default function Manager() {
           <Empty icon="people-outline" title="Davomatni ko‘rish huquqi yo‘q" />
         ) : (
           <>
-            {stats.flagged ? <Hint tone="warn" icon="flag-outline">{stats.flagged} ta shubhali belgi (GPS / qurilma / internetsiz) — panelda ko‘rib chiqing.</Hint> : null}
+            {dayDate === tashkentIsoDate() && auth ? (
+              <Briefing
+                name={auth.user.name}
+                stats={stats}
+                notices={notices.length}
+                pending={pending.length}
+                trends={trends?.length || 0}
+                onOpen={(target: BriefTarget) => {
+                  if (target === "requests") setView("requests");
+                  else if (target === "trends") setView("week");
+                  else setFilter(target);
+                }}
+              />
+            ) : null}
+            <BranchChips value={branch} options={branchNames} onChange={setBranch} />
+            {dayDate === tashkentIsoDate() ? <LiveFeed rows={rows} /> : null}
+            {stats.flagged ? (
+              <Pressable onPress={() => setFilter(filter === "FLAGGED" ? "ALL" : "FLAGGED")}>
+                <Hint tone="warn" icon="flag-outline">
+                  {stats.flagged} ta shubhali belgi (GPS / qurilma / internetsiz) — {filter === "FLAGGED" ? "hammasini ko‘rsatish" : "ko‘rish uchun bosing"}.
+                </Hint>
+              </Pressable>
+            ) : null}
             {notices.length ? (
               <>
                 <GroupTitle>Kechikish ogohlantirishlari</GroupTitle>
@@ -338,7 +399,12 @@ export default function Manager() {
               <Icon name="search" size={17} color={c.muted} />
               <TextInput value={query} onChangeText={setQuery} placeholder="Xodimni qidirish" placeholderTextColor={c.muted} style={{ flex: 1, color: c.ink, fontSize: 16 }} />
             </View>
-            {query.trim() ? (
+            {filter !== "ALL" ? (
+              <Pressable onPress={() => setFilter("ALL")} style={{ alignSelf: "flex-start" }}>
+                <Text style={{ color: c.accent, fontWeight: "600", marginLeft: 4 }}>× Filtrni olib tashlash</Text>
+              </Pressable>
+            ) : null}
+            {query.trim() || filter !== "ALL" ? (
               !visible.length ? (
                 <Empty icon="people-outline" title="Hech kim yo‘q" />
               ) : (
@@ -349,7 +415,7 @@ export default function Manager() {
                 </Group>
               )
             ) : (
-              <AttendanceOverview rows={shownDay?.rows || []} date={dayDate} onDate={setDayDate} render={(r, last) => <RosterLine key={r.employee.id} row={r} last={last} />} />
+              <AttendanceOverview rows={rows} date={dayDate} onDate={setDayDate} render={(r, last) => <RosterLine key={r.employee.id} row={r} last={last} />} />
             )}
           </>
         )
@@ -380,7 +446,53 @@ export default function Manager() {
           </Group>
         </>
       ) : null}
-      {view === "requests" ? (
+      {view === "requests" && pending.length > 1 ? (
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 }}>
+          <Text style={{ color: c.muted, fontSize: 13.5 }}>{pending.length} ta so‘rov kutmoqda</Text>
+          <Pressable
+            onPress={() => {
+              haptic.select();
+              setSelecting(!selecting);
+              setSelected([]);
+            }}
+            style={[st.quick, { backgroundColor: c.card, height: 34 }]}
+          >
+            <Icon name={selecting ? "close" : "checkbox-outline"} size={16} color={c.accent} />
+            <Text style={[st.quickText, { color: c.ink }]}>{selecting ? "Bekor" : "Tanlash"}</Text>
+          </Pressable>
+        </View>
+      ) : null}
+      {view === "requests" && selecting ? (
+        <>
+          <Group>
+            {pending.map((p, i) => {
+              const on = selected.includes(p.id);
+              return (
+                <Pressable
+                  key={`${p.kind}-${p.id}`}
+                  onPress={() => {
+                    haptic.select();
+                    setSelected((list) => (on ? list.filter((x) => x !== p.id) : [...list, p.id]));
+                  }}
+                  style={[st.row, i < pending.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}
+                >
+                  <Icon name={on ? "checkbox" : "square-outline"} size={22} color={on ? c.accent : c.muted} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: c.ink, fontWeight: "600" }} numberOfLines={2}>
+                      {p.title}
+                    </Text>
+                    <Text style={{ color: c.muted, fontSize: 12.5 }} numberOfLines={1}>
+                      {p.sub}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </Group>
+          <Button title={selected.length ? `Tasdiqlash (${selected.length})` : "So‘rovlarni belgilang"} icon="checkmark-done" busy={busy === "bulk"} disabled={!selected.length} onPress={() => void bulkApprove()} />
+        </>
+      ) : null}
+      {view === "requests" && !selecting ? (
         !pending.length ? (
           <Empty icon="checkmark-done-outline" title="Kutilayotgan so‘rov yo‘q" text="Belgilash, ta’til, smena, dam kuni, avans va qo‘shimcha ish so‘rovlari shu yerda paydo bo‘ladi." />
         ) : (
@@ -414,6 +526,12 @@ export default function Manager() {
 
       {view === "map" ? <BranchMap rows={rows} branches={branches} /> : null}
 
+      {view === "week" && canAttendanceView ? (
+        <>
+          <GroupTitle>Diqqat talab (oxirgi 4 hafta)</GroupTitle>
+          <TrendsList rows={trends} />
+        </>
+      ) : null}
       {view === "week" ? (
         !analytics ? (
           <Empty icon="stats-chart-outline" title="Xulosa mavjud emas" text="Bu bo‘lim uchun boshqaruv paneli huquqi kerak." />
@@ -643,6 +761,8 @@ function AnnounceSheet({ visible, branches, onClose }: { visible: boolean; branc
 
 const st = StyleSheet.create({
   round: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  quick: { flexDirection: "row", alignItems: "center", gap: 7, height: 38, paddingHorizontal: 14, borderRadius: 12 },
+  quickText: { fontSize: 14, fontWeight: "500" },
   bar: { height: 8, borderRadius: 4, overflow: "hidden" },
   tile: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 12, borderWidth: 1.5 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 11 },

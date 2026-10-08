@@ -408,6 +408,7 @@ export function attachHandlers(bot: Bot, companyId: string) {
   bot.on("callback_query:data", async (ctx) => {
     const data = ctx.callbackQuery.data;
     if (data.startsWith("hr:")) return handleHrDecision(ctx, companyId, data);
+    if (data.startsWith("rq:")) return void (await (await import("./request-actions")).handleRequestCallback(ctx, companyId));
     if (!data.startsWith("rg:")) return void (await ctx.answerCallbackQuery());
     const draft = await activeDraft(companyId, String(ctx.from.id));
     if (!draft) {

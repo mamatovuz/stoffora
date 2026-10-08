@@ -16,9 +16,10 @@
       },
       "infoPlist": {
         "NSCameraUsageDescription": "Staffora ishga kelish va ketishda yuzingizni (Face ID) tekshirish hamda filial QR kodini skanerlash uchun kameradan foydalanadi.",
-        "NSLocationWhenInUseUsageDescription": "Staffora ishga kelish/ketishni belgilaganingizda filial hududida ekaningizni tekshirish uchun joylashuvingizdan foydalanadi. Joylashuv fonda kuzatilmaydi.",
+        "NSLocationWhenInUseUsageDescription": "Staffora ishga kelish/ketishni belgilaganingizda filial hududida ekaningizni tekshirish uchun joylashuvingizdan foydalanadi.",
         "NSFaceIDUsageDescription": "Staffora ilovani ochishda sizni telefon Face ID orqali tasdiqlaydi. Bu davomat Face ID’sidan alohida.",
-        "NSPhotoLibraryUsageDescription": "Staffora ta’til yoki kasallik varaqasi kabi hujjat rasmini biriktirish uchun galereyangizdan foydalanadi."
+        "NSPhotoLibraryUsageDescription": "Staffora ta’til yoki kasallik varaqasi kabi hujjat rasmini biriktirish uchun galereyangizdan foydalanadi.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Siz yoqsangiz, Staffora filial hududiga kirganingizni sezib «Ishga keldingizmi?» deb eslatadi. Joylashuvingiz serverga yuborilmaydi."
       }
     },
     "android": {
@@ -35,11 +36,11 @@
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.USE_BIOMETRIC",
         "android.permission.POST_NOTIFICATIONS",
-        "android.permission.USE_FINGERPRINT"
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.ACCESS_BACKGROUND_LOCATION"
       ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.ACCESS_BACKGROUND_LOCATION",
         "android.permission.READ_PHONE_STATE"
       ],
       "predictiveBackGestureEnabled": false
@@ -66,8 +67,10 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Staffora ishga kelish/ketishni belgilaganingizda filial hududida ekaningizni tekshirish uchun joylashuvingizdan foydalanadi. Joylashuv fonda kuzatilmaydi.",
-          "isAndroidBackgroundLocationEnabled": false,
+          "locationWhenInUsePermission": "Staffora ishga kelish/ketishni belgilaganingizda filial hududida ekaningizni tekshirish uchun joylashuvingizdan foydalanadi.",
+          "locationAlwaysAndWhenInUsePermission": "Siz yoqsangiz, Staffora filial hududiga kirganingizni sezib «Ishga keldingizmi?» deb eslatadi. Joylashuvingiz serverga yuborilmaydi.",
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": false,
           "isIosBackgroundLocationEnabled": false
         }
       ],
@@ -104,7 +107,44 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      [
+        "expo-widgets",
+        {
+          "widgets": [
+            {
+              "name": "TodayWidget",
+              "displayName": "Staffora — bugun",
+              "description": "Bugungi holat va «Ishga keldim» tugmasi",
+              "ios": {
+                "supportedFamilies": [
+                  "systemSmall",
+                  "systemMedium"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "Today",
+              "label": "Staffora — bugun",
+              "description": "Bugungi holat va «Ishga keldim» tugmasi",
+              "minWidth": "180dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000
+            }
+          ]
+        }
+      ],
+      "expo-task-manager"
     ],
     "experiments": {
       "typedRoutes": true

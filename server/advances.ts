@@ -1,13 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
+import { notifyRequest } from "./request-actions";
 import { z } from "zod";
 import { audit, readDb, updateDb } from "../lib/store";
 import { canAny } from "../lib/permissions";
 import { tashkentIsoDate } from "../lib/format";
 import { workingDaysInMonth } from "../lib/schedule";
 import type { AdvanceRequest, Database, Employee, Role } from "../lib/types";
-import { sendTelegramMessage } from "./telegram";
 import type { AuthedRequest, EmployeeSession } from "./auth";
 import { notifyEmployee } from "./integrations/hooks";
 import { closedPeriod, monthLabel } from "./payroll-routes";
@@ -229,6 +229,22 @@ export function createMiniAdvanceRouter() {
         db.auditLogs.unshift(audit(employee.companyId, nameOf(employee), `Avans so‘rovi: ${som(input.amount)}`, "employee", employee.id));
         return row;
       });
+      {
+        // Birinchi bosqich: ikki bosqichli bo‘lsa — HR, aks holda darhol moliya.
+        const db = await readDb();
+        const employee = db.employees.find((e) => e.id === created.employeeId);
+        const approvers = db.users.filter(
+          (u) => u.companyId === created.companyId && u.telegramId && (twoStep(db, created.companyId) ? isAdvanceHr(u.role) : isAdvanceFinance(u.role)),
+        );
+        void notifyRequest(db, {
+          companyId: created.companyId,
+          kind: "advance",
+          id: created.id,
+          text: `💰 <b>Avans so‘rovi</b>\n${nameOf(employee)} · ${som(created.amount)}${created.reason ? `\nSabab: ${created.reason}` : ""}`,
+          pushTitle: "Yangi avans so‘rovi",
+          approvers,
+        }).catch(() => undefined);
+      }
       res.status(201).json(publicAdvance(created));
     }),
   );
@@ -266,11 +282,11 @@ export const isAdvanceHr = (role: Role) => canAny(role, ["leave.approve", "emplo
 export const isAdvanceFinance = (role: Role) => canAny(role, ["payroll.edit"]);
 const twoStep = (db: Database, companyId: string) => db.companies.find((c) => c.id === companyId)?.payroll?.advanceHrApproval !== false;
 
-/** Moliyaga yangi avans keldi (HR tasdiqlagandan keyin). */
-async function alertFinance(companyId: string, text: string) {
+/** Moliyaga yangi avans keldi (HR tasdiqlagandan keyin) — bot xabarida tasdiqlash tugmalari bilan. */
+async function alertFinance(companyId: string, requestId: string, text: string) {
   const db = await readDb();
   const finance = db.users.filter((u) => u.companyId === companyId && u.telegramId && isAdvanceFinance(u.role));
-  await Promise.allSettled(finance.map((u) => sendTelegramMessage(u.telegramId!, text, { go: "manager_requests", buttonText: "💳 So‘rovni ochish" })));
+  await notifyRequest(db, { companyId, kind: "advance", id: requestId, text, pushTitle: "Avans — moliya tasdig‘i kerak", approvers: finance });
 }
 
 export function createAdvanceRouter() {
@@ -389,7 +405,7 @@ export function createAdvanceRouter() {
       const { row, employee } = result;
       if (result.stage === "HR" && input.approve) {
         const payout = row.payout?.method === "CARD" ? `💳 ${row.payout.cardMask} · ${row.payout.holder || ""}` : row.payout?.method === "CASH" ? "💵 Naqd" : "";
-        void alertFinance(tenant, `💰 <b>Avans — moliya tasdig‘i kerak</b>\n${nameOf(employee)} · ${som(row.amount)}\nHR: ${auth.session!.name}${payout ? `\n${payout}` : ""}`).catch(() => undefined);
+        void alertFinance(tenant, row.id, `💰 <b>Avans — moliya tasdig‘i kerak</b>\n${nameOf(employee)} · ${som(row.amount)}\nHR: ${auth.session!.name}${payout ? `\n${payout}` : ""}`).catch(() => undefined);
         const info = `🟡 <b>HR avansingizni tasdiqladi</b>\n${som(row.amount)} — endi moliya bo‘limi ko‘rib chiqadi.`;
         await updateDb(
           (next) =>

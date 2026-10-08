@@ -48,6 +48,9 @@ import { createMiniHelpdeskRouter } from "./helpdesk";
 import { createMiniDayOffRouter } from "./dayoff";
 import { createMiniCorrectionRouter } from "./corrections";
 import { createMiniReminderRouter } from "./reminders";
+import { notifyRequest } from "./request-actions";
+
+const LEAVE_TYPES: Record<string, string> = { VACATION: "Mehnat ta’tili", SICK: "Kasallik", PERMISSION: "Ruxsat", UNPAID: "Haq to‘lanmaydigan", OTHER: "Boshqa" };
 import { createMiniPeopleRouter } from "./people";
 import { createMiniHistoryRouter, marksOf, saveMarkPhoto } from "./history";
 import { lookalikeAlert } from "./face-reference";
@@ -526,6 +529,19 @@ export function createMiniRouter() {
         );
         return value;
       });
+      {
+        const db = await readDb();
+        const employee = db.employees.find((e) => e.id === row.employeeId);
+        const dmy = (iso: string) => iso.split("-").reverse().join(".");
+        void notifyRequest(db, {
+          companyId: row.companyId,
+          branchId: employee?.branchId,
+          kind: "leave",
+          id: row.id,
+          text: `🏖 <b>Ta’til so‘rovi</b>\n${employee ? `${employee.firstName} ${employee.lastName}` : "Xodim"}\n${LEAVE_TYPES[row.type] || row.type} · ${dmy(row.startDate)} – ${dmy(row.endDate)}${row.reason ? `\nSabab: ${row.reason}` : ""}${row.documentId ? "\nHujjat biriktirilgan" : ""}`,
+          pushTitle: "Yangi ta’til so‘rovi",
+        }).catch(() => undefined);
+      }
       return res.status(201).json(row);
     }),
   );

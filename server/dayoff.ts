@@ -8,7 +8,7 @@ import { dayPlan, weeklyHours } from "../lib/schedule";
 import type { Database, DayOffMove, Employee } from "../lib/types";
 import type { AuthedRequest, EmployeeSession } from "./auth";
 import { notifyEmployee } from "./integrations/hooks";
-import { notifyManagers } from "./mini-extra";
+import { notifyRequest } from "./request-actions";
 
 /*
  * Dam olish kunini bir martaga ko‘chirish:
@@ -116,13 +116,14 @@ export function createMiniDayOffRouter() {
         return { move, employee };
       });
       const db = await readDb();
-      void notifyManagers(
-        db,
-        created.employee.companyId,
-        created.employee.branchId,
-        `🔁 <b>Dam olish kunini ko‘chirish</b>\n${nameOf(created.employee)}\n${dmy(created.move.fromDate)} (${weekdayOf(created.move.fromDate)}) ishlaydi → ${dmy(created.move.toDate)} (${weekdayOf(created.move.toDate)}) dam oladi`,
-        "manager_requests",
-      ).catch(() => undefined);
+      void notifyRequest(db, {
+        companyId: created.employee.companyId,
+        branchId: created.employee.branchId,
+        kind: "dayoff",
+        id: created.move.id,
+        pushTitle: "Dam kunini ko‘chirish so‘rovi",
+        text: `🔁 <b>Dam olish kunini ko‘chirish</b>\n${nameOf(created.employee)}\n${dmy(created.move.fromDate)} (${weekdayOf(created.move.fromDate)}) ishlaydi → ${dmy(created.move.toDate)} (${weekdayOf(created.move.toDate)}) dam oladi`,
+      }).catch(() => undefined);
       res.status(201).json(describe(db, created.move));
     }),
   );

@@ -35,8 +35,9 @@ export function MiniDesk({ call, role, canAttendance, onOpen, onEmployee }: { ca
   const list = (actions || []).filter((a) => !onlyProblems || a.level === "red" || a.level === "orange");
   return (
     <>
+      {overview && <div className="mp-group-title">Bugun</div>}
       {overview && (
-        <section className="desk-tiles">
+        <button className="desk-tiles" onClick={() => onOpen("today")} aria-label="Bugungi davomat">
           <div>
             <b>{overview.today.planned}</b>
             <small>rejada</small>
@@ -53,8 +54,9 @@ export function MiniDesk({ call, role, canAttendance, onOpen, onEmployee }: { ca
             <b>{overview.today.absent}</b>
             <small>kelmadi</small>
           </div>
-        </section>
+        </button>
       )}
+      {overview?.money && <div className="mp-group-title">Bu oy</div>}
       {overview?.money && (
         <section className="mini-card desk-money">
           <div>
@@ -98,30 +100,27 @@ export function MiniDesk({ call, role, canAttendance, onOpen, onEmployee }: { ca
           </div>
           {s.issues.slice(0, 8).map((i) => (
             <button key={`${i.employeeId}:${i.text}`} className={`desk-issue ${i.tone}`} onClick={() => onEmployee(i.employeeId)}>
-              ⚠ {i.name} — {i.text}
+              {i.name} — {i.text}
             </button>
           ))}
           <div className={`desk-tomorrow ${s.tomorrow.shortage ? "bad" : ""}`}>
             Ertaga: rejada {s.tomorrow.planned}
             {s.tomorrow.required ? ` · kerak ${s.tomorrow.required}` : ""}
-            {s.tomorrow.shortage ? ` · ⚠ ${s.tomorrow.shortage} xodim yetishmaydi` : s.tomorrow.required ? " · ✓ tayyor" : ""}
+            {s.tomorrow.shortage ? ` · ${s.tomorrow.shortage} xodim yetishmaydi` : s.tomorrow.required ? " · tayyor" : ""}
           </div>
         </section>
       ))}
-      <div className="mp-group-title">Sizning bugungi ishlaringiz</div>
-      <div className="mini-seg" role="tablist">
-        <button role="tab" aria-selected={!onlyProblems} className={!onlyProblems ? "on" : ""} onClick={() => setOnlyProblems(false)}>
-          Hammasi
-        </button>
-        <button role="tab" aria-selected={onlyProblems} className={onlyProblems ? "on" : ""} onClick={() => setOnlyProblems(true)}>
-          Faqat muammolar
+      <div className="desk-head">
+        <div className="mp-group-title">Hal qilish kerak</div>
+        <button className="mini-link" onClick={() => setOnlyProblems(!onlyProblems)}>
+          {onlyProblems ? "Hammasini ko‘rsatish" : "Faqat muammolar"}
         </button>
       </div>
       <section className="mini-card">
         {actions === null ? (
           <SkeletonList rows={4} />
         ) : !list.length ? (
-          <div className="mini-empty">Hammasi joyida ✓</div>
+          <div className="mini-empty">Hammasi joyida — kutilayotgan ish yo‘q</div>
         ) : (
           <div className="mini-rows">
             {list.map((a) => (

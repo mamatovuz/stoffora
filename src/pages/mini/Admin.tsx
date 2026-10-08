@@ -217,30 +217,51 @@ export function AdminMenu({
   const items = [...adminItemsFor(role), ...extra];
   if (!items.length)
     return <div className="mini-empty">Bu bo‘limda siz uchun ish yo‘q</div>;
+  // Bo‘limlar mavzu bo‘yicha guruhlanadi — 15 ta qatorli bitta ro‘yxatdan topish oson.
+  const groups = ADMIN_GROUPS.map((g) => ({ ...g, items: items.filter((i) => g.keys.includes(i.key)) }));
+  const rest = items.filter((i) => !ADMIN_GROUPS.some((g) => g.keys.includes(i.key)));
+  if (rest.length) groups.push({ title: "Boshqa", keys: [], items: rest });
   return (
-    <section className="mini-card">
-      <div className="mini-rows">
-        {items.map((item) => (
-          <button
-            key={item.key}
-            className="mini-row adm-item"
-            onClick={() => {
-              haptic.select();
-              onOpen(item.key);
-            }}
-          >
-            <span className="mini-ico">{item.icon}</span>
-            <span>
-              <b>{item.label}</b>
-              <small>{item.hint}</small>
-            </span>
-            <ChevronRight size={16} />
-          </button>
+    <>
+      {groups
+        .filter((g) => g.items.length)
+        .map((g) => (
+          <div key={g.title} className="adm-group">
+            <div className="mp-group-title">{g.title}</div>
+            <section className="mini-card">
+              <div className="mini-rows">
+                {g.items.map((item) => (
+                  <button
+                    key={item.key}
+                    className="mini-row adm-item"
+                    onClick={() => {
+                      haptic.select();
+                      onOpen(item.key);
+                    }}
+                  >
+                    <span className="mini-ico">{item.icon}</span>
+                    <span>
+                      <b>{item.label}</b>
+                      <small>{item.hint}</small>
+                    </span>
+                    <ChevronRight size={16} />
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
         ))}
-      </div>
-    </section>
+    </>
   );
 }
+
+const ADMIN_GROUPS: { title: string; keys: string[] }[] = [
+  { title: "Xodimlar", keys: ["employees", "attendance", "leave", "registrations"] },
+  { title: "Ish vaqti va tuzilma", keys: ["schedules", "branches", "org"] },
+  { title: "Pul", keys: ["payroll", "money"] },
+  { title: "Aloqa", keys: ["announcements", "helpdesk"] },
+  { title: "Hisobot va sozlamalar", keys: ["reports", "week", "users", "devices", "audit"] },
+];
 
 export function AdminScreen({
   screen,

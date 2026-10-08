@@ -160,7 +160,7 @@ export function MiniHome({
           </div>
         ) : data.todayLeave && !working ? (
           <div className="mh-leave">
-            <div className="mh-done off">🏖 Bugun ta’tildasiz — dam oling!</div>
+            <div className="mh-done off">Bugun ta’tildasiz — dam oling</div>
             <button className="mini-link" onClick={() => onAction("CHECK_IN")}>
               Baribir ishga keldim
             </button>
@@ -236,48 +236,47 @@ export function MiniHome({
           </button>
         ))}
 
-      <section className="mh-stats">
+      <button className="mh-stats" onClick={() => onNavigate({ tab: "history", view: "stats" })} aria-label="Bu oy statistikasi">
         <div>
           <b>{data.month.days}</b>
           <small>kun keldi</small>
         </div>
         <div>
           <b className={data.month.late ? "warn" : ""}>{data.month.late}</b>
-          <small>kechikish</small>
+          <small>marta kechikdi</small>
         </div>
         {streak > 0 ? (
-          <button className="mh-streak" onClick={() => onNavigate({ tab: "history", view: "stats" })}>
-            <b>
-              {stats?.streak.badge?.emoji || "🔥"} {streak}
-            </b>
-            <small>kun vaqtida</small>
-          </button>
+          <div className="mh-streak">
+            <b>{streak}</b>
+            <small>kun ketma-ket vaqtida</small>
+          </div>
         ) : (
           <div>
             <b>{Math.round(data.month.workedMinutes / 60)}</b>
-            <small>soat</small>
+            <small>soat ishladi</small>
           </div>
         )}
-      </section>
+      </button>
 
       <SalaryCard onOpen={onSalary} offline={offline} />
 
       <HomeScreenCard />
 
-      <section className="mh-quick" aria-label="Tezkor bo‘limlar">
-        <QuickTile icon={<CalendarRange size={19} />} label="Grafigim" onClick={() => onNavigate({ tab: "history", view: "schedule" })} />
-        <QuickTile icon={<TrendingUp size={19} />} label="Statistika" onClick={() => onNavigate({ tab: "history", view: "stats" })} />
-        <QuickTile icon={<IdCard size={19} />} label="Mening ID" onClick={() => onNavigate({ tab: "badge" })} />
+      <div className="mp-group-title">Bo‘limlar</div>
+      <nav className="mh-menu" aria-label="Bo‘limlar">
+        <MenuRow icon={<CalendarRange size={19} />} tone="blue" title="Ish grafigim" hint="Qaysi kun, soat nechada" onClick={() => onNavigate({ tab: "history", view: "schedule" })} />
+        <MenuRow icon={<CalendarCheck size={19} />} tone="green" title="Ta’til so‘rash" hint="Ta’til yoki javob" onClick={() => onNavigate({ tab: "leave", view: "leave" })} />
+        <MenuRow icon={<Wallet size={19} />} tone="teal" title="Hisob varaqalar" hint="Oylik tafsiloti" onClick={() => onNavigate({ tab: "profile", section: "payslips" })} />
+        <MenuRow icon={<MessageCircleQuestion size={19} />} tone="orange" title="HR’ga savol" hint="Javob shu yerga keladi" onClick={() => onHelpdesk("questions")} />
         {data.features?.directory !== false ? (
-          <QuickTile icon={<Users size={19} />} label="Hamkasblar" onClick={() => onNavigate({ tab: "profile", section: "directory" })} />
+          <MenuRow icon={<Users size={19} />} tone="indigo" title="Hamkasblar" hint="Telefon raqamlari" onClick={() => onNavigate({ tab: "profile", section: "directory" })} />
         ) : (
-          <QuickTile icon={<FileText size={19} />} label="Hujjatlar" onClick={() => onNavigate({ tab: "profile", section: "docs" })} />
+          <MenuRow icon={<FileText size={19} />} tone="indigo" title="Hujjatlarim" onClick={() => onNavigate({ tab: "profile", section: "docs" })} />
         )}
-        <QuickTile icon={<Wallet size={19} />} label="Hisob varaqa" onClick={() => onNavigate({ tab: "profile", section: "payslips" })} />
-        <QuickTile icon={<CalendarCheck size={19} />} label="Ta’til" onClick={() => onNavigate({ tab: "leave", view: "leave" })} />
-        <QuickTile icon={<MessageCircleQuestion size={19} />} label="HR’ga savol" onClick={() => onHelpdesk("questions")} />
-        <QuickTile icon={<Cake size={19} />} label="Tug‘ilgan kunlar" onClick={onBirthdays} />
-      </section>
+        <MenuRow icon={<IdCard size={19} />} tone="gray" title="ID kartam" hint="QR guvohnoma" onClick={() => onNavigate({ tab: "badge" })} />
+        <MenuRow icon={<TrendingUp size={19} />} tone="violet" title="Statistika" hint="Oylar bo‘yicha davomatim" onClick={() => onNavigate({ tab: "history", view: "stats" })} />
+        <MenuRow icon={<Cake size={19} />} tone="pink" title="Tug‘ilgan kunlar" hint="Hamkasblarni tabriklash" onClick={onBirthdays} />
+      </nav>
 
       {data.month.practiceUntil && (
         <div className="mh-hint info">
@@ -334,17 +333,18 @@ export function MiniHome({
   );
 }
 
-function QuickTile({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick: () => void }) {
+function MenuRow({ icon, tone, title, hint, onClick }: { icon: React.ReactNode; tone: string; title: string; hint?: string; onClick: () => void }) {
   return (
     <button
-      className="mh-tile"
+      className={`mh-menu-row ${tone}`}
       onClick={() => {
         haptic.select();
         onClick();
       }}
     >
-      <span>{icon}</span>
-      <small>{label}</small>
+      <i>{icon}</i>
+      <b>{title}</b>
+      {hint && <small>{hint}</small>}
     </button>
   );
 }

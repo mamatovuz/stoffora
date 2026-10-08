@@ -159,14 +159,35 @@ type Meta = {
 export function AdminMenu({ role, extra, onOpen }: { role: Role; extra: { key: string; label: string; hint: string; icon: IconName }[]; onOpen: (key: string) => void }) {
   const items = [...adminItemsFor(role), ...extra];
   if (!items.length) return <Empty icon="grid-outline" title="Bu bo‘limda siz uchun ish yo‘q" />;
+  // Bo‘limlar mavzu bo‘yicha guruhlanadi — uzun bitta ro‘yxatdan topish oson (Mini App bilan bir xil).
+  const groups = ADMIN_GROUPS.map((g) => ({ ...g, items: items.filter((i) => g.keys.includes(i.key)) }));
+  const rest = items.filter((i) => !ADMIN_GROUPS.some((g) => g.keys.includes(i.key)));
+  if (rest.length) groups.push({ title: "Boshqa", keys: [], items: rest });
   return (
-    <Group>
-      {items.map((i, index) => (
-        <Row key={i.key} icon={i.icon} label={i.label} sub={i.hint} onPress={() => onOpen(i.key)} last={index === items.length - 1} />
-      ))}
-    </Group>
+    <>
+      {groups
+        .filter((g) => g.items.length)
+        .map((g) => (
+          <View key={g.title} style={{ gap: 6 }}>
+            <GroupTitle>{g.title}</GroupTitle>
+            <Group>
+              {g.items.map((i, index) => (
+                <Row key={i.key} icon={i.icon} label={i.label} sub={i.hint} onPress={() => onOpen(i.key)} last={index === g.items.length - 1} />
+              ))}
+            </Group>
+          </View>
+        ))}
+    </>
   );
 }
+
+const ADMIN_GROUPS: { title: string; keys: string[] }[] = [
+  { title: "Xodimlar", keys: ["employees", "attendance", "leave", "registrations"] },
+  { title: "Ish vaqti va tuzilma", keys: ["schedules", "branches", "org"] },
+  { title: "Pul", keys: ["payroll", "money"] },
+  { title: "Aloqa", keys: ["announcements", "helpdesk"] },
+  { title: "Hisobot va sozlamalar", keys: ["reports", "week", "users", "devices", "audit"] },
+];
 
 export function AdminScreen({ screen, role }: { screen: AdminKey; role: Role }) {
   switch (screen) {

@@ -482,6 +482,11 @@ Endi Sozlamalar → Xavfsizlik bo‘limida 2 bosqichli kirishni yoqishingiz mumk
     });
   });
 
+  // So‘rovlar: rahbar xabaridagi «Tasdiqlash / Rad etish» tugmalari.
+  bot.on("callback_query:data", async (ctx) => {
+    const { handleRequestCallback } = await import("./request-actions");
+    if (!(await handleRequestCallback(ctx))) await ctx.answerCallbackQuery().catch(() => undefined);
+  });
   bot.command("profile", async (ctx) =>
     employeeCommand(ctx.from?.id, ctx, "profile", keyboard()),
   );
@@ -769,7 +774,7 @@ const buttonLabels: Record<string, string> = {
 export async function sendTelegramMessage(
   telegramId: string,
   text: string,
-  options: { openButton?: boolean; go?: string; buttonText?: string } = {},
+  options: { openButton?: boolean; go?: string; buttonText?: string; keyboard?: InlineKeyboard } = {},
 ) {
   const db = await readDb();
   const employee = db.employees.find((item) => item.telegramId === telegramId && item.status === "ACTIVE");
@@ -781,7 +786,7 @@ export async function sendTelegramMessage(
   const api = companyApi || activeBot?.api || (sharedApi ||= new Api(token!));
   const url = options.openButton || options.go ? miniAppUrl(options.go) : undefined;
   const label = options.buttonText || buttonLabels[(options.go || "").split("_")[0]] || "📲 Staffora’ni ochish";
-  const markup = url ? { reply_markup: new InlineKeyboard().webApp(label, url) } : {};
+  const markup = options.keyboard ? { reply_markup: options.keyboard } : url ? { reply_markup: new InlineKeyboard().webApp(label, url) } : {};
   // Matnda <b>/<i> bo‘lsa — HTML rejimi. Telegram uni o‘qiy olmasa (foydalanuvchi matnida «<» bo‘lsa),
   // teglarsiz oddiy matn bilan qayta yuboriladi — xabar yo‘qolmaydi.
   let html = /<\/?(b|i|u|code)>/.test(text);

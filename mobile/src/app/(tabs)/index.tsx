@@ -10,6 +10,8 @@ import { clockDuration, dateLongUz, duration, forwardMinutes, minutesSince, som,
 import { elevation, ios, radius, useTheme } from "@/lib/theme";
 import type { HomeData, Notification, Salary, Stats } from "@/lib/types";
 import { invalidate, useData } from "@/lib/useData";
+import { syncGeofence } from "@/lib/geofence";
+import { updateTodayWidget } from "@/widgets/sync";
 
 function useClock(ms = 1000) {
   const [now, setNow] = useState(() => new Date());
@@ -27,6 +29,12 @@ export default function Home() {
   const salary = useData<Salary>("/mini/salary", { maxAgeMs: 60_000 });
   const now = useClock();
   const [lateOpen, setLateOpen] = useState(false);
+  // Bosh ekran vidjeti va fon geofence — har yangi ma’lumotda.
+  useEffect(() => {
+    if (!data) return;
+    void updateTodayWidget(data).catch(() => undefined);
+    void syncGeofence(data).catch(() => undefined);
+  }, [data]);
 
   if (loading && !data)
     return (

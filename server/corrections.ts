@@ -11,7 +11,7 @@ import { dayPlan } from "../lib/schedule";
 import type { Attendance, AttendanceCorrection, Database, Employee } from "../lib/types";
 import type { AuthedRequest, EmployeeSession } from "./auth";
 import { notifyEmployee } from "./integrations/hooks";
-import { notifyManagers } from "./mini-extra";
+import { notifyRequest } from "./request-actions";
 import { assertMonthOpen } from "./payroll-workflow";
 
 /*
@@ -176,13 +176,14 @@ export function createMiniCorrectionRouter() {
         return { row, employee, branch };
       });
       const db = await readDb();
-      void notifyManagers(
-        db,
-        created.employee.companyId,
-        created.row.branchId,
-        `🕘 <b>Belgilash so‘rovi</b>\n${nameOf(created.employee)}\n${dmy(created.row.date)} · ${KIND[created.row.kind]} ${created.row.time}\nFilial: ${created.branch.name}\nIzoh: ${created.row.comment}`,
-        "manager_requests",
-      ).catch(() => undefined);
+      void notifyRequest(db, {
+        companyId: created.employee.companyId,
+        branchId: created.row.branchId,
+        kind: "mark",
+        id: created.row.id,
+        pushTitle: "Belgilash so‘rovi",
+        text: `🕘 <b>Belgilash so‘rovi</b>\n${nameOf(created.employee)}\n${dmy(created.row.date)} · ${KIND[created.row.kind]} ${created.row.time}\nFilial: ${created.branch.name}\nIzoh: ${created.row.comment}`,
+      }).catch(() => undefined);
       res.status(201).json(describeCorrection(db, created.row));
     }),
   );

@@ -1186,6 +1186,11 @@ export interface IntegrationSettings {
    * https://t.me/<bot>/<nomi>. Berilsa, xodim bir bosishda, START siz kiradi.
    */
   miniAppLink?: string;
+  /**
+   * Import qilinadigan bot filiallari (bot ID lari; «__none__» — filialsiz xodimlar).
+   * Berilmasa — barcha filiallar. Tanlanmagan filial, uning xodimlari va davomati Staffora'ga kelmaydi.
+   */
+  branchIds?: string[];
   /** Bildirishnoma yo‘nalishlari: toifa → kanallar. */
   routing: Record<"attendance" | "leave" | "announcements" | "system" | "payroll" | "hr", NotificationChannel[]>;
 }
