@@ -724,7 +724,7 @@ function IntegrationDashboard({ id, onChanged }: { id: string; onChanged: () => 
             </p>
           </div>
           <span className={`badge ${state.tone} ic-state`}>
-            <state.Icon size={13} className={stats.running ? "spin" : ""} /> {state.label}
+            {stats.running && <state.Icon size={13} className="spin" />} {state.label}
           </span>
         </div>
         <div className="ic-meta">
