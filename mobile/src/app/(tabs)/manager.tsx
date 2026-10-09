@@ -608,7 +608,16 @@ export default function Manager() {
         )
       ) : null}
 
-      {view === "desk" && auth ? <DeskView role={auth.user.role} reloadKey={moneyKey + pending.length} onOpen={(v) => setView(v as MView)} /> : null}
+      {view === "desk" && auth ? <DeskView
+          role={auth.user.role}
+          reloadKey={moneyKey + pending.length}
+          onOpen={(v) => {
+            // «today:LATE» — davomat ro‘yxati shu filtr bilan ochiladi.
+            const [next, f] = v.split(":");
+            setView(next as MView);
+            if (f) setFilter(f as Filter);
+          }}
+        /> : null}
       {view === "devices" && canDevices ? <DevicesView /> : null}
       {view === "money" && canMoney ? <MoneyView canAdvances={canMoneyAdvances} canFines={canMoneyAdvances} reloadKey={moneyKey} /> : null}
       <FineSheet

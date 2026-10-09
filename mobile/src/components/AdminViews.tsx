@@ -1,3 +1,4 @@
+import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Linking, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { errorText } from "@/lib/api";
@@ -221,7 +222,7 @@ export function AdminScreen({ screen, role }: { screen: AdminKey; role: Role }) 
 }
 
 /* ================================================================ Xodimlar === */
-type Emp = {
+export type Emp = {
   id: string;
   firstName: string;
   lastName: string;
@@ -237,6 +238,7 @@ type Emp = {
   status: string;
   dismissedAt?: string;
   telegramConnected?: boolean;
+  todayAttendance?: { checkIn?: string; checkOut?: string };
 };
 
 function EmployeesScreen({ role }: { role: Role }) {
@@ -279,7 +281,13 @@ function EmployeesScreen({ role }: { role: Role }) {
               key={e.id}
               label={fullName(e)}
               sub={[nameOf(meta?.positions, e.positionId), nameOf(meta?.branches, e.branchId), e.phone, e.dismissedAt ? `bo‘shagan ${dmy(e.dismissedAt)}` : ""].filter(Boolean).join(" · ")}
-              onPress={() => setOpen(e)}
+              right={
+                status === "ACTIVE" && e.todayAttendance?.checkIn ? (
+                  <Badge text={e.todayAttendance.checkOut ? `Ketdi ${e.todayAttendance.checkOut}` : `Keldi ${e.todayAttendance.checkIn}`} tone={e.todayAttendance.checkOut ? "muted" : "ok"} />
+                ) : undefined
+              }
+              // To‘liq profil (tarix, hujjatlar, yozish); tahrirlash — profildagi «Tahrirlash».
+              onPress={() => router.push({ pathname: "/employee/[id]", params: { id: e.id } })}
               last={i === rows.length - 1}
             />
           ))}
@@ -299,6 +307,13 @@ function EmployeesScreen({ role }: { role: Role }) {
       ) : null}
     </>
   );
+}
+
+/** Xodim profilidan tahrirlash (rahbar rejimi): kerakli ro‘yxatlarni o‘zi yuklaydi. */
+export function EmployeeEditSheet({ role, employee, onClose, onSaved }: { role: Role; employee: Emp; onClose: () => void; onSaved: () => void }) {
+  const meta = useMeta();
+  if (!meta) return null;
+  return <EmployeeSheet role={role} meta={meta} employee={employee} onClose={onClose} onSaved={onSaved} />;
 }
 
 function EmployeeSheet({ role, meta, employee, onClose, onSaved }: { role: Role; meta: Meta; employee?: Emp; onClose: () => void; onSaved: () => void }) {

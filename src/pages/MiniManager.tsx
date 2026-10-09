@@ -871,7 +871,20 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           onChanged={() => void load()}
         />
       )}
-      {view === "desk" && <MiniDesk call={call} role={role} canAttendance={canAttendance} onOpen={(v) => setView(v as ManagerView)} onEmployee={setCardFor} />}
+      {view === "desk" && (
+        <MiniDesk
+          call={call}
+          role={role}
+          canAttendance={canAttendance}
+          onOpen={(v) => {
+            // «today:LATE» — davomat ro‘yxati shu filtr bilan ochiladi.
+            const [next, f] = v.split(":");
+            setView(next as ManagerView);
+            if (f) setFilter(f as Filter);
+          }}
+          onEmployee={setCardFor}
+        />
+      )}
       {view === "devices" && canDevices && <DevicesView call={call} onToast={onToast} />}
       {view === "money" && canMoney && <MoneyView call={call} canAdvances={canMoney} canFines={canMoney} onError={onToast} />}
       {fining && (

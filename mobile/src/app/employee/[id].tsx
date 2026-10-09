@@ -9,6 +9,7 @@ import { dateUz, dayTitle, duration, som } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { FineSheet } from "@/components/MoneyTools";
 import { HistoryCalendar } from "@/components/HistoryCalendar";
+import { EmployeeEditSheet, type Emp as EditableEmp } from "@/components/AdminViews";
 import { useTheme } from "@/lib/theme";
 
 /*
@@ -69,6 +70,7 @@ export default function EmployeeProfile() {
   const [docs, setDocs] = useState<EmpDoc[] | null>(null);
   const [fining, setFining] = useState(false);
   const [life, setLife] = useState<Lifecycle | null>(null);
+  const [editing, setEditing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,9 +97,19 @@ export default function EmployeeProfile() {
   useEffect(() => {
     void load();
   }, [load]);
+  const canEditProfile = Boolean(auth && can(auth.user.role, "employees.edit") && data);
   useLayoutEffect(() => {
-    navigation.setOptions({ title: "Xodimning profili" });
-  }, [navigation]);
+    navigation.setOptions({
+      title: "Xodimning profili",
+      headerRight: canEditProfile
+        ? () => (
+            <Pressable onPress={() => setEditing(true)} hitSlop={10}>
+              <Text style={{ color: c.accent, fontSize: 16, fontWeight: "600" }}>Tahrirlash</Text>
+            </Pressable>
+          )
+        : undefined,
+    });
+  }, [navigation, canEditProfile, c.accent]);
 
   if (!data) return <View style={{ flex: 1, backgroundColor: c.bg, padding: 16 }}>{error ? <ErrorBox text={error} onRetry={load} /> : <Loading />}</View>;
   const e = data.employee;
@@ -264,6 +276,17 @@ export default function EmployeeProfile() {
           Alert.alert("Tayyor", text);
         }}
       />
+      {editing && auth ? (
+        <EmployeeEditSheet
+          role={auth.user.role}
+          employee={e as unknown as EditableEmp}
+          onClose={() => setEditing(false)}
+          onSaved={() => {
+            setEditing(false);
+            void load();
+          }}
+        />
+      ) : null}
     </ScrollView>
   );
 }

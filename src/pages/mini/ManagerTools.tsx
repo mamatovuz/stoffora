@@ -143,6 +143,7 @@ export function EmployeeCardSheet({
   onClose,
   onToast,
   onChanged,
+  onEdit,
 }: {
   employeeId: string;
   call: Call;
@@ -150,6 +151,8 @@ export function EmployeeCardSheet({
   onClose: () => void;
   onToast: Toast;
   onChanged: () => void;
+  /** «Boshqaruv → Xodimlar»dan ochilganda — ma’lumotlarni tahrirlash formasi. */
+  onEdit?: () => void;
 }) {
   const [card, setCard] = useState<Card | null>(null);
   const [error, setError] = useState("");
@@ -205,6 +208,7 @@ export function EmployeeCardSheet({
       onClose={onClose}
       className="ec-sheet"
       primary={canEdit && card ? { text: "Qo‘lda belgilash", onClick: () => setMarking(true) } : null}
+      secondary={onEdit ? { text: "Tahrirlash", onClick: onEdit } : null}
     >
       {error ? (
         <div className="mini-alert">
@@ -230,7 +234,7 @@ export function EmployeeCardSheet({
               )}
             </div>
             <div className="mp-chips">
-              <span>🆔 {e.employeeNo}</span>
+              <span>ID {e.employeeNo}</span>
               <span className={e.faceEnrolled ? "ok" : ""}>{e.faceEnrolled ? "✓ Face ID" : "Face ID yo‘q"}</span>
               {e.biometric && <span className="ok">✓ Biometriya</span>}
               {card.streak.current > 0 && (

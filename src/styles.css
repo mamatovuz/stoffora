@@ -9767,8 +9767,6 @@ button.mh-stats:active { opacity: 0.7; }
 .mg-bar-legend li::first-letter { text-transform: uppercase; }
 .mg-bar-legend b { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
 
-button.desk-tiles { width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; }
-button.desk-tiles:active { opacity: 0.7; }
 .desk-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .desk-head .mini-link { margin: 14px 6px 2px; font-size: 13px; }
 .desk-action { display: flex; align-items: center; gap: 10px; min-height: 48px; }
@@ -9808,3 +9806,11 @@ button.desk-tiles:active { opacity: 0.7; }
 }
 .ic-actions { justify-content: flex-start; }
 .ic-actions .btn-danger { margin-left: auto; }
+/* Ish stoli: bugungi raqamlar — har biri o‘z ro‘yxatini ochadi */
+.desk-tiles > button { display: grid; justify-items: center; padding: 12px 4px; border: 0; border-radius: 14px; background: var(--m-card); color: var(--m-ink); font: inherit; }
+.desk-tiles > button:active { opacity: 0.7; }
+.desk-tiles > button b { font-size: 21px; }
+.desk-tiles > button small { color: var(--m-muted); font-size: 11.5px; }
+.desk-tiles > button.ok b { color: var(--m-success, #2fb26a); }
+.desk-tiles > button.warn b { color: #d97706; }
+.desk-tiles > button.bad b { color: var(--m-danger, #e5484d); }

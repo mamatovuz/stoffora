@@ -50,6 +50,7 @@ import {
 import { roleLabels } from "../../auth";
 import { STAFF_ROLE_LABELS } from "@/lib/staff-roles";
 import { PhotoAvatar, Seg, Sheet, SkeletonList, som } from "./shared";
+import { EmployeeCardSheet } from "./ManagerTools";
 import { confirmNative, haptic, openExternal, openTelegram, supports, tg } from "./tg";
 
 /*
@@ -415,6 +416,8 @@ function EmployeesScreen({
   const [rows, setRows] = useState<EmployeeRow[] | null>(null);
   const [total, setTotal] = useState(0);
   const [open, setOpen] = useState<EmployeeRow | "new" | null>(null);
+  // Xodimga bosilganda avval to‘liq karta (tarix, hujjatlar, yozish), tahrirlash — kartadan.
+  const [card, setCard] = useState<EmployeeRow | null>(null);
   const load = useCallback(() => {
     const params = new URLSearchParams({
       limit: "200",
@@ -477,7 +480,7 @@ function EmployeesScreen({
               <button
                 className="mini-row"
                 key={e.id}
-                onClick={() => setOpen(e)}
+                onClick={() => setCard(e)}
               >
                 <PhotoAvatar employee={e} />
                 <span>
@@ -495,11 +498,32 @@ function EmployeesScreen({
                       : ""}
                   </small>
                 </span>
+                {status === "ACTIVE" && e.todayAttendance?.checkIn && (
+                  <span className={`mini-chip ${e.todayAttendance.checkOut ? "" : "ok"}`}>
+                    {e.todayAttendance.checkOut
+                      ? `Ketdi ${e.todayAttendance.checkOut}`
+                      : `Keldi ${e.todayAttendance.checkIn}`}
+                  </span>
+                )}
                 <ChevronRight size={16} />
               </button>
             ))}
           </div>
         </section>
+      )}
+      {card && !open && (
+        <EmployeeCardSheet
+          employeeId={card.id}
+          call={call}
+          canEdit={can(role, "attendance.edit")}
+          onClose={() => setCard(null)}
+          onToast={onToast}
+          onChanged={load}
+          onEdit={() => {
+            setOpen(card);
+            setCard(null);
+          }}
+        />
       )}
       {open && meta && (
         <EmployeeSheet

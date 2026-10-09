@@ -44,11 +44,16 @@ export function DeskView({ role, onOpen, reloadKey }: { role: string; onOpen: (v
   }, [role, reloadKey]);
 
   const list = (actions || []).filter((a) => !onlyProblems || a.level === "red" || a.level === "orange");
-  const tile = (value: number | string, label: string, color: string) => (
-    <View style={{ flex: 1, alignItems: "center" }}>
+  const tile = (value: number | string, label: string, color: string, filter?: string) => (
+    <Pressable
+      key={label}
+      disabled={!filter}
+      onPress={() => filter && onOpen(`today:${filter}`)}
+      style={({ pressed }) => [{ flex: 1, alignItems: "center" }, pressed && { opacity: 0.5 }]}
+    >
       <Text style={{ color, fontSize: 22, fontWeight: "700" }}>{value}</Text>
       <Text style={{ color: c.muted, fontSize: 11.5 }}>{label}</Text>
-    </View>
+    </Pressable>
   );
   return (
     <>
@@ -56,10 +61,10 @@ export function DeskView({ role, onOpen, reloadKey }: { role: string; onOpen: (v
       {overview ? (
         <>
           <Card style={{ flexDirection: "row", paddingVertical: 14 }}>
-            {tile(overview.today.planned, "rejada", c.ink)}
-            {tile(overview.today.came, "keldi", c.success)}
-            {tile(overview.today.late, "kechikdi", c.warn)}
-            {tile(overview.today.absent, "kelmadi", c.danger)}
+            {tile(overview.today.planned, "rejada", c.ink, "ALL")}
+            {tile(overview.today.came, "keldi", c.success, "IN")}
+            {tile(overview.today.late, "kechikdi", c.warn, "LATE")}
+            {tile(overview.today.absent, "kelmadi", c.danger, "ABSENT")}
           </Card>
           {overview.money ? (
             <Card style={{ gap: 6 }}>

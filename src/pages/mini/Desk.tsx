@@ -37,24 +37,21 @@ export function MiniDesk({ call, role, canAttendance, onOpen, onEmployee }: { ca
     <>
       {overview && <div className="mp-group-title">Bugun</div>}
       {overview && (
-        <button className="desk-tiles" onClick={() => onOpen("today")} aria-label="Bugungi davomat">
-          <div>
-            <b>{overview.today.planned}</b>
-            <small>rejada</small>
-          </div>
-          <div className="ok">
-            <b>{overview.today.came}</b>
-            <small>keldi</small>
-          </div>
-          <div className="warn">
-            <b>{overview.today.late}</b>
-            <small>kechikdi</small>
-          </div>
-          <div className="bad">
-            <b>{overview.today.absent}</b>
-            <small>kelmadi</small>
-          </div>
-        </button>
+        <div className="desk-tiles" role="group" aria-label="Bugungi davomat">
+          {(
+            [
+              ["ALL", overview.today.planned, "rejada", ""],
+              ["IN", overview.today.came, "keldi", "ok"],
+              ["LATE", overview.today.late, "kechikdi", "warn"],
+              ["ABSENT", overview.today.absent, "kelmadi", "bad"],
+            ] as const
+          ).map(([filter, value, label, tone]) => (
+            <button key={filter} className={tone} onClick={() => onOpen(`today:${filter}`)}>
+              <b>{value}</b>
+              <small>{label}</small>
+            </button>
+          ))}
+        </div>
       )}
       {overview?.money && <div className="mp-group-title">Bu oy</div>}
       {overview?.money && (
