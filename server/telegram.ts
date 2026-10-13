@@ -6,11 +6,12 @@ import {
   Bot,
   GrammyError,
   InlineKeyboard,
+  InputFile,
   Keyboard,
   webhookCallback,
 } from "grammy";
 import { audit, readDb, updateDb } from "../lib/store";
-import { phoneKey, tashkentClock, tashkentIsoDate } from "../lib/format";
+import { duration, phoneKey, tashkentClock, tashkentIsoDate } from "../lib/format";
 import type { Database, Employee } from "../lib/types";
 import { dayPlan, shiftDateAt } from "../lib/schedule";
 
@@ -720,7 +721,7 @@ async function employeeCommand(
     (a) => a.employeeId === employee.id && a.date === shiftDate,
   );
   return ctx.reply(
-    `📋 Bugungi davomat\n\nHolat: ${attendance ? statusLabel[attendance.status] || attendance.status : "Hali qayd etilmagan"}\nKelish: ${attendance?.checkIn || "—"}\nKetish: ${attendance?.checkOut || "—"}${attendance?.lateMinutes ? `\nKechikish: ${attendance.lateMinutes} daqiqa` : ""}`,
+    `📋 Bugungi davomat\n\nHolat: ${attendance ? statusLabel[attendance.status] || attendance.status : "Hali qayd etilmagan"}\nKelish: ${attendance?.checkIn || "—"}\nKetish: ${attendance?.checkOut || "—"}${attendance?.lateMinutes ? `\nKechikish: ${duration(attendance.lateMinutes)}` : ""}`,
     extra,
   );
 }
@@ -770,6 +771,31 @@ const buttonLabels: Record<string, string> = {
   dayoff: "🗓 Dam olish kunlarim",
   helpdesk: "💬 Murojaatlarim",
 };
+
+/** Telegram’ga fayl (masalan, Excel hisobot) yuborish. Muvaffaqiyatli bo‘lsa — true. */
+export async function sendTelegramDocument(telegramId: string, data: Buffer, filename: string, caption?: string) {
+  const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  if (!token) return false;
+  const api = activeBot?.api || (sharedApi ||= new Api(token));
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await sendSlot();
+    try {
+      await api.sendDocument(telegramId, new InputFile(data, filename), caption ? { caption: caption.slice(0, 1000) } : {});
+      return true;
+    } catch (reason) {
+      if (reason instanceof GrammyError) {
+        if (reason.error_code === 429) {
+          nextSendAt = Math.max(nextSendAt, Date.now() + Number(reason.parameters?.retry_after || 1) * 1000);
+          continue;
+        }
+        if (reason.error_code === 403 || reason.error_code === 400) return false;
+      }
+      if (attempt === 2) throw reason;
+      await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+    }
+  }
+  return false;
+}
 
 export async function sendTelegramMessage(
   telegramId: string,

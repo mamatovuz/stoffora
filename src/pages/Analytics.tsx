@@ -4,7 +4,7 @@ import { AlarmClock, Award, CalendarX2, Medal, TrendingDown, TrendingUp, Trophy,
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useApi } from "../hooks";
 import { Empty, ErrorBox, Loading, PageHeader } from "../components/ui";
-import { monthYearUz, tashkentIsoDate } from "@/lib/format";
+import { duration, monthYearUz, tashkentIsoDate } from "@/lib/format";
 
 type Summary = { attendanceRate: number | null; punctuality: number | null; lateMinutes: number; absent: number; score: number | null };
 type Person = { id: string; name: string; employeeNo: string; branch?: string; expected: number; present: number; late: number; lateMinutes: number; absent: number; score: number };
@@ -84,7 +84,7 @@ export function AnalyticsPage() {
                   <AlarmClock size={16} />
                 </span>
               </div>
-              <strong>{data.current.lateMinutes} daq</strong>
+              <strong>{duration(data.current.lateMinutes)}</strong>
               <Delta now={data.current.lateMinutes} before={data.previous.lateMinutes} inverse unit=" daq" />
             </div>
             <div className="card stat red">
@@ -125,7 +125,7 @@ export function AnalyticsPage() {
                           <i style={{ width: `${b.score ?? 0}%` }} />
                         </div>
                         <small>
-                          {b.employees} xodim · davomat {b.attendanceRate ?? "—"}% · vaqtida {b.punctuality ?? "—"}% · {b.lateMinutes} daq kechikish · {b.absent} kun kelmagan
+                          {b.employees} xodim · davomat {b.attendanceRate ?? "—"}% · vaqtida {b.punctuality ?? "—"}% · {duration(b.lateMinutes)} kechikish · {b.absent} kun kelmagan
                         </small>
                       </div>
                     </div>
@@ -163,7 +163,7 @@ export function AnalyticsPage() {
 
           <div className="an-lists">
             <PeopleList title="Eng intizomli" icon={Medal} tone="green" rows={data.punctual} value={(p) => `${p.present} kun · 0 kechikish`} empty="Kechikmasdan kelganlar hali yo‘q" />
-            <PeopleList title="Ko‘p kechikkanlar" icon={AlarmClock} tone="amber" rows={data.latecomers} value={(p) => `${p.lateMinutes} daq · ${p.late} marta`} empty="Kechikish yo‘q 👏" />
+            <PeopleList title="Ko‘p kechikkanlar" icon={AlarmClock} tone="amber" rows={data.latecomers} value={(p) => `${duration(p.lateMinutes)} · ${p.late} marta`} empty="Kechikish yo‘q 👏" />
             <PeopleList title="Ko‘p kelmaganlar" icon={CalendarX2} tone="red" rows={data.absentees} value={(p) => `${p.absent} kun`} empty="Sababsiz kelmaganlar yo‘q" />
           </div>
         </>

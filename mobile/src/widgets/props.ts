@@ -1,5 +1,6 @@
 import type { HomeData } from "@/lib/types";
 import type { TodayProps } from "./types";
+import { duration } from "@/lib/format";
 
 /*
  * Platformaga bog‘liq bo‘lmagan qism: bosh sahifa ma’lumotidan vidjet holatini tuzadi.
@@ -14,7 +15,7 @@ export function todayProps(home: HomeData): TodayProps {
     ? "Ish kuni yakunlandi"
     : working
       ? a?.lateMinutes
-        ? `Ishdasiz · ${a.lateMinutes} daq kech`
+        ? `Ishdasiz · ${duration(a.lateMinutes)} kech`
         : "Ishdasiz"
       : home.todayLeave
         ? "Bugun ta’tildasiz"

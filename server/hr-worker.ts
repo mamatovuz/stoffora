@@ -144,9 +144,10 @@ export function startHrWorker() {
       const { updateDb } = await import("../lib/store");
       await updateDb((db) => applyTransfers(db, today));
     });
+    // Rahbarlarga avtomatik hisobot: dushanba — haftalik, oyning 1-kuni — oylik (Excel bilan).
     await once("digest", "08:30", async () => {
-      const { sendWeeklyDigests } = await import("./analytics");
-      await sendWeeklyDigests(today);
+      const { runScheduledDigests } = await import("./report-digest");
+      await runScheduledDigests(today);
     });
   };
   // Rag‘batlantirish — har tekshiruvda (bosqichga yetgan kunning o‘zida bonus).

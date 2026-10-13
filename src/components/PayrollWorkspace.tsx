@@ -101,7 +101,7 @@ export function PayrollCompare({ month }: { month: string }) {
         <Empty icon={TrendingUp} title="O‘zgarish yo‘q" />
       ) : (
         <div className="table-wrap">
-          <table className="table money-table">
+          <table className="table table-cards money-table">
             <thead>
               <tr>
                 <th>Xodim</th>
@@ -189,7 +189,7 @@ export function TimesheetPage() {
           </div>
         ) : (
           <div className="table-wrap">
-            <table className="table money-table">
+            <table className="table table-cards money-table">
               <thead>
                 <tr>
                   <th>Xodim</th>

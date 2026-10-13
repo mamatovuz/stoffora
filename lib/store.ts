@@ -1,6 +1,6 @@
 import path from "node:path";
 import type BetterSqlite3 from "better-sqlite3";
-import { PostgresBackend, SqliteBackend, type Backend, type Delta } from "./backend";
+import { PostgresBackend, SqliteBackend, type Backend, type CoreRow, type Delta } from "./backend";
 import type {
   Attendance,
   AuditLog,
@@ -15,7 +15,8 @@ import { createSeed, createUser, purgeLegacyDemoData } from "./seed";
  *
  * Ma’lumotlar xotirada (bitta jarayon) ushlab turiladi va bazaga yoziladi —
  * DATABASE_URL bo‘lsa PostgreSQL, aks holda SQLite (lib/backend.ts):
- *   app_state   — kichik "yadro" (kompaniyalar, xodimlar, grafiklar…), bitta JSON
+ *   core_rows   — "yadro" (kompaniyalar, xodimlar, grafiklar…): har bir yozuv alohida qator;
+ *                 yozishda faqat o‘zgargan qatorlar yoziladi (3-sxema). app_state — faqat belgi.
  *   attendance  — davomat qatorlari (faqat o‘zgargan qatorlar yoziladi)
  *   audit_logs  — audit jurnali (faqat yangi yozuvlar qo‘shiladi)
  *   media       — xodim/foydalanuvchi rasmlari (JSON’ni og‘irlashtirmaydi)
@@ -31,7 +32,7 @@ const volumeDirectory = process.env.RAILWAY_VOLUME_MOUNT_PATH || localDataDirect
 export const sqlitePath =
   process.env.SQLITE_PATH || path.join(volumeDirectory, "staffora.sqlite");
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 const AUDIT_MEMORY_LIMIT = 2000;
 const NOTIFICATIONS_PER_COMPANY = 500;
 const PHOTO_QUEUE_LIMIT = 3000;
@@ -44,7 +45,6 @@ let loading: Promise<Database> | undefined;
 let version = 0;
 
 // Diskdagi holat (farqni aniqlash va xatoda orqaga qaytarish uchun)
-let persistedCore = "";
 const persistedAttendance = new Map<string, string>(); // id -> updatedAt
 const persistedAudit = new Set<string>();
 const persistedMedia = new Map<string, string>(); // key -> dataUrl
@@ -118,12 +118,173 @@ function connect(): Backend {
 
 const queueStamp = (job: PhotoJob) => `${job.attempts}|${job.lastAttemptAt || ""}`;
 
+/* -------------------------------------------------- yadro qatorlari --- */
+
+/** Alohida jadvallarda saqlanadigan to‘plamlar (yadroga kirmaydi). */
+const OWN_TABLES = new Set(["attendance", "auditLogs", "photoQueue"]);
+const ORDER = "\u0000order"; // to‘plamdagi tartib (id’lar ro‘yxati)
+const WHOLE = "\u0000all"; // id’siz yoki takroriy id’li to‘plam — bitta qator
+const SCALAR = "\u0000scalar"; // massiv bo‘lmagan maydonlar (to‘plam o‘rnida, id — maydon nomi)
+
+/**
+ * Diskdagi qator: JSON va solishtirishni tezlashtiruvchi ma’lumot.
+ * seen — oxirgi farqlashda xotirada bor edimi (o‘chirilganlarni Set’siz topish uchun).
+ * head/lines — yopilgan oy: bosh qism JSON’i va muzlatilgan qatorlar massivi.
+ */
+type SavedRow = { json: string; seen: number; head?: string; lines?: unknown };
+const savedRows = new Map<string, Map<string, SavedRow>>(); // to‘plam → id → qator
+let generation = 0;
+
+/*
+ * Yopilgan oylar qatorlari (payrollPeriods[].lines) o‘zgarmaydi — birinchi saqlashda muzlatiladi
+ * va JSON’i keshlanadi. Shu sabab har yozishda ularni qayta seriyalash shart emas (yadroning
+ * eng katta qismi). Ularni joyida o‘zgartirishga urinish xato beradi va amal bekor qilinadi.
+ */
+const frozenJson = new WeakMap<object, string>();
+function deepFreeze(value: unknown) {
+  if (value && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+}
+function frozenArrayJson(list: unknown[]) {
+  let json = frozenJson.get(list);
+  if (json === undefined) {
+    deepFreeze(list);
+    json = JSON.stringify(list);
+    frozenJson.set(list, json);
+  }
+  return json;
+}
+const withLines = (head: string, lines: string) => `${head.slice(0, -1)}${head.length > 2 ? "," : ""}"lines":${lines}}`;
+
+type RowChange = { collection: string; id: string; json: string; head?: string; lines?: unknown };
+
+/**
+ * Xotiradagi yadroni diskdagi qatorlar bilan solishtiradi.
+ *   onChange — yangi yoki o‘zgargan qator; onSame — o‘zgarmagan qator (xotiradagi obyekt).
+ * Qaytaradi: diskda bor, xotirada yo‘q qatorlar (o‘chirilganlar).
+ */
+function diffCore(db: Database, onChange: (row: RowChange) => void, onSame?: (collection: string, id: string, item: unknown) => void) {
+  const gen = ++generation;
+  const check = (collection: string, id: string, item: unknown, json: () => string) => {
+    const saved = savedRows.get(collection)?.get(id);
+    if (saved) saved.seen = gen;
+    const value = json();
+    if (saved?.json === value) onSame?.(collection, id, item);
+    else onChange({ collection, id, json: value });
+  };
+  for (const [collection, value] of Object.entries(db)) {
+    if (OWN_TABLES.has(collection)) continue;
+    if (!Array.isArray(value)) {
+      check(SCALAR, collection, value, () => JSON.stringify(value ?? null));
+      continue;
+    }
+    const ids: string[] = [];
+    const unique = new Set<string>();
+    for (const item of value) {
+      const id = item && typeof item === "object" ? (item as { id?: unknown }).id : undefined;
+      if (typeof id !== "string" || !id || unique.has(id)) break;
+      unique.add(id);
+      ids.push(id);
+    }
+    if (ids.length !== value.length) {
+      check(collection, WHOLE, value, () => JSON.stringify(value));
+      continue;
+    }
+    check(collection, ORDER, ids, () => JSON.stringify(ids));
+    const rows = savedRows.get(collection);
+    const payroll = collection === "payrollPeriods";
+    const photos = collection === "employees" || collection === "users";
+    for (let index = 0; index < value.length; index += 1) {
+      const id = ids[index];
+      const item = value[index] as Record<string, unknown>;
+      const saved = rows?.get(id);
+      if (saved) saved.seen = gen;
+      if (payroll && Array.isArray(item.lines)) {
+        const head = JSON.stringify({ ...item, lines: undefined });
+        if (saved && saved.lines === item.lines && saved.head === head) {
+          onSame?.(collection, id, item);
+          continue;
+        }
+        const json = withLines(head, frozenArrayJson(item.lines));
+        if (saved?.json === json) {
+          // Mazmun bir xil — keyingi safar tez yo‘l uchun keshni yangilaymiz.
+          saved.head = head;
+          saved.lines = item.lines;
+          onSame?.(collection, id, item);
+        } else onChange({ collection, id, json, head, lines: item.lines });
+        continue;
+      }
+      // Rasmlar media jadvalida
+      const json = photos && item.photoDataUrl ? JSON.stringify({ ...item, photoDataUrl: undefined }) : JSON.stringify(item);
+      if (saved?.json === json) onSame?.(collection, id, item);
+      else onChange({ collection, id, json });
+    }
+  }
+  const deletes: [string, string][] = [];
+  for (const [collection, rows] of savedRows) for (const [id, saved] of rows) if (saved.seen !== gen) deletes.push([collection, id]);
+  return deletes;
+}
+
+function saveRow(collection: string, id: string, row: SavedRow) {
+  let rows = savedRows.get(collection);
+  if (!rows) savedRows.set(collection, (rows = new Map()));
+  rows.set(id, row);
+}
+
+/** Holatning barcha qatorlari (ko‘chirish uchun). */
+function allCoreRows(db: Database): CoreRow[] {
+  const rows: CoreRow[] = [];
+  const keep = new Map(savedRows);
+  savedRows.clear(); // hammasi "yangi" bo‘lib chiqishi uchun
+  diffCore(db, (row) => rows.push([row.collection, row.id, row.json]));
+  for (const [key, value] of keep) savedRows.set(key, value);
+  return rows;
+}
+
+/**
+ * Diskdagi qatorlardan holatni yig‘adi. reuse — o‘zgarmagan qatorlar uchun xotiradagi obyekt
+ * (orqaga qaytarishda qayta JSON.parse qilmaslik uchun).
+ */
+function assembleCore(reuse?: Map<string, Map<string, unknown>>): Database {
+  const db: Record<string, unknown> = {};
+  for (const [collection, rows] of savedRows) {
+    const reused = reuse?.get(collection);
+    const value = (id: string, saved: SavedRow) => (reused?.has(id) ? reused.get(id) : JSON.parse(saved.json));
+    if (collection === SCALAR) {
+      for (const [id, saved] of rows) db[id] = value(id, saved);
+      continue;
+    }
+    const whole = rows.get(WHOLE);
+    if (whole) {
+      db[collection] = value(WHOLE, whole);
+      continue;
+    }
+    const order = rows.get(ORDER);
+    const list: unknown[] = [];
+    const placed = new Set<string>();
+    for (const id of order ? (JSON.parse(order.json) as string[]) : []) {
+      const saved = rows.get(id);
+      if (!saved) continue;
+      list.push(value(id, saved));
+      placed.add(id);
+    }
+    // Tartib qatoriga tushmay qolganlar (bo‘lmasligi kerak, lekin ma’lumot yo‘qolmasin)
+    for (const [id, saved] of rows) if (id !== ORDER && !placed.has(id)) list.push(value(id, saved));
+    db[collection] = list;
+  }
+  return db as unknown as Database;
+}
+
 /** Bazadan to‘liq holatni o‘qiydi (xotiradagi obyektlarga tegmaydi). */
 async function loadFromDisk(): Promise<Database> {
   const snap = await connect().load(AUDIT_MEMORY_LIMIT);
   if (!snap.core) throw new Error("app_state yozuvi topilmadi.");
-  const core = normalizeDatabase(JSON.parse(snap.core) as Database);
-  persistedCore = snap.core;
+  if (snap.schema < 3) throw new Error("Yadro qatorlarga ko‘chirilmagan (3-sxema).");
+  savedRows.clear();
+  for (const [collection, id, json] of snap.rows) saveRow(collection, id, { json, seen: 0 });
+  const core = normalizeDatabase(assembleCore());
 
   core.attendance = [];
   persistedAttendance.clear();
@@ -190,12 +351,35 @@ function migrateLegacy(db: BetterSqlite3.Database, legacy: Database) {
       JSON.stringify(coreSnapshot(legacy)),
       now,
     );
-    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema', ?)").run(String(SCHEMA_VERSION));
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema', '2')").run();
   })();
   console.log(
     `Baza yangi formatga o‘tkazildi: ${legacy.attendance.length} davomat, ${legacy.auditLogs.length} audit yozuvi.`,
   );
 }
+
+/** 2-sxemadan (yadro — bitta JSON) 3-sxemaga: har bir yozuv alohida qator. Bitta tranzaksiyada. */
+async function migrateToRows(store: Backend) {
+  const snap = await store.load(1);
+  if (!snap.core || snap.schema >= SCHEMA_VERSION) return;
+  const core = normalizeDatabase(JSON.parse(snap.core) as Database);
+  const rows = allCoreRows(core);
+  await store.write({ ...emptyDelta(new Date().toISOString()), core: CORE_MARKER, rowUpserts: rows, schema: SCHEMA_VERSION });
+  if (snap.core.length > 100_000)
+    console.log(`Yadro qatorlarga ko‘chirildi: ${rows.length} qator (${(snap.core.length / 1e6).toFixed(1)} MB JSON o‘rniga).`);
+}
+/** 3-sxemada app_state faqat belgi — ma’lumot core_rows jadvalida. */
+const CORE_MARKER = JSON.stringify({ storage: "core_rows", schema: SCHEMA_VERSION });
+const emptyDelta = (now: string): Delta => ({
+  now,
+  attendanceUpserts: [],
+  attendanceDeletes: [],
+  auditInserts: [],
+  mediaUpserts: [],
+  mediaDeletes: [],
+  queueUpserts: [],
+  queueDeletes: [],
+});
 
 async function initialize(): Promise<Database> {
   const store = connect();
@@ -204,10 +388,11 @@ async function initialize(): Promise<Database> {
   if (!snap.core) {
     const seed = normalizeDatabase(await createSeed());
     await store.insertInitial(JSON.stringify(coreSnapshot(seed)), SCHEMA_VERSION);
-  } else if (snap.schema < SCHEMA_VERSION && store instanceof SqliteBackend) {
+  } else if (snap.schema < 2 && store instanceof SqliteBackend) {
     const legacy = normalizeDatabase(JSON.parse(snap.core) as Database);
     migrateLegacy(store.db, legacy);
   }
+  await migrateToRows(store);
 
   const loaded = await loadFromDisk();
   // Bir martalik tozalash va bootstrap (demo yozuvlar, egasi yo‘q kompaniya, super admin).
@@ -327,7 +512,11 @@ function trimCollections(db: Database) {
 async function persist(db: Database) {
   trimCollections(db);
   const now = new Date().toISOString();
-  const core = JSON.stringify(coreSnapshot(db));
+
+  // Yadro: faqat o‘zgargan qatorlar
+  const rowChanges: RowChange[] = [];
+  const rowDeletes = diffCore(db, (row) => rowChanges.push(row));
+  const rowUpserts = rowChanges.map((row): CoreRow => [row.collection, row.id, row.json]);
 
   // Davomat: yangi yoki o‘zgargan (updatedAt) qatorlar va o‘chirilganlar
   const attendanceUpserts: Attendance[] = [];
@@ -356,9 +545,9 @@ async function persist(db: Database) {
   const currentQueue = new Set(db.photoQueue.map((job) => job.id));
   const queueDeletes = [...persistedQueue.keys()].filter((id) => !currentQueue.has(id));
 
-  const coreChanged = core !== persistedCore;
   if (
-    !coreChanged &&
+    !rowUpserts.length &&
+    !rowDeletes.length &&
     !attendanceUpserts.length &&
     !attendanceDeletes.length &&
     !auditInserts.length &&
@@ -371,7 +560,8 @@ async function persist(db: Database) {
 
   const delta: Delta = {
     now,
-    core: coreChanged ? core : undefined,
+    rowUpserts,
+    rowDeletes,
     attendanceUpserts,
     attendanceDeletes,
     auditInserts,
@@ -383,7 +573,8 @@ async function persist(db: Database) {
   await connect().write(delta);
 
   // Tranzaksiya muvaffaqiyatli — "diskdagi holat"ni yangilaymiz.
-  persistedCore = core;
+  for (const row of rowChanges) saveRow(row.collection, row.id, { json: row.json, seen: generation, head: row.head, lines: row.lines });
+  for (const [collection, id] of rowDeletes) savedRows.get(collection)?.delete(id);
   for (const a of attendanceUpserts) persistedAttendance.set(a.id, a.updatedAt);
   for (const id of attendanceDeletes) persistedAttendance.delete(id);
   for (const log of auditInserts) persistedAudit.add(log.id);
@@ -488,7 +679,18 @@ async function drain() {
 async function rollback(): Promise<Database> {
   if (!state) return (state = await loadFromDisk());
   const store = connect();
-  const core = normalizeDatabase(JSON.parse(persistedCore) as Database);
+  // O‘zgarmagan qatorlar xotiradagi obyekt bilan qoladi, o‘zgarganlari diskdagi JSON’dan tiklanadi.
+  const reuse = new Map<string, Map<string, unknown>>();
+  diffCore(
+    state,
+    () => undefined,
+    (collection, id, item) => {
+      let items = reuse.get(collection);
+      if (!items) reuse.set(collection, (items = new Map()));
+      items.set(id, item);
+    },
+  );
+  const core = normalizeDatabase(assembleCore(reuse));
   for (const employee of core.employees) {
     const photo = persistedMedia.get(`employee:${employee.id}`);
     if (photo) employee.photoDataUrl = photo;

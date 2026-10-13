@@ -446,8 +446,8 @@ const MONTH_NOM: Record<string, string> = {
 
 /** Raqamli / dinamik matnlar uchun andozalar. */
 const PATTERNS: [RegExp, (...m: string[]) => string][] = [
-  [/^Ishdasiz · (\d+) daq kech$/, (_, n) => `На работе · опоздание ${n} мин`],
-  [/^·?\s*(\d+) daq kech$/, (m, n) => `${m.startsWith("·") ? "· " : ""}опоздание ${n} мин`],
+  [/^Ishdasiz · (\d+ soat(?: \d+ daq)?|\d+ daq) kech$/, (_, n) => `На работе · опоздание ${durRu(n)}`],
+  [/^·?\s*(\d+ soat(?: \d+ daq)?|\d+ daq) kech$/, (m, n) => `${m.startsWith("·") ? "· " : ""}опоздание ${durRu(n)}`],
   [/^(\d+) soat (\d+) daq qoldi$/, (_, h, m) => `осталось ${h} ч ${m} мин`],
   [/^(\d+) daq oldin$/, (_, n) => `${n} мин назад`],
   [/^(\d+) ta o‘qilmagan$/, (_, n) => `${n} непрочитанных`],
@@ -457,7 +457,7 @@ const PATTERNS: [RegExp, (...m: string[]) => string][] = [
   [/^(\d+) yil (\d+) oy$/, (_, y, m) => `${y} г. ${m} мес.`],
   [/^Moslik (\d+)%$/, (_, n) => `Совпадение ${n}%`],
   [/^Kelmagan (\d+) kun$/, (_, n) => `Не пришёл ${n} дн.`],
-  [/^Kechikish \((\d+) daq\)$/, (_, n) => `Опоздания (${n} мин)`],
+  [/^Kechikish \((\d+ soat(?: \d+ daq)?|\d+ daq)\)$/, (_, n) => `Опоздания (${durRu(n)})`],
   [/^Hozir ta’tilda: (\d+) nafar$/, (_, n) => `Сейчас в отпуске: ${n}`],
   [/^(\d+) ta o‘qilmagan bildirishnoma$/, (_, n) => `${n} непрочитанных уведомлений`],
   [/^Ish grafigi · (.+)$/, (_, n) => `График работы · ${n}`],
@@ -484,10 +484,14 @@ const PATTERNS: [RegExp, (...m: string[]) => string][] = [
   [/^([a-z]+) (\d{4})$/, (m, mon, y) => (MONTH_NOM[mon] ? `${MONTH_NOM[mon]} ${y}` : m)],
 ];
 
+/** «1 soat 10 daq» / «45 daq» → «1 ч 10 мин» / «45 мин». */
+const durRu = (text: string) => text.replace(/(\d+) soat/, "$1 ч").replace(/(\d+) daq/, "$1 мин");
+
 /** Oxirgi bosqich: so‘m, daq, oy nomlari kabi bo‘laklar. */
 function tokens(text: string) {
   return text
     .replace(/(\d)\s?so‘m/g, "$1 сум")
+    .replace(/(\d+) soat (\d+) daq/g, "$1 ч $2 мин")
     .replace(/(\d)\s?daq\b/g, "$1 мин")
     .replace(/(\d{1,2})-([a-z]{3,8})( \d{4})?/g, (m, d, mon, y = "") => (MONTHS[mon] ? `${Number(d)} ${MONTHS[mon]}${y}` : m));
 }

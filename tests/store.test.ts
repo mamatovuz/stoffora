@@ -110,7 +110,7 @@ describe("saqlash qatlami", () => {
     });
     await store.flushDb();
     const raw = new BetterSqlite3(process.env.SQLITE_PATH!, { readonly: true });
-    const core = (raw.prepare("SELECT payload FROM app_state").get() as { payload: string }).payload;
+    const core = (raw.prepare("SELECT payload FROM core_rows").all() as { payload: string }[]).map((r) => r.payload).join(" ");
     const media = raw.prepare("SELECT key FROM media").all() as { key: string }[];
     raw.close();
     expect(core.includes("base64")).toBe(false);
@@ -136,9 +136,14 @@ describe("saqlash qatlami", () => {
     expect(db.attendance.length).toBe(2);
     expect((await store.queryAuditLogs("c1")).map((l) => l.id)).toEqual(["l1"]);
     const check = new BetterSqlite3(process.env.SQLITE_PATH!, { readonly: true });
-    const core = JSON.parse((check.prepare("SELECT payload FROM app_state").get() as { payload: string }).payload);
+    const collections = (check.prepare("SELECT DISTINCT collection FROM core_rows").all() as { collection: string }[]).map((r) => r.collection);
+    const schema = (check.prepare("SELECT value FROM meta WHERE key = 'schema'").get() as { value: string }).value;
     check.close();
-    expect(core.attendance).toEqual([]);
+    // Davomat va audit o‘z jadvallarida; yadro qatorlarga bo‘lingan (3-sxema).
+    expect(collections).not.toContain("attendance");
+    expect(collections).toContain("companies");
+    expect(schema).toBe("3");
+    expect(db.users.map((u) => u.id)).toEqual(["u1"]);
   });
 
   it("indekslar ma’lumot o‘zgarganda yangilanadi", async () => {

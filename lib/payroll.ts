@@ -1,4 +1,5 @@
 import type { Attendance, PayrollSettings } from "./types";
+import { duration } from "./format";
 
 export const defaultPayrollSettings: PayrollSettings = {
   latePenaltyMode: "HOURLY",
@@ -122,9 +123,9 @@ export function calculatePayroll(
   const parts: string[] = [`Oylik ${som(base)}`];
   if (overtimeAmount) parts.push(`+${som(overtimeAmount)} qo‘shimcha ish`);
   if (bonus) parts.push(`+${som(bonus)} bonus`);
-  if (deduction) parts.push(`−${som(deduction)} kechikish (${lateMinutes} daq)`);
+  if (deduction) parts.push(`−${som(deduction)} kechikish (${duration(lateMinutes)})`);
   else if (lateMinutes)
-    parts.push(`${lateMinutes} daq kechikish — ${settings.latePenaltyMode === "NONE" ? "jarima o‘chirilgan" : `${settings.freeLateMinutesPerMonth} daqiqagacha jarimasiz`}`);
+    parts.push(`${duration(lateMinutes)} kechikish — ${settings.latePenaltyMode === "NONE" ? "jarima o‘chirilgan" : `${settings.freeLateMinutesPerMonth} daqiqagacha jarimasiz`}`);
   if (absenceDeduction) parts.push(`−${som(absenceDeduction)} kelmagan ${absentDays} kun`);
   if (fine) parts.push(`−${som(fine)} jarima`);
   if (advance) parts.push(`−${som(advance)} avans berilgan`);

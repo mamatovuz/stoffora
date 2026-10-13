@@ -86,6 +86,7 @@ import { createDocumentRouter } from "./documents";
 import { createAnalyticsRouter } from "./analytics";
 import { createSwapRouter } from "./swaps";
 import { registerAccountingReports } from "./tabel";
+import { registerEmployeeImport } from "./employee-import";
 import { createAdvanceRouter } from "./advances";
 import { createManagerAuthRouter } from "./manager";
 import { createManagerExtraRouter, createMiniPublicRouter } from "./mini-extra";
@@ -1531,6 +1532,11 @@ function nextEmployeeNo(db: Database, tenant: string) {
   return `EMP-${String(Math.max(0, ...numbers) + 1).padStart(4, "0")}`;
 }
 
+// Excel’dan import (shablon va yuklash) — "/api/employees/:id" yo‘llaridan oldin.
+registerEmployeeImport(app, {
+  requirePermission: requirePermission as unknown as (permission: string) => express.RequestHandler,
+  companyId: companyId as (req: Request) => string,
+});
 app.get(
   "/api/employees",
   requirePermission("employees.view"),
@@ -1562,9 +1568,26 @@ app.get(
     const page = Math.max(1, Number(req.query.page || 1)),
       limit = Math.min(200, Math.max(1, Number(req.query.limit || 12))),
       total = rows.length;
-    rows.sort((a, b) =>
-      `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`),
-    );
+    // Saralash: ?sort=name|no|position|department|branch|start|salary|status &dir=asc|desc
+    const nameOfRef = (list: { id: string; name: string }[], refId: string) => list.find((x) => x.id === refId)?.name || "";
+    const sortKeys: Record<string, (e: Employee) => string | number> = {
+      name: (e) => `${e.firstName} ${e.lastName}`,
+      no: (e) => Number(e.employeeNo.replace(/\D/g, "")) || 0,
+      position: (e) => nameOfRef(db.positions, e.positionId),
+      department: (e) => nameOfRef(db.departments, e.departmentId),
+      branch: (e) => nameOfRef(db.branches, e.branchId),
+      start: (e) => e.startDate || "",
+      salary: (e) => e.baseSalary || 0,
+      status: (e) => e.status,
+    };
+    const sortKey = sortKeys[String(req.query.sort || "name")] || sortKeys.name;
+    const direction = req.query.dir === "desc" ? -1 : 1;
+    rows.sort((a, b) => {
+      const x = sortKey(a);
+      const y = sortKey(b);
+      const order = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y), "uz");
+      return (order || `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`)) * direction;
+    });
     const today = tashkentIsoDate();
     const index = dataIndexes(db);
     const items = rows
@@ -1682,6 +1705,78 @@ app.put(
         employee.updatedAt = now;
         count += 1;
       }
+      return count;
+    });
+    res.json({ updated });
+  }),
+);
+// Ommaviy amallar: bir nechta xodimga grafik / filial / bo‘lim / lavozim / holat yoki xabar.
+app.post(
+  "/api/employees/bulk",
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({
+        ids: z.array(z.string().min(1)).min(1, "Xodimlarni tanlang.").max(1000),
+        action: z.enum(["schedule", "branch", "department", "position", "status", "message"]),
+        value: z.string().trim().optional(),
+        message: z.string().trim().max(2000).optional(),
+      })
+      .parse(req.body);
+    const role = req.session!.role;
+    const needed = input.action === "message" ? "announcements.create" : "employees.edit";
+    if (!can(role, needed)) return res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
+    const tenant = companyId(req);
+    const actor = req.session!.name;
+    if (input.action === "message") {
+      const text = input.message || "";
+      if (text.length < 2) throw httpError("Xabar matnini yozing.", 422);
+      const db = await readDb();
+      const scope = branchScope(req, db);
+      const targets = db.employees.filter((e) => e.companyId === tenant && input.ids.includes(e.id) && e.status === "ACTIVE" && inScope(scope, e.branchId));
+      if (!targets.length) throw httpError("Tanlangan faol xodim yo‘q.", 422);
+      const now = new Date().toISOString();
+      await updateDb((next) => {
+        for (const e of targets)
+          next.notifications.unshift({ id: id(), companyId: tenant, employeeId: e.id, title: "Rahbariyatdan xabar", body: text, type: "INFO", read: false, createdAt: now });
+        next.auditLogs.unshift(audit(tenant, actor, `${targets.length} ta xodimga xabar yuborildi`, "company", tenant, undefined, { text }));
+      });
+      let telegram = 0;
+      for (const e of targets) {
+        const used = await notifyEmployee(db, e, "announcements", `📩 <b>Rahbariyatdan xabar</b>\n\n${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")}`, { title: "Rahbariyatdan xabar" }).catch(() => [] as string[]);
+        if (used.length) telegram += 1;
+      }
+      return res.json({ updated: targets.length, delivered: telegram });
+    }
+    const updated = await updateDb((db) => {
+      const scope = branchScope(req, db);
+      const targets = db.employees.filter((e) => e.companyId === tenant && input.ids.includes(e.id) && occupiesSlot(e) && inScope(scope, e.branchId));
+      if (!targets.length) throw httpError("Tanlangan xodim topilmadi.", 404);
+      const value = input.value || "";
+      const field = { schedule: "scheduleId", branch: "branchId", department: "departmentId", position: "positionId", status: "status" } as const;
+      const key = field[input.action as keyof typeof field];
+      if (input.action === "status") {
+        if (value !== "ACTIVE" && value !== "INACTIVE") throw httpError("Holat noto‘g‘ri.", 422);
+      } else assertEmployeeRefs(db, tenant, { [key]: value } as Partial<z.infer<typeof employeeSchema>>);
+      if (!value) throw httpError("Qiymatni tanlang.", 422);
+      if (input.action === "status" && value === "ACTIVE") {
+        const activating = targets.filter((e) => e.status !== "ACTIVE").length;
+        if (activating) assertEmployeeCapacity(db, tenant, activating);
+      }
+      const now = new Date().toISOString();
+      let count = 0;
+      for (const e of targets) {
+        const before = e[key];
+        if (before === value) continue;
+        const oldBranch = e.branchId;
+        (e as unknown as Record<string, string>)[key] = value;
+        e.updatedAt = now;
+        if (input.action === "position") alignDepartment(db, e);
+        if (input.action === "branch" && (!e.manager || e.manager === branchManagerNames(db, oldBranch, e.id)))
+          e.manager = branchManagerNames(db, e.branchId, e.id) || undefined;
+        db.auditLogs.unshift(audit(tenant, actor, `Ommaviy o‘zgartirish: ${key}`, "employee", e.id, { [key]: before }, { [key]: value }));
+        count += 1;
+      }
+      syncStaffRoles(db, tenant);
       return count;
     });
     res.json({ updated });
@@ -1872,9 +1967,15 @@ app.post(
       .object({
         date: dateSchema,
         reason: z.string().trim().max(300).optional(),
+        assets: z.array(z.object({ id: z.string().min(1), action: z.enum(["return", "lost"]) })).max(200).optional(),
+        settlement: z
+          .object({ mode: z.enum(["MONTH_END", "PAID_NOW"]), paid: z.coerce.number().min(0).max(10_000_000_000).optional(), note: z.string().trim().max(300).optional() })
+          .optional(),
       })
       .parse(req.body);
     const tenant = companyId(req);
+    if (input.settlement && !can(req.session!.role, "payroll.edit") && req.session!.role !== "COMPANY_OWNER")
+      throw httpError("Yakuniy hisob-kitobni belgilash uchun ish haqi huquqi kerak.", 403);
     const row = await updateDb((db) => {
       const employee = db.employees.find(
         (e) => e.id === req.params.id && e.companyId === tenant,
@@ -1886,7 +1987,7 @@ app.post(
       employee.dismissReason = input.reason || undefined;
       employee.updatedAt = new Date().toISOString();
       // Offboarding: telefonlar, sessiyalar, kelajak smenalari, kutilayotgan so‘rovlar, panel huquqi.
-      const result = offboard(db, employee, input.date, req.session!.name);
+      const result = offboard(db, employee, input.date, req.session!.name, { assets: input.assets, settlement: input.settlement });
       db.auditLogs.unshift(
         audit(tenant, req.session!.name, `Xodim ishdan bo‘shatildi (${input.date})`, "employee", employee.id, undefined, { reason: input.reason, offboarding: result.done }),
       );
@@ -2964,6 +3065,40 @@ app.post(
   asyncRoute(async (req, res) => {
     const { chatId } = z.object({ chatId: z.string().trim().min(2, "Kanal ID yoki @username kiriting.") }).parse(req.body);
     res.json(await testPhotoChannel(chatId));
+  }),
+);
+// Rahbarlarga avtomatik hisobot (Telegram): sozlama va «hozir menga yuborish» sinovi.
+app.put(
+  "/api/company/report-digest",
+  requirePermission("settings.manage"),
+  asyncRoute(async (req, res) => {
+    const input = z
+      .object({ weekly: z.boolean(), monthly: z.boolean(), branchManagers: z.boolean(), payroll: z.boolean() })
+      .parse(req.body);
+    const tenant = companyId(req);
+    const saved = await updateDb((db) => {
+      const company = db.companies.find((c) => c.id === tenant);
+      if (!company) throw httpError("Kompaniya topilmadi.", 404);
+      company.reportDigest = input;
+      db.auditLogs.unshift(audit(tenant, req.session!.name, "Avtomatik hisobot sozlamasi o‘zgartirildi", "company", tenant, undefined, input));
+      return company.reportDigest;
+    });
+    res.json(saved);
+  }),
+);
+app.post(
+  "/api/reports/digest/test",
+  requirePermission("reports.export"),
+  asyncRoute(async (req, res) => {
+    const { kind } = z.object({ kind: z.enum(["weekly", "monthly"]) }).parse(req.body);
+    const db = await readDb();
+    const user = db.users.find((u) => u.id === req.session!.userId);
+    if (!user?.telegramId)
+      throw httpError("Telegram hisobingiz ulanmagan. Sozlamalar → Xavfsizlik bo‘limida Telegram’ni ulang.", 422);
+    const { sendDigests } = await import("./report-digest");
+    const sent = await sendDigests(kind, { companyId: companyId(req), onlyUserId: user.id, force: true });
+    if (!sent) throw httpError("Yuborilmadi: bu davr uchun davomat ma’lumoti yo‘q yoki bot sizga yoza olmadi (botda /start bosing).", 422);
+    res.json({ sent });
   }),
 );
 app.put(

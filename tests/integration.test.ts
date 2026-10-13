@@ -136,7 +136,8 @@ describe("ulanish va autentifikatsiya", () => {
     expect(res.body.integration.apiKeyHint).toBe("gfk_testpr…");
     await ctx.store.flushDb();
     const raw = new BetterSqlite3(process.env.SQLITE_PATH!, { readonly: true });
-    const core = (raw.prepare("SELECT payload FROM app_state").get() as { payload: string }).payload;
+    const core = (raw.prepare("SELECT payload FROM core_rows").all() as { payload: string }[]).map((r) => r.payload).join(" ");
+    expect(core).toContain("apiKeyHint"); // integratsiya haqiqatan yozilgan
     raw.close();
     expect(core).not.toContain(GOOD_KEY);
     const db = await ctx.store.readDb();

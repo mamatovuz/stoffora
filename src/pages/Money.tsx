@@ -801,7 +801,7 @@ export function FinancePage() {
                 <Empty icon={Wallet} title="Ma’lumot yo‘q" />
               ) : (
                 <div className="table-wrap">
-                  <table className="table money-table">
+                  <table className="table table-cards money-table">
                     <thead>
                       <tr>
                         <th>Filial</th>

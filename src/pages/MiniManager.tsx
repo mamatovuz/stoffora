@@ -1251,7 +1251,7 @@ function WeekSummary({ call, onError }: { call: <T>(url: string) => Promise<T>; 
         </div>
         <div>
           <small>Kechikish</small>
-          <b>{Math.round(data.current.lateMinutes / 60)} s</b>
+          <b>{duration(data.current.lateMinutes)}</b>
           <Trend value={Math.round(delta(data.current.lateMinutes, data.previous.lateMinutes) / 60)} inverse />
         </div>
         <div>

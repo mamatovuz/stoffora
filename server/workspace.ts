@@ -1,7 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { dataIndexes, readDb } from "../lib/store";
 import { can, canAny } from "../lib/permissions";
-import { tashkentClock, tashkentIsoDate } from "../lib/format";
+import { duration, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { dayPlan } from "../lib/schedule";
 import type { Database, Employee, Role } from "../lib/types";
 import type { AuthedRequest } from "./auth";
@@ -268,7 +268,7 @@ function todayStats(db: Database, employees: Employee[], date: string, now: stri
       stat.came += 1;
       if (record.lateMinutes) {
         stat.late += 1;
-        issues.push({ employeeId: e.id, name: nameOf(e), text: `${record.lateMinutes} daq kechikdi`, tone: "warn" });
+        issues.push({ employeeId: e.id, name: nameOf(e), text: `${duration(record.lateMinutes)} kechikdi`, tone: "warn" });
       }
       if (!record.checkOut && plan.end <= now && plan.end > plan.start) {
         stat.noCheckout += 1;

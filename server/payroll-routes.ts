@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
+import { duration } from "../lib/format";
 import { audit, readDb, updateDb } from "../lib/store";
 import { canAny } from "../lib/permissions";
 import type { Database, PayrollPeriod, PayslipLine } from "../lib/types";
@@ -45,7 +46,7 @@ export function payslipText(line: PayslipLine, month: string, company: string) {
     `Oylik: ${som(line.base)}`,
     line.overtimeAmount ? `➕ Qo‘shimcha ish: ${som(line.overtimeAmount)}` : "",
     line.bonus ? `➕ Bonus: ${som(line.bonus)}` : "",
-    line.lateDeduction ? `➖ Kechikish (${line.lateMinutes} daq): ${som(line.lateDeduction)}` : "",
+    line.lateDeduction ? `➖ Kechikish (${duration(line.lateMinutes)}): ${som(line.lateDeduction)}` : "",
     line.absenceDeduction ? `➖ Kelmagan ${line.absentDays} kun: ${som(line.absenceDeduction)}` : "",
     line.fine ? `➖ Jarima: ${som(line.fine)}` : "",
     line.advance ? `➖ Avans (berilgan): ${som(line.advance)}` : "",

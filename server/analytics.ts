@@ -3,10 +3,9 @@ import { z } from "zod";
 import { dataIndexes, readDb } from "../lib/store";
 import { canAny } from "../lib/permissions";
 import { tashkentIsoDate } from "../lib/format";
-import type { Database, Employee } from "../lib/types";
+import type { Database } from "../lib/types";
 import type { AuthedRequest } from "./auth";
 import { datesBetween, dayStatus } from "./reports";
-import { sendTelegramMessage } from "./telegram";
 
 /*
  * Rahbar uchun tahlil: filiallar reytingi, intizomlilar va ko‘p kechikuvchilar,
@@ -143,55 +142,4 @@ export function createAnalyticsRouter() {
     }),
   );
   return router;
-}
-
-/* --------------------------------------------- haftalik xulosa (botda) --- */
-
-export function weeklyDigestText(db: Database, companyId: string, today = tashkentIsoDate()) {
-  const end = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
-  const start = new Date(Date.parse(`${today}T00:00:00Z`) - 7 * 86_400_000).toISOString().slice(0, 10);
-  const period = tallyPeriod(db, companyId, start, end);
-  const company = db.companies.find((c) => c.id === companyId);
-  const t = period.total;
-  if (!t.expected) return undefined;
-  const branches = [...period.byBranch.entries()]
-    .map(([id, b]) => ({ name: db.branches.find((x) => x.id === id)?.name || "—", score: score(b), expected: b.expected }))
-    .filter((b) => b.expected > 0)
-    .sort((a, b) => b.score - a.score);
-  const late = period.employees
-    .map((e: Employee) => ({ e, t: period.byEmployee.get(e.id)! }))
-    .filter((x) => x.t && x.t.lateMinutes > 0)
-    .sort((a, b) => b.t.lateMinutes - a.t.lateMinutes)
-    .slice(0, 3);
-  const fmt = (iso: string) => iso.split("-").reverse().slice(0, 2).join(".");
-  return [
-    `📊 <b>${company?.name} — haftalik xulosa</b>`,
-    `${fmt(start)} – ${fmt(end)}`,
-    "",
-    `✅ Davomat: <b>${pct(t.present, t.expected)}%</b>`,
-    `⏰ Vaqtida kelish: <b>${pct(t.present - t.late, t.present) ?? 0}%</b> · kechikish ${t.late} marta (${t.lateMinutes} daq)`,
-    `❌ Kelmagan: ${t.absent} kun`,
-    branches.length ? `\n🏆 Eng yaxshi filial: ${branches[0].name} (${branches[0].score})` : "",
-    branches.length > 1 ? `⚠️ Eng past: ${branches[branches.length - 1].name} (${branches[branches.length - 1].score})` : "",
-    late.length ? `\n🐢 Ko‘p kechikkanlar:\n${late.map((x, i) => `${i + 1}. ${x.e.firstName} ${x.e.lastName} — ${x.t.lateMinutes} daq`).join("\n")}` : "",
-    "\nBatafsil: Staffora → Tahlil",
-  ]
-    .filter(Boolean)
-    .join("\n");
-}
-
-/** Dushanba kunlari egasi va HR administratorlarga (Telegram ulangan bo‘lsa) haftalik xulosa. */
-export async function sendWeeklyDigests(today = tashkentIsoDate()) {
-  if (new Date(`${today}T12:00:00+05:00`).getDay() !== 1) return 0;
-  const db = await readDb();
-  let sent = 0;
-  for (const company of db.companies) {
-    const text = weeklyDigestText(db, company.id, today);
-    if (!text) continue;
-    for (const user of db.users.filter((u) => u.companyId === company.id && ["COMPANY_OWNER", "HR_ADMIN"].includes(u.role) && u.telegramId)) {
-      const ok = await sendTelegramMessage(user.telegramId!, text).catch(() => false);
-      if (ok) sent += 1;
-    }
-  }
-  return sent;
 }

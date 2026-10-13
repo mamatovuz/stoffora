@@ -584,7 +584,7 @@ function PreviewTable({ rows }: { rows: PreviewRow[] }) {
   const [open, setOpen] = useState<string | null>(null);
   return (
     <div className="table-wrap ic-table">
-      <table className="table">
+      <table className="table table-cards">
         <thead>
           <tr>
             <th>Ma’lumot</th>
@@ -1614,7 +1614,7 @@ function ConflictsPanel({ integrationId, onResolved }: { integrationId: string; 
             </small>
           </div>
           <div className="table-wrap">
-            <table className="table">
+            <table className="table table-cards">
               <thead>
                 <tr>
                   <th>Maydon</th>

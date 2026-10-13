@@ -68,7 +68,7 @@ export function LeaveBalancesPanel() {
         )}
       </div>
       <div className="table-wrap">
-        <table className="table money-table">
+        <table className="table table-cards money-table">
           <thead>
             <tr>
               <th>Xodim</th>
@@ -303,7 +303,7 @@ export function AssetsPage() {
           <Empty icon={Package} title="Aktivlar yo‘q" text="Noutbuk, telefon, kalit yoki forma qo‘shing va xodimga biriktiring." />
         ) : (
           <div className="table-wrap">
-            <table className="table money-table">
+            <table className="table table-cards money-table">
               <thead>
                 <tr>
                   <th>Aktiv</th>

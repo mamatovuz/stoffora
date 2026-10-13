@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { calculateAttendance, haversineDistance } from "../lib/attendance";
-import { tashkentClock, tashkentIsoDate } from "../lib/format";
+import { duration, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { assertFaceDescriptor, faceMatchThreshold, isReplayedDescriptor, matchFace, verifyIdentity } from "../lib/face";
 import { FLAG_LABELS, gpsFlags } from "../lib/gps";
 import { dayPlan, minutesSinceCheckIn, shiftDateAt } from "../lib/schedule";
@@ -216,7 +216,7 @@ export function createMiniOfflineRouter() {
                 id: randomUUID(),
                 companyId: auth.companyId,
                 title: "Kechikish",
-                body: `${name} ${attendance.lateMinutes} daqiqa kechikib keldi (${time}, ${branch.name}).`,
+                body: `${name} ${duration(attendance.lateMinutes)} kechikib keldi (${time}, ${branch.name}).`,
                 type: "ATTENDANCE",
                 read: false,
                 createdAt: attendance.updatedAt,

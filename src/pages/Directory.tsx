@@ -93,7 +93,7 @@ export function DirectoryPage({ type }: { type: "departments" | "positions" }) {
           />
         ) : (
           <div className="table-wrap">
-            <table className="table">
+            <table className="table table-cards">
               <thead>
                 <tr>
                   <th>Nomi</th>

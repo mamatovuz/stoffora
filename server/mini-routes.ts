@@ -11,7 +11,7 @@ import {
   calculateAttendance,
   haversineDistance,
 } from "../lib/attendance";
-import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
+import { duration, dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { allowedBranches, branchAt } from "../lib/branches";
 import { audit, dataIndexes, readDb, updateDb } from "../lib/store";
 import {
@@ -1119,7 +1119,7 @@ export function createMiniRouter() {
             id: id(),
             companyId: auth.companyId,
             title: "Kechikish",
-            body: `${name} ${attendance.lateMinutes} daqiqa kechikib keldi (${time}, ${branch.name}).`,
+            body: `${name} ${duration(attendance.lateMinutes)} kechikib keldi (${time}, ${branch.name}).`,
             type: "ATTENDANCE",
             read: false,
             createdAt: attendance.updatedAt,
@@ -1161,7 +1161,7 @@ export function createMiniRouter() {
       const message =
         a.checkOut && a.checkIn
           ? `🔴 Ishdan ketish qayd etildi\n🕔 ${a.checkOut}\n⏱ Ishlangan: ${Math.floor(a.workedMinutes / 60)} soat ${a.workedMinutes % 60} daqiqa\n📍 ${result.branch.name}`
-          : `🟢 Ishga kelish qayd etildi\n🕘 ${a.checkIn}${a.lateMinutes ? `\n⚠️ Kechikish: ${a.lateMinutes} daqiqa` : ""}\n📍 ${result.branch.name} (${a.distanceMeters} m)`;
+          : `🟢 Ishga kelish qayd etildi\n🕘 ${a.checkIn}${a.lateMinutes ? `\n⚠️ Kechikish: ${duration(a.lateMinutes)}` : ""}\n📍 ${result.branch.name} (${a.distanceMeters} m)`;
       if (result.employee.telegramId && !result.employee.telegramId.startsWith("dev"))
         void sendTelegramMessage(result.employee.telegramId, message + practiceNote).catch(
           console.error,

@@ -7,7 +7,8 @@ import { tashkentIsoDate } from "../lib/format";
 import { syncStaffRoles } from "../lib/staff-roles";
 import type { Database, Employee } from "../lib/types";
 import type { AuthedRequest, EmployeeSession } from "./auth";
-import { salarySnapshot } from "./advances";
+import { employeePayrollRow } from "./reports";
+import { closedPeriod } from "./payroll-routes";
 
 /*
  * HR asoslari:
@@ -53,8 +54,42 @@ export function leaveBalance(db: Database, employee: Employee, year = Number(tas
 }
 
 /* ========================================================== offboarding === */
+
+/**
+ * Yakuniy hisob-kitob: xodim `date` kuni bo‘shasa, shu oy uchun nima to‘lanadi.
+ * Oylik bo‘shagan kungacha bo‘lgan rejadagi ish kunlariga proporsional; ushlanma, jarima, avans hisobga olinadi.
+ */
+export function finalSettlement(db: Database, employee: Employee, date: string) {
+  const month = date.slice(0, 7);
+  const row = employeePayrollRow(db, employee, month, date);
+  return {
+    month,
+    closed: Boolean(closedPeriod(db, employee.companyId, month)),
+    leftOn: date,
+    plannedDays: row.leaver?.plannedDays ?? 0,
+    monthWorkingDays: row.leaver?.monthWorkingDays ?? 0,
+    workedDays: row.days,
+    baseSalary: employee.baseSalary,
+    base: row.base,
+    overtime: row.overtimeAmount,
+    bonus: row.bonus,
+    lateDeduction: row.deduction,
+    absenceDeduction: row.absenceDeduction,
+    fine: row.fine,
+    advance: row.advance,
+    net: row.net,
+  };
+}
+
+export type OffboardOptions = {
+  /** Qaytarilgan / yo‘qolgan aktivlar (qolganlari xodimda qayd etilgan holda qoladi). */
+  assets?: { id: string; action: "return" | "lost" }[];
+  /** Yakuniy hisob: oy oxirida yoki hozir qo‘lda to‘landi (summa bilan). */
+  settlement?: { mode: "MONTH_END" | "PAID_NOW"; paid?: number; note?: string };
+};
+
 /** Ishdan bo‘shatishda avtomatik qadamlar (updateDb ichida). Natija — bajarilgan ishlar ro‘yxati. */
-export function offboard(db: Database, employee: Employee, date: string, actor: string) {
+export function offboard(db: Database, employee: Employee, date: string, actor: string, options: OffboardOptions = {}) {
   const now = new Date().toISOString();
   const done: string[] = [];
   // 1. Telefonlar va mobil sessiyalar.
@@ -92,8 +127,49 @@ export function offboard(db: Database, employee: Employee, date: string, actor: 
   for (const b of db.branches) if (b.managerEmployeeIds?.includes(employee.id)) b.managerEmployeeIds = b.managerEmployeeIds.filter((id) => id !== employee.id);
   syncStaffRoles(db, employee.companyId);
   done.push("Panel / rahbar huquqlari o‘chirildi");
-  // 6. Qaytarilmagan aktivlar (aktivlar moduli bo‘lsa).
+  // 6. Aktivlar: belgilanganlari qaytarib olinadi / yo‘qolgan deb yoziladi.
+  let returned = 0;
+  let lost = 0;
+  for (const item of options.assets || []) {
+    const a = db.assets.find((x) => x.id === item.id && x.employeeId === employee.id && x.status === "ISSUED");
+    if (!a) continue;
+    Object.assign(a, { status: item.action === "return" ? "IN_STOCK" : "LOST", employeeId: undefined, returnedAt: now });
+    a.history.push({ action: item.action === "return" ? "Ishdan bo‘shatishda qaytarib olindi" : "Ishdan bo‘shatishda yo‘qolgan deb belgilandi", by: actor, at: now, employeeId: employee.id });
+    if (item.action === "return") returned += 1;
+    else lost += 1;
+  }
+  if (returned) done.push(`${returned} ta aktiv qaytarib olindi`);
+  if (lost) done.push(`${lost} ta aktiv yo‘qolgan deb belgilandi`);
   const assets = db.assets.filter((a) => a.employeeId === employee.id && a.status === "ISSUED");
+
+  // 7. Yakuniy hisob-kitob.
+  const settlement = options.settlement;
+  if (settlement) {
+    const calc = finalSettlement(db, employee, date);
+    const month = calc.month;
+    if (settlement.mode === "PAID_NOW") {
+      if (calc.closed) throw Object.assign(new Error(`${month} oyi yopilgan — yakuniy hisobni qo‘lda to‘langan deb yozib bo‘lmaydi. Avval oyni qayta oching.`), { status: 409 });
+      const paid = Math.max(0, Math.round(settlement.paid ?? calc.net));
+      if (paid > 0)
+        db.payrollAdjustments.push({
+          id: randomUUID(),
+          companyId: employee.companyId,
+          employeeId: employee.id,
+          month,
+          type: "SETTLEMENT",
+          amount: paid,
+          note: settlement.note || "Ishdan bo‘shatishda yakuniy hisob qo‘lda to‘landi",
+          createdBy: actor,
+          createdAt: now,
+          status: "APPROVED",
+        });
+      employee.finalSettlement = { month, mode: "PAID_NOW", computed: calc.net, paid, note: settlement.note, at: now, by: actor };
+      done.push(`Yakuniy hisob qo‘lda to‘landi: ${paid.toLocaleString("ru-RU")} so‘m — oy oxirida qayta to‘lanmaydi`);
+    } else {
+      employee.finalSettlement = { month, mode: "MONTH_END", computed: calc.net, note: settlement.note, at: now, by: actor };
+      done.push(`Yakuniy hisob (${calc.net.toLocaleString("ru-RU")} so‘m) oy oxirida ish haqi qaydnomasi bilan beriladi`);
+    }
+  }
   return { done, unreturnedAssets: assets.map((a) => ({ id: a.id, name: a.name, code: a.code })) };
 }
 
@@ -392,7 +468,8 @@ export function createPeopleRouter() {
     route(async (req, res) => {
       const db = await readDb();
       const e = ownEmployee(req, db, String(req.params.id));
-      const snap = can(req.session!.role, "payroll.view") || req.session!.role === "COMPANY_OWNER" ? salarySnapshot(db, e) : null;
+      const date = req.query.date ? dateSchema.parse(String(req.query.date)) : tashkentIsoDate();
+      const seesMoney = can(req.session!.role, "payroll.view") || req.session!.role === "COMPANY_OWNER";
       res.json({
         devices: db.mobileDevices.filter((d) => d.employeeId === e.id && d.status === "ACTIVE").length,
         pending:
@@ -400,9 +477,9 @@ export function createPeopleRouter() {
           db.advanceRequests.filter((a) => a.employeeId === e.id && (a.status === "PENDING" || a.status === "HR_APPROVED")).length +
           db.attendanceCorrections.filter((c) => c.employeeId === e.id && c.status === "PENDING").length,
         futureShifts: db.scheduleOverrides.filter((o) => o.employeeId === e.id && o.date > tashkentIsoDate()).length,
-        assets: db.assets.filter((a) => a.employeeId === e.id && a.status === "ISSUED").map((a) => ({ id: a.id, name: a.name, code: a.code })),
+        assets: db.assets.filter((a) => a.employeeId === e.id && a.status === "ISSUED").map((a) => ({ id: a.id, name: a.name, code: a.code, category: a.category })),
         leave: leaveBalance(db, e),
-        settlement: snap && { earnedToDate: snap.earnedToDate, advance: snap.advance, fine: snap.fine, net: snap.net },
+        settlement: seesMoney ? finalSettlement(db, e, date) : null,
       });
     }),
   );

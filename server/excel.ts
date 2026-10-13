@@ -32,7 +32,8 @@ export type Column = {
   header: string;
   key: string;
   width?: number;
-  type?: "text" | "number" | "money" | "minutes" | "time" | "date" | "status" | "percent";
+  /** minutes — ishlangan vaqt (soat:daq); duration — kechikish kabi: «45 daq» / «1 soat 10 daq». */
+  type?: "text" | "number" | "money" | "minutes" | "duration" | "time" | "date" | "status" | "percent";
   align?: "left" | "center" | "right";
   total?: "sum" | "avg" | "count" | string;
   /** Uzun matn (izoh) — qatorga sig‘masa keyingi qatorga o‘tadi. */
@@ -40,7 +41,7 @@ export type Column = {
 };
 export type Cell = string | number | Date | null | undefined | { text: string; tone: Tone };
 export type Row = Record<string, Cell>;
-export type Kpi = { label: string; value: string | number; tone?: Tone; type?: "number" | "money" | "percent" };
+export type Kpi = { label: string; value: string | number; tone?: Tone; type?: "number" | "money" | "percent" | "duration" };
 
 const hair = { style: "hair" as const, color: { argb: palette.lineStrong } };
 const thin = { style: "thin" as const, color: { argb: palette.line } };
@@ -75,6 +76,9 @@ export function numFmt(type?: Column["type"] | Kpi["type"]) {
       return '#,##0" so‘m"';
     case "minutes":
       return "[h]:mm";
+    case "duration":
+      // 1 soatdan kam — «45 daq», ko‘p — «1 soat 10 daq» (qiymat Excel vaqti: daqiqa / 1440)
+      return '[<0.0416666][m]" daq";[h]" soat "m" daq"';
     case "number":
       return "#,##0";
     case "percent":
@@ -129,7 +133,7 @@ function drawHeader(sheet: ExcelJS.Worksheet, span: number, title: string, subti
         };
       }
     const value = sheet.getCell(5, from);
-    value.value = kpi.value;
+    value.value = kpi.type === "duration" && typeof kpi.value === "number" ? kpi.value / 1440 : kpi.value;
     if (typeof kpi.value === "number") value.numFmt = numFmt(kpi.type || "number");
     value.font = { name: FONT, size: 17, bold: true, color: { argb: tone.font } };
     value.alignment = { horizontal: "left", vertical: "bottom", indent: 1 };
@@ -329,9 +333,9 @@ function writeCell(cell: ExcelJS.Cell, value: Cell, column: Column) {
     cell.alignment = { vertical: "middle", horizontal: "center" };
     return;
   }
-  if (column.type === "minutes" && typeof value === "number") {
+  if ((column.type === "minutes" || column.type === "duration") && typeof value === "number") {
     cell.value = value / 1440; // Excel vaqt birligi — kun
-    cell.numFmt = "[h]:mm";
+    cell.numFmt = numFmt(column.type);
     return;
   }
   if (column.type === "date" && typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {

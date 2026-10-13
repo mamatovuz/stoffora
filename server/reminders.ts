@@ -1,5 +1,5 @@
 import { dataIndexes, readDb } from "../lib/store";
-import { dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
+import { duration, dateParts, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { notifyEmployee } from "./integrations/hooks";
 import { dayPlan, type DayPlan } from "../lib/schedule";
 import { addDays, DAY_MINUTES, isOvernight, shiftWindow } from "../lib/shift-time";
@@ -280,7 +280,7 @@ async function managerReports(db: Db, date: string, now: number, done: Set<strin
         `📋 <b>Bugungi davomat · ${tashkentClock().slice(0, 5)}</b>`,
         !a.length && !l.length ? "✅ Hamma o‘z vaqtida keldi." : "",
         a.length ? `\n❌ <b>Kelmadi — ${a.length}</b>\n${list(a, (r) => (r.employee.phone ? ` · ${r.employee.phone}` : ""))}` : "",
-        l.length ? `\n⏰ <b>Kechikdi — ${l.length}</b>\n${list(l, (r) => ` · ${r.late} daq`)}` : "",
+        l.length ? `\n⏰ <b>Kechikdi — ${l.length}</b>\n${list(l, (r) => ` · ${duration(r.late)}`)}` : "",
       ]
         .filter(Boolean)
         .join("\n");

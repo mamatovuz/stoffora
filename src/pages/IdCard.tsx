@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { BadgeCheck, BriefcaseBusiness, Building2, CalendarDays, Clock3, Hash, Network, ShieldAlert } from "lucide-react";
+import { Check, RefreshCw, X } from "lucide-react";
 import { Logo } from "../components/Logo";
 
 /*
  * Ochiq ID karta — xodimning «Mening ID» QR kodini istalgan kamera/skaner ochsa shu sahifa
  * chiqadi. Faqat ochiq ma’lumot: rasm, F.I.Sh, lavozim, bo‘lim, filial, kompaniya, xodim
  * raqami, ishga kirgan sana. JSHSHIR, pasport, telefon, manzil, maosh ko‘rsatilmaydi.
+ *
+ * Dizayn: qo‘riqchi bir qarashda natijani ko‘rishi uchun tepada katta holat chizig‘i,
+ * pastda hujjat ko‘rinishidagi karta (pasport nisbatidagi rasm, mayda bosh harfli yorliqlar).
  */
 
 type Card = {
@@ -28,14 +31,22 @@ type Card = {
 };
 
 const dmy = (iso?: string) => (iso ? iso.slice(0, 10).split("-").reverse().join(".") : "—");
-const clock = (iso: string) => new Date(iso).toLocaleTimeString("ru-RU", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit" });
+const stamp = (iso: string) => {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString("ru-RU", { timeZone: "Asia/Tashkent", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const date = d.toLocaleDateString("ru-RU", { timeZone: "Asia/Tashkent" });
+  return { time, date };
+};
+const tenure = (years: number) => (years >= 1 ? `${years} yil` : "1 yildan kam");
 
 export function IdCardPage() {
   const { token = "" } = useParams();
   const [card, setCard] = useState<Card | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    document.title = "ID karta · Staffora";
+    document.title = "Guvohnomani tekshirish · Staffora";
+    setCard(null);
+    setError("");
     fetch(`/api/public/badge/${encodeURIComponent(token)}`)
       .then(async (r) => {
         const body = await r.json().catch(() => ({}));
@@ -45,86 +56,122 @@ export function IdCardPage() {
       .catch((e: Error) => setError(e.message));
   }, [token]);
 
-  const e = card?.employee;
-  const initials = e ? e.name.split(" ").slice(0, 2).map((w) => w[0]).join("") : "";
+  if (error)
+    return (
+      <main className="idv idv-bad">
+        <header className="idv-verdict">
+          <span className="idv-mark">
+            <X size={30} strokeWidth={3} />
+          </span>
+          <div>
+            <b>Tasdiqlanmadi</b>
+            <small>{error}</small>
+          </div>
+        </header>
+        <section className="idv-help">
+          <h2>Nima qilish kerak?</h2>
+          <ol>
+            <li>Xodim Staffora ilovasida «Mening ID» bo‘limini qayta ochsin.</li>
+            <li>Ekrandagi yangi QR kodni qayta skanerlang — kod 2 daqiqa amal qiladi.</li>
+            <li>Skrinshot yoki chop etilgan QR qabul qilinmaydi.</li>
+          </ol>
+        </section>
+        <Brand />
+      </main>
+    );
+
+  if (!card)
+    return (
+      <main className="idv idv-wait">
+        <header className="idv-verdict">
+          <span className="idv-mark">
+            <RefreshCw size={24} className="spin" />
+          </span>
+          <div>
+            <b>Tekshirilmoqda…</b>
+            <small>Ma’lumot Staffora tizimidan olinmoqda</small>
+          </div>
+        </header>
+      </main>
+    );
+
+  const e = card.employee;
+  const checked = stamp(card.checkedAt);
+  const initials = e.name.split(" ").slice(0, 2).map((w) => w[0]).join("");
+  const today = card.today?.checkIn
+    ? card.today.checkOut
+      ? { tone: "off", text: `Ishni tugatgan · ${card.today.checkIn}–${card.today.checkOut}` }
+      : { tone: "on", text: `Hozir ishda · ${card.today.checkIn} dan` }
+    : { tone: "off", text: "Bugun hali kelmagan" };
+
   return (
-    <div className="idc-page">
-      <div className="idc-wrap">
-        {error ? (
-          <div className="idc-card idc-error">
-            <ShieldAlert size={36} />
-            <b>{error}</b>
-            <p>Xodim ilovada «Mening ID» ni qayta ochib, yangi QR kodni ko‘rsatsin. QR kod 2 daqiqa amal qiladi.</p>
+    <main className={`idv ${card.valid ? "idv-ok" : "idv-bad"}`}>
+      <header className="idv-verdict">
+        <span className="idv-mark">{card.valid ? <Check size={30} strokeWidth={3} /> : <X size={30} strokeWidth={3} />}</span>
+        <div>
+          <b>{card.valid ? "Tasdiqlandi" : "Yaroqsiz"}</b>
+          <small>{card.valid ? "Faol xodim · guvohnoma haqiqiy" : "Xodim faol emas — ishdan bo‘shagan"}</small>
+        </div>
+        <time dateTime={card.checkedAt}>
+          {checked.time}
+          <small>{checked.date}</small>
+        </time>
+      </header>
+
+      <article className="idv-card" aria-label="Xodim guvohnomasi">
+        <div className="idv-top">
+          <span>{card.company.name || "Staffora"}</span>
+          <small>Xodim guvohnomasi</small>
+        </div>
+        <div className="idv-main">
+          <div className="idv-photo">{e.photoDataUrl ? <img src={e.photoDataUrl} alt={e.name} /> : <span>{initials}</span>}</div>
+          <div className="idv-who">
+            <small>Familiya, ism</small>
+            <h1>{e.name}</h1>
+            <small>Lavozim</small>
+            <p>{e.position || "Xodim"}</p>
+            <small>Tabel raqami</small>
+            <p className="idv-no">{e.employeeNo || "—"}</p>
           </div>
-        ) : !card || !e ? (
-          <div className="idc-card idc-loading">
-            <div className="screen-loader"><span /></div>
+        </div>
+        <dl className="idv-grid">
+          <div>
+            <dt>Bo‘lim</dt>
+            <dd>{e.department || "—"}</dd>
           </div>
-        ) : (
-          <div className={`idc-card ${card.valid ? "" : "invalid"}`}>
-            <div className="idc-head">
-              <span>{card.company.name || "Staffora"}</span>
-              <small>Xodim guvohnomasi</small>
-            </div>
-            <div className="idc-body">
-              {e.photoDataUrl ? <img className="idc-photo" src={e.photoDataUrl} alt="" /> : <div className="idc-photo idc-initials">{initials}</div>}
-              <h1>{e.name}</h1>
-              <p className="idc-role">{e.position || "Xodim"}</p>
-              <div className={`idc-status ${card.valid ? "ok" : "bad"}`}>
-                {card.valid ? <BadgeCheck size={18} /> : <ShieldAlert size={18} />}
-                {card.valid ? "Haqiqiy · faol xodim" : "Faol emas — ishdan bo‘shagan"}
-              </div>
-            </div>
-            <dl className="idc-list">
-              <div>
-                <dt>
-                  <Hash size={15} /> Xodim raqami
-                </dt>
-                <dd>{e.employeeNo || "—"}</dd>
-              </div>
-              <div>
-                <dt>
-                  <Network size={15} /> Bo‘lim
-                </dt>
-                <dd>{e.department || "—"}</dd>
-              </div>
-              <div>
-                <dt>
-                  <BriefcaseBusiness size={15} /> Lavozim
-                </dt>
-                <dd>{e.position || "—"}</dd>
-              </div>
-              <div>
-                <dt>
-                  <Building2 size={15} /> Filial
-                </dt>
-                <dd>{e.branch || "—"}</dd>
-              </div>
-              <div>
-                <dt>
-                  <CalendarDays size={15} /> Ishga kirgan
-                </dt>
-                <dd>
-                  {dmy(e.startDate)}
-                  {e.years ? ` · ${e.years} yil` : ""}
-                </dd>
-              </div>
-              {card.valid && (
-                <div>
-                  <dt>
-                    <Clock3 size={15} /> Bugun
-                  </dt>
-                  <dd>{card.today?.checkIn ? (card.today.checkOut ? `${card.today.checkIn} – ${card.today.checkOut} ishladi` : `${card.today.checkIn} dan ishda`) : "hali kelmagan"}</dd>
-                </div>
-              )}
-            </dl>
-            <div className="idc-foot">Tekshirildi: {clock(card.checkedAt)} · Staffora orqali tasdiqlangan</div>
+          <div>
+            <dt>Filial</dt>
+            <dd>{e.branch || "—"}</dd>
+          </div>
+          <div>
+            <dt>Ishga kirgan</dt>
+            <dd>{dmy(e.startDate)}</dd>
+          </div>
+          <div>
+            <dt>Staj</dt>
+            <dd>{tenure(e.years)}</dd>
+          </div>
+        </dl>
+        {card.valid && (
+          <div className={`idv-today ${today.tone}`}>
+            <i />
+            {today.text}
           </div>
         )}
-        <div className="idc-brand">
-          <Logo compact />
-        </div>
-      </div>
-    </div>
+      </article>
+
+      <p className="idv-note">
+        Ma’lumot {checked.time} da Staffora tizimidan to‘g‘ridan-to‘g‘ri olindi. QR kod har 2 daqiqada yangilanadi — skrinshot bilan soxtalashtirib bo‘lmaydi.
+      </p>
+      <Brand />
+    </main>
+  );
+}
+
+function Brand() {
+  return (
+    <footer className="idv-brand">
+      <Logo compact />
+    </footer>
   );
 }

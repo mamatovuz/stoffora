@@ -600,7 +600,7 @@ function AnnouncementStats({ id, onClose }: { id: string; onClose: () => void })
             </div>
           )}
           {data.branches.length > 1 && (
-            <table className="table">
+            <table className="table table-cards">
               <thead>
                 <tr>
                   <th>Filial</th>

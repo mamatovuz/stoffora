@@ -138,7 +138,7 @@ export function CalendarPage() {
         >
           {selectedRows.length ? (
             <div className="table-wrap">
-              <table className="table">
+              <table className="table table-cards">
                 <tbody>
                   {selectedRows.map((row) => (
                     <tr key={row.id}>

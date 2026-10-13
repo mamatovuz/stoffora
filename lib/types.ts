@@ -38,6 +38,8 @@ export interface Company {
   limitContact?: string;
   /** Mini App imkoniyatlari (panel → Sozlamalar → Mini App). */
   miniApp?: MiniAppSettings;
+  /** Rahbarlarga avtomatik hisobot (Telegram): haftalik — dushanba, oylik — oyning 1-kuni. Standart: yoqilgan. */
+  reportDigest?: { weekly?: boolean; monthly?: boolean; branchManagers?: boolean; payroll?: boolean };
 }
 export interface MiniAppSettings {
   /** Telefon biometriyasi (barmoq izi / Face ID) bilan tez tasdiqlash. */
@@ -308,6 +310,11 @@ export interface Employee {
   status: EmployeeStatus;
   dismissedAt?: string;
   dismissReason?: string;
+  /**
+   * Yakuniy hisob-kitob (ishdan bo‘shatishda): MONTH_END — oy oxirida ish haqi qaydnomasi bilan
+   * beriladi; PAID_NOW — bo‘shatish kuni qo‘lda to‘langan (oy oxirida qayta to‘lanmaydi).
+   */
+  finalSettlement?: { month: string; mode: "MONTH_END" | "PAID_NOW"; computed: number; paid?: number; note?: string; at: string; by: string };
   /** Xodim uchun alohida hisoblash boshlanish sanasi (kompaniyanikidan keyin bo‘lsa ustun). */
   countingStartDate?: string;
   /**
@@ -774,7 +781,8 @@ export interface PayrollAdjustment {
   employeeId: string;
   /** YYYY-MM */
   month: string;
-  type: "ADVANCE" | "BONUS" | "FINE";
+  /** SETTLEMENT — ishdan bo‘shatishda qo‘lda to‘langan yakuniy hisob (oy oxiridagi to‘lovdan ayriladi). */
+  type: "ADVANCE" | "BONUS" | "FINE" | "SETTLEMENT";
   amount: number;
   note?: string;
   createdBy: string;

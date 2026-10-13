@@ -6,6 +6,9 @@ import { AuthProvider } from "./auth";
 import { ToastProvider } from "./components/ui";
 import App from "./App";
 import "./styles.css";
+import { startTableLabels } from "./tableLabels";
+
+startTableLabels();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

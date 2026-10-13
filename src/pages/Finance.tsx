@@ -292,7 +292,7 @@ export function PayrollPage() {
                         </span>
                         <small>
                           {x.absentDays ? <span className="late-text">{x.absentDays} kun kelmagan</span> : "kelmagan kun yo‘q"}
-                          {x.lateMinutes ? ` · ${x.lateMinutes} daq kech` : ""}
+                          {x.lateMinutes ? ` · ${duration(x.lateMinutes)} kech` : ""}
                         </small>
                       </span>
                     </td>

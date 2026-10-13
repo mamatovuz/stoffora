@@ -12,7 +12,13 @@ import type { Attendance, AuditLog, PhotoJob } from "./types";
  * PostgreSQL — DATABASE_URL berilganda. Birinchi ishga tushishda eski SQLite fayli bo‘lsa, undagi
  * BARCHA ma’lumot bitta tranzaksiyada Postgres’ga ko‘chiriladi va har bir jadval soni tekshiriladi.
  * SQLite fayli o‘chirilmaydi — zaxira nusxa bo‘lib qoladi.
+ *
+ * 3-sxema: "yadro" (kompaniyalar, xodimlar, grafiklar, yopilgan oylar…) bitta katta JSON emas —
+ * core_rows jadvalida har bir yozuv alohida qator (collection, id). Yozishda faqat o‘zgargan
+ * qatorlar yoziladi: 10 000 xodimli bazada ham kichik o‘zgarish bir necha KB.
  */
+/** core_rows qatori: [to‘plam, id, JSON]. */
+export type CoreRow = [collection: string, id: string, payload: string];
 
 export type Delta = {
   now: string;
@@ -24,6 +30,10 @@ export type Delta = {
   mediaDeletes: string[];
   queueUpserts: PhotoJob[];
   queueDeletes: string[];
+  rowUpserts?: CoreRow[];
+  rowDeletes?: [collection: string, id: string][];
+  /** Sxema versiyasini yangilash (ko‘chirish bilan bir tranzaksiyada). */
+  schema?: number;
 };
 export type Snapshot = {
   core: string | null;
@@ -32,6 +42,7 @@ export type Snapshot = {
   audit: string[];
   media: [string, string][];
   queue: string[];
+  rows: CoreRow[];
 };
 export type StoredFile = { mime: string; data: Buffer };
 
@@ -104,6 +115,7 @@ const SQLITE_SCHEMA = `
   CREATE TABLE IF NOT EXISTS media (key TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS photo_queue (id TEXT PRIMARY KEY, company_id TEXT NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS document_files (id TEXT PRIMARY KEY, company_id TEXT NOT NULL, mime TEXT NOT NULL, data BLOB NOT NULL, created_at TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS core_rows (collection TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (collection, id));
 `;
 
 export function openSqlite(file: string, readonly = false) {
@@ -141,6 +153,7 @@ export class SqliteBackend implements Backend {
       audit: (db.prepare("SELECT payload FROM audit_logs ORDER BY created_at DESC LIMIT ?").all(auditLimit) as { payload: string }[]).map((r) => r.payload),
       media: (db.prepare("SELECT key, data FROM media").all() as { key: string; data: string }[]).map((r) => [r.key, r.data]),
       queue: (db.prepare("SELECT payload FROM photo_queue ORDER BY created_at").all() as { payload: string }[]).map((r) => r.payload),
+      rows: (db.prepare("SELECT collection, id, payload FROM core_rows").all() as { collection: string; id: string; payload: string }[]).map((r) => [r.collection, r.id, r.payload]),
     };
   }
   async insertInitial(core: string, schema: number) {
@@ -181,6 +194,15 @@ export class SqliteBackend implements Backend {
         const stmt = db.prepare("DELETE FROM photo_queue WHERE id = ?");
         for (const id of d.queueDeletes) stmt.run(id);
       }
+      if (d.rowUpserts?.length) {
+        const stmt = db.prepare("INSERT OR REPLACE INTO core_rows (collection, id, payload, updated_at) VALUES (?, ?, ?, ?)");
+        for (const [collection, id, payload] of d.rowUpserts) stmt.run(collection, id, payload, d.now);
+      }
+      if (d.rowDeletes?.length) {
+        const stmt = db.prepare("DELETE FROM core_rows WHERE collection = ? AND id = ?");
+        for (const [collection, id] of d.rowDeletes) stmt.run(collection, id);
+      }
+      if (d.schema !== undefined) db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema', ?)").run(String(d.schema));
     })();
   }
   async readAttendance(id: string) {
@@ -251,6 +273,7 @@ const PG_SCHEMA = `
   CREATE TABLE IF NOT EXISTS media (key TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS photo_queue (id TEXT PRIMARY KEY, company_id TEXT NOT NULL, created_at TEXT NOT NULL, payload TEXT NOT NULL);
   CREATE TABLE IF NOT EXISTS document_files (id TEXT PRIMARY KEY, company_id TEXT NOT NULL, mime TEXT NOT NULL, data BYTEA NOT NULL, created_at TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS core_rows (collection TEXT NOT NULL, id TEXT NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY (collection, id));
 `;
 /** Bitta yozuvchi: ikki server nusxasi bir vaqtda yozmasin (deploy paytidagi qoplanish). */
 const WRITER_LOCK = 7_310_042_001;
@@ -321,6 +344,7 @@ export class PostgresBackend implements Backend {
       const audit = all<{ id: string; company_id: string; entity_id: string; created_at: string; payload: string }>("SELECT * FROM audit_logs");
       const media = all<{ key: string; data: string; updated_at: string }>("SELECT * FROM media");
       const queue = all<{ id: string; company_id: string; created_at: string; payload: string }>("SELECT * FROM photo_queue");
+      const coreRows = has("core_rows") ? all<{ collection: string; id: string; payload: string; updated_at: string }>("SELECT * FROM core_rows") : [];
       const files = has("document_files") ? all<{ id: string; company_id: string; mime: string; data: Buffer; created_at: string }>("SELECT * FROM document_files") : [];
       const metaRows = all<{ key: string; value: string }>("SELECT * FROM meta");
       console.log(
@@ -353,6 +377,13 @@ export class PostgresBackend implements Backend {
             part.map((r) => r.created_at),
             part.map((r) => r.payload),
           ]);
+        for (const part of chunks(coreRows))
+          await client.query("INSERT INTO core_rows (collection, id, payload, updated_at) SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[])", [
+            part.map((r) => r.collection),
+            part.map((r) => r.id),
+            part.map((r) => r.payload),
+            part.map((r) => r.updated_at),
+          ]);
         for (const f of files) await client.query("INSERT INTO document_files (id, company_id, mime, data, created_at) VALUES ($1, $2, $3, $4, $5)", [f.id, f.company_id, f.mime, f.data, f.created_at]);
         // Integratsiya jadvallari: ustunlar nomi bilan, aynan nusxa (id’lar ham).
         const opsCounts: [string, number][] = [];
@@ -378,6 +409,7 @@ export class PostgresBackend implements Backend {
           ["media", media.length],
           ["photo_queue", queue.length],
           ["document_files", files.length],
+          ["core_rows", coreRows.length],
           ...opsCounts,
         ];
         for (const [table, n] of expected) {
@@ -404,13 +436,14 @@ export class PostgresBackend implements Backend {
 
   async load(auditLimit: number): Promise<Snapshot> {
     const q = <T extends object>(sql: string, params: unknown[] = []) => this.pool.query<T>(sql, params).then((r) => r.rows);
-    const [core, meta, attendance, audit, media, queue] = await Promise.all([
+    const [core, meta, attendance, audit, media, queue, rows] = await Promise.all([
       q<{ payload: string }>("SELECT payload FROM app_state WHERE id = 1"),
       q<{ value: string }>("SELECT value FROM meta WHERE key = 'schema'"),
       q<{ payload: string }>("SELECT payload FROM attendance"),
       q<{ payload: string }>("SELECT payload FROM audit_logs ORDER BY created_at DESC LIMIT $1", [auditLimit]),
       q<{ key: string; data: string }>("SELECT key, data FROM media"),
       q<{ payload: string }>("SELECT payload FROM photo_queue ORDER BY created_at"),
+      q<{ collection: string; id: string; payload: string }>("SELECT collection, id, payload FROM core_rows"),
     ]);
     return {
       core: core[0]?.payload ?? null,
@@ -419,6 +452,7 @@ export class PostgresBackend implements Backend {
       audit: audit.map((r) => r.payload),
       media: media.map((r) => [r.key, r.data]),
       queue: queue.map((r) => r.payload),
+      rows: rows.map((r) => [r.collection, r.id, r.payload]),
     };
   }
   async insertInitial(core: string, schema: number) {
@@ -471,6 +505,16 @@ export class PostgresBackend implements Backend {
           [part.map((j) => j.id), part.map((j) => j.companyId), part.map((j) => j.createdAt), part.map((j) => JSON.stringify(j))],
         );
       if (d.queueDeletes.length) await c.query("DELETE FROM photo_queue WHERE id = ANY($1::text[])", [d.queueDeletes]);
+      for (const part of chunks(d.rowUpserts || []))
+        await c.query(
+          `INSERT INTO core_rows (collection, id, payload, updated_at) SELECT k, i, p, $4 FROM unnest($1::text[], $2::text[], $3::text[]) AS t(k, i, p)
+           ON CONFLICT (collection, id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = EXCLUDED.updated_at`,
+          [part.map((r) => r[0]), part.map((r) => r[1]), part.map((r) => r[2]), d.now],
+        );
+      for (const part of chunks(d.rowDeletes || []))
+        await c.query("DELETE FROM core_rows WHERE (collection, id) IN (SELECT * FROM unnest($1::text[], $2::text[]))", [part.map((r) => r[0]), part.map((r) => r[1])]);
+      if (d.schema !== undefined)
+        await c.query("INSERT INTO meta (key, value) VALUES ('schema', $1) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value", [String(d.schema)]);
     });
   }
   async readAttendance(id: string) {

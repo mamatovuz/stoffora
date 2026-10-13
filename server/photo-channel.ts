@@ -1,6 +1,7 @@
 import { GrammyError, InputFile } from "grammy";
 import { readDb, updateDb } from "../lib/store";
 import type { Attendance, Branch, Database, Employee } from "../lib/types";
+import { duration } from "../lib/format";
 import { botApi } from "./telegram";
 
 const MAX_AGE_MS = 7 * 86_400_000; // navbatdagi rasm 7 kundan keyin tashlanadi
@@ -35,7 +36,7 @@ export function enqueueAttendancePhoto(
     `🕘 ${checkIn ? a.checkIn : a.checkOut} · ${ddmmyyyy(a.date)}`,
     checkIn
       ? a.lateMinutes
-        ? `⚠️ ${a.lateMinutes} daqiqa kechikdi (grafik ${a.scheduledStart})`
+        ? `⚠️ ${duration(a.lateMinutes)} kechikdi (grafik ${a.scheduledStart})`
         : `✅ Vaqtida (grafik ${a.scheduledStart})`
       : `⏱ Ishladi: ${Math.floor(a.workedMinutes / 60)} soat ${a.workedMinutes % 60} daq`,
     `📍 ${input.branch.name}${a.distanceMeters !== undefined ? ` · ${a.distanceMeters} m` : ""}`,

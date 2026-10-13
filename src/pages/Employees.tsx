@@ -28,6 +28,7 @@ import {
   Smartphone,
   Unlink,
   UserRoundPlus,
+  Upload,
   UserMinus,
   UserPlus,
   Users,
@@ -36,6 +37,7 @@ import { del, errorText, post, put } from "../api";
 import { useAuth } from "../auth";
 import { CountdownConfirm } from "../components/CountdownConfirm";
 import { DocumentsPanel } from "../components/Documents";
+import { BulkBar, BulkModal, Cell, ColumnsMenu, ImportModal, SortTh, useColumns, type SortState } from "../components/EmployeeTableTools";
 import { can } from "@/lib/permissions";
 import { useApi, useDebounced } from "../hooks";
 import {
@@ -56,6 +58,7 @@ import {
   dateUz,
   duration,
   money,
+  monthYearUz,
   tashkentIsoDate,
 } from "@/lib/format";
 import type { Attendance, AuditLog, Branch, Employee, LeaveRequest } from "@/lib/types";
@@ -64,14 +67,31 @@ import { leaveTypeLabel, verificationLabel, weekdayShort, weekOrder, type Meta }
 type EmployeeListRow = Employee & { todayAttendance?: Attendance };
 type List = { items: EmployeeListRow[]; total: number; page: number; pages: number };
 
+const EMPLOYEE_COLUMNS = [
+  { key: "position", label: "Lavozim va bo‘lim" },
+  { key: "branch", label: "Filial" },
+  { key: "schedule", label: "Ish grafigi" },
+  { key: "start", label: "Ishga kirgan" },
+  { key: "salary", label: "Oylik" },
+  { key: "connect", label: "Ulanish (Telegram, Face ID)" },
+  { key: "today", label: "Bugungi holat" },
+];
+const DEFAULT_COLUMNS = ["position", "branch", "connect", "today"];
+
 export function EmployeesPage() {
   const [params, setParams] = useSearchParams();
+  const { user } = useAuth();
   const [q, setQ] = useState(params.get("q") || "");
   const debounced = useDebounced(q, 300);
   const page = Number(params.get("page") || 1);
+  const limit = params.get("limit") || "25";
+  const sort: SortState = { key: params.get("sort") || "name", dir: params.get("dir") === "desc" ? "desc" : "asc" };
   const query = new URLSearchParams({
     q: debounced,
     page: String(page),
+    limit,
+    sort: sort.key,
+    dir: sort.dir,
     branch: params.get("branch") || "",
     department: params.get("department") || "",
     status: params.get("status") || "",
@@ -84,6 +104,17 @@ export function EmployeesPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const [archiveTarget, setArchiveTarget] = useState<Employee | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulk, setBulk] = useState<Parameters<typeof BulkModal>[0]["action"] | null>(null);
+  const [importing, setImporting] = useState(false);
+  const canEdit = Boolean(user && can(user.role, "employees.edit"));
+  const canCreate = Boolean(user && can(user.role, "employees.create"));
+  const canMessage = Boolean(user && can(user.role, "announcements.create"));
+  const seesSalary = Boolean(user && (can(user.role, "payroll.view") || user.role === "COMPANY_OWNER"));
+  const columns = useColumns("staffora-employee-columns", DEFAULT_COLUMNS);
+  const columnOptions = EMPLOYEE_COLUMNS.filter((c) => c.key !== "salary" || seesSalary);
+  const show = (key: string) => columns.show(key) && (key !== "salary" || seesSalary);
+  const selectable = canEdit || canMessage;
   const urlQuery = params.get("q") || "";
   useEffect(() => setQ(urlQuery), [urlQuery]);
   function set(name: string, value: string) {
@@ -93,8 +124,24 @@ export function EmployeesPage() {
     if (name !== "page") next.delete("page");
     setParams(next, { replace: true });
   }
+  const onSort = (next: SortState) => {
+    const p = new URLSearchParams(params);
+    p.set("sort", next.key);
+    p.set("dir", next.dir);
+    p.delete("page");
+    setParams(p, { replace: true });
+  };
   const lookup = (rows: { id: string; name: string }[] | undefined, id: string) =>
     rows?.find((x) => x.id === id)?.name || "—";
+  const pageIds = data?.items.map((e) => e.id) || [];
+  const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const toggle = (id: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <div className="page">
@@ -106,6 +153,11 @@ export function EmployeesPage() {
             <a className="btn" href="/api/reports/employees.xlsx" download>
               <Download size={16} /> Excel
             </a>
+            {canCreate && (
+              <button className="btn" onClick={() => setImporting(true)} disabled={full}>
+                <Upload size={16} /> Excel’dan yuklash
+              </button>
+            )}
             {full ? (
               <button className="btn btn-primary" disabled title="Tarif chegarasiga yetildi">
                 <Plus size={16} /> Xodim qo‘shish
@@ -133,7 +185,10 @@ export function EmployeesPage() {
         </div>
       )}
       <section className="card">
-        <div className="filters">
+        <div className="filters has-bulk">
+          {selected.size > 0 && (
+            <BulkBar count={selected.size} canEdit={canEdit} canMessage={canMessage} onAction={setBulk} onClear={() => setSelected(new Set())} />
+          )}
           <span className="input-icon">
             <Search size={16} />
             <input
@@ -146,11 +201,7 @@ export function EmployeesPage() {
               placeholder="Ism, ID, telefon…"
             />
           </span>
-          <select
-            className="select"
-            value={params.get("branch") || ""}
-            onChange={(e) => set("branch", e.target.value)}
-          >
+          <select className="select" value={params.get("branch") || ""} onChange={(e) => set("branch", e.target.value)}>
             <option value="">Barcha filiallar</option>
             {meta?.branches.map((x) => (
               <option key={x.id} value={x.id}>
@@ -158,11 +209,7 @@ export function EmployeesPage() {
               </option>
             ))}
           </select>
-          <select
-            className="select"
-            value={params.get("department") || ""}
-            onChange={(e) => set("department", e.target.value)}
-          >
+          <select className="select" value={params.get("department") || ""} onChange={(e) => set("department", e.target.value)}>
             <option value="">Barcha bo‘limlar</option>
             {meta?.departments.map((x) => (
               <option key={x.id} value={x.id}>
@@ -170,15 +217,14 @@ export function EmployeesPage() {
               </option>
             ))}
           </select>
-          <select
-            className="select"
-            value={params.get("status") || ""}
-            onChange={(e) => set("status", e.target.value)}
-          >
+          <select className="select" value={params.get("status") || ""} onChange={(e) => set("status", e.target.value)}>
             <option value="">Faol va nofaol</option>
             <option value="ACTIVE">Faol</option>
             <option value="INACTIVE">Nofaol</option>
           </select>
+          <span className="filters-end">
+            <ColumnsMenu options={columnOptions} visible={columns.visible} onToggle={columns.toggle} onReset={columns.reset} />
+          </span>
         </div>
         {loading && !data ? (
           <Loading />
@@ -189,16 +235,23 @@ export function EmployeesPage() {
         ) : !data?.items.length ? (
           <Empty
             icon={Users}
-            title={debounced || params.toString() ? "Xodim topilmadi" : "Hali xodim yo‘q"}
+            title={debounced || params.get("branch") || params.get("department") || params.get("status") ? "Xodim topilmadi" : "Hali xodim yo‘q"}
             text={
-              debounced || params.toString()
+              debounced || params.get("branch") || params.get("department") || params.get("status")
                 ? "Qidiruv yoki filtrlarni o‘zgartiring."
-                : "Birinchi xodimni qo‘shing. U Telegram botda telefon raqamini yuborib ulanadi."
+                : "Birinchi xodimni qo‘shing yoki ro‘yxatni Excel’dan yuklang."
             }
             action={
-              <Link to="/employees/new" className="btn btn-primary">
-                <UserRoundPlus size={16} /> Xodim qo‘shish
-              </Link>
+              <span className="toolbar">
+                <Link to="/employees/new" className="btn btn-primary">
+                  <UserRoundPlus size={16} /> Xodim qo‘shish
+                </Link>
+                {canCreate && (
+                  <button className="btn" onClick={() => setImporting(true)}>
+                    <Upload size={16} /> Excel’dan yuklash
+                  </button>
+                )}
+              </span>
             }
           />
         ) : (
@@ -207,84 +260,92 @@ export function EmployeesPage() {
               <table className="table table-cards">
                 <thead>
                   <tr>
-                    <th>Xodim</th>
-                    <th>Lavozim</th>
-                    <th>Filial</th>
-                    <th>Ulanish</th>
-                    <th>Bugun</th>
+                    {selectable && (
+                      <th className="check-col">
+                        <input
+                          type="checkbox"
+                          aria-label="Sahifadagilarni tanlash"
+                          checked={allOnPage}
+                          onChange={() =>
+                            setSelected((prev) => {
+                              const next = new Set(prev);
+                              for (const id of pageIds) {
+                                if (allOnPage) next.delete(id);
+                                else next.add(id);
+                              }
+                              return next;
+                            })
+                          }
+                        />
+                      </th>
+                    )}
+                    <SortTh label="Xodim" sortKey="name" sort={sort} onSort={onSort} />
+                    {show("position") && <SortTh label="Lavozim" sortKey="position" sort={sort} onSort={onSort} />}
+                    {show("branch") && <SortTh label="Filial" sortKey="branch" sort={sort} onSort={onSort} />}
+                    {show("schedule") && <th>Grafik</th>}
+                    {show("start") && <SortTh label="Ishga kirgan" sortKey="start" sort={sort} onSort={onSort} />}
+                    {show("salary") && <SortTh label="Oylik" sortKey="salary" sort={sort} onSort={onSort} className="right" />}
+                    {show("connect") && <th>Ulanish</th>}
+                    {show("today") && <th>Bugun</th>}
                     <th />
                   </tr>
                 </thead>
                 <tbody>
                   {data.items.map((e) => (
-                    <tr
-                      key={e.id}
-                      className="clickable"
-                      onClick={() => navigate(`/employees/${e.id}`)}
-                    >
+                    <tr key={e.id} className={`clickable ${selected.has(e.id) ? "selected" : ""}`} onClick={() => navigate(`/employees/${e.id}`)}>
+                      {selectable && (
+                        <td className="check-col" onClick={(event) => event.stopPropagation()}>
+                          <input type="checkbox" aria-label={`${e.firstName} ${e.lastName} — tanlash`} checked={selected.has(e.id)} onChange={() => toggle(e.id)} />
+                        </td>
+                      )}
                       <td>
-                        <Person
-                          first={e.firstName}
-                          last={e.lastName}
-                          photo={e.photoDataUrl}
-                          sub={`${e.employeeNo} · ${e.phone}`}
-                        />
+                        <Person first={e.firstName} last={e.lastName} photo={e.photoDataUrl} sub={`${e.employeeNo} · ${e.phone}`} />
                       </td>
-                      <td data-label="Lavozim">
+                      <Cell show={show("position")} label="Lavozim">
                         <span className="stack">
                           <span>{lookup(meta?.positions, e.positionId)}</span>
                           <small>{lookup(meta?.departments, e.departmentId)}</small>
                         </span>
-                      </td>
-                      <td data-label="Filial">{lookup(meta?.branches, e.branchId)}</td>
-                      <td data-label="Ulanish">
+                      </Cell>
+                      <Cell show={show("branch")} label="Filial">
+                        {lookup(meta?.branches, e.branchId)}
+                      </Cell>
+                      <Cell show={show("schedule")} label="Grafik">
+                        {lookup(meta?.schedules, e.scheduleId)}
+                      </Cell>
+                      <Cell show={show("start")} label="Ishga kirgan" className="num">
+                        {e.startDate ? dateUz(e.startDate) : "—"}
+                      </Cell>
+                      <Cell show={show("salary")} label="Oylik" className="num right">
+                        {e.baseSalary ? money(e.baseSalary) : <span className="faint">kiritilmagan</span>}
+                      </Cell>
+                      <Cell show={show("connect")} label="Ulanish">
                         <span className="tags">
-                          <span
-                            className={`tag`}
-                            style={
-                              e.telegramConnected
-                                ? { background: "var(--blue-bg)", color: "var(--blue)" }
-                                : undefined
-                            }
-                            title={e.telegramConnected ? "Telegram ulangan" : "Telegram ulanmagan"}
-                          >
+                          <span className={`tag ${e.telegramConnected ? "tag-blue" : ""}`} title={e.telegramConnected ? "Telegram ulangan" : "Telegram ulanmagan"}>
                             <Send size={10} />
                             {e.telegramConnected ? "Ulangan" : "Yo‘q"}
                           </span>
-                          <span
-                            className="tag"
-                            style={
-                              e.faceEnrolledAt
-                                ? { background: "var(--green-bg)", color: "var(--green)" }
-                                : undefined
-                            }
-                            title={e.faceEnrolledAt ? "Face ID faol" : "Face ID sozlanmagan"}
-                          >
+                          <span className={`tag ${e.faceEnrolledAt ? "tag-green" : ""}`} title={e.faceEnrolledAt ? "Face ID faol" : "Face ID sozlanmagan"}>
                             <ScanFace size={10} />
                             {e.faceEnrolledAt ? "Face ID" : "—"}
                           </span>
                         </span>
-                      </td>
-                      <td data-label="Bugun">
+                      </Cell>
+                      <Cell show={show("today")} label="Bugun">
                         {e.status !== "ACTIVE" ? (
                           <Status value={e.status} />
                         ) : e.todayAttendance?.checkIn ? (
                           <span className="state-cell">
-                            <Status
-                              value={e.todayAttendance.checkOut ? "LEFT" : "IN"}
-                              live={!e.todayAttendance.checkOut}
-                            />
+                            <Status value={e.todayAttendance.checkOut ? "LEFT" : "IN"} live={!e.todayAttendance.checkOut} />
                             <small className="num">
                               {e.todayAttendance.checkIn}
-                              {e.todayAttendance.checkOut
-                                ? ` → ${e.todayAttendance.checkOut}`
-                                : ""}
+                              {e.todayAttendance.checkOut ? ` → ${e.todayAttendance.checkOut}` : ""}
                             </small>
                           </span>
                         ) : (
                           <span className="faint">Qayd yo‘q</span>
                         )}
-                      </td>
+                      </Cell>
                       <td className="actions">
                         {e.status !== "ARCHIVED" && e.status !== "DISMISSED" && (
                           <button
@@ -310,20 +371,17 @@ export function EmployeesPage() {
                 Jami {data.total} · {data.page}/{data.pages} sahifa
               </span>
               <div>
-                <button
-                  className="btn btn-sm"
-                  disabled={page <= 1}
-                  onClick={() => set("page", String(page - 1))}
-                  aria-label="Oldingi sahifa"
-                >
+                <select className="select select-sm" aria-label="Sahifadagi qatorlar" value={limit} onChange={(e) => set("limit", e.target.value)}>
+                  {["12", "25", "50", "100"].map((n) => (
+                    <option key={n} value={n}>
+                      {n} tadan
+                    </option>
+                  ))}
+                </select>
+                <button className="btn btn-sm" disabled={page <= 1} onClick={() => set("page", String(page - 1))} aria-label="Oldingi sahifa">
                   <ChevronLeft size={15} />
                 </button>
-                <button
-                  className="btn btn-sm"
-                  disabled={page >= data.pages}
-                  onClick={() => set("page", String(page + 1))}
-                  aria-label="Keyingi sahifa"
-                >
+                <button className="btn btn-sm" disabled={page >= data.pages} onClick={() => set("page", String(page + 1))} aria-label="Keyingi sahifa">
                   <ChevronRight size={15} />
                 </button>
               </div>
@@ -338,6 +396,30 @@ export function EmployeesPage() {
           onDone={() => {
             setArchiveTarget(null);
             toast("Xodim ishdan bo‘shatildi");
+            void reload(true);
+          }}
+        />
+      )}
+      {bulk && (
+        <BulkModal
+          action={bulk}
+          ids={[...selected]}
+          meta={meta || undefined}
+          onClose={() => setBulk(null)}
+          onDone={(text) => {
+            setBulk(null);
+            toast(text);
+            if (bulk !== "message") setSelected(new Set());
+            void reload(true);
+          }}
+        />
+      )}
+      {importing && (
+        <ImportModal
+          onClose={() => setImporting(false)}
+          onDone={(created) => {
+            setImporting(false);
+            toast(`${created} ta xodim qo‘shildi`);
             void reload(true);
           }}
         />
@@ -780,7 +862,7 @@ export function EmployeeProfilePage() {
           </div>
           <div>
             <small>Kechikish</small>
-            <b className={monthRows.some((a) => a.lateMinutes > 0) ? "warn" : ""}>{monthRows.reduce((sum, a) => sum + a.lateMinutes, 0)} daq</b>
+            <b className={monthRows.some((a) => a.lateMinutes > 0) ? "warn" : ""}>{duration(monthRows.reduce((sum, a) => sum + a.lateMinutes, 0))}</b>
           </div>
           <div>
             <small>Oylik</small>
@@ -842,7 +924,7 @@ export function EmployeeProfilePage() {
                 <span>Bu oy kechikish</span>
                 <b>
                   {monthRows.filter((a) => a.lateMinutes > 0).length} marta ·{" "}
-                  {monthRows.reduce((s, a) => s + a.lateMinutes, 0)} daq
+                  {duration(monthRows.reduce((s, a) => s + a.lateMinutes, 0))}
                 </b>
               </div>
               <div>
@@ -929,7 +1011,7 @@ export function EmployeeProfilePage() {
             {tab === "leave" &&
               (data.leave.length ? (
                 <div className="table-wrap">
-                  <table className="table">
+                  <table className="table table-cards">
                     <tbody>
                       {data.leave.map((l) => (
                         <tr key={l.id}>
@@ -1300,7 +1382,7 @@ function AttendanceTable({ rows }: { rows: Attendance[] }) {
                 {a.workedMinutes ? duration(a.workedMinutes) : "—"}
               </td>
               <td data-label="Kechikish">
-                {a.lateMinutes ? <span className="late-text">{a.lateMinutes} daq</span> : "—"}
+                {a.lateMinutes ? <span className="late-text">{duration(a.lateMinutes)}</span> : "—"}
               </td>
               <td data-label="Tasdiq">
                 <span className="tags">
@@ -1563,6 +1645,36 @@ export async function resizePhoto(file: File, square = true) {
   }
 }
 
+type OffboardPreview = {
+  devices: number;
+  pending: number;
+  futureShifts: number;
+  assets: { id: string; name: string; code?: string; category?: string }[];
+  leave: { remaining: number };
+  settlement: {
+    month: string;
+    closed: boolean;
+    plannedDays: number;
+    monthWorkingDays: number;
+    workedDays: number;
+    baseSalary: number;
+    base: number;
+    overtime: number;
+    bonus: number;
+    lateDeduction: number;
+    absenceDeduction: number;
+    fine: number;
+    advance: number;
+    net: number;
+  } | null;
+};
+type OffboardResult = { done: string[]; unreturnedAssets: { id: string; name: string; code?: string }[] };
+
+/**
+ * Ishdan bo‘shatish — uch qadamli ro‘yxat:
+ *   1) aktivlarni qaytarib olish, 2) yakuniy hisob-kitob (oy oxirida yoki hozir qo‘lda),
+ *   3) avtomatik o‘chiriladigan kirish huquqlari.
+ */
 export function DismissModal({
   employee,
   onClose,
@@ -1572,23 +1684,24 @@ export function DismissModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { user } = useAuth();
   const [date, setDate] = useState(tashkentIsoDate());
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  // Offboarding: nimalar avtomatik bajariladi, qaytarilmagan aktivlar va yakuniy hisob-kitob.
-  const { data: preview } = useApi<{
-    devices: number;
-    pending: number;
-    futureShifts: number;
-    assets: { id: string; name: string; code?: string }[];
-    leave: { remaining: number };
-    settlement: { earnedToDate: number; advance: number; fine: number; net: number } | null;
-  }>(`/employees/${employee.id}/offboarding-preview`);
-  const [result, setResult] = useState<{ done: string[]; unreturnedAssets: { id: string; name: string; code?: string }[] } | null>(null);
+  const { data: preview, loading } = useApi<OffboardPreview>(`/employees/${employee.id}/offboarding-preview?date=${date}`);
+  const [assetActions, setAssetActions] = useState<Record<string, "return" | "lost" | "keep">>({});
+  const [mode, setMode] = useState<"MONTH_END" | "PAID_NOW">("MONTH_END");
+  const [paid, setPaid] = useState("");
+  const [result, setResult] = useState<OffboardResult | null>(null);
+  const canSettle = Boolean(user && (can(user.role, "payroll.edit") || user.role === "COMPANY_OWNER"));
+  const s = preview?.settlement;
+  // Hisob o‘zgarsa (sana tanlandi) — qo‘lda to‘lanadigan summa shu hisobga tenglanadi.
+  useEffect(() => setPaid(s ? String(s.net) : ""), [s?.net]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (result)
     return (
-      <Modal title="Offboarding bajarildi" subtitle={`${employee.firstName} ${employee.lastName}`} onClose={onDone} size="narrow">
+      <Modal title="Ishdan bo‘shatish yakunlandi" subtitle={`${employee.firstName} ${employee.lastName}`} onClose={onDone} size="narrow">
         <ul className="lc-steps">
           {result.done.map((d) => (
             <li key={d} className="done">
@@ -1598,7 +1711,11 @@ export function DismissModal({
         </ul>
         {result.unreturnedAssets.length > 0 && (
           <div className="alert warn" style={{ marginTop: 12 }}>
-            <b>Qaytarilmagan aktivlar:</b> {result.unreturnedAssets.map((a) => `${a.name}${a.code ? ` #${a.code}` : ""}`).join(", ")} — «Aktivlar» bo‘limida qaytarib oling.
+            <AlertTriangle size={18} />
+            <div>
+              <b>Xodimda qolgan aktivlar</b>
+              <p>{result.unreturnedAssets.map((a) => `${a.name}${a.code ? ` #${a.code}` : ""}`).join(", ")} — «Aktivlar» bo‘limida qaytarib oling.</p>
+            </div>
           </div>
         )}
         <div className="form-actions">
@@ -1608,20 +1725,28 @@ export function DismissModal({
         </div>
       </Modal>
     );
+
+  const assetsLeft = (preview?.assets || []).filter((a) => (assetActions[a.id] || "keep") === "keep").length;
+  const deductions = s ? s.lateDeduction + s.absenceDeduction + s.fine : 0;
+  const partial = s && s.plannedDays < s.monthWorkingDays;
+
   return (
-    <Modal
-      title="Ishdan bo‘shatish"
-      subtitle={`${employee.firstName} ${employee.lastName} · ${employee.employeeNo}`}
-      onClose={onClose}
-      size="narrow"
-    >
+    <Modal title="Ishdan bo‘shatish" subtitle={`${employee.firstName} ${employee.lastName} · ${employee.employeeNo}`} onClose={onClose}>
       <form
+        className="ob-form"
         onSubmit={async (event) => {
           event.preventDefault();
           setBusy(true);
           setError("");
           try {
-            const out = await post<{ offboarding?: { done: string[]; unreturnedAssets: { id: string; name: string; code?: string }[] } }>(`/employees/${employee.id}/dismiss`, { date, reason: reason || undefined });
+            const out = await post<{ offboarding?: OffboardResult }>(`/employees/${employee.id}/dismiss`, {
+              date,
+              reason: reason || undefined,
+              assets: Object.entries(assetActions)
+                .filter(([, action]) => action !== "keep")
+                .map(([id, action]) => ({ id, action })),
+              settlement: canSettle && s ? { mode, paid: mode === "PAID_NOW" ? Number(paid.replace(/\D/g, "")) || 0 : undefined } : undefined,
+            });
             if (out.offboarding) setResult(out.offboarding);
             else onDone();
           } catch (reason) {
@@ -1631,28 +1756,152 @@ export function DismissModal({
           }
         }}
       >
-        <p className="muted" style={{ marginBottom: 14, fontSize: 13.5 }}>
-          Xodim «Ishdan bo‘shaganlar» ro‘yxatiga o‘tadi, davomat belgilay olmaydi va ish haqi hisobiga
-          kirmaydi. Keyin qayta ishga olish mumkin.
-        </p>
-        {preview && (
-          <div className="ob-preview">
-            <b>Avtomatik bajariladi:</b>
-            <span>✓ {preview.devices ? `${preview.devices} ta telefon va ` : ""}barcha sessiyalar bekor qilinadi</span>
-            {preview.futureShifts > 0 && <span>✓ {preview.futureShifts} ta kelajak smena o‘zgarishi olib tashlanadi</span>}
-            {preview.pending > 0 && <span>✓ {preview.pending} ta kutilayotgan so‘rov bekor qilinadi</span>}
-            <span>✓ Panel / rahbar huquqlari o‘chiriladi</span>
-            {preview.assets.length > 0 && <span className="bad">⚠ Qaytarilmagan aktivlar: {preview.assets.map((a) => a.name).join(", ")}</span>}
-            <span>Ishlatilmagan ta’til: {preview.leave.remaining} kun</span>
-            {preview.settlement && <span>Yakuniy hisob (bugungacha): qo‘lga {money(preview.settlement.net)} (avans {money(preview.settlement.advance)}, jarima {money(preview.settlement.fine)})</span>}
-          </div>
+        <div className="form-grid">
+          <Field label="Bo‘shagan sana" hint="Shu kungacha ishlagan kunlar hisoblanadi">
+            <input className="input" type="date" value={date} max={tashkentIsoDate()} onChange={(e) => setDate(e.target.value)} required />
+          </Field>
+          <Field label="Sabab (ixtiyoriy)">
+            <input className="input" value={reason} maxLength={300} placeholder="Masalan: o‘z xohishi bilan" onChange={(e) => setReason(e.target.value)} />
+          </Field>
+        </div>
+
+        <section className="ob-step">
+          <header>
+            <span className="ob-num">1</span>
+            <div>
+              <b>Aktivlarni qaytarib olish</b>
+              <small>{preview?.assets.length ? `${preview.assets.length} ta aktiv xodimda` : "Xodimda biriktirilgan aktiv yo‘q"}</small>
+            </div>
+          </header>
+          {preview?.assets.map((a) => (
+            <div className="ob-asset" key={a.id}>
+              <span>
+                {a.name}
+                {a.code && <small> #{a.code}</small>}
+              </span>
+              <div className="segmented sm">
+                {(
+                  [
+                    ["return", "Qaytardi"],
+                    ["lost", "Yo‘qotgan"],
+                    ["keep", "Keyinroq"],
+                  ] as const
+                ).map(([value, label]) => (
+                  <button
+                    type="button"
+                    key={value}
+                    className={(assetActions[a.id] || "keep") === value ? "active" : ""}
+                    onClick={() => setAssetActions((prev) => ({ ...prev, [a.id]: value }))}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </section>
+
+        <section className="ob-step">
+          <header>
+            <span className="ob-num">2</span>
+            <div>
+              <b>Yakuniy hisob-kitob</b>
+              <small>
+                {s
+                  ? `${monthYearUz(`${s.month}-15`)} · ${s.plannedDays} / ${s.monthWorkingDays} ish kuni${partial ? " — oylik proporsional" : ""}`
+                  : loading
+                    ? "Hisoblanmoqda…"
+                    : "Ish haqini ko‘rish huquqi yo‘q"}
+              </small>
+            </div>
+          </header>
+          {s && (
+            <>
+              <dl className="ob-calc">
+                <div>
+                  <dt>Oklad ({money(s.baseSalary)} dan)</dt>
+                  <dd>{money(s.base)}</dd>
+                </div>
+                {s.overtime + s.bonus > 0 && (
+                  <div>
+                    <dt>Qo‘shimcha ish va mukofot</dt>
+                    <dd>+{money(s.overtime + s.bonus)}</dd>
+                  </div>
+                )}
+                {deductions > 0 && (
+                  <div>
+                    <dt>Ushlanmalar (kechikish, kelmaslik, jarima)</dt>
+                    <dd className="bad">−{money(deductions)}</dd>
+                  </div>
+                )}
+                {s.advance > 0 && (
+                  <div>
+                    <dt>Shu oy olingan avans</dt>
+                    <dd className="bad">−{money(s.advance)}</dd>
+                  </div>
+                )}
+                <div className="total">
+                  <dt>Qo‘lga beriladi</dt>
+                  <dd>{money(s.net)}</dd>
+                </div>
+              </dl>
+              {s.closed ? (
+                <p className="hint">Bu oy yopilgan — summa yopilgan qaydnomada qoladi.</p>
+              ) : canSettle ? (
+                <div className="ob-modes" role="radiogroup" aria-label="To‘lov usuli">
+                  <label className={mode === "MONTH_END" ? "on" : ""}>
+                    <input type="radio" checked={mode === "MONTH_END"} onChange={() => setMode("MONTH_END")} />
+                    <span>
+                      <b>Oy oxirida beriladi</b>
+                      <small>Summa ish haqi qaydnomasiga avtomatik tushadi va boshqalar bilan birga to‘lanadi.</small>
+                    </span>
+                  </label>
+                  <label className={mode === "PAID_NOW" ? "on" : ""}>
+                    <input type="radio" checked={mode === "PAID_NOW"} onChange={() => setMode("PAID_NOW")} />
+                    <span>
+                      <b>Hozir qo‘lda to‘landi</b>
+                      <small>To‘langan summa yoziladi — oy oxirida unga qayta to‘lanmaydi.</small>
+                    </span>
+                  </label>
+                  {mode === "PAID_NOW" && (
+                    <Field label="To‘langan summa (so‘m)">
+                      <input
+                        className="input num"
+                        inputMode="numeric"
+                        value={paid ? Number(paid.replace(/\D/g, "")).toLocaleString("ru-RU") : ""}
+                        onChange={(e) => setPaid(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                      />
+                    </Field>
+                  )}
+                </div>
+              ) : null}
+            </>
+          )}
+          {preview && <p className="hint">Ishlatilmagan ta’til: {preview.leave.remaining} kun.</p>}
+        </section>
+
+        <section className="ob-step">
+          <header>
+            <span className="ob-num">3</span>
+            <div>
+              <b>Kirish huquqlari</b>
+              <small>Avtomatik o‘chiriladi</small>
+            </div>
+          </header>
+          <ul className="ob-auto">
+            <li>{preview?.devices ? `${preview.devices} ta telefon, ` : ""}Mini App va barcha sessiyalar bekor qilinadi</li>
+            <li>Panel va filial rahbari huquqlari olib tashlanadi</li>
+            {(preview?.pending || 0) > 0 && <li>{preview!.pending} ta kutilayotgan so‘rov bekor qilinadi</li>}
+            {(preview?.futureShifts || 0) > 0 && <li>{preview!.futureShifts} ta kelajak smena o‘zgarishi olib tashlanadi</li>}
+            <li>Davomat belgilash to‘xtaydi; keyin qayta ishga olish mumkin</li>
+          </ul>
+        </section>
+
+        {assetsLeft > 0 && (
+          <p className="ob-warn">
+            <AlertTriangle size={15} /> {assetsLeft} ta aktiv xodimda qoladi — keyinroq «Aktivlar» bo‘limida qaytarib olasiz.
+          </p>
         )}
-        <Field label="Bo‘shagan sana">
-          <input className="input" type="date" value={date} max={tashkentIsoDate()} onChange={(e) => setDate(e.target.value)} required />
-        </Field>
-        <Field label="Sabab (ixtiyoriy)">
-          <input className="input" value={reason} maxLength={300} placeholder="Masalan: o‘z xohishi bilan" onChange={(e) => setReason(e.target.value)} />
-        </Field>
         <ErrorBox message={error} />
         <div className="form-actions">
           <button type="button" className="btn" onClick={onClose}>

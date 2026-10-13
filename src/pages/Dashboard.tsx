@@ -40,7 +40,7 @@ import {
   Status,
 } from "../components/ui";
 import type { Notification } from "@/lib/types";
-import { dateLongUz, dateUz, weekdayShortUz } from "@/lib/format";
+import { dateLongUz, dateUz, duration, weekdayShortUz } from "@/lib/format";
 import type { RosterRow, RosterStats } from "../types";
 import { SetupChecklist, type SetupData } from "../components/SetupChecklist";
 
@@ -561,7 +561,7 @@ export function DashboardPage() {
                         <Status value={row.state} live={row.state === "IN"} />
                         {row.late && (
                           <small className="late-text">
-                            {row.record?.lateMinutes} daq kech
+                            {duration(row.record?.lateMinutes)} kech
                           </small>
                         )}
                       </span>

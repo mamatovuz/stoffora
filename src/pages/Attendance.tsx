@@ -315,7 +315,7 @@ export function AttendancePage() {
                           <b className="time">{r?.checkIn || "—"}</b>
                           {row.late && (
                             <small className="late-text">
-                              +{r?.lateMinutes} daq
+                              +{duration(r?.lateMinutes)}
                             </small>
                           )}
                         </span>

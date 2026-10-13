@@ -4,7 +4,7 @@ import { rateLimit } from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import { audit, dataIndexes, readDb, updateDb } from "../lib/store";
-import { tashkentClock, tashkentIsoDate } from "../lib/format";
+import { duration, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { dayPlan, shiftDateAt } from "../lib/schedule";
 import { can } from "../lib/permissions";
 import { attendanceStreak, biometricNeedsFace, breakMinutes, DEFAULT_FACE_EVERY, streakBadge, type StreakDay } from "../lib/mini";
@@ -596,7 +596,7 @@ export function createMiniPublicRouter() {
             ["Mukofot (bonus)", money(line.bonus)],
           ],
           deductions: [
-            [`Kechikish ushlanmasi (${line.lateMinutes} daq)`, money(line.lateDeduction)],
+            [`Kechikish ushlanmasi (${duration(line.lateMinutes)})`, money(line.lateDeduction)],
             [`Kelmagan kunlar (${line.absentDays})`, money(line.absenceDeduction)],
             ["Jarima", money(line.fine)],
             ["Avans", money(line.advance)],

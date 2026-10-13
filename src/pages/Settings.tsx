@@ -20,12 +20,14 @@ import {
   PlugZap,
   Bot,
   TabletSmartphone,
+  FileBarChart,
 } from "lucide-react";
 import { CountingStartCard, IntegrationCenter } from "./Integrations";
 import { CompanyBotSection } from "./Registrations";
 import { FormBuilder } from "./FormBuilder";
 import { CountdownConfirm } from "../components/CountdownConfirm";
 import { MobileAppsSection } from "../components/MobileAppsSection";
+import { ReportDigestSection } from "../components/ReportDigestSection";
 import { canAny } from "@/lib/permissions";
 
 /** Har bir tab uchun kerakli ruxsat (bo‘sh — hamma panel foydalanuvchisi). */
@@ -33,6 +35,7 @@ const tabPermissions: Partial<Record<Tab, string[]>> = {
   apps: ["employees.view"],
   company: ["settings.manage"],
   payroll: ["payroll.edit"],
+  reports: ["settings.manage"],
   channel: ["settings.manage"],
   bot: ["settings.manage"],
   miniapp: ["settings.manage"],
@@ -56,7 +59,7 @@ import { calculatePayroll, defaultPayrollSettings } from "@/lib/payroll";
 import { dateUz, money } from "@/lib/format";
 import { resizePhoto } from "./Employees";
 
-type Tab = "profile" | "security" | "lock" | "devices" | "apps" | "company" | "payroll" | "channel" | "bot" | "miniapp" | "regbot" | "integrations";
+type Tab = "profile" | "security" | "lock" | "devices" | "apps" | "company" | "payroll" | "reports" | "channel" | "bot" | "miniapp" | "regbot" | "integrations";
 const tabs: [Tab, string, typeof UserRound][] = [
   ["profile", "Profil", UserRound],
   ["security", "Xavfsizlik", ShieldCheck],
@@ -65,6 +68,7 @@ const tabs: [Tab, string, typeof UserRound][] = [
   ["apps", "Ilovalar", Smartphone],
   ["company", "Kompaniya", Building2],
   ["payroll", "Ish haqi va jarima", Banknote],
+  ["reports", "Avtomatik hisobot", FileBarChart],
   ["channel", "Rasm kanali", Camera],
   ["bot", "Telegram bot", Send],
   ["miniapp", "Mini App", TabletSmartphone],
@@ -115,6 +119,7 @@ export function SettingsPage() {
             </>
           )}
           {tab === "lock" && <ScreenLockSection />}
+          {tab === "reports" && <ReportDigestSection />}
           {tab === "channel" && <PhotoChannelSection />}
           {tab === "bot" && <BotSection />}
           {tab === "miniapp" && (
@@ -944,7 +949,7 @@ function ClientLogsSection() {
           <p className="hint">Xatolar yo‘q — hammasi joyida.</p>
         ) : (
           <div className="table-wrap">
-            <table className="table">
+            <table className="table table-cards">
               <thead>
                 <tr>
                   <th>Vaqt</th>
