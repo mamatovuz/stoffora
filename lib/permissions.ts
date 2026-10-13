@@ -1,4 +1,5 @@
 import type { Role } from "./types";
+import { pageEnabled } from "./modules";
 
 /*
  * Rollar va ruxsatlar — server ham, panel (menyu, sahifa himoyasi) ham shu
@@ -84,7 +85,12 @@ export const pagePermissions: Record<string, string[]> = {
   "/settings": [],
 };
 
-export function canOpenPage(role: Role, path: string) {
+/**
+ * Sahifa ochiladimi: rol ruxsati va (berilsa) kompaniyada o‘chirilgan modullar.
+ * `disabled` — super admin o‘chirgan modul kalitlari (auth/me → user.modules).
+ */
+export function canOpenPage(role: Role, path: string, disabled?: readonly string[]) {
+  if (!pageEnabled(disabled, path)) return false;
   const key = Object.keys(pagePermissions)
     .filter((prefix) => path === prefix || path.startsWith(`${prefix}/`))
     .sort((a, b) => b.length - a.length)[0];
@@ -94,8 +100,8 @@ export function canOpenPage(role: Role, path: string) {
 }
 
 /** Kirgandan keyingi birinchi sahifa — rolga mos. */
-export function homePage(role: Role) {
+export function homePage(role: Role, disabled?: readonly string[]) {
   // Bosh sahifa (bugungi statistika) birinchi; uni ko‘ra olmaydigan rol (moliya) — Ish stoli.
   const order = ["/dashboard", "/workspace", "/finance", "/payroll", "/attendance", "/employees", "/reports", "/notifications"];
-  return order.find((path) => canOpenPage(role, path)) || "/settings";
+  return order.find((path) => canOpenPage(role, path, disabled)) || "/settings";
 }

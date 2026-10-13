@@ -14,6 +14,8 @@ export interface CurrentUser {
   companyName?: string;
   screenLock?: { enabled: boolean; minutes: number; hasPassword: boolean };
   locked?: boolean;
+  /** Super admin o‘chirgan modullar (lib/modules.ts kalitlari). */
+  modules?: string[];
 }
 const AuthContext = createContext<{
   user: CurrentUser | null;
@@ -40,6 +42,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     void refresh();
+    // Super admin modullarni o‘zgartirsa — oynaga qaytganda menyu yangilanadi (5 daqiqada bir martadan ko‘p emas).
+    let last = Date.now();
+    const onVisible = () => {
+      if (document.visibilityState !== "visible" || Date.now() - last < 5 * 60_000) return;
+      last = Date.now();
+      void refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
   }, []);
   return (
     <AuthContext.Provider value={{ user, loading, refresh }}>
@@ -70,8 +81,9 @@ export function Protected({
   if (!superAdmin && user.role === "SUPER_ADMIN")
     return <Navigate to="/super-admin" replace />;
   // Rolga tegishli bo‘lmagan sahifa — o‘zining bosh sahifasiga yo‘naltiriladi.
-  if (!superAdmin && !canOpenPage(user.role, location.pathname)) {
-    const home = homePage(user.role);
+  // O‘chirilgan modul sahifasi ham shunday (manzil qo‘lda yozilsa ham).
+  if (!superAdmin && !canOpenPage(user.role, location.pathname, user.modules)) {
+    const home = homePage(user.role, user.modules);
     if (home !== location.pathname) return <Navigate to={home} replace />;
   }
   return children;

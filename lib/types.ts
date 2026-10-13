@@ -40,6 +40,10 @@ export interface Company {
   miniApp?: MiniAppSettings;
   /** Rahbarlarga avtomatik hisobot (Telegram): haftalik — dushanba, oylik — oyning 1-kuni. Standart: yoqilgan. */
   reportDigest?: { weekly?: boolean; monthly?: boolean; branchManagers?: boolean; payroll?: boolean };
+  /** Modullar (super admin yoqadi/o‘chiradi): false — o‘chirilgan, yozilmagan — yoqilgan. Kalitlar: lib/modules.ts. */
+  modules?: Partial<Record<string, boolean>>;
+  /** Super admin uchun ichki izoh (kompaniyaga ko‘rinmaydi). */
+  adminNote?: string;
 }
 export interface MiniAppSettings {
   /** Telefon biometriyasi (barmoq izi / Face ID) bilan tez tasdiqlash. */
@@ -344,6 +348,29 @@ export interface Employee {
   notifyPrefs?: Partial<Record<"attendance" | "requests" | "money" | "announcements" | "docs" | "celebrations", boolean>>;
   /** Yillik ta’til kunlari (bo‘sh — kompaniya qoidasi). */
   annualLeaveDays?: number;
+  /**
+   * Xodimlar botidan (integratsiya) kelgan qo‘shimcha ma’lumot — faqat o‘qiladi, har sinxronda yangilanadi.
+   * `botSalary` — moliya huquqi bo‘lmagan panel foydalanuvchilariga yuborilmaydi.
+   */
+  botProfile?: {
+    remoteId: number;
+    telegramName?: string;
+    role?: string;
+    position?: string;
+    employmentStatus?: string;
+    questionnaire?: Record<string, unknown>;
+    probation?: Record<string, unknown>;
+    updatedBySelfAt?: string;
+    botSalary?: {
+      text?: string;
+      amount?: number;
+      isSet: boolean;
+      source?: string;
+      currentMonth?: Record<string, unknown>;
+      questionnaire?: Record<string, unknown>;
+    };
+    syncedAt: string;
+  };
   /** Onboarding’ning qo‘lda belgilanadigan qadamlari (IT qurilma berdi, rahbar tanishtirdi, o‘qitish). */
   onboardingManual?: Record<string, { done: boolean; by: string; at: string }>;
   createdAt: string;

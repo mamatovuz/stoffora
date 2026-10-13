@@ -291,8 +291,8 @@ export async function upsertDelivery(row: Omit<DeliveryRow, "createdAt" | "updat
   const stamp = now();
   (await db.run(`INSERT INTO notification_deliveries (id, company_id, integration_id, kind, ref_id, employee_id, channel, status, external_id, error, attempts, created_at, updated_at)
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-     ON CONFLICT(id) DO UPDATE SET status = excluded.status, external_id = COALESCE(excluded.external_id, external_id),
-       error = excluded.error, attempts = attempts + 1, updated_at = excluded.updated_at`, row.id,
+     ON CONFLICT(id) DO UPDATE SET status = excluded.status, external_id = COALESCE(excluded.external_id, notification_deliveries.external_id),
+       error = excluded.error, attempts = notification_deliveries.attempts + 1, updated_at = excluded.updated_at`, row.id,
     row.companyId,
     row.integrationId || null,
     row.kind,

@@ -1,7 +1,8 @@
+import { companyModuleEnabled } from "../modules";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { audit, readDb, updateDb } from "../../lib/store";
-import { can } from "../../lib/permissions";
+import { can, canAny } from "../../lib/permissions";
 import type { AnnouncementTarget, Integration, IntegrationSettings } from "../../lib/types";
 import type { AuthedRequest } from "../auth";
 import { BotApiError, BotClient, normalizeBaseUrl } from "./client";
@@ -35,6 +36,7 @@ import {
   isSyncRunning,
   matchLocal,
   NO_BRANCH,
+  applyRemoteEntity,
   resolveConflict,
   runSyncJob,
   type BotEventEnvelope,
@@ -82,7 +84,7 @@ export const EXCESSIVE_SCOPES = ["employees:sensitive", "admin"];
 const FEATURE_SCOPES: Record<string, string[]> = {
   "Staffora → bot (xodim/filial tahrirlari)": ["employees:write", "branches:write", "departments:write", "positions:write", "integration:write"],
   "Keldi-ketdini botga yuborish": ["attendance:write"],
-  "Maoshlarni import qilish (ixtiyoriy)": ["employees:salary"],
+  "Maosh va xodim moliyasi (jarima, avans, KPI)": ["employees:salary"],
   "Bot orqali xabar va havola yuborish": ["notifications:write", "notifications:read"],
   "Bot orqali e’lon": ["announcements:write", "announcements:read"],
   "Webhook (real vaqt)": ["webhooks:write"],
@@ -775,6 +777,106 @@ export function createIntegrationRouter() {
     }),
   );
 
+  /* ------------------------------------------------- xodim ⇄ xodimlar boti --- */
+
+  /** Xodimning bot’dagi yozuvi (integratsiya yoqilgan va bog‘langan bo‘lsa). */
+  async function botLink(req: AuthedRequest) {
+    const tenant = tenantOf(req);
+    const db = await readDb();
+    if (!companyModuleEnabled(db, tenant, "integrations")) throw httpError("Integratsiya moduli yoqilmagan.", 403);
+    const employee = db.employees.find((e) => e.id === req.params.employeeId && e.companyId === tenant);
+    if (!employee) throw httpError("Xodim topilmadi.", 404);
+    const integration = activeIntegration(db, tenant);
+    const mapping = integration ? mappingByLocal(db, integration.id, "employee", employee.id) : undefined;
+    return { db, tenant, employee, integration, mapping };
+  }
+  const canSeeMoney = (req: AuthedRequest) => canAny(req.session!.role, ["payroll.view", "employees.edit"]);
+
+  // Holat: bog‘langanmi, oxirgi sinxron va bot’dagi qo‘shimcha ma’lumot (maosh — huquq bo‘lsa).
+  router.get(
+    "/employees/:employeeId/bot",
+    permit("employees.view"),
+    route(async (req, res) => {
+      const { employee, integration, mapping } = await botLink(req);
+      res.json({
+        connected: Boolean(integration),
+        linked: Boolean(mapping),
+        externalId: mapping?.externalId,
+        syncedAt: mapping?.syncedAt,
+        remoteUpdatedAt: mapping?.remoteUpdatedAt,
+        canMoney: canSeeMoney(req),
+        profile: employee.botProfile || null,
+      });
+    }),
+  );
+
+  // Bitta xodimni hozir botdan qayta o‘qish (to‘liq sinxronni kutmasdan).
+  router.post(
+    "/employees/:employeeId/bot/refresh",
+    permit("employees.edit"),
+    route(async (req, res) => {
+      const { integration, mapping } = await botLink(req);
+      if (!integration || !mapping) throw httpError("Xodim xodimlar botiga bog‘lanmagan.", 409);
+      const { data: remote } = await clientFor(integration).get<RemoteEmployee>(`/employees/${mapping.externalId}`);
+      const result = await updateDb((db) => {
+        const current = db.integrations.find((i) => i.id === integration.id);
+        if (!current) throw httpError("Integratsiya topilmadi.", 404);
+        return applyRemoteEntity(db, current, "employee", remote);
+      });
+      res.json(result);
+    }),
+  );
+
+  // Moliya: jarima, avans, dori, KPI, to‘lovlar, maosh oshirish so‘rovlari (kalitda employees:salary kerak).
+  router.get(
+    "/employees/:employeeId/bot/finance",
+    permit("employees.view"),
+    route(async (req, res) => {
+      if (!canSeeMoney(req)) throw httpError("Bu ma’lumot uchun ruxsat yetarli emas.", 403);
+      const { integration, mapping } = await botLink(req);
+      if (!integration || !mapping) throw httpError("Xodim xodimlar botiga bog‘lanmagan.", 409);
+      const period = typeof req.query.period === "string" && /^\d{4}-\d{2}$/.test(req.query.period) ? req.query.period : undefined;
+      try {
+        const { data } = await clientFor(integration).get<Record<string, unknown>>(`/employees/${mapping.externalId}/finance`, { period });
+        res.json(data);
+      } catch (error) {
+        if (error instanceof BotApiError && error.status === 403)
+          throw httpError("Bot API kalitida maosh ruxsati (employees:salary) yo‘q. Integratsiyalar → «Kalitni yangilash».", 400);
+        throw error;
+      }
+    }),
+  );
+
+  // Hujjat fayli (pasport, diplom, rasm) — bot proksi orqali; kalitda employees:sensitive kerak.
+  router.get(
+    "/employees/:employeeId/bot/documents/:kind",
+    permit("employees.edit"),
+    route(async (req, res) => {
+      const kind = String(req.params.kind);
+      if (!["passport_front", "passport_back", "diploma", "photo"].includes(kind)) throw httpError("Noma’lum hujjat turi.", 400);
+      const { integration, mapping, tenant, employee } = await botLink(req);
+      if (!integration || !mapping) throw httpError("Xodim xodimlar botiga bog‘lanmagan.", 409);
+      try {
+        const file = await clientFor(integration).file(`/employees/${mapping.externalId}/documents/${kind}`);
+        if (!/^(image\/(jpeg|png|webp|gif)|application\/pdf)$/i.test(file.contentType.split(";")[0].trim()))
+          throw httpError("Bu turdagi faylni ko‘rsatib bo‘lmaydi.", 415);
+        await updateDb((db) => {
+          db.auditLogs.unshift(audit(tenant, req.session!.name, `Botdagi hujjat ko‘rildi: ${kind}`, "employee", employee.id));
+        });
+        res.setHeader("Content-Type", file.contentType);
+        res.setHeader("Cache-Control", "private, no-store");
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("Content-Disposition", `inline; filename="${kind}${file.contentType.includes("pdf") ? ".pdf" : ".jpg"}"`);
+        res.send(file.body);
+      } catch (error) {
+        if (error instanceof BotApiError && error.status === 404) throw httpError("Botda bu hujjat yuklanmagan.", 404);
+        if (error instanceof BotApiError && error.status === 403)
+          throw httpError("Bot API kalitida hujjatlar ruxsati (employees:sensitive) yo‘q.", 400);
+        throw error;
+      }
+    }),
+  );
+
   /* ------------------------------------------ hisoblash boshlanish sanasi --- */
 
   router.put(
@@ -840,6 +942,9 @@ export function createIntegrationWebhookRouter() {
       const integration = db.integrations.find((i) => i.id === req.params.id);
       if (!integration || integration.status === "DISCONNECTED" || !integration.webhookSecretEnc)
         return res.status(404).json({ message: "Integratsiya topilmadi." });
+      // Modul o‘chirilgan: hodisa qabul qilinmaydi (bot keyinroq qayta yuboradi yoki lentadan olinadi).
+      if (!companyModuleEnabled(db, integration.companyId, "integrations"))
+        return res.status(503).json({ message: "Integratsiya moduli vaqtincha o‘chirilgan." });
       const raw = (req as Request & { rawBody?: string }).rawBody;
       if (typeof raw !== "string") return res.status(400).json({ message: "Tana o‘qilmadi." });
       const check = verifySignature(decryptSecret(integration.webhookSecretEnc), req.header("x-webhook-signature"), raw);

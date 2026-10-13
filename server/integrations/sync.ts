@@ -270,9 +270,9 @@ function findExisting(
 }
 
 function sanitizeSnapshot(remote: Remote) {
-  // Maosh va maxfiy hujjatlar saqlanmaydi (kalitda ruxsat ham yo‘q, lekin ehtiyot uchun).
+  // Maosh, anketa va maxfiy hujjatlar mapping izida saqlanmaydi (anketa — xodimning botProfile’ida).
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { monthly_salary, salary, documents, ...rest } = remote as Record<string, unknown>;
+  const { monthly_salary, salary, documents, questionnaire, ...rest } = remote as Record<string, unknown>;
   return rest;
 }
 
@@ -364,6 +364,8 @@ function createLocal(
     telegramConnected: false,
     deviceStatus: "PENDING",
     status: (fields.status as Employee["status"]) || "ACTIVE",
+    gender: fields.gender as string | undefined,
+    botProfile: T.botProfileFromRemote(r),
     createdAt: now,
     updatedAt: now,
   };
@@ -533,6 +535,12 @@ export function applyRemoteEntity(db: Database, integration: Integration, entity
       }
     }
     if (r.telegram_username && !local.telegramUsername && !firstLink) local.telegramUsername = r.telegram_username;
+    // Botdagi anketa, sinov muddati va maosh xulosasi — faqat o‘qiladi, har safar yangilanadi.
+    const profile = T.botProfileFromRemote(r);
+    const previous = local.botProfile as Employee["botProfile"];
+    // Mazmun o‘zgarmagan bo‘lsa eski yozuv qoladi — qator bazaga qayta yozilmaydi.
+    if (!previous || JSON.stringify({ ...previous, syncedAt: 0 }) !== JSON.stringify({ ...profile, syncedAt: 0 })) local.botProfile = profile;
+    if (fields.gender && !local.gender) local.gender = fields.gender;
     // Maosh: Staffora'da kiritilmagan (0) bo‘lsa botdagisi olinadi; kiritilgani hech qachon ustidan yozilmaydi.
     if (typeof fields.baseSalary === "number" && !Number(local.baseSalary) && !firstLink) {
       local.baseSalary = fields.baseSalary;

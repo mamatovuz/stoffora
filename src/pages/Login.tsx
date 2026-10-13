@@ -114,7 +114,7 @@ export function LoginPage() {
   if (user)
     return (
       <Navigate
-        to={user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role)}
+        to={user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role, user.modules)}
         replace
       />
     );

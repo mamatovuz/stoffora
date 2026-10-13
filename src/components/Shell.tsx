@@ -159,12 +159,12 @@ export function Shell() {
   const { data: notifications, reload: reloadNotifications } =
     useApi<Notification[]>("/notifications");
   const { data: leave, reload: reloadLeave } =
-    useApi<{ status: string }[]>(user && canOpenPage(user.role, "/leave") ? "/leave" : null);
+    useApi<{ status: string }[]>(user && canOpenPage(user.role, "/leave", user.modules) ? "/leave" : null);
   // Faqat rolga ruxsat etilgan bandlar va tablar ko‘rinadi.
   const visibleMenu = useMemo(
     () =>
       menu
-        .map((item) => ({ ...item, tabs: item.tabs.filter(([path]) => (user ? canOpenPage(user.role, path) : false)) }))
+        .map((item) => ({ ...item, tabs: item.tabs.filter(([path]) => (user ? canOpenPage(user.role, path, user.modules) : false)) }))
         .filter((item) => item.tabs.length),
     [user],
   );
@@ -200,11 +200,11 @@ export function Shell() {
     };
   }, [reloadWorkspace]);
   const { data: pendingFines, reload: reloadFines } = useApi<{ id: string }[]>(
-    user && canAny(user.role, ["employees.edit", "payroll.edit"]) ? "/fines?status=PENDING" : null,
+    user && canAny(user.role, ["employees.edit", "payroll.edit"]) && !user.modules?.includes("fines") ? "/fines?status=PENDING" : null,
   );
   usePolling(() => void reloadFines(true), 60_000);
   const { data: registrations, reload: reloadRegistrations } = useApi<{ counts: { PENDING: number } }>(
-    user && canOpenPage(user.role, "/registrations") ? "/registrations?status=PENDING" : null,
+    user && canOpenPage(user.role, "/registrations", user.modules) ? "/registrations?status=PENDING" : null,
   );
   usePolling(() => void reloadRegistrations(true), 60_000);
   const counts: Record<string, number> = {
@@ -275,7 +275,7 @@ export function Shell() {
         className={`sidebar ${collapsed ? "collapsed" : ""} ${mobile ? "mobile-open" : ""}`}
       >
         <div className="sidebar-head">
-          <Link to={user ? homePage(user.role) : "/dashboard"}>
+          <Link to={user ? homePage(user.role, user.modules) : "/dashboard"}>
             <Logo compact={collapsed} />
           </Link>
           <button

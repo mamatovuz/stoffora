@@ -4,6 +4,7 @@ import { Router, type NextFunction, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
+import { miniModuleGuard } from "./modules";
 import {
   assertAttendanceTransition,
   assertQrNonceUsable,
@@ -330,6 +331,8 @@ export function createMiniRouter() {
   });
 
   router.use("/mini", requireEmployee);
+  // Super admin o‘chirgan modullar (ta’til, avans, murojaat…) Mini App’da ham yopiq.
+  router.use("/mini", miniModuleGuard());
   router.use(createMiniDocumentRouter());
   router.use(createMiniSwapRouter());
   router.use(createMiniPayrollRouter());

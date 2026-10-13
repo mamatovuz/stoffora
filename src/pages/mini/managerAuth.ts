@@ -7,7 +7,7 @@ import type { Role } from "@/lib/types";
 
 export type ManagerAuth = {
   token: string;
-  user: { id: string; name: string; role: Role; branchIds: string[]; photoDataUrl?: string };
+  user: { id: string; name: string; role: Role; branchIds: string[]; photoDataUrl?: string; modules?: string[] };
   company: { id: string; name: string };
 };
 export type ManagerView = "desk" | "today" | "requests" | "map" | "week" | "money" | "devices" | "admin";

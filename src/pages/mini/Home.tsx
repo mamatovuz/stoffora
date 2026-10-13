@@ -35,7 +35,7 @@ import { breakMinutes, type DeepLink } from "@/lib/mini";
 import { SalaryCard } from "../MiniMoney";
 import { getCached, setCached } from "../miniCache";
 import { NotifItem } from "./Notifications";
-import { clockDuration, Sheet, useClock, type Action, type HomeData, type Toast } from "./shared";
+import { clockDuration, miniModuleOn, Sheet, useClock, type Action, type HomeData, type Toast } from "./shared";
 import { haptic, shareText, useHomeScreen } from "./tg";
 import { forwardMinutes, shiftMinutes } from "@/lib/shift-time";
 
@@ -275,9 +275,15 @@ export function MiniHome({
       <div className="mp-group-title">Bo‘limlar</div>
       <nav className="mh-menu" aria-label="Bo‘limlar">
         <MenuRow icon={<CalendarRange size={19} />} tone="blue" title="Ish grafigim" hint="Qaysi kun, soat nechada" onClick={() => onNavigate({ tab: "history", view: "schedule" })} />
-        <MenuRow icon={<CalendarCheck size={19} />} tone="green" title="Ta’til so‘rash" hint="Ta’til yoki javob" onClick={() => onNavigate({ tab: "leave", view: "leave" })} />
-        <MenuRow icon={<Wallet size={19} />} tone="teal" title="Hisob varaqalar" hint="Oylik tafsiloti" onClick={() => onNavigate({ tab: "profile", section: "payslips" })} />
-        <MenuRow icon={<MessageCircleQuestion size={19} />} tone="orange" title="HR’ga savol" hint="Javob shu yerga keladi" onClick={() => onHelpdesk("questions")} />
+        {miniModuleOn(data.features, "leave") && (
+          <MenuRow icon={<CalendarCheck size={19} />} tone="green" title="Ta’til so‘rash" hint="Ta’til yoki javob" onClick={() => onNavigate({ tab: "leave", view: "leave" })} />
+        )}
+        {miniModuleOn(data.features, "payroll") && (
+          <MenuRow icon={<Wallet size={19} />} tone="teal" title="Hisob varaqalar" hint="Oylik tafsiloti" onClick={() => onNavigate({ tab: "profile", section: "payslips" })} />
+        )}
+        {miniModuleOn(data.features, "helpdesk") && (
+          <MenuRow icon={<MessageCircleQuestion size={19} />} tone="orange" title="HR’ga savol" hint="Javob shu yerga keladi" onClick={() => onHelpdesk("questions")} />
+        )}
         {data.features?.directory !== false ? (
           <MenuRow icon={<Users size={19} />} tone="indigo" title="Hamkasblar" hint="Telefon raqamlari" onClick={() => onNavigate({ tab: "profile", section: "directory" })} />
         ) : (

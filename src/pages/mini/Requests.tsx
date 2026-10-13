@@ -15,8 +15,21 @@ import { confirmNative, haptic } from "./tg";
 
 type View = "leave" | "marks" | "swap" | "dayoff" | "overtime";
 
-export function MiniRequests({ onToast, initialView, focusId }: { onToast: Toast; initialView?: View; focusId?: string }) {
-  const [view, setView] = useState<View>(initialView || "leave");
+/** Bo‘lim → modul (super admin o‘chirgan bo‘lsa tab ko‘rinmaydi). */
+const viewModule: Partial<Record<View, string>> = { leave: "leave", marks: "attendanceRequests", dayoff: "attendanceRequests" };
+
+export function MiniRequests({ onToast, initialView, focusId, off = [] }: { onToast: Toast; initialView?: View; focusId?: string; off?: string[] }) {
+  const options = (
+    [
+      ["leave", "Ta’til"],
+      ["marks", "Belgilash"],
+      ["swap", "Smena"],
+      ["dayoff", "Dam kuni"],
+      ["overtime", "Qo‘sh. ish"],
+    ] as [View, string][]
+  ).filter(([key]) => !viewModule[key] || !off.includes(viewModule[key]!));
+  const [picked, setView] = useState<View>(initialView || options[0][0]);
+  const view = options.some(([key]) => key === picked) ? picked : options[0][0];
   return (
     <div className="mini-body">
       <div className="mini-title">
@@ -24,19 +37,13 @@ export function MiniRequests({ onToast, initialView, focusId }: { onToast: Toast
         <p>Ta’til, belgilash, smena, dam olish kuni va qo‘shimcha ish</p>
       </div>
       <Seg
-        className="five"
+        className={["", "one", "two", "three", "four", "five"][options.length]}
         value={view}
         onChange={(next) => {
           haptic.select();
           setView(next);
         }}
-        options={[
-          ["leave", "Ta’til"],
-          ["marks", "Belgilash"],
-          ["swap", "Smena"],
-          ["dayoff", "Dam kuni"],
-          ["overtime", "Qo‘sh. ish"],
-        ]}
+        options={options}
       />
       {view === "leave" && <LeaveList onToast={onToast} focusId={focusId} />}
       {view === "marks" && <MarksList onToast={onToast} focusId={focusId} />}

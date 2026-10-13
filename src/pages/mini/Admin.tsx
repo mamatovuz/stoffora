@@ -187,8 +187,8 @@ export const ADMIN_ITEMS: {
 ];
 
 /** Shu rolga ruxsat etilgan bo‘limlar (saytdagi menyu bilan bir xil qoida). */
-export const adminItemsFor = (role: Role) =>
-  ADMIN_ITEMS.filter((item) => canOpenPage(role, item.path) && (!item.need || can(role, item.need)));
+export const adminItemsFor = (role: Role, disabled?: readonly string[]) =>
+  ADMIN_ITEMS.filter((item) => canOpenPage(role, item.path, disabled) && (!item.need || can(role, item.need)));
 
 const fail = (onToast: Toast) => (reason: unknown) =>
   onToast(reason instanceof Error ? reason.message : "Xatolik", "error");
@@ -210,12 +210,15 @@ export function AdminMenu({
   role,
   extra,
   onOpen,
+  disabled,
 }: {
   role: Role;
   extra: { key: string; label: string; hint: string; icon: ReactNode }[];
   onOpen: (key: string) => void;
+  /** Super admin o‘chirgan modullar. */
+  disabled?: readonly string[];
 }) {
-  const items = [...adminItemsFor(role), ...extra];
+  const items = [...adminItemsFor(role, disabled), ...extra];
   if (!items.length)
     return <div className="mini-empty">Bu bo‘limda siz uchun ish yo‘q</div>;
   // Bo‘limlar mavzu bo‘yicha guruhlanadi — 15 ta qatorli bitta ro‘yxatdan topish oson.

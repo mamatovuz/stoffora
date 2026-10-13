@@ -1,3 +1,4 @@
+import { disabledModules } from "../lib/modules";
 import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
@@ -87,7 +88,7 @@ export function createManagerAuthRouter() {
           };
           res.json({
             token: signSession(session),
-            user: { id: user.id, name: user.name, role: user.role, branchIds: user.branchIds || [], photoDataUrl: user.photoDataUrl },
+            user: { id: user.id, name: user.name, role: user.role, branchIds: user.branchIds || [], photoDataUrl: user.photoDataUrl, modules: disabledModules(company) },
             company: { id: company.id, name: company.name },
           });
         })(),

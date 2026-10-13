@@ -1,3 +1,4 @@
+import { disabledModules, moduleEnabled } from "../lib/modules";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
@@ -53,10 +54,12 @@ export function miniFeatures(db: Database, employee: Employee) {
     directory: settings.directoryEnabled !== false,
     breaks: settings.breaksEnabled === true,
     leaderboard: settings.leaderboardEnabled !== false,
-    advances: company?.payroll?.advanceRequestsEnabled !== false && employee.baseSalary > 0,
+    advances: company?.payroll?.advanceRequestsEnabled !== false && employee.baseSalary > 0 && moduleEnabled(company?.modules, "advances"),
     overtimeApproval: Boolean(company?.payroll?.overtimeRequiresApproval),
     /** Ishda bo‘lganda Telegram emoji-statusi (Premium) — server sozlamasida berilgan bo‘lsa. */
     workEmojiId: process.env.TELEGRAM_WORK_EMOJI_ID?.trim() || undefined,
+    /** Super admin o‘chirgan modullar — Mini App ularning bo‘limlarini ko‘rsatmaydi. */
+    modules: disabledModules(company),
   };
 }
 

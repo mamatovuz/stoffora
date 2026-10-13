@@ -106,7 +106,7 @@ const MiniAppPage = lazy(() =>
 function HomeRedirect() {
   const { user, loading } = useAuth();
   if (loading) return null;
-  return <Navigate to={!user ? "/login" : user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role)} replace />;
+  return <Navigate to={!user ? "/login" : user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role, user.modules)} replace />;
 }
 
 export default function App() {

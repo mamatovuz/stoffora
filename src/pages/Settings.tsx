@@ -29,6 +29,7 @@ import { CountdownConfirm } from "../components/CountdownConfirm";
 import { MobileAppsSection } from "../components/MobileAppsSection";
 import { ReportDigestSection } from "../components/ReportDigestSection";
 import { canAny } from "@/lib/permissions";
+import { settingsTabModule } from "@/lib/modules";
 
 /** Har bir tab uchun kerakli ruxsat (bo‘sh — hamma panel foydalanuvchisi). */
 const tabPermissions: Partial<Record<Tab, string[]>> = {
@@ -79,7 +80,12 @@ const tabs: [Tab, string, typeof UserRound][] = [
 export function SettingsPage() {
   const [params, setParams] = useSearchParams();
   const { user } = useAuth();
-  const allowed = tabs.filter(([key]) => !tabPermissions[key] || (user ? canAny(user.role, tabPermissions[key]!) : false));
+  // Rolga ruxsat etilgan va super admin o‘chirmagan (modul) tablar.
+  const allowed = tabs.filter(([key]) => {
+    const module = settingsTabModule(key);
+    if (module && user?.modules?.includes(module)) return false;
+    return !tabPermissions[key] || (user ? canAny(user.role, tabPermissions[key]!) : false);
+  });
   const requested = (params.get("tab") as Tab) || "profile";
   const tab = allowed.some(([key]) => key === requested) ? requested : "profile";
   return (

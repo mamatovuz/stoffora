@@ -160,6 +160,52 @@ export class BotClient {
     );
   }
 
+  /**
+   * Fayl (rasm/hujjat) — bot proksi orqali beradi (bot tokeni ko‘rinmaydi). Ikkilik javob bo‘lsa
+   * o‘zi qaytadi; JSON bo‘lsa — `data_url`/`content_base64` o‘qiladi. 10 MB dan katta fayl rad etiladi.
+   */
+  async file(path: string): Promise<{ contentType: string; body: Buffer; filename?: string }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.timeoutMs * 2);
+    let response: Response;
+    try {
+      response = await this.fetchImpl(new URL(this.baseUrl + path), {
+        headers: { authorization: `Bearer ${this.apiKey}`, "user-agent": "Staffora-Integration/1.0" },
+        signal: controller.signal,
+      });
+    } catch (error) {
+      throw new BotApiError(`Bot API bilan aloqa yo‘q: ${redact(String((error as Error)?.message || error), this.apiKey)}`, 0, "network_error");
+    } finally {
+      clearTimeout(timer);
+    }
+    const contentType = response.headers.get("content-type") || "application/octet-stream";
+    const filename = /filename="?([^";]+)"?/i.exec(response.headers.get("content-disposition") || "")?.[1];
+    const body = Buffer.from(await response.arrayBuffer());
+    if (body.length > 10 * 1024 * 1024) throw new BotApiError("Fayl juda katta.", 413, "too_large");
+    if (!contentType.includes("json")) {
+      if (!response.ok) throw new BotApiError(`Bot API xatosi (HTTP ${response.status}).`, response.status, `http_${response.status}`);
+      return { contentType, body, filename };
+    }
+    let json: { success?: boolean; data?: Record<string, unknown>; error?: { code?: string; message?: string } } | undefined;
+    try {
+      json = JSON.parse(body.toString("utf8"));
+    } catch {
+      json = undefined;
+    }
+    if (!response.ok || !json || json.success === false)
+      throw new BotApiError(
+        redact(json?.error?.message || (response.status === 403 ? "API kalitda hujjatlar ruxsati (employees:sensitive) yo‘q." : `Bot API xatosi (HTTP ${response.status}).`), this.apiKey),
+        response.status,
+        json?.error?.code || `http_${response.status}`,
+      );
+    const data = json.data || {};
+    const dataUrl = typeof data.data_url === "string" ? /^data:([^;]+);base64,(.+)$/.exec(data.data_url) : null;
+    if (dataUrl) return { contentType: dataUrl[1], body: Buffer.from(dataUrl[2], "base64"), filename };
+    if (typeof data.content_base64 === "string")
+      return { contentType: String(data.content_type || data.mime_type || "application/octet-stream"), body: Buffer.from(data.content_base64, "base64"), filename: (data.filename as string) || filename };
+    throw new BotApiError("Hujjat topilmadi.", 404, "not_found");
+  }
+
   get<T = unknown>(path: string, query?: Record<string, string | number | boolean | undefined>) {
     return this.request<T>("GET", path, { query });
   }

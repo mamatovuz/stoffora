@@ -10,7 +10,7 @@ import { MiniDocuments, MiniPayslips } from "../MiniExtras";
 import type { MiniPrefs } from "../miniPrefs";
 import type { BioInfo } from "./biometric";
 import { biometricLabel } from "./biometric";
-import { PhotoAvatar, type HomeData, type Toast } from "./shared";
+import { miniModuleOn, PhotoAvatar, type HomeData, type Toast } from "./shared";
 import { confirmNative, haptic, openExternal, shareText, tg, useHomeScreen } from "./tg";
 
 /** «09:00» → «9», «09:30» → «9:30» — haftalik jadval tor ustunlarga sig‘sin. */
@@ -162,24 +162,28 @@ export function MiniProfile({
 
       <div className="mp-group-title">HR bilan aloqa</div>
       <section className="mp-group">
-        <button className="mp-row link" onClick={() => onHelpdesk("questions")}>
-          <span>
-            <MessageCircleQuestion size={15} /> HR’ga savol berish
-          </span>
-          <ChevronRight size={16} />
-        </button>
-        <button className="mp-row link" onClick={() => onHelpdesk("certificates")}>
-          <span>
-            <ScrollText size={15} /> Ma’lumotnoma (spravka) so‘rash
-          </span>
-          <ChevronRight size={16} />
-        </button>
-        <button className="mp-row link" onClick={() => onHelpdesk("feedback")}>
-          <span>
-            <Share2 size={15} /> Taklif yoki shikoyat (anonim mumkin)
-          </span>
-          <ChevronRight size={16} />
-        </button>
+        {miniModuleOn(features, "helpdesk") && (
+          <>
+            <button className="mp-row link" onClick={() => onHelpdesk("questions")}>
+              <span>
+                <MessageCircleQuestion size={15} /> HR’ga savol berish
+              </span>
+              <ChevronRight size={16} />
+            </button>
+            <button className="mp-row link" onClick={() => onHelpdesk("certificates")}>
+              <span>
+                <ScrollText size={15} /> Ma’lumotnoma (spravka) so‘rash
+              </span>
+              <ChevronRight size={16} />
+            </button>
+            <button className="mp-row link" onClick={() => onHelpdesk("feedback")}>
+              <span>
+                <Share2 size={15} /> Taklif yoki shikoyat (anonim mumkin)
+              </span>
+              <ChevronRight size={16} />
+            </button>
+          </>
+        )}
         <button className="mp-row link" onClick={onBirthdays}>
           <span>
             <Cake size={15} /> Tug‘ilgan kunlar
@@ -213,9 +217,11 @@ export function MiniProfile({
         </>
       )}
 
-      <div ref={payslipsRef}>
-        <MiniPayslips onToast={onToast} focusMonth={section === "payslips" ? focusId : undefined} />
-      </div>
+      {miniModuleOn(features, "payroll") && (
+        <div ref={payslipsRef}>
+          <MiniPayslips onToast={onToast} focusMonth={section === "payslips" ? focusId : undefined} />
+        </div>
+      )}
       <div ref={docsRef}>
         <MiniDocuments onToast={onToast} />
       </div>

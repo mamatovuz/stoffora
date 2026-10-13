@@ -1,3 +1,4 @@
+import { companyModuleEnabled } from "../modules";
 import { readDb, updateDb } from "../../lib/store";
 import type { Integration } from "../../lib/types";
 import { BotApiError } from "./client";
@@ -58,7 +59,8 @@ export async function runWorkerOnce(options: { force?: boolean } = {}) {
   try {
     await processOutbox();
     const db = await readDb();
-    const active = db.integrations.filter((i) => i.status !== "DISCONNECTED");
+    // Super admin «Integratsiyalar» modulini o‘chirgan kompaniyalar sinxronlanmaydi.
+    const active = db.integrations.filter((i) => i.status !== "DISCONNECTED" && companyModuleEnabled(db, i.companyId, "integrations"));
     for (const integration of active) {
       const interval = integration.settings.pollIntervalSeconds;
       // Webhook bor bo‘lsa lenta faqat zaxira sifatida (kamida 5 daqiqada) tekshiriladi; 0 — faqat qo‘lda.
@@ -87,7 +89,7 @@ export async function processOutbox(limit = 25) {
   for (const job of jobs) {
     const db = await readDb();
     const integration = db.integrations.find((i) => i.id === job.integrationId && i.companyId === job.companyId);
-    if (!integration || integration.status === "DISCONNECTED") {
+    if (!integration || integration.status === "DISCONNECTED" || !companyModuleEnabled(db, job.companyId, "integrations")) {
       await postponeOutbox(job.id, 3600_000);
       continue;
     }
@@ -306,9 +308,17 @@ async function refreshDeliveries() {
     const integration = db.integrations.find((i) => i.id === row.integrationId);
     if (!integration || integration.status === "DISCONNECTED") continue;
     try {
-      const { data } = await clientFor(integration).get<{ status: string; error?: string }>(`/notifications/${row.externalId}`);
+      const { data } = await clientFor(integration).get<{ status: string; error?: string; permanent_failure?: boolean; next_attempt_at?: string | null }>(
+        `/notifications/${row.externalId}`,
+      );
       if (data.status === "sent") await setDeliveryStatus(row.id, "SENT");
-      else if (data.status === "failed") await setDeliveryStatus(row.id, "FAILED", data.error || "Telegram xabarni qabul qilmadi");
+      else if (data.status === "failed")
+        // Bot o‘zi 5 marta qayta urinadi; doimiy xato (botni bloklagan, chat yo‘q) — tushunarli matn.
+        await setDeliveryStatus(
+          row.id,
+          "FAILED",
+          data.permanent_failure ? `Xodim botni bloklagan yoki chat topilmadi${data.error ? ` (${data.error})` : ""}` : data.error || "Telegram xabarni qabul qilmadi",
+        );
       else if (Date.now() - Date.parse(row.createdAt) > 24 * 3600_000)
         await setDeliveryStatus(row.id, "FAILED", "Bot 24 soat ichida yubormadi");
       else await touchDelivery(row.id);

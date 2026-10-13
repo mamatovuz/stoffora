@@ -1,3 +1,4 @@
+import { moduleEnabled, type ModuleKey } from "../lib/modules";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { dataIndexes, readDb } from "../lib/store";
 import { can, canAny } from "../lib/permissions";
@@ -249,7 +250,19 @@ export function buildInbox(db: Database, tenant: string, role: Role, scope: Set<
         decide: { method: "POST", path: `/registrations/${r.id}/approve`, rejectPath: `/registrations/${r.id}/reject`, approve: {}, reject: {} },
       });
 
-  return items.sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.createdAt.localeCompare(b.createdAt));
+  // Super admin o‘chirgan modul so‘rovlari qutida ko‘rinmaydi.
+  const modules = db.companies.find((c) => c.id === tenant)?.modules;
+  const kindModule: Partial<Record<InboxItem["kind"], ModuleKey>> = {
+    correction: "attendanceRequests",
+    dayoff: "attendanceRequests",
+    leave: "leave",
+    advance: "advances",
+    fine: "fines",
+    registration: "registrations",
+  };
+  return items
+    .filter((item) => !kindModule[item.kind] || moduleEnabled(modules, kindModule[item.kind]!))
+    .sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.createdAt.localeCompare(b.createdAt));
 }
 
 /* ================================================================ Bugun === */

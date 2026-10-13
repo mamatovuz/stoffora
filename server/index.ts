@@ -38,6 +38,8 @@ import {
   phoneKey,
 } from "../lib/format";
 import { can, canAny, homePage } from "../lib/permissions";
+import { disabledModules, isModuleKey } from "../lib/modules";
+import { moduleGuard } from "./modules";
 import { isPracticeDay } from "../lib/counting";
 import { dayPlan } from "../lib/schedule";
 import { alignDepartment, assertEmployeeCapacity, limitInfo, purgeEmployees } from "../lib/limits";
@@ -643,6 +645,8 @@ app.get(
       user: {
         ...req.session,
         companyName: db.companies.find((c) => c.id === user?.companyId)?.name,
+        // O‘chirilgan modullar — panel menyusi va sahifalar shu bo‘yicha yashiriladi.
+        modules: disabledModules(db.companies.find((c) => c.id === user?.companyId)),
         screenLock: {
           enabled: Boolean(lock?.enabled && lock.passwordHash),
           minutes: lock?.minutes || 5,
@@ -678,6 +682,8 @@ app.get("/api/file-link/:token", (req, res, next) => {
 app.use("/api", requireAuth);
 // Vaqtincha berilgan tasdiqlash vakolati (faqat tasdiqlash yo‘llarida).
 app.use("/api", delegationMiddleware());
+// Super admin o‘chirgan modullarning API yo‘llari yopiladi.
+app.use("/api", moduleGuard());
 app.post(
   "/api/file-link",
   asyncRoute(async (req, res) => {
@@ -697,7 +703,7 @@ app.use("/api", (req, res, next) => {
     if (Array.isArray(value)) return value.map(strip);
     if (value && typeof value === "object" && !(value instanceof Date)) {
       const out: Record<string, unknown> = {};
-      for (const [key, item] of Object.entries(value)) if (key !== "baseSalary") out[key] = strip(item);
+      for (const [key, item] of Object.entries(value)) if (key !== "baseSalary" && key !== "botSalary") out[key] = strip(item);
       return out;
     }
     return value;
@@ -3320,6 +3326,17 @@ app.get(
   asyncRoute(async (_req, res) => {
     const db = await readDb();
     const today = tashkentIsoDate();
+    // Kompaniya bo‘yicha bugungi qaydlar va oxirgi faollik (davomat yoki audit).
+    const eventsToday = new Map<string, number>();
+    const lastActivity = new Map<string, string>();
+    const touch = (companyId: string, at?: string) => {
+      if (at && at > (lastActivity.get(companyId) || "")) lastActivity.set(companyId, at);
+    };
+    for (const a of db.attendance) {
+      if (a.date === today) eventsToday.set(a.companyId, (eventsToday.get(a.companyId) || 0) + 1);
+      touch(a.companyId, a.updatedAt || a.date);
+    }
+    for (const log of db.auditLogs) touch(log.companyId, log.createdAt);
     res.json({
       stats: {
         companies: db.companies.length,
@@ -3329,18 +3346,27 @@ app.get(
         eventsToday: db.attendance.filter((a) => a.date === today).length,
       },
       telegram: getTelegramBotState(),
-      companies: db.companies.map((c) => ({
-        ...c,
-        employees: db.employees.filter(
-          (e) => e.companyId === c.id && e.status === "ACTIVE",
-        ).length,
-        bot: undefined,
-        registrationForm: undefined,
-        branches: db.branches.filter((b) => b.companyId === c.id).length,
-        owner: db.users.find(
-          (u) => u.companyId === c.id && u.role === "COMPANY_OWNER",
-        )?.email,
-      })),
+      companies: db.companies.map((c) => {
+        const integration = activeIntegration(db, c.id);
+        return {
+          ...c,
+          employees: db.employees.filter(
+            (e) => e.companyId === c.id && e.status === "ACTIVE",
+          ).length,
+          bot: undefined,
+          botStatus: c.bot?.enabled ? c.bot.status || "STOPPED" : undefined,
+          registrationForm: undefined,
+          branches: db.branches.filter((b) => b.companyId === c.id).length,
+          users: db.users.filter((u) => u.companyId === c.id).length,
+          owner: db.users.find(
+            (u) => u.companyId === c.id && u.role === "COMPANY_OWNER",
+          )?.email,
+          integrationStatus: integration?.status,
+          eventsToday: eventsToday.get(c.id) || 0,
+          lastActivity: lastActivity.get(c.id),
+          disabledModules: disabledModules(c),
+        };
+      }),
     });
   }),
 );
@@ -3392,20 +3418,92 @@ app.patch(
         // null — cheklovsiz
         employeeLimit: z.union([z.coerce.number().int().min(1).max(1_000_000), z.null()]).optional(),
         limitContact: z.string().trim().max(80).optional(),
+        name: z.string().trim().min(2).max(120).optional(),
+        adminNote: z.string().trim().max(1000).optional(),
+        // Faqat ma’lum modul kalitlari: true — yoqilgan, false — o‘chirilgan.
+        modules: z
+          .record(z.boolean())
+          .refine((value) => Object.keys(value).every(isModuleKey), "Noma’lum modul.")
+          .optional(),
       })
       .parse(req.body);
     const row = await updateDb((db) => {
       const company = db.companies.find((c) => c.id === req.params.id);
       if (!company) throw httpError("Kompaniya topilmadi.", 404);
-      const before = { plan: company.plan, status: company.status, employeeLimit: company.employeeLimit };
-      const { employeeLimit, limitContact, ...rest } = input;
+      const before = { plan: company.plan, status: company.status, employeeLimit: company.employeeLimit, modules: disabledModules(company) };
+      const { employeeLimit, limitContact, modules, adminNote, ...rest } = input;
       Object.assign(company, rest);
       if (employeeLimit !== undefined) company.employeeLimit = employeeLimit ?? undefined;
       if (limitContact !== undefined) company.limitContact = limitContact || undefined;
-      db.auditLogs.unshift(audit(company.id, req.session!.name, "Super admin tarifni o‘zgartirdi", "company", company.id, before, { plan: company.plan, status: company.status, employeeLimit: company.employeeLimit }));
-      return { ...company, bot: undefined, registrationForm: undefined };
+      if (adminNote !== undefined) company.adminNote = adminNote || undefined;
+      if (modules) {
+        // Faqat o‘chirilganlar saqlanadi — keyin qo‘shiladigan yangi modullar avtomatik yoqilgan bo‘ladi.
+        const next = { ...(company.modules || {}), ...modules };
+        const off = Object.fromEntries(Object.entries(next).filter(([key, on]) => isModuleKey(key) && on === false));
+        company.modules = Object.keys(off).length ? off : undefined;
+      }
+      const after = { plan: company.plan, status: company.status, employeeLimit: company.employeeLimit, modules: disabledModules(company) };
+      const action = modules ? "Super admin modullarni o‘zgartirdi" : "Super admin kompaniya sozlamasini o‘zgartirdi";
+      db.auditLogs.unshift(audit(company.id, req.session!.name, action, "company", company.id, before, after));
+      return { ...company, bot: undefined, registrationForm: undefined, disabledModules: disabledModules(company) };
     });
     res.json(row);
+  }),
+);
+
+// Kompaniya tafsiloti: foydalanuvchilar, integratsiya, bot, so‘nggi audit.
+app.get(
+  "/api/admin/companies/:id",
+  requireRole("SUPER_ADMIN"),
+  asyncRoute(async (req, res) => {
+    const db = await readDb();
+    const company = db.companies.find((c) => c.id === req.params.id);
+    if (!company) throw httpError("Kompaniya topilmadi.", 404);
+    const employees = db.employees.filter((e) => e.companyId === company.id);
+    const integration = activeIntegration(db, company.id);
+    const from = tashkentIsoDate(new Date(Date.now() - 6 * 86_400_000));
+    res.json({
+      company: { ...company, bot: undefined, registrationForm: undefined },
+      disabledModules: disabledModules(company),
+      counts: {
+        active: employees.filter((e) => e.status === "ACTIVE").length,
+        dismissed: employees.filter((e) => e.status === "DISMISSED").length,
+        branches: db.branches.filter((b) => b.companyId === company.id).length,
+        telegram: employees.filter((e) => e.status === "ACTIVE" && e.telegramConnected).length,
+        face: employees.filter((e) => e.status === "ACTIVE" && e.faceEnrolledAt).length,
+        attendance7d: db.attendance.filter((a) => a.companyId === company.id && a.date >= from).length,
+      },
+      users: db.users
+        .filter((u) => u.companyId === company.id)
+        .map((u) => ({ id: u.id, name: u.name, email: u.email, role: u.role })),
+      bot: company.bot
+        ? { enabled: company.bot.enabled, username: company.bot.username, status: company.bot.status, lastError: company.bot.lastError }
+        : undefined,
+      integration: integration
+        ? { status: integration.status, baseUrl: integration.baseUrl, lastSyncAt: integration.lastSyncAt, lastError: integration.lastError }
+        : undefined,
+      audit: db.auditLogs.filter((log) => log.companyId === company.id).slice(0, 15),
+    });
+  }),
+);
+// Egasi parolni unutgan: vaqtinchalik parol bir marta ko‘rsatiladi, eski sessiyalar yopiladi.
+app.post(
+  "/api/admin/companies/:id/reset-owner-password",
+  requireRole("SUPER_ADMIN"),
+  asyncRoute(async (req, res) => {
+    const alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+    const password = Array.from({ length: 12 }, () => alphabet[randomInt(alphabet.length)]).join("");
+    const passwordHash = await bcrypt.hash(password, 12);
+    const owner = await updateDb((db) => {
+      const user = db.users.find((u) => u.companyId === String(req.params.id) && u.role === "COMPANY_OWNER");
+      if (!user) throw httpError("Kompaniya egasi topilmadi.", 404);
+      user.passwordHash = passwordHash;
+      const now = new Date().toISOString();
+      for (const row of db.panelSessions) if (row.userId === user.id && !row.revokedAt) row.revokedAt = now;
+      db.auditLogs.unshift(audit(String(req.params.id), req.session!.name, "Super admin egasining parolini tikladi", "user", user.id));
+      return { email: user.email, name: user.name };
+    });
+    res.json({ ...owner, password });
   }),
 );
 

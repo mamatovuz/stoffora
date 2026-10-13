@@ -62,6 +62,7 @@ import {
   tashkentIsoDate,
 } from "@/lib/format";
 import type { Attendance, AuditLog, Branch, Employee, LeaveRequest } from "@/lib/types";
+import { BotProfileTab } from "../components/BotProfile";
 import { leaveTypeLabel, verificationLabel, weekdayShort, weekOrder, type Meta } from "../types";
 
 type EmployeeListRow = Employee & { todayAttendance?: Attendance };
@@ -803,12 +804,15 @@ export function EmployeeProfilePage() {
   const dismissed = e.status === "DISMISSED" || e.status === "ARCHIVED";
   const month = tashkentIsoDate().slice(0, 7);
   const monthRows = data.attendance.filter((a) => a.date.startsWith(month));
+  const off = user?.modules || [];
   const tabs = [
     ["overview", "Umumiy"],
     ["attendance", `Davomat (${data.attendance.length})`],
-    ["leave", `Ta’til (${data.leave.length})`],
+    ...(off.includes("leave") ? [] : [["leave", `Ta’til (${data.leave.length})`]]),
     ["documents", "Hujjatlar"],
     ["connect", "Telegram, Face ID, telefon"],
+    // Xodimlar boti (integratsiya) orqali kelgan anketa, sinov, oylik va moliya.
+    ...(!off.includes("integrations") && (e.botProfile || e.telegramIdSource === "INTEGRATION") ? [["bot", "Xodimlar boti"]] : []),
     ["lifecycle", "Tarix va onboarding"],
     ["activity", "Faoliyat"],
   ];
@@ -1007,6 +1011,7 @@ export function EmployeeProfilePage() {
             )}
             {tab === "attendance" && <AttendanceTable rows={data.attendance} />}
             {tab === "documents" && <DocumentsPanel employeeId={e.id} canEdit={canEditDocs} />}
+            {tab === "bot" && <BotProfileTab employeeId={e.id} canEdit={canEditDocs} />}
             {tab === "lifecycle" && <LifecyclePanel employee={e} branches={meta?.branches || []} />}
             {tab === "leave" &&
               (data.leave.length ? (

@@ -33,7 +33,8 @@ export function SetupChecklist({ data }: { data: SetupData }) {
     }
   });
   const setup = data.setup;
-  const steps = [
+  const off = user?.modules || [];
+  const allSteps = [
     {
       done: setup.schedules > 0,
       title: "Ish grafigini yarating",
@@ -68,6 +69,7 @@ export function SetupChecklist({ data }: { data: SetupData }) {
       text: "Xodimlar botda anketa to‘ldirib o‘zlari qo‘shiladi",
       to: "/settings?tab=regbot",
       icon: Bot,
+      module: "registrations",
     },
     {
       done: setup.employees > 0 && setup.telegramLinked > 0,
@@ -84,6 +86,7 @@ export function SetupChecklist({ data }: { data: SetupData }) {
       text: "Kechikish jarimasi, qo‘shimcha ish, kelmaslik ushlanmasi",
       to: "/settings?tab=payroll",
       icon: Wallet,
+      module: "payroll",
     },
     {
       done: setup.employees > 0 && setup.salaries >= setup.employees,
@@ -91,8 +94,11 @@ export function SetupChecklist({ data }: { data: SetupData }) {
       text: `${setup.salaries} / ${setup.employees} xodimning oyligi kiritilgan`,
       to: "/payroll",
       icon: Banknote,
+      module: "payroll",
     },
   ];
+  // Super admin o‘chirgan modul qadamlari ko‘rsatilmaydi.
+  const steps = allSteps.filter((step) => !("module" in step && step.module && off.includes(step.module)));
   const setupDone = steps.filter((step) => step.done).length;
   const canSetup = user?.role === "COMPANY_OWNER" || user?.role === "HR_ADMIN";
   const hideSetup = hiddenAt !== null && hiddenAt >= setupDone;

@@ -76,11 +76,46 @@ export interface RemoteEmployee {
   employment_status?: string | null;
   hired_at?: string | null;
   schedule?: { work_hours?: string | null; rest_day?: string | null; shift?: string | null };
+  /** Bot API 2026-10: ism qismlari alohida (bo‘lmasa full_name bo‘linadi). */
+  first_name?: string | null;
+  last_name?: string | null;
+  middle_name?: string | null;
+  /** Telegram profilidagi ism (botdagi ko‘rinishi). */
+  telegram_name?: string | null;
+  gender?: string | null;
+  /** Botdagi anketa: shahar, tuman, oilaviy holat, farzandlar, tillar, kompyuter, tajriba… */
+  questionnaire?: Record<string, unknown> | null;
+  /** Sinov / o‘rganuvchi muddati. */
+  probation?: Record<string, unknown> | null;
+  updated_by_self_at?: string | null;
   /** Faqat kalitda employees:salary ruxsati bo‘lsa keladi. */
-  salary?: { monthly_salary?: string | number | null; currency?: string } | null;
+  salary?: RemoteSalary | null;
+  /** Qisqa maosh (so‘m, int) — salary.amount bilan bir xil. */
+  monthly_salary?: number | string | null;
   created_at?: string | null;
   updated_at?: string | null;
   [key: string]: unknown;
+}
+export interface RemoteSalary {
+  /** Botdagi erkin matn: «4 mln», «3 000 000 so‘m». */
+  monthly_salary?: string | number | null;
+  /** Bot o‘qigan summa (so‘m). */
+  amount?: number | null;
+  currency?: string;
+  is_set?: boolean;
+  /** profile | probation | application | registration */
+  source?: string | null;
+  /** Joriy oy: amount − jarima − avans − dori − KPI (botdagi «🧮 Yakuniy oylik»). */
+  current_month?: {
+    period?: string;
+    amount?: number;
+    fines?: number;
+    advances?: number;
+    medicines?: number;
+    kpi?: number;
+    final_amount?: number;
+    [key: string]: unknown;
+  } | null;
 }
 export interface RemoteAttendance {
   id: number;
@@ -233,8 +268,63 @@ export function positionFromRemote(remote: RemotePosition): Partial<Position> {
   return { name: text(remote.name) || `Lavozim #${remote.id}` };
 }
 
+/** Botdan kelgan maosh (so‘m): avval aniq raqam, keyin matn o‘qiladi; is_set=false — yo‘q. */
+export function salaryFromRemote(remote: RemoteEmployee) {
+  const salary = remote.salary;
+  if (salary?.is_set === false) return undefined;
+  return (
+    parseSalary(typeof salary?.amount === "number" ? salary.amount : undefined) ??
+    parseSalary(remote.monthly_salary) ??
+    parseSalary(salary?.monthly_salary)
+  );
+}
+
+const genderMap: Record<string, string> = { male: "MALE", m: "MALE", erkak: "MALE", female: "FEMALE", f: "FEMALE", ayol: "FEMALE" };
+
+/**
+ * Bot’dagi qo‘shimcha (faqat o‘qiladigan) ma’lumot — xodim profilidagi «Xodimlar boti» bo‘limi uchun.
+ * Maoshga oid qismlar `botSalary` ga ajratiladi (panelda moliya huquqi bo‘lmaganlarga ko‘rinmaydi).
+ */
+export function botProfileFromRemote(remote: RemoteEmployee): NonNullable<Employee["botProfile"]> {
+  const questionnaire: Record<string, unknown> = {};
+  const salaryNotes: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(remote.questionnaire || {})) {
+    if (value === null || value === undefined || value === "") continue;
+    (/salary|oylik|maosh/i.test(key) ? salaryNotes : questionnaire)[key] = value;
+  }
+  const salary = remote.salary;
+  const amount = salaryFromRemote(remote);
+  return {
+    remoteId: remote.id,
+    telegramName: text(remote.telegram_name) || undefined,
+    role: remote.role_label || remote.role || undefined,
+    position: text(remote.position) || undefined,
+    employmentStatus: remote.employment_status || undefined,
+    questionnaire: Object.keys(questionnaire).length ? questionnaire : undefined,
+    probation: remote.probation && Object.keys(remote.probation).length ? remote.probation : undefined,
+    updatedBySelfAt: remote.updated_by_self_at || undefined,
+    botSalary:
+      salary || amount || Object.keys(salaryNotes).length
+        ? {
+            text: salary?.monthly_salary !== undefined && salary?.monthly_salary !== null ? String(salary.monthly_salary) : undefined,
+            amount,
+            isSet: salary?.is_set ?? Boolean(amount),
+            source: salary?.source || undefined,
+            currentMonth: salary?.current_month || undefined,
+            questionnaire: Object.keys(salaryNotes).length ? salaryNotes : undefined,
+          }
+        : undefined,
+    syncedAt: new Date().toISOString(),
+  };
+}
+
 export function employeeFromRemote(remote: RemoteEmployee): Partial<Employee> {
-  const name = splitFullName(remote.full_name);
+  const split = splitFullName(remote.full_name);
+  // Bot ism qismlarini alohida bersa — o‘shalar ishonchliroq (qo‘sh familiya, otasining ismi).
+  const name =
+    text(remote.first_name) || text(remote.last_name)
+      ? { firstName: text(remote.first_name) || split.firstName, lastName: text(remote.last_name), middleName: text(remote.middle_name) || undefined }
+      : split;
   const telegramId = remote.telegram_id ? String(remote.telegram_id) : undefined;
   return {
     firstName: name.firstName,
@@ -247,7 +337,8 @@ export function employeeFromRemote(remote: RemoteEmployee): Partial<Employee> {
     telegramUsername: remote.telegram_username || undefined,
     telegramId,
     status: remote.status === "blocked" ? "INACTIVE" : "ACTIVE",
-    baseSalary: parseSalary(remote.salary?.monthly_salary),
+    gender: genderMap[text(remote.gender).toLowerCase()],
+    baseSalary: salaryFromRemote(remote),
   };
 }
 

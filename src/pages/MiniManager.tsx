@@ -362,7 +362,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
     ...(canMoney ? [{ key: "money", label: "Moliya, avans va jarimalar", hint: "oy xulosasi, avans to‘lash", icon: <HandCoins size={18} /> }] : []),
     ...(canDevices ? [{ key: "devices", label: "Telefonlar (qurilmalar)", hint: "ulash, almashtirish, o‘chirish", icon: <LogIn size={18} /> }] : []),
   ];
-  const hasAdmin = adminExtra.length > 0 || adminItemsFor(role).length > 0;
+  const hasAdmin = adminExtra.length > 0 || adminItemsFor(role, auth.user.modules).length > 0;
   const tabs = [
     ["desk", "Umumiy", 0] as const,
     ...(canAttendance ? ([["today", "Davomat", 0]] as const) : []),
@@ -503,6 +503,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
         ) : (
           <AdminMenu
             role={role}
+            disabled={auth.user.modules}
             extra={adminExtra}
             onOpen={(key) => {
               if (ADMIN_ITEMS.some((i) => i.key === key)) setAdminScreen(key as AdminKey);

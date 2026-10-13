@@ -15,7 +15,11 @@ export type MiniFeatures = {
   advances: boolean;
   overtimeApproval: boolean;
   workEmojiId?: string;
+  /** Super admin o‘chirgan modullar (lib/modules.ts kalitlari). */
+  modules?: string[];
 };
+/** Mini App’da modul yoqilganmi (ma’lumot kelmagan bo‘lsa — yoqilgan). */
+export const miniModuleOn = (features: MiniFeatures | undefined, key: string) => !features?.modules?.includes(key);
 export type LateNoticeInfo = { id: string; minutes: number; reason: string; createdAt: string };
 
 export type HomeData = {
