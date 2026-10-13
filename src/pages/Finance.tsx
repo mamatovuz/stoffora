@@ -637,8 +637,8 @@ export function ReportsPage() {
       csv: `/api/reports/attendance.csv?from=${from}&to=${to}&type=late`,
     },
     {
-      name: "Ish haqi vedomosti",
-      desc: `${monthYearUz(`${from.slice(0, 7)}-15`)} uchun: ish kuni, soat, qo‘shimcha ish, ushlanma, imzo ustuni.`,
+      name: "Ish haqi qaydnomasi",
+      desc: `${monthYearUz(`${from.slice(0, 7)}-15`)} uchun: oklad, qo‘shimcha ish, mukofot, ushlanmalar, avans, qo‘lga beriladigan summa, imzo ustuni va imzo joylari.`,
       icon: FileSpreadsheet,
       xlsx: `/api/reports/payroll.xlsx?month=${from.slice(0, 7)}`,
       csv: `/api/reports/payroll.csv?month=${from.slice(0, 7)}`,

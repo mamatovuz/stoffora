@@ -49,7 +49,7 @@ export function workflowOf(db: Database, companyId: string, month: string): Payr
   return { id: "", companyId, month, stage: closedPeriod(db, companyId, month) ? "APPROVED" : "CALCULATING", history: [] };
 }
 
-/** Oyni muzlatadi (vedomost qatorlari saqlanadi). updateDb ichida. */
+/** Oyni muzlatadi (qaydnoma qatorlari saqlanadi). updateDb ichida. */
 export function freezeMonth(db: Database, tenant: string, month: string, actor: string): PayrollPeriod {
   if (closedPeriod(db, tenant, month)) throw httpError(`${monthLabel(month)} allaqachon yopilgan.`, 409);
   const positions = new Map(db.positions.map((p) => [p.id, p.name]));

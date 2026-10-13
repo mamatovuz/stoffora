@@ -4,6 +4,7 @@ import { dataIndexes, readDb } from "../lib/store";
 import { dateParts, tashkentIsoDate } from "../lib/format";
 import type { Attendance, Database, Employee } from "../lib/types";
 import { attendanceKpi, calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
+import { monthLabel } from "./payroll-routes";
 import { countedRecords, isPracticeDay } from "../lib/counting";
 import { dayPlan, workingDaysInMonth } from "../lib/schedule";
 import {
@@ -354,50 +355,76 @@ export function registerExcelReports(
       const company = db.companies.find((c) => c.id === tenant)?.name || "Kompaniya";
       const rows = payrollRows(db, tenant, month);
       const total = rows.reduce((s, r) => s + r.net, 0);
+      const settings = normalizePayrollSettings(db.companies.find((c) => c.id === tenant)?.payroll);
+      const sumOf = (pick: (r: (typeof rows)[number]) => number) => rows.reduce((s, r) => s + pick(r), 0);
+      const lookup = <T extends { id: string; name: string }>(list: T[], id?: string) => list.find((x) => x.id === id)?.name || "";
       const workbook = createWorkbook();
       addTableSheet(workbook, {
-        name: "Ish haqi",
-        title: `Ish haqi vedomosti — ${month.slice(5)}.${month.slice(0, 4)}`,
-        subtitle: `${company}  ·  ${penaltyText(normalizePayrollSettings(db.companies.find((c) => c.id === tenant)?.payroll))}  ·  Tayyorlandi: ${stamp()}`,
+        name: "Ish haqi qaydnomasi",
+        title: `Ish haqi qaydnomasi — ${monthLabel(month)}`,
+        subtitle: `${company}  ·  ${penaltyText(settings)}  ·  Tayyorlandi: ${stamp()}`,
         kpis: [
           { label: "Xodimlar", value: rows.length, tone: "blue" },
-          { label: "Jami to‘lov (so‘m)", value: total.toLocaleString("ru-RU"), tone: "green" },
-          { label: "Kechikish ushlanmasi (so‘m)", value: rows.reduce((s, r) => s + r.deduction, 0).toLocaleString("ru-RU"), tone: "amber" },
-          { label: "O‘rtacha KPI", value: rows.length ? Math.round(rows.reduce((s, r) => s + r.kpi.score, 0) / rows.length) : 0, tone: "violet" },
+          { label: "Hisoblangan", value: sumOf((r) => r.gross), tone: "violet", type: "money" },
+          { label: "Ushlanmalar", value: sumOf((r) => r.deduction + r.absenceDeduction + r.fine), tone: "amber", type: "money" },
+          { label: "Qo‘lga beriladi", value: total, tone: "green", type: "money" },
         ],
         columns: [
-          { header: "Xodim", key: "name", width: 24 },
-          { header: "ID", key: "no", width: 10, align: "center" },
-          { header: "Ish kuni", key: "days", type: "number", width: 9, total: "sum" },
-          { header: "Kelmadi", key: "absent", type: "number", width: 9, total: "sum" },
-          { header: "Kechikish (daq)", key: "late", type: "number", width: 12, total: "sum" },
+          { header: "№", key: "n", width: 5, align: "center" },
+          { header: "F.I.Sh.", key: "name", width: 26 },
+          { header: "Tabel №", key: "no", width: 9, align: "center" },
+          { header: "Filial", key: "branch", width: 15 },
+          { header: "Lavozim", key: "position", width: 16 },
+          { header: "Ish kuni", key: "days", type: "number", width: 8, total: "sum" },
+          { header: "Kelmadi", key: "absent", type: "number", width: 8, total: "sum" },
+          { header: "Kechikish (daq)", key: "late", type: "number", width: 10, total: "sum" },
+          { header: "Oklad", key: "base", type: "money", width: 15, total: "sum" },
+          { header: "Qo‘shimcha ish", key: "overtime", type: "money", width: 14, total: "sum" },
+          { header: "Mukofot", key: "bonus", type: "money", width: 13, total: "sum" },
+          { header: "Kechikish ushlanmasi", key: "deduction", type: "money", width: 14, total: "sum" },
+          { header: "Kelmaganlik ushlanmasi", key: "absence", type: "money", width: 14, total: "sum" },
+          { header: "Jarima", key: "fine", type: "money", width: 13, total: "sum" },
+          { header: "Hisoblangan", key: "gross", type: "money", width: 15, total: "sum" },
+          { header: "Avans", key: "advance", type: "money", width: 13, total: "sum" },
+          { header: "Qo‘lga beriladi", key: "net", type: "money", width: 16, total: "sum" },
           { header: "KPI", key: "kpi", type: "status", width: 9 },
-          { header: "Bazaviy oylik", key: "base", type: "money", width: 16, total: "sum" },
-          { header: "Qo‘shimcha ish", key: "overtime", type: "money", width: 15, total: "sum" },
-          { header: "Ushlanma", key: "deduction", type: "money", width: 14, total: "sum" },
-          { header: "To‘lanadi", key: "net", type: "money", width: 17, total: "sum" },
-          { header: "Izoh", key: "why", width: 60 },
-          { header: "Imzo", key: "sign", width: 12 },
+          { header: "Imzo", key: "sign", width: 13 },
+          { header: "Izoh", key: "why", width: 54, wrap: true },
         ],
-        rows: rows.map((r) => ({
-          name: `${r.employee.firstName} ${r.employee.lastName}`,
+        rows: rows.map((r, i) => ({
+          n: i + 1,
+          name: `${r.employee.lastName} ${r.employee.firstName}`.trim(),
           no: r.employee.employeeNo,
+          branch: lookup(db.branches, r.employee.branchId),
+          position: lookup(db.positions, r.employee.positionId),
           days: r.days,
           absent: r.absentDays || null,
           late: r.lateMinutes || null,
+          base: r.base,
+          overtime: r.overtimeAmount || null,
+          bonus: r.bonus || null,
+          deduction: r.deduction || null,
+          absence: r.absenceDeduction || null,
+          fine: r.fine || null,
+          gross: r.gross,
+          advance: r.advance || null,
+          net: r.net,
           kpi: {
             text: `${r.kpi.score} · ${r.kpi.grade}`,
             tone: r.kpi.score >= 90 ? "green" : r.kpi.score >= 75 ? "blue" : r.kpi.score >= 60 ? "amber" : "red",
           },
-          base: r.base,
-          overtime: r.overtimeAmount || null,
-          deduction: r.deduction || null,
-          net: r.net,
-          why: r.explanation,
           sign: "",
+          why: r.explanation,
         })),
+        totalsLabel: "JAMI",
+        emptyText: "Faol xodimlar yo‘q",
+        notes: [
+          "Hisoblangan = oklad + qo‘shimcha ish + mukofot − kechikish va kelmaganlik ushlanmalari − jarima. Qo‘lga beriladi = hisoblangan − avans.",
+          "Rad etilgan yoki tasdiq kutayotgan jarimalar hisobga kirmaydi.",
+        ],
+        signatures: ["Tuzdi (hisobchi)", "Bosh hisobchi", "Rahbar"],
       });
-      await sendWorkbook(res, workbook, `staffora-ish-haqi-${month}.xlsx`);
+      await sendWorkbook(res, workbook, `staffora-ish-haqi-qaydnomasi-${month}.xlsx`);
     }),
   );
 

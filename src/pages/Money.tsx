@@ -755,7 +755,7 @@ export function FinancePage() {
           <>
             <MonthPicker value={month} onChange={setMonth} />
             <a className="btn" href={`/api/reports/payroll.xlsx?month=${month}`} download>
-              <Download size={16} /> Vedomost (Excel)
+              <Download size={16} /> Ish haqi qaydnomasi (Excel)
             </a>
           </>
         }
@@ -841,7 +841,7 @@ export function FinancePage() {
                   </div>
                 ))}
               </div>
-              <p className="hint">Yopilgan oylar — muzlatilgan vedomost bo‘yicha; joriy oy — bugungacha.</p>
+              <p className="hint">Yopilgan oylar — muzlatilgan qaydnoma bo‘yicha; joriy oy — bugungacha.</p>
             </section>
           </div>
         </>

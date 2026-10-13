@@ -1302,7 +1302,7 @@ function ReportsScreen({ role }: { role: Role }) {
       [
         { key: "att", name: "Davomat", desc: "Har kun: kelish, ketish, kechikish, soat", path: `/reports/attendance.xlsx?from=${from}&to=${to}`, need: ["reports.view", "attendance.view"] },
         { key: "late", name: "Kechikishlar", desc: "Faqat kechikkan kunlar", path: `/reports/attendance.xlsx?from=${from}&to=${to}&type=late`, need: ["reports.view", "attendance.view"] },
-        { key: "pay", name: "Ish haqi vedomosti", desc: "Ish kuni, ushlanma, qo‘lga", path: `/reports/payroll.xlsx?month=${period}`, need: ["payroll.view", "reports.view"] },
+        { key: "pay", name: "Ish haqi qaydnomasi", desc: "Ish kuni, ushlanma, qo‘lga", path: `/reports/payroll.xlsx?month=${period}`, need: ["payroll.view", "reports.view"] },
         { key: "t13", name: "T-13 tabel", desc: "Buxgalteriya uchun standart tabel", path: `/reports/t13.xlsx?month=${period}`, need: ["payroll.view", "reports.view", "employees.edit"] },
         { key: "bank", name: "Bank uchun ro‘yxat", desc: "F.I.Sh, karta, summa (CSV)", path: `/payroll/${period}/bank.csv`, need: ["payroll.edit"] },
         { key: "emp", name: "Xodimlar ro‘yxati", desc: "Filial, lavozim, grafik, Telegram", path: "/reports/employees.xlsx", need: ["reports.view", "employees.view"] },

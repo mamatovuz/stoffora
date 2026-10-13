@@ -30,6 +30,9 @@ import {
   Inbox,
   Wallet,
   LayoutDashboard,
+  Sun,
+  Moon,
+  MonitorSmartphone,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -41,6 +44,7 @@ import { CommandPalette } from "./CommandPalette";
 import { api } from "../api";
 import { useApi, usePolling } from "../hooks";
 import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
+import { useTheme, type ThemePref } from "../theme";
 
 /**
  * Menyu — 12 ta band. Bir bandga tegishli sahifalar (masalan, Moliya: xulosa, ish haqi,
@@ -149,6 +153,7 @@ export function Shell() {
   });
   const [mobile, setMobile] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const { theme, pref: themePref, choose: chooseTheme, toggle: toggleTheme } = useTheme();
   const [scrolled, setScrolled] = useState(false);
   const { data: company } = useApi<Company>("/company");
   const { data: notifications, reload: reloadNotifications } =
@@ -366,6 +371,16 @@ export function Shell() {
           <CommandPalette open={palette} onClose={() => setPalette(false)} pages={visibleMenu.flatMap((item) => item.tabs.map(([path]) => [path, pageNames[path]] as [string, string]))} />
           <div className="top-actions">
             <button
+              type="button"
+              className={`icon-btn theme-toggle ${theme === "dark" ? "is-dark" : ""}`}
+              aria-label={theme === "dark" ? "Yorug‘ rejimga o‘tish" : "Tungi rejimga o‘tish"}
+              title={theme === "dark" ? "Yorug‘ rejim" : "Tungi rejim"}
+              onClick={toggleTheme}
+            >
+              <Sun size={18} className="tt-sun" />
+              <Moon size={18} className="tt-moon" />
+            </button>
+            <button
               className="lang-toggle"
               data-no-translate
               title={lang === "uz" ? "Русский язык" : "O‘zbek tili"}
@@ -427,6 +442,29 @@ export function Shell() {
                     <div className="popover-head">
                       <b>{user?.name}</b>
                       <small>{user?.email}</small>
+                    </div>
+                    <div className="theme-pick" role="radiogroup" aria-label="Ko‘rinish">
+                      <small>Ko‘rinish</small>
+                      <div>
+                        {(
+                          [
+                            ["light", "Yorug‘", Sun],
+                            ["dark", "Tungi", Moon],
+                            ["system", "Tizim", MonitorSmartphone],
+                          ] as [ThemePref, string, typeof Sun][]
+                        ).map(([value, label, Icon]) => (
+                          <button
+                            key={value}
+                            type="button"
+                            role="radio"
+                            aria-checked={themePref === value}
+                            className={themePref === value ? "active" : ""}
+                            onClick={() => chooseTheme(value)}
+                          >
+                            <Icon size={15} /> {label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                     <Link to="/settings">
                       <CircleUserRound size={16} /> Profil va sozlamalar

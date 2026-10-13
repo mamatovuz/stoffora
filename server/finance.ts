@@ -356,7 +356,7 @@ export function createFinanceRouter() {
         subtitle: `${company}  ·  Tayyorlandi: ${new Date().toLocaleString("ru-RU", { timeZone: "Asia/Tashkent" })}`,
         kpis: [
           { label: "Xodimlar", value: rows.length, tone: "blue" },
-          { label: "Jami avans (so‘m)", value: total.toLocaleString("ru-RU"), tone: "green" },
+          { label: "Jami avans", value: total, tone: "green", type: "money" },
           { label: "To‘langan", value: rows.filter((r) => r.paidAt).length, tone: "violet" },
           { label: "Kutilmoqda", value: rows.filter((r) => r.status !== "APPROVED").length, tone: "amber" },
         ],
@@ -369,7 +369,7 @@ export function createFinanceRouter() {
           { header: "Asl oylik", key: "base", type: "money", width: 15, total: "sum" },
           { header: "Avans", key: "amount", type: "money", width: 15, total: "sum" },
           { header: "Holat", key: "status", type: "status", width: 14 },
-          { header: "Imzo", key: "sign", width: 12 },
+          { header: "Imzo", key: "sign", width: 13 },
         ],
         rows: rows.map((r, i) => {
           let card = r.method === "CASH" ? "Naqd" : r.cardMask || "—";
@@ -397,6 +397,7 @@ export function createFinanceRouter() {
         }),
         totalsLabel: "Jami",
         emptyText: "Bu oy avans so‘rovlari yo‘q",
+        signatures: ["Tuzdi (hisobchi)", "Rahbar"],
       });
       await sendWorkbook(res, workbook, `avanslar-${month}.xlsx`);
     }),
@@ -422,7 +423,7 @@ export function createFinanceRouter() {
         subtitle: `${company}  ·  Tayyorlandi: ${new Date().toLocaleString("ru-RU", { timeZone: "Asia/Tashkent" })}`,
         kpis: [
           { label: "Jarimalar soni", value: approved.length, tone: "red" },
-          { label: "Jami summa (so‘m)", value: approved.reduce((s, r) => s + r.amount, 0).toLocaleString("ru-RU"), tone: "amber" },
+          { label: "Jami summa", value: approved.reduce((s, r) => s + r.amount, 0), tone: "amber", type: "money" },
           { label: "Xodimlar", value: new Set(approved.map((r) => r.employeeId)).size, tone: "blue" },
           { label: "Kutilmoqda", value: rows.length - approved.length, tone: "gray" },
         ],
@@ -432,7 +433,7 @@ export function createFinanceRouter() {
           { header: "F.I.Sh", key: "name", width: 28 },
           { header: "Filial", key: "branch", width: 18 },
           { header: "Summa", key: "amount", type: "money", width: 15, total: "sum" },
-          { header: "Sabab", key: "reason", width: 40 },
+          { header: "Sabab", key: "reason", width: 40, wrap: true },
           { header: "Kim yozdi", key: "by", width: 20 },
           { header: "Holat", key: "status", type: "status", width: 14 },
         ],

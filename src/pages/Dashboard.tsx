@@ -189,37 +189,37 @@ export function DashboardPage() {
             ishda <b>{s.inNow}</b> nafar
           </p>
           <div className="hero-bar">
-            <i style={{ width: bar(onTime), background: "#22a05a" }} />
-            <i style={{ width: bar(s.late), background: "#e5962b" }} />
-            <i style={{ width: bar(s.absent), background: "#e5484d" }} />
-            <i style={{ width: bar(s.leave), background: "#8b5cf6" }} />
-            <i style={{ width: bar(s.notYet), background: "#cbd5e1" }} />
+            <i style={{ width: bar(onTime), background: "var(--chart-ok)" }} />
+            <i style={{ width: bar(s.late), background: "var(--chart-late)" }} />
+            <i style={{ width: bar(s.absent), background: "var(--chart-bad)" }} />
+            <i style={{ width: bar(s.leave), background: "var(--chart-leave)" }} />
+            <i style={{ width: bar(s.notYet), background: "var(--chart-wait)" }} />
           </div>
           <div className="hero-legend">
             <span>
-              <i style={{ background: "#22a05a" }} /> Vaqtida {onTime}
+              <i style={{ background: "var(--chart-ok)" }} /> Vaqtida {onTime}
             </span>
             <span>
-              <i style={{ background: "#e5962b" }} /> Kechikkan {s.late}
+              <i style={{ background: "var(--chart-late)" }} /> Kechikkan {s.late}
             </span>
             <span>
-              <i style={{ background: "#e5484d" }} /> Kelmagan {s.absent}
+              <i style={{ background: "var(--chart-bad)" }} /> Kelmagan {s.absent}
             </span>
             <span>
-              <i style={{ background: "#8b5cf6" }} /> Ta’tilda {s.leave}
+              <i style={{ background: "var(--chart-leave)" }} /> Ta’tilda {s.leave}
             </span>
             <span>
-              <i style={{ background: "#cbd5e1" }} /> Kutilmoqda {s.notYet}
+              <i style={{ background: "var(--chart-wait)" }} /> Kutilmoqda {s.notYet}
             </span>
           </div>
         </div>
         <div className="hero-metrics">
           {(
             [
-              ["Ishda", s.inNow, "#22a05a", "IN"],
-              ["Kechikkan", s.late, "#e5962b", "LATE"],
-              ["Kelmagan", s.absent, "#e5484d", "ABSENT"],
-              ["Ketgan", s.left, "#2563eb", "LEFT"],
+              ["Ishda", s.inNow, "var(--chart-ok)", "IN"],
+              ["Kechikkan", s.late, "var(--chart-late)", "LATE"],
+              ["Kelmagan", s.absent, "var(--chart-bad)", "ABSENT"],
+              ["Ketgan", s.left, "var(--chart-brand)", "LEFT"],
             ] as const
           ).map(([label, value, color, state]) => (
             <button
@@ -346,16 +346,16 @@ export function DashboardPage() {
             </div>
             <div className="chart-legend" style={{ marginLeft: "auto" }}>
               <span>
-                <i style={{ background: "#22a05a" }} /> Vaqtida
+                <i style={{ background: "var(--chart-ok)" }} /> Vaqtida
               </span>
               <span>
-                <i style={{ background: "#e5962b" }} /> Kech
+                <i style={{ background: "var(--chart-late)" }} /> Kech
               </span>
               <span>
-                <i style={{ background: "#e5484d" }} /> Kelmagan
+                <i style={{ background: "var(--chart-bad)" }} /> Kelmagan
               </span>
               <span>
-                <i style={{ background: "#2563eb", height: 2, borderRadius: 1 }} /> Davomat %
+                <i style={{ background: "var(--chart-brand)", height: 2, borderRadius: 1 }} /> Davomat %
               </span>
             </div>
           </div>
@@ -364,40 +364,40 @@ export function DashboardPage() {
               <ComposedChart data={chart} margin={{ left: -18, right: 0, top: 12 }} barCategoryGap={days === "30" ? "18%" : "34%"}>
                 <defs>
                   <linearGradient id="g-present" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#22a05a" />
-                    <stop offset="100%" stopColor="#22a05a" />
+                    <stop offset="0%" stopColor="var(--chart-ok)" />
+                    <stop offset="100%" stopColor="var(--chart-ok)" />
                   </linearGradient>
                   <linearGradient id="g-late" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#e5962b" />
-                    <stop offset="100%" stopColor="#e5962b" />
+                    <stop offset="0%" stopColor="var(--chart-late)" />
+                    <stop offset="100%" stopColor="var(--chart-late)" />
                   </linearGradient>
                   <linearGradient id="g-absent" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#e5484d" />
-                    <stop offset="100%" stopColor="#e5484d" />
+                    <stop offset="0%" stopColor="var(--chart-bad)" />
+                    <stop offset="100%" stopColor="var(--chart-bad)" />
                   </linearGradient>
                   <linearGradient id="g-rate" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#2563eb" stopOpacity={0.16} />
-                    <stop offset="100%" stopColor="#2563eb" stopOpacity={0} />
+                    <stop offset="0%" stopColor="var(--chart-brand)" stopOpacity={0.16} />
+                    <stop offset="100%" stopColor="var(--chart-brand)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#eef2f6" strokeDasharray="3 4" vertical={false} />
+                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 4" vertical={false} />
                 <XAxis
                   dataKey="day"
                   axisLine={false}
                   tickLine={false}
                   fontSize={11}
                   tick={(props: { x: number; y: number; payload: { value: string } }) => (
-                    <text x={props.x} y={props.y + 12} textAnchor="middle" fontSize={11} fontWeight={props.payload.value === "Bugun" ? 700 : 400} fill={props.payload.value === "Bugun" ? "#2563eb" : "#94a3b8"}>
+                    <text x={props.x} y={props.y + 12} textAnchor="middle" fontSize={11} fontWeight={props.payload.value === "Bugun" ? 700 : 400} fill={props.payload.value === "Bugun" ? "var(--chart-brand)" : "var(--chart-axis)"}>
                       {props.payload.value}
                     </text>
                   )}
                   interval={days === "30" ? 2 : 0}
                 />
-                <YAxis yAxisId="count" allowDecimals={false} axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "#94a3b8" }} />
-                <YAxis yAxisId="rate" orientation="right" domain={[0, 100]} ticks={[0, 50, 100]} axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "#93b0f0" }} tickFormatter={(v: number) => `${v}%`} width={40} />
-                <Tooltip cursor={{ fill: "rgba(37,99,235,0.05)", radius: 8 } as object} content={<ChartTooltip />} />
+                <YAxis yAxisId="count" allowDecimals={false} axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "var(--chart-axis)" }} />
+                <YAxis yAxisId="rate" orientation="right" domain={[0, 100]} ticks={[0, 50, 100]} axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "var(--chart-rate)" }} tickFormatter={(v: number) => `${v}%`} width={40} />
+                <Tooltip cursor={{ fill: "var(--hover-tint)", radius: 8 } as object} content={<ChartTooltip />} />
                 <Area yAxisId="rate" dataKey="rate" type="monotone" stroke="none" fill="url(#g-rate)" connectNulls isAnimationActive={false} />
-                {rated.length > 1 && <ReferenceLine yAxisId="rate" y={avgRate} stroke="#93b0f0" strokeDasharray="4 4" label={{ value: `o‘rtacha ${avgRate}%`, position: "insideTopLeft", fill: "#7c97d6", fontSize: 10.5 }} />}
+                {rated.length > 1 && <ReferenceLine yAxisId="rate" y={avgRate} stroke="var(--chart-rate)" strokeDasharray="4 4" label={{ value: `o‘rtacha ${avgRate}%`, position: "insideTopLeft", fill: "var(--chart-rate)", fontSize: 10.5 }} />}
                 {(["present", "late", "absent"] as const).map((key) => (
                   <Bar
                     key={key}
@@ -420,11 +420,11 @@ export function DashboardPage() {
                   dataKey="rate"
                   name="Davomat"
                   type="monotone"
-                  stroke="#2563eb"
+                  stroke="var(--chart-brand)"
                   strokeWidth={2.5}
                   strokeLinecap="round"
-                  dot={days === "30" ? false : { r: 3.5, strokeWidth: 2, fill: "#fff", stroke: "#2563eb" }}
-                  activeDot={{ r: 5, strokeWidth: 2, fill: "#fff", stroke: "#2563eb" }}
+                  dot={days === "30" ? false : { r: 3.5, strokeWidth: 2, fill: "var(--chart-dot)", stroke: "var(--chart-brand)" }}
+                  activeDot={{ r: 5, strokeWidth: 2, fill: "var(--chart-dot)", stroke: "var(--chart-brand)" }}
                   connectNulls
                 />
               </ComposedChart>
@@ -638,13 +638,13 @@ function ChartTooltip({ active, payload }: TooltipProps<number, string>) {
     <div className="chart-tooltip">
       <b>{dateUz(row.date)}</b>
       <span>
-        <i style={{ background: "#22a05a" }} /> Vaqtida <em>{row.present}</em>
+        <i style={{ background: "var(--chart-ok)" }} /> Vaqtida <em>{row.present}</em>
       </span>
       <span>
-        <i style={{ background: "#e5962b" }} /> Kechikkan <em>{row.late}</em>
+        <i style={{ background: "var(--chart-late)" }} /> Kechikkan <em>{row.late}</em>
       </span>
       <span>
-        <i style={{ background: "#e5484d" }} /> Kelmagan <em>{row.absent}</em>
+        <i style={{ background: "var(--chart-bad)" }} /> Kelmagan <em>{row.absent}</em>
       </span>
       <span className="rate">
         Davomat <em>{row.rate === null ? "—" : `${row.rate}%`}</em>

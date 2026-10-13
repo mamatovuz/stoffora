@@ -2766,10 +2766,10 @@ function ReportsScreen({
     },
     {
       key: "pay",
-      name: "Ish haqi vedomosti",
+      name: "Ish haqi qaydnomasi",
       desc: "Ish kuni, ushlanma, qo‘lga, imzo ustuni",
       path: `/reports/payroll.xlsx?month=${period}`,
-      file: `Ish-haqi-${period}.xlsx`,
+      file: `Ish-haqi-qaydnomasi-${period}.xlsx`,
       need: ["payroll.view", "reports.view"],
     },
     {

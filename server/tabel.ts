@@ -214,7 +214,8 @@ export function registerAccountingReports(
 async function buildT13Sheet(workbook: ExcelJS.Workbook, company: string, month: string, rows: T13Row[]) {
   const sheet = workbook.addWorksheet("T-13 tabel", {
     pageSetup: { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.3, right: 0.3, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 } },
-    views: [{ state: "frozen", xSplit: 4, ySplit: 9 }],
+    views: [{ state: "frozen", xSplit: 4, ySplit: 9, showGridLines: false }],
+    properties: { tabColor: { argb: "FF2563EB" } },
   });
   const font = "Calibri";
   const thin = { style: "thin" as const, color: { argb: "FF94A3B8" } };
@@ -252,6 +253,9 @@ async function buildT13Sheet(workbook: ExcelJS.Workbook, company: string, month:
   };
   title(1, company, 12, true);
   title(2, "ISH VAQTINI HISOBGA OLISH TABELI (T-13 shakli)", 14, true);
+  sheet.getCell(2, 1).font = { name: font, size: 14, bold: true, color: { argb: "FF0F172A" } };
+  sheet.getRow(2).height = 26;
+  for (let c = 1; c <= last; c += 1) sheet.getCell(3, c).border = { bottom: { style: "medium", color: { argb: "FF2563EB" } } };
   title(3, `Hisobot davri: ${monthLabel(month)}  ·  01.${month.slice(5, 7)}.${month.slice(0, 4)} — ${String(daysCount).padStart(2, "0")}.${month.slice(5, 7)}.${month.slice(0, 4)}`, 10);
   sheet.mergeCells(5, 1, 5, last);
   sheet.getCell(5, 1).value = `Belgilar: ${T13_LEGEND.map(([k, v]) => `${k} — ${v}`).join(";  ")}. Har kun uchun yuqorida belgi, pastda ishlangan soat.`;
@@ -264,9 +268,9 @@ async function buildT13Sheet(workbook: ExcelJS.Workbook, company: string, month:
     if (r1 !== r2 || c1 !== c2) sheet.mergeCells(r1, c1, r2, c2);
     const cell = sheet.getCell(r1, c1);
     cell.value = text;
-    cell.font = { name: font, size: 8, bold: true };
+    cell.font = { name: font, size: 8, bold: true, color: { argb: "FF1E3A8A" } };
     cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE6EEFD" } };
     for (let r = r1; r <= r2; r += 1) for (let c = c1; c <= c2; c += 1) sheet.getCell(r, c).border = border;
   };
   head(7, col.no, 9, col.no, "№");
@@ -283,6 +287,7 @@ async function buildT13Sheet(workbook: ExcelJS.Workbook, company: string, month:
   head(9, col.month, 9, col.month, "kun / soat");
   codeCols.forEach((code, i) => head(9, col.codes + i, 9, col.codes + i, code));
   sheet.getRow(7).height = 22;
+  sheet.pageSetup.printTitlesRow = "7:9";
 
   const tone: Record<string, string> = { НН: "FFFEE2E2", В: "FFF1F5F9", ОТ: "FFEDE9FE", Б: "FFFFEDD5", ДО: "FFE0F2FE", РВ: "FFDCFCE7" };
   let r = 10;
@@ -304,6 +309,7 @@ async function buildT13Sheet(workbook: ExcelJS.Workbook, company: string, month:
     };
     merged(col.no, i + 1);
     merged(col.name, fio(row.employee), "left");
+    if (i % 2) for (const c of [col.no, col.name, col.tab, col.pos]) sheet.getCell(top, c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF8FAFC" } };
     merged(col.tab, row.employee.employeeNo);
     merged(col.pos, row.position, "left");
     row.days.forEach((day, d) => {
@@ -322,7 +328,13 @@ async function buildT13Sheet(workbook: ExcelJS.Workbook, company: string, month:
   sheet.mergeCells(r, 1, r, col.pos);
   const totalCell = sheet.getCell(r, 1);
   totalCell.value = `Jami: ${rows.length} xodim`;
-  totalCell.font = { name: font, size: 9, bold: true };
+  totalCell.font = { name: font, size: 9, bold: true, color: { argb: "FF1E3A8A" } };
+  for (let c = 1; c <= last; c += 1) {
+    const cell = sheet.getCell(r, c);
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEFF4FF" } };
+    cell.border = { top: { style: "medium", color: { argb: "FF2563EB" } }, bottom: { style: "double", color: { argb: "FF2563EB" } } };
+  }
+  sheet.getRow(r).height = 20;
   const sumBy = (fn: (row: T13Row) => number) => round1(rows.reduce((s, x) => s + fn(x), 0));
   sheet.getCell(r, col.month).value = `${sumBy((x) => x.total.days)} / ${sumBy((x) => x.total.hours)}`;
   sheet.getCell(r, col.month).font = { name: font, size: 8, bold: true };

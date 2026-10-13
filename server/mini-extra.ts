@@ -15,7 +15,7 @@ import { signFaceProof, verifyFaceProof } from "./face-proof";
 import { botApi, sendTelegramMessage } from "./telegram";
 import { companyBotApi } from "./bot-registry";
 import { readDocumentFile } from "./documents";
-import { createWorkbook, sendWorkbook } from "./excel";
+import { addPayslipSheet, createWorkbook, sendWorkbook } from "./excel";
 import { closedPeriod, monthLabel } from "./payroll-routes";
 
 /*
@@ -585,37 +585,25 @@ export function createMiniPublicRouter() {
         if (!period || !line) return res.status(404).end();
         const company = db.companies.find((c) => c.id === payload.c);
         const workbook = createWorkbook();
-        const sheet = workbook.addWorksheet("Hisob varaqasi", { pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true } });
-        sheet.columns = [{ width: 34 }, { width: 22 }];
-        const money = (v: number) => Math.round(v);
-        sheet.addRow([`${company?.name || "Staffora"} — hisob varaqasi`]).font = { bold: true, size: 14 };
-        sheet.addRow([monthLabel(period.month)]).font = { size: 12, color: { argb: "FF5E6B67" } };
-        sheet.addRow([]);
-        const rows: [string, string | number][] = [
-          ["Xodim", line.name],
-          ["Tabel raqami", line.employeeNo],
-          ["Lavozim", line.position || "—"],
-          ["Ish kunlari", `${line.days} / ${line.expectedDays}`],
-          ["Oylik (stavka)", money(line.base)],
-          ["Qo‘shimcha ish", money(line.overtimeAmount)],
-          ["Bonus", money(line.bonus)],
-          [`Kechikish ushlanmasi (${line.lateMinutes} daq)`, -money(line.lateDeduction)],
-          [`Kelmagan kunlar (${line.absentDays})`, -money(line.absenceDeduction)],
-          ["Jarima", -money(line.fine)],
-          ["Avans", -money(line.advance)],
-        ];
-        for (const [label, value] of rows) {
-          const r = sheet.addRow([label, value]);
-          if (typeof value === "number") r.getCell(2).numFmt = '#,##0" so‘m";[Red]-#,##0" so‘m"';
-          r.getCell(1).font = { color: { argb: "FF5E6B67" } };
-        }
-        sheet.addRow([]);
-        const net = sheet.addRow(["Qo‘lga", money(line.net)]);
-        net.font = { bold: true, size: 13 };
-        net.getCell(2).numFmt = '#,##0" so‘m"';
-        sheet.addRow([]);
-        sheet.addRow([`Yopilgan: ${dmy(period.closedAt.slice(0, 10))}`]).font = { size: 10, color: { argb: "FF8A94A6" } };
-        if (line.explanation) sheet.addRow([line.explanation]).font = { size: 10, color: { argb: "FF8A94A6" } };
+        const money = (v: number) => Math.round(v || 0);
+        addPayslipSheet(workbook, {
+          company: company?.name || "Staffora",
+          period: monthLabel(period.month),
+          employee: { name: line.name, no: line.employeeNo, position: line.position },
+          accruals: [
+            [`Oklad (ish kunlari: ${line.days} / ${line.expectedDays})`, money(line.base)],
+            ["Qo‘shimcha ish", money(line.overtimeAmount)],
+            ["Mukofot (bonus)", money(line.bonus)],
+          ],
+          deductions: [
+            [`Kechikish ushlanmasi (${line.lateMinutes} daq)`, money(line.lateDeduction)],
+            [`Kelmagan kunlar (${line.absentDays})`, money(line.absenceDeduction)],
+            ["Jarima", money(line.fine)],
+            ["Avans", money(line.advance)],
+          ],
+          net: money(line.net),
+          notes: [`Oy yopilgan: ${dmy(period.closedAt.slice(0, 10))}`, ...(line.explanation ? [line.explanation] : [])],
+        });
         return sendWorkbook(res, workbook, `Hisob-varaqa-${period.month}.xlsx`);
       }
       const doc = db.documents.find((d) => d.id === payload.r && d.employeeId === employee.id);
