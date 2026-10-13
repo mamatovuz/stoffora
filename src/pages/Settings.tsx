@@ -138,7 +138,8 @@ export function SettingsPage() {
           {tab === "regbot" && (
             <>
               <CompanyBotSection />
-              <FormBuilder />
+              {/* Anketa — «Arizalar» moduli o‘chirilgan bo‘lsa ko‘rinmaydi. */}
+              {!user?.modules?.includes("registrations") && <FormBuilder />}
             </>
           )}
         </div>

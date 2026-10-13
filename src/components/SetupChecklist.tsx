@@ -69,7 +69,7 @@ export function SetupChecklist({ data }: { data: SetupData }) {
       text: "Xodimlar botda anketa to‘ldirib o‘zlari qo‘shiladi",
       to: "/settings?tab=regbot",
       icon: Bot,
-      module: "registrations",
+      module: "telegramBot",
     },
     {
       done: setup.employees > 0 && setup.telegramLinked > 0,
