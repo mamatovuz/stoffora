@@ -344,7 +344,15 @@ export class PostgresBackend implements Backend {
       const audit = all<{ id: string; company_id: string; entity_id: string; created_at: string; payload: string }>("SELECT * FROM audit_logs");
       const media = all<{ key: string; data: string; updated_at: string }>("SELECT * FROM media");
       const queue = all<{ id: string; company_id: string; created_at: string; payload: string }>("SELECT * FROM photo_queue");
-      const coreRows = has("core_rows") ? all<{ collection: string; id: string; payload: string; updated_at: string }>("SELECT * FROM core_rows") : [];
+      // Dastlabki 3-sxema SQLite’ga xizmat kalitlarini NUL belgisi bilan yozgan — PostgreSQL TEXT
+      // NUL’ni qabul qilmaydi, shuning uchun «@@» ga almashtiriladi (lib/store.ts bilan bir xil).
+      const NUL = String.fromCharCode(0);
+      const clean = (value: string) => (value.startsWith(NUL) ? `@@${value.slice(1)}` : value);
+      const coreRows = (has("core_rows") ? all<{ collection: string; id: string; payload: string; updated_at: string }>("SELECT * FROM core_rows") : []).map((r) => ({
+        ...r,
+        collection: clean(r.collection),
+        id: clean(r.id),
+      }));
       const files = has("document_files") ? all<{ id: string; company_id: string; mime: string; data: Buffer; created_at: string }>("SELECT * FROM document_files") : [];
       const metaRows = all<{ key: string; value: string }>("SELECT * FROM meta");
       console.log(

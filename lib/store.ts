@@ -122,9 +122,13 @@ const queueStamp = (job: PhotoJob) => `${job.attempts}|${job.lastAttemptAt || ""
 
 /** Alohida jadvallarda saqlanadigan to‘plamlar (yadroga kirmaydi). */
 const OWN_TABLES = new Set(["attendance", "auditLogs", "photoQueue"]);
-const ORDER = "\u0000order"; // to‘plamdagi tartib (id’lar ro‘yxati)
-const WHOLE = "\u0000all"; // id’siz yoki takroriy id’li to‘plam — bitta qator
-const SCALAR = "\u0000scalar"; // massiv bo‘lmagan maydonlar (to‘plam o‘rnida, id — maydon nomi)
+// Xizmat kalitlari. NUL belgisi ishlatilmaydi — PostgreSQL TEXT unga ruxsat bermaydi.
+const ORDER = "@@order"; // to‘plamdagi tartib (id’lar ro‘yxati)
+const WHOLE = "@@all"; // id’siz yoki takroriy id’li to‘plam — bitta qator
+const SCALAR = "@@scalar"; // massiv bo‘lmagan maydonlar (to‘plam o‘rnida, id — maydon nomi)
+/** Dastlabki versiya SQLite’ga NUL bilan yozgan kalitlar — yangisiga moslanadi; eski qatorlar keyingi yozishda o‘chadi. */
+const NUL = String.fromCharCode(0);
+const legacyMarker = (value: string) => (value.startsWith(NUL) ? `@@${value.slice(1)}` : value);
 
 /**
  * Diskdagi qator: JSON va solishtirishni tezlashtiruvchi ma’lumot.
@@ -249,19 +253,20 @@ function allCoreRows(db: Database): CoreRow[] {
  */
 function assembleCore(reuse?: Map<string, Map<string, unknown>>): Database {
   const db: Record<string, unknown> = {};
-  for (const [collection, rows] of savedRows) {
+  for (const [savedCollection, rows] of savedRows) {
+    const collection = legacyMarker(savedCollection);
     const reused = reuse?.get(collection);
     const value = (id: string, saved: SavedRow) => (reused?.has(id) ? reused.get(id) : JSON.parse(saved.json));
     if (collection === SCALAR) {
       for (const [id, saved] of rows) db[id] = value(id, saved);
       continue;
     }
-    const whole = rows.get(WHOLE);
+    const whole = rows.get(WHOLE) || rows.get(`${NUL}all`);
     if (whole) {
       db[collection] = value(WHOLE, whole);
       continue;
     }
-    const order = rows.get(ORDER);
+    const order = rows.get(ORDER) || rows.get(`${NUL}order`);
     const list: unknown[] = [];
     const placed = new Set<string>();
     for (const id of order ? (JSON.parse(order.json) as string[]) : []) {
@@ -271,7 +276,7 @@ function assembleCore(reuse?: Map<string, Map<string, unknown>>): Database {
       placed.add(id);
     }
     // Tartib qatoriga tushmay qolganlar (bo‘lmasligi kerak, lekin ma’lumot yo‘qolmasin)
-    for (const [id, saved] of rows) if (id !== ORDER && !placed.has(id)) list.push(value(id, saved));
+    for (const [id, saved] of rows) if (legacyMarker(id) !== ORDER && !placed.has(id)) list.push(value(id, saved));
     db[collection] = list;
   }
   return db as unknown as Database;

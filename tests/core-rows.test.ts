@@ -41,7 +41,7 @@ describe("yadro qatorlari", () => {
     await store.updateDb((db) => db.departments.push(dept("d1"), dept("d2"), dept("d3")));
     await store.flushDb();
     const before = new Map(rows().filter((r) => r.collection === "departments").map((r) => [r.id, r.updated_at]));
-    expect([...before.keys()].sort()).toEqual(["\u0000order", "d1", "d2", "d3"]);
+    expect([...before.keys()].sort()).toEqual(["@@order", "d1", "d2", "d3"]);
     await new Promise((resolve) => setTimeout(resolve, 5));
     await store.updateDb((db) => {
       db.departments.find((d) => d.id === "d2")!.name = "Yangi nom";
@@ -51,7 +51,7 @@ describe("yadro qatorlari", () => {
     expect(after.get("d2")).not.toBe(before.get("d2"));
     expect(after.get("d1")).toBe(before.get("d1"));
     expect(after.get("d3")).toBe(before.get("d3"));
-    expect(after.get("\u0000order")).toBe(before.get("\u0000order")); // tartib o‘zgarmadi
+    expect(after.get("@@order")).toBe(before.get("@@order")); // tartib o‘zgarmadi
   });
 
   it("tartib, o‘chirish va qayta ishga tushirish", async () => {
@@ -110,5 +110,36 @@ describe("yadro qatorlari", () => {
     const saved = (await fresh.readDb()).payrollPeriods[0];
     expect(saved.lines[0].net).toBe(100);
     expect(saved.payslipsSentAt).toBe("2026-10-02T00:00:00Z");
+  });
+  it("kalitlarda NUL belgisi yo‘q (PostgreSQL TEXT unga ruxsat bermaydi)", async () => {
+    const store = await freshStore();
+    await store.updateDb((db) => {
+      db.departments.push(dept("d1"));
+      db.sentGreetings.push({ key: "k", at: "" }, { key: "k", at: "" }); // id’siz to‘plam — butun qator
+    });
+    await store.flushDb();
+    const bad = rows().filter((r) => r.collection.includes(String.fromCharCode(0)) || r.id.includes(String.fromCharCode(0)));
+    expect(bad).toEqual([]);
+    expect(rows().some((r) => r.collection === "sentGreetings" && r.id === "@@all")).toBe(true);
+  });
+
+  it("dastlabki versiya NUL bilan yozgan bazani o‘qiydi va kalitlarni yangilaydi", async () => {
+    let store = await freshStore();
+    await store.updateDb((db) => db.departments.push(dept("b", "Ikkinchi"), dept("a", "Birinchi")));
+    await store.flushDb();
+    await store.closeDb();
+    // Eski kalitlarga qaytaramiz (bugungi lokal bazalar holati)
+    const raw = new BetterSqlite3(process.env.SQLITE_PATH!);
+    const NUL = String.fromCharCode(0);
+    raw.prepare("UPDATE core_rows SET id = ? WHERE id = '@@order'").run(`${NUL}order`);
+    raw.prepare("UPDATE core_rows SET id = ? WHERE id = '@@all'").run(`${NUL}all`);
+    raw.close();
+    store = await freshStore();
+    expect((await store.readDb()).departments.map((d) => d.id)).toEqual(["b", "a"]);
+    await store.updateDb((db) => db.departments.push(dept("c")));
+    await store.flushDb();
+    expect(rows().filter((r) => r.id.includes(NUL))).toEqual([]);
+    store = await freshStore();
+    expect((await store.readDb()).departments.map((d) => d.id)).toEqual(["b", "a", "c"]);
   });
 });
