@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, Banknote, BarChart3, ChevronLeft, ChevronRight, CreditCard, Eye, EyeOff, HandCoins, LoaderCircle, Trash2, Wallet } from "lucide-react";
 import { cardBrand, cardDigits, cardError, CARD_BRAND_LABELS, formatCard, holderError } from "@/lib/card";
 import { api, del, errorText, post } from "../api";
@@ -45,7 +45,17 @@ export type Salary = {
   earnedToDate: number;
   compensatedDays?: number;
   compensatedDates?: string[];
-  limit: { enabled: boolean; percent: number; max: number; taken: number; pending: number; available: number; closed: boolean };
+  limit: {
+    enabled: boolean;
+    percent: number;
+    max: number;
+    taken: number;
+    pending: number;
+    available: number;
+    closed: boolean;
+    /** Avans qabul qilinadigan kunlar (eski serverda bo‘lmasligi mumkin). */
+    window?: { open: boolean; always: boolean; text: string; opensOn?: string; closesOn?: string };
+  };
   requests: AdvanceRequest[];
   savedCard?: SavedCard | null;
 };
@@ -122,7 +132,7 @@ export function SalaryCard({ onOpen, offline }: { onOpen: () => void; offline?: 
           {data.days}/{data.workingDays} kun
         </span>
         {deductions > 0 && <span className="warn">−{visible ? som(deductions) : "•••"} ushlanma</span>}
-        {data.limit.enabled && data.limit.available > 0 && <span className="ok">Avans mumkin</span>}
+        {data.limit.enabled && data.limit.available > 0 && data.limit.window?.open !== false && <span className="ok">Avans mumkin</span>}
         <ChevronRight size={16} />
       </div>
     </button>
@@ -144,7 +154,7 @@ const shiftMonth = (m: string, d: number) => {
   return x.toISOString().slice(0, 7);
 };
 
-export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast: Toast }) {
+export function SalarySheet({ onClose, onToast, ask }: { onClose: () => void; onToast: Toast; ask?: boolean }) {
   const { data: currentData, error, reload } = useSalary();
   // O‘tgan oylar — alohida yuklanadi (avans faqat joriy oyda).
   const thisMonth = new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 7);
@@ -230,7 +240,15 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
     await reload();
   }
   const pending = data?.requests.some((r) => r.status === "PENDING" || r.status === "HR_APPROVED");
-  const canAsk = Boolean(month === thisMonth && data?.limit.enabled && !pending && data.limit.available >= 10_000);
+  const windowShut = data?.limit.window?.open === false;
+  const canAsk = Boolean(month === thisMonth && data?.limit.enabled && !pending && !windowShut && data.limit.available >= 10_000);
+  // «Avans so‘rash» xabaridan kelganda — forma darhol ochiladi (bir marta; mumkin bo‘lmasa sababi ko‘rinadi).
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!ask || asked.current || !data) return;
+    asked.current = true;
+    if (canAsk) setAsking(true);
+  }, [ask, canAsk, data]);
   return (
     <Sheet
       title="Mening oyligim"
@@ -310,7 +328,19 @@ export function SalarySheet({ onClose, onToast }: { onClose: () => void; onToast
             {month === thisMonth && data.limit.enabled && !asking && !canAsk && (
               <div className="mh-hint info">
                 <HandCoins size={16} />
-                <span>{pending ? "Avans so‘rovingiz ko‘rib chiqilmoqda" : "Bu oy avans chegarasi tugagan"}</span>
+                <span>
+                  {pending
+                    ? "Avans so‘rovingiz ko‘rib chiqilmoqda"
+                    : windowShut
+                      ? `Avans ${data.limit.window!.text} so‘raladi${data.limit.window!.opensOn ? ` · keyingisi ${dateUz(data.limit.window!.opensOn)}` : ""}`
+                      : "Bu oy avans chegarasi tugagan"}
+                </span>
+              </div>
+            )}
+            {canAsk && !asking && data.limit.window && !data.limit.window.always && data.limit.window.closesOn && (
+              <div className="mh-hint info">
+                <HandCoins size={16} />
+                <span>Avans so‘rash {dateUz(data.limit.window.closesOn)} gacha ochiq</span>
               </div>
             )}
             {asking && (

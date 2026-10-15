@@ -3,7 +3,7 @@ import * as Haptics from "expo-haptics";
 import { type ComponentProps, type ReactNode } from "react";
 import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { elevation, ios, radius, useTheme } from "@/lib/theme";
+import { elevation, ios, radius, typo, useTheme } from "@/lib/theme";
 import { TAB_BAR_SPACE } from "./FloatingTabBar";
 
 export type IconName = ComponentProps<typeof Ionicons>["name"];
@@ -350,6 +350,51 @@ export const s = StyleSheet.create({
   seg: { flexDirection: "row", gap: ios ? 0 : 8, padding: ios ? 2 : 0, borderRadius: 9 },
   segItem: { paddingHorizontal: 14, paddingVertical: ios ? 7 : 8, borderRadius: 7 },
 });
+
+/**
+ * Statistika qatori: katta raqam va ostida yozuv, orasida ingichka chiziq. Bosilsa — filtr/ochish.
+ * Rahbar panelidagi barcha raqamli kartalar shu bitta ko‘rinishda (bir xil o‘lcham va ranglar).
+ */
+export function Stats({
+  items,
+  title,
+  style,
+}: {
+  items: { value: string | number; label: string; color?: string; onPress?: () => void }[];
+  title?: string;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const { c } = useTheme();
+  return (
+    <Card style={[{ paddingVertical: 14, paddingHorizontal: 6, gap: 10 }, style]}>
+      {title ? <Text style={[typo.sub, { color: c.muted, fontWeight: "600", paddingHorizontal: 10 }]}>{title}</Text> : null}
+      <View style={{ flexDirection: "row" }}>
+        {items.map((item, i) => (
+          <Pressable
+            key={item.label}
+            disabled={!item.onPress}
+            onPress={() => {
+              haptic.select();
+              item.onPress?.();
+            }}
+            style={({ pressed }) => [
+              { flex: 1, alignItems: "center", gap: 2, paddingHorizontal: 2 },
+              i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: c.line },
+              pressed && { opacity: 0.55 },
+            ]}
+          >
+            <Text style={[typo.stat, { color: item.color || c.ink }]} numberOfLines={1} adjustsFontSizeToFit>
+              {item.value}
+            </Text>
+            <Text style={[typo.caption, { color: c.muted }]} numberOfLines={1}>
+              {item.label}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+    </Card>
+  );
+}
 
 /** Kartada guruhlangan qatorlar (iOS inset grouped). */
 export function Group({ children }: { children: ReactNode }) {

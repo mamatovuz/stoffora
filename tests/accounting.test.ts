@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { emptyDatabase } from "../lib/seed";
 import type { Attendance, Employee, Schedule } from "../lib/types";
 import { payrollCsvRows, t13Rows, toCsv } from "../server/tabel";
-import { advanceLimit } from "../server/advances";
+import { advanceLimit, advanceWindowMessage } from "../server/advances";
+import { advanceWindow, normalizePayrollSettings } from "../lib/payroll";
 
 function setup() {
   const db = emptyDatabase();
@@ -71,5 +72,42 @@ describe("avans chegarasi", () => {
     expect(advanceLimit(db, employee, "2026-09").max).toBe(880_000);
     db.payrollPeriods.push({ id: "p", companyId: "c1", month: "2026-09", closedAt: "", closedBy: "", lines: [], total: 0 });
     expect(advanceLimit(db, employee, "2026-09")).toMatchObject({ enabled: false, available: 0 });
+  });
+});
+
+describe("avans oynasi (oyning N–M kunlari)", () => {
+  it("standart — oy davomida ochiq", () => {
+    expect(advanceWindow(undefined, "2026-10-15")).toMatchObject({ always: true, open: true });
+    expect(advanceWindow({ advanceWindowFrom: 1, advanceWindowTo: 31 }, "2026-02-28")).toMatchObject({ always: true, open: true });
+  });
+  it("oynadan oldin, ichida va keyin", () => {
+    const w = { advanceWindowFrom: 10, advanceWindowTo: 20 };
+    expect(advanceWindow(w, "2026-10-09")).toMatchObject({ open: false, opensOn: "2026-10-10", text: "har oyning 10–20-kunlari" });
+    expect(advanceWindow(w, "2026-10-10")).toMatchObject({ open: true, closesOn: "2026-10-20" });
+    expect(advanceWindow(w, "2026-10-20")).toMatchObject({ open: true });
+    expect(advanceWindow(w, "2026-10-21")).toMatchObject({ open: false, opensOn: "2026-11-10" });
+    expect(advanceWindow(w, "2026-12-25")).toMatchObject({ open: false, opensOn: "2027-01-10" });
+  });
+  it("qisqa oy: 30–31 fevralda oyning oxirgi kuniga suriladi", () => {
+    const w = { advanceWindowFrom: 30, advanceWindowTo: 31 };
+    expect(advanceWindow(w, "2026-02-27")).toMatchObject({ open: false, opensOn: "2026-02-28" });
+    expect(advanceWindow(w, "2026-02-28")).toMatchObject({ open: true, closesOn: "2026-02-28" });
+    expect(advanceWindow(w, "2026-01-31")).toMatchObject({ open: true });
+    expect(advanceWindow(w, "2026-03-01")).toMatchObject({ open: false, opensOn: "2026-03-30" });
+  });
+  it("sozlama normalizatsiyasi: chegaralar 1–31, teskari kiritilsa almashtiriladi", () => {
+    expect(normalizePayrollSettings({ advanceWindowFrom: 25, advanceWindowTo: 5 })).toMatchObject({ advanceWindowFrom: 5, advanceWindowTo: 25 });
+    expect(normalizePayrollSettings({ advanceWindowFrom: 0, advanceWindowTo: 99 })).toMatchObject({ advanceWindowFrom: 1, advanceWindowTo: 31 });
+    expect(normalizePayrollSettings({})).toMatchObject({ advanceWindowFrom: 1, advanceWindowTo: 31 });
+  });
+  it("limit oyna holatini qaytaradi va xabar tushunarli", () => {
+    const { db, employee } = setup();
+    db.companies[0].payroll = { latePenaltyMode: "NONE", latePenaltyPerMinute: 0, freeLateMinutesPerMonth: 0, monthlyHours: 176, overtimePay: false, advanceWindowFrom: 10, advanceWindowTo: 20 };
+    const limit = advanceLimit(db, employee, "2026-09", "2026-09-25");
+    expect(limit.window).toMatchObject({ open: false, opensOn: "2026-10-10" });
+    // Oyna yopiq bo‘lsa ham summa chegarasi ko‘rinib turadi (xodim qancha so‘rashi mumkinligini biladi).
+    expect(limit.available).toBe(2_200_000);
+    expect(advanceWindowMessage(limit.window)).toBe("Avans so‘rovlari har oyning 10–20-kunlari qabul qilinadi. Keyingi imkoniyat: 10-oktabr 2026.");
+    expect(advanceLimit(db, employee, "2026-09", "2026-09-12").window.open).toBe(true);
   });
 });

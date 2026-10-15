@@ -1,4 +1,4 @@
-import { Platform, useColorScheme } from "react-native";
+import { Platform, useColorScheme, type TextStyle } from "react-native";
 
 /*
  * Mini App bilan bir xil ranglar va tuzilma. iOS’da — Apple uslubi (guruhlangan ro‘yxatlar,
@@ -47,6 +47,26 @@ export function useTheme() {
 }
 
 export const radius = { card: ios ? 16 : 20, button: ios ? 14 : 16, tile: ios ? 14 : 16 };
+
+/**
+ * Yagona shrift shkalasi — rahbar paneli va ro‘yxatlar shu o‘lchamlardan foydalanadi
+ * (11.5 / 12.5 / 13.5 / 14.5 kabi aralash o‘lchamlar o‘rniga 5 ta daraja).
+ */
+export const typo: Record<"title" | "body" | "bodyStrong" | "sub" | "caption" | "stat" | "time", TextStyle> = {
+  /** Karta sarlavhasi */
+  title: { fontSize: 17, fontWeight: "700" },
+  /** Asosiy matn, qator nomi */
+  body: { fontSize: 15 },
+  bodyStrong: { fontSize: 15, fontWeight: "600" },
+  /** Ikkinchi darajali matn (kulrang) */
+  sub: { fontSize: 13 },
+  /** Raqam ostidagi yozuv, kichik belgi */
+  caption: { fontSize: 12, fontWeight: "500" },
+  /** Katta raqam (statistika) */
+  stat: { fontSize: 24, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  /** Vaqt (09:12) */
+  time: { fontSize: 20, fontWeight: "700", fontVariant: ["tabular-nums"] },
+};
 export const font = {
   family: ios ? undefined : "sans-serif",
   title: ios ? 34 : 26,

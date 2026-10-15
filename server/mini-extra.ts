@@ -18,6 +18,7 @@ import { companyBotApi } from "./bot-registry";
 import { readDocumentFile } from "./documents";
 import { addPayslipSheet, createWorkbook, sendWorkbook } from "./excel";
 import { closedPeriod, monthLabel } from "./payroll-routes";
+import { monthPlan } from "./month-plan";
 
 /*
  * Mini App’ning qo‘shimcha imkoniyatlari:
@@ -187,44 +188,7 @@ export function createMiniExtraRouter() {
       if (!MONTH.test(month)) throw httpError("Oy YYYY-MM ko‘rinishida bo‘lsin.", 400);
       const db = await readDb();
       const employee = ownEmployee(db, auth);
-      const index = dataIndexes(db);
-      const leaves = (index.approvedLeaveByEmployee.get(employee.id) || []) as Database["leaveRequests"];
-      const [y, m] = month.split("-").map(Number);
-      const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-      const days = Array.from({ length: last }, (_, i) => {
-        const date = `${month}-${String(i + 1).padStart(2, "0")}`;
-        const plan = dayPlan(db, employee, date);
-        const leave = leaves.find((l) => l.startDate <= date && l.endDate >= date);
-        const record = index.attendanceByKey.get(`${employee.id}|${date}`);
-        return {
-          date,
-          working: plan.enabled && !leave,
-          start: plan.start,
-          end: plan.end,
-          overridden: plan.overridden,
-          reason: plan.reason,
-          leave: leave?.type,
-          checkIn: record?.checkIn,
-          checkOut: record?.checkOut,
-          lateMinutes: record?.lateMinutes || 0,
-          workedMinutes: record?.workedMinutes || 0,
-        };
-      });
-      const planned = days.filter((d) => d.working);
-      res.json({
-        month,
-        label: monthLabel(month),
-        days,
-        totals: {
-          workdays: planned.length,
-          plannedMinutes: planned.reduce((sum, d) => {
-            const [sh, sm] = d.start.split(":").map(Number);
-            const [eh, em] = d.end.split(":").map(Number);
-            return sum + Math.max(0, eh * 60 + em - (sh * 60 + sm));
-          }, 0),
-          leaveDays: days.filter((d) => d.leave).length,
-        },
-      });
+      res.json(monthPlan(db, employee, month, today));
     }),
   );
 

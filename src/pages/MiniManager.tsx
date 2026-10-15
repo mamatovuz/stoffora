@@ -438,21 +438,23 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
         </button>
         {badge.sheet}
       </div>
-      <div className="mg-quick" aria-label="Tezkor amallar">
-        {canAnnounce && (
-          <button onClick={() => setAnnouncing(true)}>
-            <Megaphone size={16} /> E’lon yuborish
+      {view === "desk" && (
+        <div className="mg-quick" aria-label="Tezkor amallar">
+          {canAnnounce && (
+            <button onClick={() => setAnnouncing(true)}>
+              <Megaphone size={16} /> E’lon yuborish
+            </button>
+          )}
+          {canFine && (
+            <button onClick={() => setFining(true)}>
+              <Gavel size={16} /> {fineDirect ? "Jarima yozish" : "Jarima taklifi"}
+            </button>
+          )}
+          <button onClick={badge.scan}>
+            {badge.icon} ID tekshirish
           </button>
-        )}
-        {canFine && (
-          <button onClick={() => setFining(true)}>
-            <Gavel size={16} /> {fineDirect ? "Jarima yozish" : "Jarima taklifi"}
-          </button>
-        )}
-        <button onClick={badge.scan}>
-          {badge.icon} ID tekshirish
-        </button>
-      </div>
+        </div>
+      )}
       <div className={`mini-seg ${["", "one", "", "three", "four"][tabs.length] || "four"}`} role="tablist">
         {tabs.map(([key, label, badge]) => (
           <button

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Image, PanResponder, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
-import Svg, { Circle } from "react-native-svg";
+import Svg, { Circle, Line } from "react-native-svg";
 import { SERVER_ORIGIN, mediaUri } from "@/lib/config";
 import { useTheme } from "@/lib/theme";
 import { Icon, haptic } from "./ui";
@@ -42,6 +42,27 @@ function unproject(x: number, y: number, z: number) {
   return { lat: (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n))), lng: (x / size) * 360 - 180 };
 }
 const metersPerPixel = (lat: number, z: number) => (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** z;
+
+/** Shu masofadan (px) yaqin xodim pinlari bitta guruhga birlashadi. */
+const CLUSTER_PX = 42;
+const TONE_RANK: Record<MapPoint["tone"], number> = { bad: 4, warn: 3, muted: 2, info: 1, ok: 0 };
+
+/** Ochilgan guruh: 7 tagacha — aylana bo‘ylab, ko‘p bo‘lsa — spiral. Qo‘shnilar orasi ≥ ~60px. */
+function spiderOffsets(count: number) {
+  if (count <= 7) {
+    const radius = Math.max(38, 30 / Math.sin(Math.PI / Math.max(2, count)));
+    const start = count === 2 ? Math.PI : -Math.PI / 2;
+    return Array.from({ length: count }, (_, i) => {
+      const angle = start + (i * 2 * Math.PI) / count;
+      return { dx: Math.cos(angle) * radius, dy: Math.sin(angle) * radius };
+    });
+  }
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  return Array.from({ length: count }, (_, i) => {
+    const r = 34 * Math.sqrt(i + 1);
+    return { dx: Math.cos(i * golden) * r, dy: Math.sin(i * golden) * r };
+  });
+}
 
 function fitView(points: { lat: number; lng: number; radius?: number }[], width: number, height: number) {
   if (!points.length) return { zoom: 12, center: { lat: 41.3111, lng: 69.2797 } };
@@ -86,6 +107,8 @@ export function TileMap({
   const [zoom, setZoom] = useState(14);
   const [center, setCenter] = useState({ lat: 41.3111, lng: 69.2797 });
   const [failed, setFailed] = useState<Set<string>>(() => new Set());
+  // Ochilgan (yoyilgan) guruh — birinchi a’zosining id’si.
+  const [expanded, setExpanded] = useState<string | null>(null);
   const state = useRef({ zoom, center });
   state.current = { zoom, center };
   const gesture = useRef<{ x: number; y: number; dist?: number; zoom: number; center: { lat: number; lng: number } } | null>(null);
@@ -96,6 +119,7 @@ export function TileMap({
     const view = fitView(targets, width, height);
     setZoom(view.zoom);
     setCenter(view.center);
+    setExpanded(null);
   };
   useEffect(fit, [fitKey, width]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -164,24 +188,70 @@ export function TileMap({
       return { x: q.x - left, y: q.y - top };
     };
     const tone = (t: MapPoint["tone"]) => ({ ok: c.success, warn: c.warn, bad: c.danger, info: c.accent, muted: c.muted })[t];
+    // Bir joyda belgilaganlar ustma-ust tushmasin: yaqin xodimlar guruhga birlashadi;
+    // guruh bosilsa (yoki ichidagi xodim tanlansa) — atrofga yoyiladi, haqiqiy joyga chiziq bilan.
+    const singles: { pt: MapPoint; x: number; y: number; hub?: { x: number; y: number } }[] = [];
+    const groups: { x: number; y: number; members: MapPoint[] }[] = [];
+    for (const pt of points) {
+      const p = at(pt.lat, pt.lng);
+      if (pt.kind !== "person") {
+        singles.push({ pt, ...p });
+        continue;
+      }
+      const near = groups.find((g) => Math.hypot(g.x - p.x, g.y - p.y) < CLUSTER_PX);
+      if (!near) {
+        groups.push({ x: p.x, y: p.y, members: [pt] });
+        continue;
+      }
+      const n = near.members.push(pt);
+      near.x += (p.x - near.x) / n;
+      near.y += (p.y - near.y) / n;
+    }
+    const clusters: { key: string; x: number; y: number; members: MapPoint[]; tone: MapPoint["tone"] }[] = [];
+    for (const g of groups) {
+      if (g.members.length === 1) singles.push({ pt: g.members[0], x: g.x, y: g.y });
+      else if (g.members.some((m) => m.id === expanded || m.id === selectedId)) {
+        const offsets = spiderOffsets(g.members.length);
+        g.members.forEach((m, i) => singles.push({ pt: m, x: g.x + offsets[i].dx, y: g.y + offsets[i].dy, hub: { x: g.x, y: g.y } }));
+      } else
+        clusters.push({
+          key: g.members[0].id,
+          x: g.x,
+          y: g.y,
+          members: g.members,
+          tone: g.members.reduce((worst, m) => (TONE_RANK[m.tone] > TONE_RANK[worst] ? m.tone : worst), g.members[0].tone),
+        });
+    }
+    const hubs = [...new Map(singles.filter((x) => x.hub).map((x) => [`${Math.round(x.hub!.x)}:${Math.round(x.hub!.y)}`, x.hub!])).values()];
     body = (
       <>
-        {tiles.map((t) => (
-          <Image
-            key={t.key}
-            source={{ uri: t.uri, headers: { "User-Agent": "StafforaMobile/1.0" }, cache: "force-cache" }}
-            onError={() => setFailed((prev) => (prev.has(t.key) ? prev : new Set(prev).add(t.key)))}
-            style={{ position: "absolute", left: t.x, top: t.y, width: TILE, height: TILE, opacity: dark ? 0.72 : 1 }}
-          />
-        ))}
+        {/* Bo‘sh joyga bosish — ochilgan guruhni yopadi */}
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setExpanded(null)} accessible={false}>
+          {tiles.map((t) => (
+            <Image
+              key={t.key}
+              source={{ uri: t.uri, headers: { "User-Agent": "StafforaMobile/1.0" }, cache: "force-cache" }}
+              onError={() => setFailed((prev) => (prev.has(t.key) ? prev : new Set(prev).add(t.key)))}
+              style={{ position: "absolute", left: t.x, top: t.y, width: TILE, height: TILE, opacity: dark ? 0.72 : 1 }}
+            />
+          ))}
+        </Pressable>
         <Svg width={width} height={height} style={StyleSheet.absoluteFill} pointerEvents="none">
           {circles.map((ci) => {
             const p = at(ci.lat, ci.lng);
             return <Circle key={ci.id} cx={p.x} cy={p.y} r={Math.max(6, ci.radius / metersPerPixel(ci.lat, zoom))} fill={`${c.accent}1F`} stroke={c.accent} strokeWidth={1.5} />;
           })}
+          {singles
+            .filter((x) => x.hub)
+            .map((x) => (
+              <Line key={`spoke-${x.pt.id}`} x1={x.hub!.x} y1={x.hub!.y} x2={x.x} y2={x.y} stroke={c.ink} strokeOpacity={0.45} strokeWidth={1.5} />
+            ))}
+          {hubs.map((h) => (
+            <Circle key={`hub-${h.x}:${h.y}`} cx={h.x} cy={h.y} r={4} fill={c.ink} fillOpacity={0.7} stroke={c.card} strokeWidth={2} />
+          ))}
         </Svg>
-        {points.map((pt) => {
-          const p = at(pt.lat, pt.lng);
+        {singles.map(({ pt, x, y, hub }) => {
+          const p = { x, y };
           if (p.x < -40 || p.y < -40 || p.x > width + 40 || p.y > height + 40) return null;
           const color = tone(pt.tone);
           const selected = selectedId === pt.id;
@@ -201,14 +271,55 @@ export function TileMap({
               </Pressable>
             );
           return (
-            <Pressable key={pt.id} onPress={() => onPick?.(pt)} hitSlop={6} style={[st.person, { left: p.x - 18, top: p.y - 18, borderColor: color, transform: [{ scale: selected ? 1.18 : 1 }] }]}>
-              {pt.photo ? (
-                <Image source={{ uri: mediaUri(pt.photo) }} style={st.personImg} />
-              ) : (
-                <View style={[st.personImg, { backgroundColor: c.card, alignItems: "center", justifyContent: "center" }]}>
-                  <Text style={{ color: c.ink, fontSize: 11, fontWeight: "700" }}>{pt.initials}</Text>
+            <View key={pt.id} style={{ position: "absolute", left: p.x - 18, top: p.y - 18, alignItems: "center", width: 36, zIndex: hub || selected ? 3 : 1 }}>
+              <Pressable onPress={() => onPick?.(pt)} hitSlop={6} style={[st.person, { borderColor: color, transform: [{ scale: selected ? 1.18 : 1 }] }]}>
+                {pt.photo ? (
+                  <Image source={{ uri: mediaUri(pt.photo) }} style={st.personImg} />
+                ) : (
+                  <View style={[st.personImg, { backgroundColor: c.card, alignItems: "center", justifyContent: "center" }]}>
+                    <Text style={{ color: c.ink, fontSize: 11, fontWeight: "700" }}>{pt.initials}</Text>
+                  </View>
+                )}
+              </Pressable>
+              {hub || selected ? (
+                <View pointerEvents="none" style={[st.label, { backgroundColor: c.card }]}>
+                  <Text style={{ color: c.ink, fontSize: 11, fontWeight: "600" }} numberOfLines={1}>
+                    {pt.label}
+                  </Text>
                 </View>
-              )}
+              ) : null}
+            </View>
+          );
+        })}
+        {clusters.map((g) => {
+          if (g.x < -60 || g.y < -60 || g.x > width + 60 || g.y > height + 60) return null;
+          const faces = g.members.slice(0, 3);
+          const w = 32 + (faces.length - 1) * 16;
+          return (
+            <Pressable
+              key={`cluster-${g.key}`}
+              onPress={() => {
+                haptic.select();
+                setExpanded(g.key);
+              }}
+              hitSlop={8}
+              accessibilityLabel={`${g.members.length} xodim`}
+              style={{ position: "absolute", left: g.x - w / 2, top: g.y - 16, width: w, height: 32, zIndex: 2 }}
+            >
+              {faces.map((m, i) => (
+                <View key={m.id} style={[st.stackFace, { left: i * 16, zIndex: faces.length - i, borderColor: tone(m.tone === "info" ? "ok" : m.tone) }]}>
+                  {m.photo ? (
+                    <Image source={{ uri: mediaUri(m.photo) }} style={st.personImg} />
+                  ) : (
+                    <View style={[st.personImg, { backgroundColor: c.card, alignItems: "center", justifyContent: "center" }]}>
+                      <Text style={{ color: c.ink, fontSize: 10, fontWeight: "700" }}>{m.initials}</Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+              <View style={[st.count, { backgroundColor: c.ink, borderColor: c.card }]}>
+                <Text style={{ color: c.card, fontSize: 11, fontWeight: "700" }}>{g.members.length}</Text>
+              </View>
             </Pressable>
           );
         })}
@@ -247,6 +358,9 @@ const st = StyleSheet.create({
   branchPin: { position: "absolute", alignItems: "center", width: 34 },
   branchHead: { width: 34, height: 34, borderRadius: 17, alignItems: "center", justifyContent: "center", borderWidth: 2.5, borderColor: "#fff" },
   badge: { marginTop: 2, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, minWidth: 34, alignItems: "center" },
-  person: { position: "absolute", width: 36, height: 36, borderRadius: 18, borderWidth: 2.5, overflow: "hidden", backgroundColor: "#fff" },
+  person: { width: 36, height: 36, borderRadius: 18, borderWidth: 2.5, overflow: "hidden", backgroundColor: "#fff" },
+  label: { marginTop: 3, maxWidth: 96, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 8, alignSelf: "center", minWidth: 36, alignItems: "center" },
+  stackFace: { position: "absolute", top: 0, width: 32, height: 32, borderRadius: 16, borderWidth: 2.5, overflow: "hidden", backgroundColor: "#fff" },
+  count: { position: "absolute", top: -8, right: -10, minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   personImg: { width: "100%", height: "100%" },
 });

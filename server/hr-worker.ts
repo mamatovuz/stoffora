@@ -9,6 +9,7 @@ import { cleanupDocumentFiles, DOCUMENT_TYPES } from "./documents";
  * Kundalik HR ishlari (har 10 daqiqada tekshiradi, har biri kuniga bir marta):
  *   09:00 — tug‘ilgan kun va ish yubileyi tabriklari (xodimga va HR ga)
  *   09:05 — hujjat muddati eslatmalari (30, 7, 1 kun qolganda va o‘tganda)
+ *   09:00 — avans oynasi ochilgan kuni xodimlarga «avans oluvchilar ro‘yxati» xabari
  *   03:00 — o‘chirilgan hujjatlarning fayllarini tozalash
  * Takror yubormaslik uchun sentGreetings jadvali ishlatiladi.
  */
@@ -137,6 +138,11 @@ export function startHrWorker() {
     };
     await once("greetings", "09:00", () => runGreetings(today));
     await once("documents", "09:05", () => runDocumentReminders(today));
+    // Avans oynasi ochilgan kuni — xodimlarga «avans oluvchilar ro‘yxati» xabari (kompaniyaga bir marta).
+    await once("advance-announce", "09:00", async () => {
+      const { runAdvanceAnnouncements } = await import("./advance-announce");
+      await runAdvanceAnnouncements(today);
+    });
     await once("cleanup", "03:00", cleanupDocumentFiles);
     // Filialga o‘tkazishlar: rejalangani boshlanadi, vaqtinchalik muddati tugagani qaytadi.
     await once("transfers", "00:05", async () => {

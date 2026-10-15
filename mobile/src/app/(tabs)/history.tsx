@@ -10,7 +10,23 @@ import { api } from "@/lib/api";
 import { HistoryCalendar } from "@/components/HistoryCalendar";
 
 type View3 = "calendar" | "schedule" | "stats";
-type PlanDay = { date: string; working: boolean; start: string; end: string; overridden: boolean; reason?: string; leave?: string; checkIn?: string; checkOut?: string; lateMinutes: number; workedMinutes: number };
+type DayState = "PLANNED" | "ON_TIME" | "LATE" | "IN" | "NO_CHECKOUT" | "ABSENT" | "REST" | "REST_WORKED" | "LEAVE" | "BEFORE_START";
+type PlanDay = {
+  date: string;
+  working: boolean;
+  start: string;
+  end: string;
+  overridden: boolean;
+  reason?: string;
+  leave?: string;
+  checkIn?: string;
+  checkOut?: string;
+  lateMinutes: number;
+  /** Yangi serverda bor; eski serverda — yo‘q. */
+  earlyLeaveMinutes?: number;
+  workedMinutes: number;
+  state?: DayState;
+};
 type PlanMonth = { month: string; label: string; days: PlanDay[]; totals: { workdays: number; plannedMinutes: number; leaveDays: number } };
 type StatsData = {
   streak: { current: number; best: number; badge: { emoji: string; label: string } | null };
@@ -99,6 +115,14 @@ function ScheduleView() {
               const bg = d.leave ? `${c.violet}22` : d.overridden ? `${c.warn}22` : d.working ? `${c.accent}14` : "transparent";
               const fg = d.leave ? c.violet : d.overridden ? c.warn : d.working ? c.ink : c.muted;
               const picked = d.date === selected;
+              const dot =
+                d.state === "ON_TIME" || d.state === "IN" || d.state === "REST_WORKED"
+                  ? c.success
+                  : d.state === "LATE" || d.state === "NO_CHECKOUT"
+                    ? c.warn
+                    : d.state === "ABSENT"
+                      ? c.danger
+                      : null;
               return (
                 <Pressable
                   key={d.date}
@@ -111,32 +135,29 @@ function ScheduleView() {
                   <View style={[st.day, { backgroundColor: picked ? c.accent : bg }, d.date === today && !picked && { borderWidth: 1.5, borderColor: c.accent }]}>
                     <Text style={{ color: picked ? "#fff" : fg, fontWeight: "600", fontSize: 14 }}>{Number(d.date.slice(8))}</Text>
                     {d.working ? <Text style={{ color: picked ? "#fff" : c.muted, fontSize: 9 }}>{d.start.replace(/:00$/, "")}</Text> : null}
+                    {dot ? <View style={[st.stateDot, { backgroundColor: dot, borderColor: picked ? c.accent : c.card }]} /> : null}
                   </View>
                 </Pressable>
               );
             })}
           </View>
+          <View style={st.legend}>
+            {(
+              [
+                [c.success, "Vaqtida"],
+                [c.warn, "Kechikdi"],
+                [c.danger, "Kelmadi"],
+              ] as const
+            ).map(([color, label]) => (
+              <View key={label} style={st.legendItem}>
+                <View style={[st.legendDot, { backgroundColor: color }]} />
+                <Text style={{ color: c.muted, fontSize: 12 }}>{label}</Text>
+              </View>
+            ))}
+          </View>
         </Card>
       )}
-      {pick ? (
-        <Card style={{ gap: 4 }}>
-          <Text style={{ color: c.ink, fontWeight: "700", fontSize: 16 }}>{dateLongUz(new Date(`${pick.date}T07:00:00Z`))}</Text>
-          <Text style={{ color: c.ink, fontSize: 15 }}>
-            {pick.leave
-              ? `🏖 ${LEAVE[pick.leave] || "Ta’til"}`
-              : pick.working
-                ? `🕘 ${pick.start} – ${pick.end}${pick.overridden ? ` · ${pick.reason || "o‘zgartirilgan"}` : ""}`
-                : `🌿 Dam olish${pick.overridden ? ` · ${pick.reason || "o‘zgartirilgan"}` : ""}`}
-          </Text>
-          {pick.checkIn ? (
-            <Text style={{ color: c.muted, fontSize: 13.5 }}>
-              Keldi {pick.checkIn}
-              {pick.checkOut ? ` · ketdi ${pick.checkOut} · ${duration(pick.workedMinutes)}` : ""}
-              {pick.lateMinutes ? ` · ${duration(pick.lateMinutes)} kech` : ""}
-            </Text>
-          ) : null}
-        </Card>
-      ) : null}
+      {pick ? <DayCard day={pick} today={today} /> : null}
       {data ? (
         <Card style={{ flexDirection: "row", paddingVertical: 12 }}>
           {(
@@ -164,6 +185,81 @@ function ScheduleView() {
         </>
       ) : null}
     </>
+  );
+}
+
+/** Tanlangan kun: reja, keldi / ketdi / ishladi va og‘ishlar — har biri alohida, bir qarashda tushunarli. */
+function DayCard({ day, today }: { day: PlanDay; today: string }) {
+  const { c } = useTheme();
+  const state: DayState =
+    day.state ||
+    (day.leave ? "LEAVE" : day.checkIn ? (day.checkOut ? (day.lateMinutes ? "LATE" : "ON_TIME") : "IN") : !day.working ? "REST" : day.date < today ? "ABSENT" : "PLANNED");
+  const badge: Record<DayState, [string, "ok" | "warn" | "bad" | "muted" | "info" | "rest"]> = {
+    PLANNED: [day.date === today ? "Bugun" : "Reja", "info"],
+    ON_TIME: ["Vaqtida", "ok"],
+    LATE: ["Kechikdi", "warn"],
+    IN: ["Ishda", "ok"],
+    NO_CHECKOUT: ["Ketish belgilanmagan", "warn"],
+    ABSENT: ["Kelmadi", "bad"],
+    REST: ["Dam olish", "muted"],
+    REST_WORKED: ["Dam kunida ishladi", "info"],
+    LEAVE: [LEAVE[day.leave || ""] || "Ta’til", "rest"],
+    BEFORE_START: ["Ishga kirmagan", "muted"],
+  };
+  const plan = day.leave ? LEAVE[day.leave] || "Ta’til" : day.working ? `${day.start} – ${day.end}` : "Dam olish kuni";
+  const late = day.lateMinutes > 0;
+  const early = (day.earlyLeaveMinutes || 0) > 0;
+  return (
+    <Card style={{ gap: 14 }}>
+      <View style={st.dayHead}>
+        <Text style={{ color: c.ink, fontWeight: "700", fontSize: 17, flex: 1 }}>{dateLongUz(new Date(`${day.date}T07:00:00Z`))}</Text>
+        <Badge text={badge[state][0]} tone={badge[state][1]} />
+      </View>
+      <View style={[st.planRow, { backgroundColor: c.tint }]}>
+        <Icon name={day.leave ? "airplane-outline" : day.working ? "time-outline" : "leaf-outline"} size={18} color={c.muted} />
+        <Text style={{ color: c.muted, fontSize: 14 }}>Ish vaqti</Text>
+        <Text style={{ color: c.ink, fontSize: 15, fontWeight: "600", marginLeft: "auto", fontVariant: ["tabular-nums"] }}>{plan}</Text>
+      </View>
+      {day.overridden ? <Text style={{ color: c.warn, fontSize: 13 }}>Grafik o‘zgartirilgan{day.reason ? `: ${day.reason}` : ""}</Text> : null}
+      {day.checkIn ? (
+        <View style={st.facts}>
+          <Fact label="Keldi" value={day.checkIn} color={late ? c.warn : c.success} />
+          <View style={[st.factSep, { backgroundColor: c.line }]} />
+          <Fact label="Ketdi" value={day.checkOut || "—"} color={early ? c.warn : day.checkOut ? c.ink : c.muted} />
+          <View style={[st.factSep, { backgroundColor: c.line }]} />
+          <Fact label="Ishladi" value={day.checkOut ? duration(day.workedMinutes) : "—"} color={c.ink} small />
+        </View>
+      ) : state === "ABSENT" ? (
+        <Text style={{ color: c.danger, fontSize: 14 }}>Bu kuni kelish belgilanmagan.</Text>
+      ) : null}
+      {late || early ? (
+        <View style={{ gap: 6 }}>
+          {late ? <Deviation icon="alarm-outline" color={c.warn} text={`${duration(day.lateMinutes)} kechikdi`} /> : null}
+          {early ? <Deviation icon="exit-outline" color={c.warn} text={`${duration(day.earlyLeaveMinutes)} erta ketdi`} /> : null}
+        </View>
+      ) : null}
+    </Card>
+  );
+}
+
+function Fact({ label, value, color, small }: { label: string; value: string; color: string; small?: boolean }) {
+  const { c } = useTheme();
+  return (
+    <View style={{ flex: 1, gap: 2 }}>
+      <Text style={{ color: c.muted, fontSize: 12.5 }}>{label}</Text>
+      <Text style={{ color, fontSize: small ? 16 : 20, fontWeight: "700", fontVariant: ["tabular-nums"] }} numberOfLines={1} adjustsFontSizeToFit>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function Deviation({ icon, color, text }: { icon: "alarm-outline" | "exit-outline"; color: string; text: string }) {
+  return (
+    <View style={[st.deviation, { backgroundColor: `${color}14` }]}>
+      <Icon name={icon} size={16} color={color} />
+      <Text style={{ color, fontSize: 14, fontWeight: "600" }}>{text}</Text>
+    </View>
   );
 }
 
@@ -253,7 +349,7 @@ const st = StyleSheet.create({
   cal: { flexDirection: "row", flexWrap: "wrap" },
   cell: { width: `${100 / 7}%`, aspectRatio: 1, padding: 2.5 },
   day: { flex: 1, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  restDot: { position: "absolute", bottom: 4, width: 5, height: 5, borderRadius: 3 },
+  stateDot: { position: "absolute", top: 3, right: 3, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5 },
   legend: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 12 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
@@ -267,4 +363,9 @@ const st = StyleSheet.create({
   bar: { flex: 1, alignItems: "center", gap: 4, height: "100%" },
   barTrack: { flex: 1, width: "70%", borderRadius: 8, justifyContent: "flex-end", overflow: "hidden" },
   top: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, paddingHorizontal: 8, borderRadius: 10 },
+  dayHead: { flexDirection: "row", alignItems: "center", gap: 10 },
+  planRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12 },
+  facts: { flexDirection: "row", alignItems: "center", gap: 12 },
+  factSep: { width: StyleSheet.hairlineWidth, alignSelf: "stretch" },
+  deviation: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10 },
 });

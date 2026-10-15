@@ -21,9 +21,11 @@ export function routeForGo(go?: string | null): Href | null {
     case "notifs":
       return "/notifications";
     case "salary":
+      return "/salary";
+    // «Avans so‘rash» xabari — oylik ekrani avans formasi ochiq holda.
     case "advance":
     case "advances":
-      return "/salary";
+      return { pathname: "/salary", params: { ask: "1" } };
     case "history":
     case "calendar":
       return { pathname: "/(tabs)/history", params: { view: "calendar" } };

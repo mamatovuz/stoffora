@@ -103,6 +103,8 @@ function initialLink(): DeepLink | null {
 export function MiniAppPage() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [salaryOpen, setSalaryOpen] = useState(false);
+  // «Avans so‘rash» havolasidan ochilganda — oylik oynasi darhol avans formasi bilan.
+  const [salaryAsk, setSalaryAsk] = useState(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [helpdesk, setHelpdesk] = useState<{ view?: HelpdeskView; id?: string } | null>(null);
   const [badgeOpen, setBadgeOpen] = useState(false);
@@ -331,7 +333,10 @@ export function MiniAppPage() {
       setSalaryOpen(false);
       if (link.tab === "home") {
         setTab("home");
-        if (link.action === "salary") setSalaryOpen(true);
+        if (link.action === "salary" || link.action === "advance") {
+          setSalaryAsk(link.action === "advance");
+          setSalaryOpen(true);
+        }
         if (link.action === "notifs") setNotifOpen(true);
         return;
       }
@@ -597,7 +602,7 @@ export function MiniAppPage() {
     if (manager)
       return (
         <div className="mini">
-          <main className="mini-app">
+          <main className="mini-app no-top">
             <Suspense fallback={fallback}>
               <ManagerHome auth={manager} onToast={showToast} onExpired={() => void checkManager()} initialView={nav.tab === "manager" ? (nav.view as ManagerView) : undefined} key={nav.key} />
             </Suspense>
@@ -612,7 +617,9 @@ export function MiniAppPage() {
 
   return (
     <div className="mini">
-      <main className="mini-app">
+      {/* Rahbar bo‘limida xodim sarlavhasi yo‘q — to‘liq ekranda Telegram tugmalari ostida qolmaslik uchun
+          xavfsiz hudud (safe area) chekinishi asosiy konteynerning o‘ziga beriladi. */}
+      <main className={`mini-app ${nav.tab === "manager" ? "no-top" : ""}`}>
         {/* Rahbar bo‘limining o‘z sarlavhasi bor — xodim salomlashuvi takrorlanmasin. */}
         {nav.tab !== "manager" && (
           <header className="mini-top">
@@ -659,7 +666,10 @@ export function MiniAppPage() {
               onAction={(action) => void startAction(action)}
               stale={stale && !offline}
               offline={offline}
-              onSalary={() => setSalaryOpen(true)}
+              onSalary={() => {
+                setSalaryAsk(false);
+                setSalaryOpen(true);
+              }}
               onNotifications={() => setNotifOpen(true)}
               onNavigate={navigate}
               onRefresh={() => loadHome().catch(() => undefined)}
@@ -787,7 +797,7 @@ export function MiniAppPage() {
         />
       )}
       <Suspense fallback={null}>
-        {salaryOpen && <SalarySheet onClose={() => setSalaryOpen(false)} onToast={showToast} />}
+        {salaryOpen && <SalarySheet ask={salaryAsk} onClose={() => setSalaryOpen(false)} onToast={showToast} />}
         {directoryOpen && <DirectorySheet onClose={() => setDirectoryOpen(false)} />}
         {badgeOpen && <BadgeSheet onClose={() => setBadgeOpen(false)} />}
         {helpdesk && <HelpdeskSheet onClose={() => setHelpdesk(null)} onToast={showToast} initialView={helpdesk.view} focusId={helpdesk.id} />}

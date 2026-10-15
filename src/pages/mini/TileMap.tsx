@@ -42,6 +42,34 @@ function unproject(x: number, y: number, z: number) {
 }
 const metersPerPixel = (lat: number, z: number) => (156543.03392 * Math.cos((lat * Math.PI) / 180)) / 2 ** z;
 
+/** Shu masofadan (px) yaqin xodim pinlari bitta guruhga birlashadi (avatar 38px + yozuv). */
+const CLUSTER_PX = 44;
+const TONE_RANK: Record<MapPoint["tone"], number> = { bad: 4, warn: 3, muted: 2, info: 1, ok: 0 };
+
+/**
+ * Guruh ochilganda a’zolar markaz atrofida joylashadi: 7 tagacha — aylana bo‘ylab,
+ * ko‘p bo‘lsa — kungaboqar spirali. Qo‘shnilar orasi ≥ ~64px — rasm va ism bir-birini yopmaydi.
+ */
+export function spiderOffsets(count: number) {
+  if (count <= 7) {
+    const radius = Math.max(40, 32 / Math.sin(Math.PI / Math.max(2, count)));
+    // 2 kishi — chap/o‘ng; ko‘proq — tepadan boshlab soat yo‘nalishida.
+    const start = count === 2 ? Math.PI : -Math.PI / 2;
+    return Array.from({ length: count }, (_, i) => {
+      const angle = start + (i * 2 * Math.PI) / count;
+      return { dx: Math.cos(angle) * radius, dy: Math.sin(angle) * radius };
+    });
+  }
+  const golden = Math.PI * (3 - Math.sqrt(5));
+  return Array.from({ length: count }, (_, i) => {
+    const r = 36 * Math.sqrt(i + 1);
+    return { dx: Math.cos(i * golden) * r, dy: Math.sin(i * golden) * r };
+  });
+}
+
+type Placed = { point: MapPoint; x: number; y: number; spoke?: { x: number; y: number }; compact?: boolean };
+type Cluster = { key: string; x: number; y: number; members: MapPoint[]; tone: MapPoint["tone"] };
+
 /**
  * Xarita mavzusi ilovaning haqiqiy fon rangiga qarab tanlanadi (Telegram mavzusi, foydalanuvchi
  * tanlovi). Tizim mavzusiga qaralmaydi — aks holda yorug‘ ilovada qorong‘i xarita chiqardi.
@@ -133,6 +161,8 @@ export function TileMap({
   const [center, setCenter] = useState({ lat: 41.3111, lng: 69.2797 });
   const [failed, setFailed] = useState(false);
   const [dark, setDark] = useState(isDark);
+  // Ochilgan (yoyilgan) guruh — uning birinchi a’zosining id’si.
+  const [expanded, setExpanded] = useState<string | null>(null);
   const drag = useRef<{ x: number; y: number; center: { x: number; y: number }; moved: boolean } | null>(null);
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<number | null>(null);
@@ -161,6 +191,7 @@ export function TileMap({
     const view = fitView(fitTargets, width, height);
     setZoom(view.zoom);
     setCenter(view.center);
+    setExpanded(null);
   }, [fitTargets, width, height]);
   // Filial yoki filtr o‘zgarganda — hammasini ko‘rsatamiz (har 60 soniyalik yangilanishda emas).
   useEffect(() => {
@@ -256,26 +287,57 @@ export function TileMap({
     const start = drag.current;
     if (pointers.current.size === 0) {
       drag.current = null;
-      // Bo‘sh joyga oddiy bosish — tanlovni olib tashlaydi.
-      if (start && !start.moved && (event.target as HTMLElement).classList.contains("tm-hit")) onPick?.(null);
+      // Bo‘sh joyga oddiy bosish — tanlovni olib tashlaydi va ochilgan guruhni yopadi.
+      if (start && !start.moved && (event.target as HTMLElement).classList.contains("tm-hit")) {
+        setExpanded(null);
+        onPick?.(null);
+      }
     }
   };
 
-  // Bir-birini yopib qo‘yadigan pinlar biroz yoyiladi.
-  const placed = useMemo(() => {
-    const buckets = new Map<string, number>();
-    return points.map((p) => {
+  // Bir joyda belgilagan xodimlar ustma-ust tushmasligi uchun: yaqin pinlar guruhga birlashadi.
+  // Yopiq guruh — bitta pin (2–3 ta rasm va son); bosilsa yoki ichidagi xodim tanlansa —
+  // a’zolar atrofga yoyiladi (har biri ismi bilan, haqiqiy joyga ingichka chiziq bilan).
+  const { placed, clusters } = useMemo(() => {
+    const placed: Placed[] = [];
+    const groups: { x: number; y: number; members: MapPoint[] }[] = [];
+    for (const p of points) {
       const s = toScreen(p.lat, p.lng);
-      const key = `${Math.round(s.x / 22)}:${Math.round(s.y / 22)}`;
-      const n = buckets.get(key) || 0;
-      buckets.set(key, n + 1);
-      if (!n || p.kind !== "person") return { point: p, ...s };
-      const angle = n * 2.4;
-      const r = 14 + n * 3;
-      return { point: p, x: s.x + Math.cos(angle) * r, y: s.y + Math.sin(angle) * r };
-    });
+      if (p.kind !== "person") {
+        placed.push({ point: p, ...s });
+        continue;
+      }
+      const near = groups.find((g) => Math.hypot(g.x - s.x, g.y - s.y) < CLUSTER_PX);
+      if (!near) {
+        groups.push({ x: s.x, y: s.y, members: [p] });
+        continue;
+      }
+      const n = near.members.push(p);
+      near.x += (s.x - near.x) / n;
+      near.y += (s.y - near.y) / n;
+    }
+    // Xodimlar aynan filial nuqtasida belgilagan bo‘lsa — filial katta pin emas, kichik markaz nuqtasi
+    // bo‘lib qoladi (aks holda xodimlar ostidan chiqib, yozuvlar ustma-ust tushadi).
+    for (const p of placed)
+      if (p.point.kind === "branch" && groups.some((g) => Math.hypot(g.x - p.x, g.y - p.y) < CLUSTER_PX)) p.compact = true;
+    const clusters: Cluster[] = [];
+    for (const g of groups) {
+      if (g.members.length === 1) {
+        placed.push({ point: g.members[0], x: g.x, y: g.y });
+        continue;
+      }
+      const open = g.members.some((m) => m.id === expanded || m.id === selectedId);
+      if (open) {
+        const offsets = spiderOffsets(g.members.length);
+        g.members.forEach((m, i) => placed.push({ point: m, x: g.x + offsets[i].dx, y: g.y + offsets[i].dy, spoke: { x: g.x, y: g.y } }));
+        continue;
+      }
+      const tone = g.members.reduce((worst, m) => (TONE_RANK[m.tone] > TONE_RANK[worst] ? m.tone : worst), g.members[0].tone);
+      clusters.push({ key: g.members[0].id, x: g.x, y: g.y, members: g.members, tone });
+    }
+    return { placed, clusters };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, zoom, origin.x, origin.y]);
+  }, [points, zoom, origin.x, origin.y, expanded, selectedId]);
   const selected = placed.find((p) => p.point.id === selectedId);
   const showLabels = zoom >= 17;
 
@@ -317,6 +379,16 @@ export function TileMap({
           if (r < 10) return null;
           return <circle key={circle.id} cx={s.x} cy={s.y} r={r} className={`tm-zone ${circle.tone || "accent"}`} />;
         })}
+        {/* Yoyilgan guruh: har bir xodimdan haqiqiy belgilagan joyiga chiziq */}
+        {placed
+          .filter((p) => p.spoke)
+          .map((p) => (
+            <line key={`spoke-${p.point.id}`} x1={p.spoke!.x} y1={p.spoke!.y} x2={p.x} y2={p.y} className="tm-spoke" />
+          ))}
+        {[...new Set(placed.filter((p) => p.spoke).map((p) => `${Math.round(p.spoke!.x)}:${Math.round(p.spoke!.y)}`))].map((key) => {
+          const [cx, cy] = key.split(":").map(Number);
+          return <circle key={`hub-${key}`} cx={cx} cy={cy} r={4} className="tm-hub" />;
+        })}
         {selected?.point.accuracy ? (
           <circle cx={selected.x} cy={selected.y} r={Math.max(6, selected.point.accuracy / metersPerPixel(selected.point.lat, zoom))} className="tm-accuracy" />
         ) : null}
@@ -327,11 +399,12 @@ export function TileMap({
             <circle key={`acc-${p.point.id}`} cx={p.x} cy={p.y} r={Math.max(8, p.point.accuracy! / metersPerPixel(p.point.lat, zoom))} className="tm-accuracy me" />
           ))}
       </svg>
-      {placed.map(({ point, x, y }) =>
+      {placed.map(({ point, x, y, spoke, compact }) =>
         x < -40 || y < -40 || x > width + 40 || y > height + 40 ? null : (
           <button
             key={point.id}
-            className={`tm-pin ${point.kind} ${point.tone} ${point.id === selectedId ? "on" : ""}`}
+            className={`tm-pin ${point.kind} ${point.tone} ${point.id === selectedId ? "on" : ""} ${spoke ? "spread" : ""} ${compact ? "compact" : ""}`}
+            title={compact ? point.label : undefined}
             style={{ transform: `translate(${x}px, ${y}px)` }}
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {
@@ -343,6 +416,8 @@ export function TileMap({
           >
             {point.kind === "me" ? (
               <span className="tm-me" />
+            ) : point.kind === "branch" && compact ? (
+              <span className="tm-branch-dot" />
             ) : point.kind === "branch" ? (
               <span className="tm-branch-head">
                 <Building2 size={16} />
@@ -351,10 +426,41 @@ export function TileMap({
             ) : (
               <span className="tm-avatar">{point.photo ? <img src={point.photo} alt="" draggable={false} /> : point.initials}</span>
             )}
-            {(showLabels || point.kind === "branch" || point.id === selectedId) && <small>{point.label}</small>}
+            {!compact && (showLabels || spoke || point.kind === "branch" || point.id === selectedId) && <small>{point.label}</small>}
           </button>
         ),
       )}
+      {clusters.map((cluster) => {
+        const { x, y, members } = cluster;
+        if (x < -60 || y < -60 || x > width + 60 || y > height + 60) return null;
+        const faces = members.slice(0, 3);
+        const stackWidth = 34 + (faces.length - 1) * 18;
+        return (
+          <button
+            key={`cluster-${cluster.key}`}
+            className={`tm-pin tm-cluster ${cluster.tone}`}
+            style={{ transform: `translate(${x}px, ${y}px)`, marginLeft: -stackWidth / 2 }}
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              window.Telegram?.WebApp?.HapticFeedback?.selectionChanged?.();
+              setExpanded(cluster.key);
+            }}
+            aria-label={`${members.length} xodim: ${members.map((m) => m.label).join(", ")}`}
+            title={members.map((m) => m.label).join(", ")}
+          >
+            <span className="tm-stack" style={{ width: stackWidth }}>
+              {faces.map((m, i) => (
+                <span key={m.id} className={`tm-avatar sm ${m.tone}`} style={{ left: i * 18, zIndex: faces.length - i }}>
+                  {m.photo ? <img src={m.photo} alt="" draggable={false} /> : m.initials}
+                </span>
+              ))}
+              <em>{members.length}</em>
+            </span>
+            <small>{members.length} xodim</small>
+          </button>
+        );
+      })}
       <div className="tm-controls" onPointerDown={(event) => event.stopPropagation()}>
         <button onClick={() => zoomTo(zoom + 1)} aria-label="Yaqinlashtirish" disabled={zoom >= MAX_ZOOM}>
           <Plus size={18} />

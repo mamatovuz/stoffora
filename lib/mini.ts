@@ -12,7 +12,7 @@ import { forwardMinutes } from "./shift-time";
  *   t.me/<bot>/<app>?startapp=go_payslip_2026-09
  */
 export type DeepLink =
-  | { tab: "home"; action?: "checkin" | "checkout" | "salary" | "notifs" | "late" }
+  | { tab: "home"; action?: "checkin" | "checkout" | "salary" | "advance" | "notifs" | "late" }
   | { tab: "history"; view?: "calendar" | "schedule" | "stats" }
   | { tab: "leave"; view?: "leave" | "swap" | "overtime" | "dayoff" | "marks"; id?: string }
   | { tab: "profile"; section?: "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays"; id?: string }
@@ -38,6 +38,10 @@ export function parseDeepLink(raw?: string | null): DeepLink | null {
     case "notifs":
     case "late":
       return { tab: "home", action: head };
+    // «Avans so‘rash» — oylik oynasi darhol avans formasi bilan ochiladi.
+    case "advance":
+    case "advances":
+      return { tab: "home", action: "advance" };
     case "history":
     case "calendar":
       return { tab: "history", view: "calendar" };

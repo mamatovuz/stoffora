@@ -760,6 +760,7 @@ const buttonLabels: Record<string, string> = {
   leave: "📋 So‘rovni ochish",
   swap: "🔄 Almashishni ochish",
   salary: "💰 Oyligimni ochish",
+  advance: "💰 Avans so‘rash",
   payslip: "🧾 Hisob varaqasi",
   checkin: "✅ Ishga keldim",
   checkout: "🏁 Ishdan ketdim",

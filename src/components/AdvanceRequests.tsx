@@ -1,11 +1,11 @@
-import { useState } from "react";
-import { Banknote, Check, Copy, CreditCard, Eye, HandCoins, Send, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Banknote, Check, Copy, CreditCard, Eye, HandCoins, Megaphone, Send, X } from "lucide-react";
 import { errorText, post } from "../api";
 import { useApi } from "../hooks";
 import { useAuth } from "../auth";
 import { canAny } from "@/lib/permissions";
-import { money, monthYearUz } from "@/lib/format";
-import { Empty, Loading, useToast } from "./ui";
+import { dateUz, money, monthYearUz } from "@/lib/format";
+import { Empty, ErrorBox, Field, Loading, Modal, useToast } from "./ui";
 
 /*
  * Avans so‘rovlari (panel). Ikki bosqich:
@@ -66,6 +66,7 @@ export function AdvanceRequestsPanel({ mode, onChanged }: { mode: "hr" | "financ
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [cards, setCards] = useState<Record<string, { number: string; holder?: string; brand?: string }>>({});
+  const [announcing, setAnnouncing] = useState(false);
   const rows = (data || []).filter((r) =>
     filter === "ALL" ? true : actionable(r) || (mode === "finance" && r.status === "APPROVED" && !r.paidAt),
   );
@@ -122,7 +123,11 @@ export function AdvanceRequestsPanel({ mode, onChanged }: { mode: "hr" | "financ
             Tartib: xodim → HR → moliya → to‘lov
           </span>
         )}
+        <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => setAnnouncing(true)}>
+          <Megaphone size={14} /> Xodimlarga xabar yuborish
+        </button>
       </div>
+      {announcing && <AdvanceAnnounceModal onClose={() => setAnnouncing(false)} />}
       {loading && !data ? (
         <Loading />
       ) : !rows.length ? (
@@ -241,5 +246,113 @@ export function AdvanceRequestsPanel({ mode, onChanged }: { mode: "hr" | "financ
         </div>
       )}
     </>
+  );
+}
+
+type AnnouncePreview = {
+  month: string;
+  label: string;
+  title: string;
+  message: string;
+  recipients: number;
+  withTelegram: number;
+  requested: number;
+  window: { always: boolean; open: boolean; text: string; opensOn?: string; closesOn?: string };
+  auto: boolean;
+  blocker?: string;
+  last: { at: string; by?: string; recipients: number; auto: boolean } | null;
+};
+
+/**
+ * «Avans oluvchilar ro‘yxati» xabari: xodimga ilovada e’lon, Telegram’da «💰 Avans so‘rash» tugmasi va
+ * telefonga push bo‘lib boradi — bosilsa avans formasi ochiladi. Faqat shu oy hali so‘ramaganlarga.
+ */
+function AdvanceAnnounceModal({ onClose }: { onClose: () => void }) {
+  const toast = useToast();
+  const { data, loading, error } = useApi<AnnouncePreview>("/payroll/advances/announce");
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!data) return;
+    setTitle((value) => value || data.title);
+    setMessage((value) => value || data.message);
+  }, [data]);
+  const send = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    try {
+      const result = await post<{ recipients: number; telegram: number }>("/payroll/advances/announce", { title: title.trim(), message: message.trim() });
+      toast(`Xabar ${result.recipients} xodimga yuborildi (Telegram: ${result.telegram})`);
+      onClose();
+    } catch (reason) {
+      toast(errorText(reason), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const when = (iso: string) => `${dateUz(iso)}, ${new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tashkent" })}`;
+  return (
+    <Modal title="Avans oluvchilar ro‘yxati" subtitle="Xodimlarga e’lon, Telegram xabari va push — bosilsa avans formasi ochiladi" onClose={onClose}>
+      {error ? (
+        <ErrorBox message={error} />
+      ) : loading && !data ? (
+        <Loading />
+      ) : data ? (
+        <form className="adv-announce" onSubmit={send}>
+          <div className="adv-announce-kpis">
+            <div>
+              <b>{data.recipients}</b>
+              <small>xodimga boradi</small>
+            </div>
+            <div>
+              <b>{data.withTelegram}</b>
+              <small>Telegram ulangan</small>
+            </div>
+            <div>
+              <b>{data.requested}</b>
+              <small>allaqachon so‘ragan</small>
+            </div>
+          </div>
+          {data.blocker ? (
+            <div className="alert warn">{data.blocker}</div>
+          ) : (
+            <p className="hint">
+              {data.window.always
+                ? "Avans so‘rovlari oy davomida qabul qilinadi."
+                : data.window.open
+                  ? `Avans oynasi ochiq (${data.window.text}${data.window.closesOn ? `, ${dateUz(data.window.closesOn)} gacha` : ""}).`
+                  : `Avans oynasi hozir yopiq — ${data.window.text}${data.window.opensOn ? `, keyingisi ${dateUz(data.window.opensOn)}` : ""}. Xodim xabarni ko‘radi, so‘rovni esa oyna ochilganda yuboradi.`}
+              {!data.window.always && data.auto ? " Oyna ochilgan kuni soat 09:00 da xabar avtomatik ham yuboriladi." : ""}
+            </p>
+          )}
+          {data.last && (
+            <p className="hint">
+              Bu oy {data.last.auto ? "avtomatik" : data.last.by ? `${data.last.by} tomonidan` : ""} yuborilgan: {when(data.last.at)} · {data.last.recipients} xodim. Qayta yuborilsa — faqat hali so‘ramaganlarga boradi.
+            </p>
+          )}
+          <Field label="Sarlavha">
+            <input className="input" value={title} maxLength={120} minLength={3} required onChange={(e) => setTitle(e.target.value)} />
+          </Field>
+          <Field label="Xabar matni" hint="Har bir xodimga oxirida o‘z avans chegarasi qo‘shiladi.">
+            <textarea className="textarea" rows={5} value={message} maxLength={1500} minLength={10} required onChange={(e) => setMessage(e.target.value)} />
+          </Field>
+          <div className="adv-announce-preview" aria-label="Telefonda ko‘rinishi">
+            <small>Telefonda shunday ko‘rinadi</small>
+            <b>📢 {title || "…"}</b>
+            <p>{message}</p>
+            <span>💰 Avans so‘rash</span>
+          </div>
+          <div className="form-actions">
+            <button type="button" className="btn" onClick={onClose}>
+              Bekor qilish
+            </button>
+            <button className="btn btn-primary" disabled={busy || Boolean(data.blocker) || !data.recipients}>
+              <Send size={15} /> {data.recipients ? `${data.recipients} xodimga yuborish` : "Yuboriladigan xodim yo‘q"}
+            </button>
+          </div>
+        </form>
+      ) : null}
+    </Modal>
   );
 }

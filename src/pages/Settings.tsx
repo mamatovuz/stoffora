@@ -56,8 +56,8 @@ import {
 } from "../components/ui";
 import { roleLabels, useAuth } from "../auth";
 import type { Company, PayrollSettings } from "@/lib/types";
-import { calculatePayroll, defaultPayrollSettings } from "@/lib/payroll";
-import { dateUz, money } from "@/lib/format";
+import { advanceWindow, calculatePayroll, defaultPayrollSettings } from "@/lib/payroll";
+import { dateUz, money, tashkentIsoDate } from "@/lib/format";
 import { resizePhoto } from "./Employees";
 
 type Tab = "profile" | "security" | "lock" | "devices" | "apps" | "company" | "payroll" | "reports" | "channel" | "bot" | "miniapp" | "regbot" | "integrations";
@@ -762,6 +762,50 @@ function PayrollSection() {
                 style={{ maxWidth: 160 }}
               />
             </Field>
+          )}
+          {form.advanceRequestsEnabled !== false && (
+            <Field
+              label="Avans so‘rovlari qabul qilinadigan kunlar"
+              hint={`Har oyning shu kunlari oralig‘ida xodim avans so‘ray oladi, qolgan kunlari so‘rov qabul qilinmaydi. 1 va 31 — oy davomida. Hozir: ${advanceWindow(form, tashkentIsoDate()).text}.`}
+            >
+              <span className="day-range">
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={form.advanceWindowFrom ?? 1}
+                  onChange={(e) => setForm({ ...form, advanceWindowFrom: Number(e.target.value) })}
+                  aria-label="Boshlanish kuni"
+                />
+                <span>-kunidan</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  max={31}
+                  value={form.advanceWindowTo ?? 31}
+                  onChange={(e) => setForm({ ...form, advanceWindowTo: Number(e.target.value) })}
+                  aria-label="Tugash kuni"
+                />
+                <span>-kunigacha</span>
+              </span>
+            </Field>
+          )}
+          {form.advanceRequestsEnabled !== false && !advanceWindow(form, tashkentIsoDate()).always && (
+            <label className="setting-row">
+              <span>
+                <b>Oyna ochilgan kuni xodimlarga xabar yuborilsin</b>
+                <small>
+                  Soat 09:00 da «Avans oluvchilar ro‘yxatini shakllantiryapmiz — siz ham ro‘yxatdamisiz?» xabari ilovaga, Telegram’ga va telefonga boradi; bosilsa avans
+                  formasi ochiladi. Qo‘lda: Ta’til va yo‘qlik → Avans so‘rovlari → «Xodimlarga xabar yuborish».
+                </small>
+              </span>
+              <span className="switch">
+                <input type="checkbox" checked={form.advanceAnnounce !== false} onChange={(e) => setForm({ ...form, advanceAnnounce: e.target.checked })} />
+                <span />
+              </span>
+            </label>
           )}
           <label className="setting-row">
             <span>

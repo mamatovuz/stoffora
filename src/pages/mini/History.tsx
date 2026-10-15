@@ -60,14 +60,74 @@ type ScheduleDay = {
   checkIn?: string;
   checkOut?: string;
   lateMinutes: number;
+  earlyLeaveMinutes?: number;
   workedMinutes: number;
+  state?: DayState;
 };
+type DayState = "PLANNED" | "ON_TIME" | "LATE" | "IN" | "NO_CHECKOUT" | "ABSENT" | "REST" | "REST_WORKED" | "LEAVE" | "BEFORE_START";
 type ScheduleMonth = { month: string; label: string; days: ScheduleDay[]; totals: { workdays: number; plannedMinutes: number; leaveDays: number } };
 
 function shiftMonth(month: string, delta: number) {
   const d = new Date(`${month}-15T00:00:00Z`);
   d.setUTCMonth(d.getUTCMonth() + delta);
   return d.toISOString().slice(0, 7);
+}
+
+const STATE_CHIP: Record<DayState, [string, string]> = {
+  PLANNED: ["Reja", "info"],
+  ON_TIME: ["Vaqtida", "ok"],
+  LATE: ["Kechikdi", "warn"],
+  IN: ["Ishda", "ok"],
+  NO_CHECKOUT: ["Ketish belgilanmagan", "warn"],
+  ABSENT: ["Kelmadi", "bad"],
+  REST: ["Dam olish", ""],
+  REST_WORKED: ["Dam kunida ishladi", "info"],
+  LEAVE: ["Ta’til", "rest"],
+  BEFORE_START: ["Ishga kirmagan", ""],
+};
+
+/** Tanlangan kun: reja, keldi / ketdi / ishladi va og‘ishlar — alohida-alohida. */
+function DayDetail({ day, today }: { day: ScheduleDay; today: string }) {
+  const state: DayState =
+    day.state ||
+    (day.leave ? "LEAVE" : day.checkIn ? (day.checkOut ? (day.lateMinutes ? "LATE" : "ON_TIME") : "IN") : !day.working ? "REST" : day.date < today ? "ABSENT" : "PLANNED");
+  const [chip, tone] = STATE_CHIP[state];
+  const late = day.lateMinutes > 0;
+  const early = (day.earlyLeaveMinutes || 0) > 0;
+  return (
+    <section className="mini-card msc-detail">
+      <div className="msc-detail-head">
+        <b>{dateLongUz(day.date)}</b>
+        <i className={`mini-chip ${tone}`}>{state === "LEAVE" ? leaveTypeLabel[day.leave || ""] || chip : state === "PLANNED" && day.date === today ? "Bugun" : chip}</i>
+      </div>
+      <div className="msc-plan">
+        <Clock3 size={16} />
+        <span>Ish vaqti</span>
+        <b>{day.leave ? leaveTypeLabel[day.leave] || "Ta’til" : day.working ? `${day.start} – ${day.end}` : "Dam olish kuni"}</b>
+      </div>
+      {day.overridden && <small className="msc-note">Grafik o‘zgartirilgan{day.reason ? `: ${day.reason}` : ""}</small>}
+      {day.checkIn ? (
+        <div className="msc-facts">
+          <div>
+            <small>Keldi</small>
+            <b className={late ? "warn" : "ok"}>{day.checkIn}</b>
+          </div>
+          <div>
+            <small>Ketdi</small>
+            <b className={early ? "warn" : day.checkOut ? "" : "muted"}>{day.checkOut || "—"}</b>
+          </div>
+          <div>
+            <small>Ishladi</small>
+            <b className="sm">{day.checkOut ? duration(day.workedMinutes) : "—"}</b>
+          </div>
+        </div>
+      ) : (
+        state === "ABSENT" && <small className="msc-note bad">Bu kuni kelish belgilanmagan.</small>
+      )}
+      {late && <div className="msc-dev">⏰ {duration(day.lateMinutes)} kechikdi</div>}
+      {early && <div className="msc-dev">↘ {duration(day.earlyLeaveMinutes)} erta ketdi</div>}
+    </section>
+  );
 }
 
 function ScheduleView() {
@@ -126,7 +186,7 @@ function ScheduleView() {
                 return (
                   <button
                     key={d.date}
-                    className={`mini-cal-day msc-day ${tone} ${d.date === today ? "today" : ""} ${d.date === selected ? "picked" : ""}`}
+                    className={`mini-cal-day msc-day ${tone} ${d.date === today ? "today" : ""} ${d.date === selected ? "picked" : ""} ${d.state ? `st-${d.state.toLowerCase()}` : ""}`}
                     onClick={() => {
                       haptic.select();
                       setSelected(d.date);
@@ -148,29 +208,20 @@ function ScheduleView() {
               <span>
                 <i className="lg-leave" /> Ta’til
               </span>
+              <span>
+                <i className="lg-ok" /> Vaqtida
+              </span>
+              <span>
+                <i className="lg-late" /> Kechikdi
+              </span>
+              <span>
+                <i className="lg-absent" /> Kelmadi
+              </span>
             </div>
           </>
         )}
       </section>
-      {pick && (
-        <section className="mini-card msc-detail">
-          <b>{dateLongUz(pick.date)}</b>
-          <span>
-            {pick.leave
-              ? `🏖 ${leaveTypeLabel[pick.leave] || "Ta’til"}`
-              : pick.working
-                ? `🕘 ${pick.start} – ${pick.end}${pick.overridden ? ` · ${pick.reason || "o‘zgartirilgan"}` : ""}`
-                : `🌿 Dam olish${pick.overridden ? ` · ${pick.reason || "o‘zgartirilgan"}` : ""}`}
-          </span>
-          {pick.checkIn && (
-            <small>
-              Keldi {pick.checkIn}
-              {pick.checkOut ? ` · ketdi ${pick.checkOut} · ${duration(pick.workedMinutes)}` : ""}
-              {pick.lateMinutes ? ` · ${duration(pick.lateMinutes)} kech` : ""}
-            </small>
-          )}
-        </section>
-      )}
+      {pick && <DayDetail day={pick} today={today} />}
       {data && (
         <section className="mh-stats">
           <div>

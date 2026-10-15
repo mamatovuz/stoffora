@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Card, Icon, haptic } from "./ui";
 import { StackBar } from "./ManagerExtras";
 import { dateLongUz, tashkentIsoDate } from "@/lib/format";
-import { useTheme } from "@/lib/theme";
+import { typo, useTheme } from "@/lib/theme";
 
 /*
  * Rahbar / HR — kunlik davomat: chiziqli diagramma (vaqtida, kechikkan, hali kelmagan, kelmagan,
@@ -42,8 +42,8 @@ export function AttendanceOverview<T extends OverviewRow>({ rows, date, onDate, 
             <Icon name="chevron-back" size={18} color={c.ink} />
           </Pressable>
           <View style={{ alignItems: "center" }}>
-            <Text style={{ color: c.ink, fontSize: 16, fontWeight: "600" }}>Davomat</Text>
-            <Text style={{ color: c.muted, fontSize: 12.5 }}>{date === today ? "Bugun" : dateLongUz(new Date(`${date}T07:00:00Z`))}</Text>
+            <Text style={[typo.bodyStrong, { color: c.ink }]}>Davomat</Text>
+            <Text style={[typo.sub, { color: c.muted }]}>{date === today ? "Bugun" : dateLongUz(new Date(`${date}T07:00:00Z`))}</Text>
           </View>
           <Pressable onPress={() => shift(1)} disabled={date >= today} hitSlop={10} style={[st.nav, { backgroundColor: c.tint, opacity: date >= today ? 0.35 : 1 }]}>
             <Icon name="chevron-forward" size={18} color={c.ink} />
@@ -60,12 +60,12 @@ export function AttendanceOverview<T extends OverviewRow>({ rows, date, onDate, 
             <Card key={b.key} style={{ gap: 4, paddingHorizontal: 0, paddingBottom: 4 }}>
               <View style={st.groupHead}>
                 <View style={[st.dot, { backgroundColor: b.color }]} />
-                <Text style={{ color: c.ink, fontWeight: "600", flex: 1 }} numberOfLines={1}>
+                <Text style={[typo.bodyStrong, { color: c.ink, flex: 1 }]} numberOfLines={1}>
                   {b.label[0].toUpperCase() + b.label.slice(1)} · {b.rows.length}
                 </Text>
                 {b.rows.length > 5 ? (
                   <Pressable onPress={() => setOpen({ ...open, [b.key]: !all })} hitSlop={8}>
-                    <Text style={{ color: c.accent, fontWeight: "500" }}>{all ? "Yig‘ish" : "Barchasini ko‘rsatish"}</Text>
+                    <Text style={[typo.sub, { color: c.accent, fontWeight: "600" }]}>{all ? "Yig‘ish" : `Hammasi (${b.rows.length})`}</Text>
                   </Pressable>
                 ) : null}
               </View>

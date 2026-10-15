@@ -89,7 +89,17 @@ export type Salary = {
   payable?: number;
   paid?: number;
   remaining?: number;
-  limit: { enabled: boolean; percent: number; max: number; taken: number; pending: number; available: number; closed: boolean };
+  limit: {
+    enabled: boolean;
+    percent: number;
+    max: number;
+    taken: number;
+    pending: number;
+    available: number;
+    closed: boolean;
+    /** Avans qabul qilinadigan kunlar (kompaniya sozlamasi); eski serverda yo‘q. */
+    window?: { open: boolean; always: boolean; text: string; opensOn?: string; closesOn?: string };
+  };
   requests: AdvanceRequest[];
   savedCard?: { mask: string; brand: string; holder: string } | null;
 };

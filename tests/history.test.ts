@@ -94,6 +94,19 @@ describe("taqvim", () => {
     expect(sick.plan.leave).toBe("SICK");
     expect(sick.requests[0].kind).toBe("Ta’til / ruxsat");
   });
+  it("grafigim (monthPlan): kun holati taqvim bilan bir xil, kechki smena soati to‘g‘ri", async () => {
+    const { monthPlan } = await import("../server/month-plan");
+    const db = await store.readDb();
+    const employee = db.employees.find((e) => e.id === "a")!;
+    const plan = monthPlan(db, employee, "2026-09", "2026-10-15", "12:00");
+    const state = (d: string) => plan.days.find((x) => x.date === d)!.state;
+    expect([state("2026-09-01"), state("2026-09-02"), state("2026-09-03"), state("2026-09-04"), state("2026-09-06")]).toEqual(["ON_TIME", "LATE", "LEAVE", "ABSENT", "REST"]);
+    expect(plan.days.find((x) => x.date === "2026-09-02")).toMatchObject({ checkIn: "09:20", lateMinutes: 20, earlyLeaveMinutes: 0, plannedMinutes: 540 });
+    expect(plan.totals).toMatchObject({ workdays: 21, plannedMinutes: 21 * 540, leaveDays: 1 });
+    // Kechki smena 14:00–00:00 — 10 soat (avval 0 chiqardi).
+    db.schedules[0].days = db.schedules[0].days.map((d) => ({ ...d, start: "14:00", end: "00:00" }));
+    expect(monthPlan(db, employee, "2026-09", "2026-10-15", "12:00").totals.plannedMinutes).toBe(21 * 600);
+  });
   it("rahbar: o‘z filiali xodimi — ha, boshqa filial — yo‘q", async () => {
     panel = { role: "BRANCH_MANAGER", userId: "bm1" };
     expect((await get("/api/employees/a/history?month=2026-09")).status).toBe(200);

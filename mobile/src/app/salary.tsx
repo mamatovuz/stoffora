@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useLocalSearchParams } from "expo-router";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Row, Sheet, haptic } from "@/components/ui";
 import { errorText, post } from "@/lib/api";
@@ -53,6 +54,23 @@ export default function SalaryScreen() {
   const { data, error, loading, reload } = useData<Salary>(`/mini/salary?month=${month}`, { maxAgeMs: 0 });
   const [visible, setVisible] = useState(false);
   const [open, setOpen] = useState(false);
+  // «Avans so‘rash» xabari (push / bildirishnoma) orqali kelganda — forma darhol ochiladi (bir marta).
+  const { ask } = useLocalSearchParams<{ ask?: string }>();
+  const asked = useRef(false);
+  const canAsk = Boolean(
+    data &&
+      data.current !== false &&
+      data.limit.enabled &&
+      !data.limit.closed &&
+      data.limit.window?.open !== false &&
+      data.limit.available >= 10_000 &&
+      !data.requests.some((r) => r.status === "PENDING" || r.status === "HR_APPROVED"),
+  );
+  useEffect(() => {
+    if (ask !== "1" || asked.current || !data) return;
+    asked.current = true;
+    if (canAsk) setOpen(true);
+  }, [ask, canAsk, data]);
   if (loading && !data) return <Loading />;
   if (!data) return <ErrorBox text={error || "Ma’lumot yuklanmadi"} onRetry={reload} />;
   const show = (v: number) => (visible ? som(v) : "•••");
@@ -146,7 +164,19 @@ export default function SalaryScreen() {
               <Text style={{ color: c.muted }}> (oylikning {data.limit.percent}%i gacha)</Text>
             </Text>
             {data.limit.closed ? <Text style={{ color: c.muted }}>Bu oy uchun avans yopilgan.</Text> : null}
-            <Button title="Avans so‘rash" icon="cash-outline" disabled={data.limit.available < 10_000 || data.limit.closed} onPress={() => setOpen(true)} />
+            {data.limit.window && !data.limit.window.always ? (
+              <Hint tone={data.limit.window.open ? "info" : "warn"} icon="calendar-outline">
+                {data.limit.window.open
+                  ? `Avans ${data.limit.window.text} so‘raladi${data.limit.window.closesOn ? ` · ${dateUz(data.limit.window.closesOn)} gacha ochiq` : ""}.`
+                  : `Avans ${data.limit.window.text} so‘raladi${data.limit.window.opensOn ? ` · keyingisi ${dateUz(data.limit.window.opensOn)}` : ""}.`}
+              </Hint>
+            ) : null}
+            <Button
+              title="Avans so‘rash"
+              icon="cash-outline"
+              disabled={data.limit.available < 10_000 || data.limit.closed || data.limit.window?.open === false}
+              onPress={() => setOpen(true)}
+            />
             <Text style={{ color: c.muted, fontSize: 12.5 }}>Avval HR ko‘rib chiqadi, so‘ng moliya bo‘limi to‘laydi.</Text>
           </Card>
         </>

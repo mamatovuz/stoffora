@@ -14,19 +14,7 @@ import {
   Users,
   PartyPopper,
 } from "lucide-react";
-import {
-  Area,
-  Bar,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-  type TooltipProps,
-} from "recharts";
+import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from "recharts";
 import { useMemo, useState } from "react";
 import { useApi, usePolling } from "../hooks";
 import { useAuth } from "../auth";
@@ -141,18 +129,20 @@ export function DashboardPage() {
   const bar = (value: number) =>
     s.total ? `${(value / s.total) * 100}%` : "0%";
   const todayIso = data.weekly[data.weekly.length - 1]?.date;
-  const chart = data.weekly.map((item) => ({
+  // Davomat hisobi boshlangan kundan ko‘rsatamiz — oldingi bo‘sh kunlar grafikning yarmini egallamasin.
+  const firstData = data.weekly.findIndex((d) => d.present + d.late + d.absent > 0);
+  const series = firstData > 0 ? data.weekly.slice(firstData) : data.weekly;
+  const chart = series.map((item) => ({
     ...item,
     day: item.date === todayIso ? "Bugun" : days === "7" ? weekdayShortUz(item.date) : String(Number(item.date.slice(8))),
-    // Ustunning eng yuqori (nolga teng bo‘lmagan) qismi — faqat u yumaloqlanadi.
+    // Ustunning eng yuqori (nolga teng bo‘lmagan) qismi — faqat uning uchi yumaloqlanadi.
     top: item.absent ? "absent" : item.late ? "late" : "present",
   }));
-  const rated = data.weekly.filter((d) => d.rate !== null);
-  const avgRate = rated.length
-    ? Math.round(rated.reduce((sum, d) => sum + (d.rate || 0), 0) / rated.length)
-    : 0;
-  const totalLate = data.weekly.reduce((sum, d) => sum + d.late, 0);
-  const totalAbsent = data.weekly.reduce((sum, d) => sum + d.absent, 0);
+  const totalCame = series.reduce((sum, d) => sum + d.present + d.late, 0);
+  const totalLate = series.reduce((sum, d) => sum + d.late, 0);
+  const totalAbsent = series.reduce((sum, d) => sum + d.absent, 0);
+  // O‘rtacha davomat — og‘irlikli: jami kelganlar / jami kutilganlar (1 kishilik kun 10 kishilik kun bilan teng emas).
+  const avgRate = totalCame + totalAbsent ? Math.round((totalCame / (totalCame + totalAbsent)) * 100) : null;
 
   return (
     <div className="page">
@@ -176,10 +166,6 @@ export function DashboardPage() {
 
       <section className="hero">
         <div>
-          <small className="eyebrow">
-            <span className="live-dot" />
-            Bugungi davomat · jonli
-          </small>
           <h2>
             {s.present}
             <span> / {expected} keldi</span>
@@ -319,7 +305,9 @@ export function DashboardPage() {
           <div className="card-head">
             <div>
               <h2>Davomat dinamikasi</h2>
-              <p>So‘nggi {days} kun</p>
+              <p>
+                So‘nggi {days} kun{firstData > 0 ? ` · ma’lumot ${dateUz(series[0].date)} dan` : ""}
+              </p>
             </div>
             <Segmented<"7" | "14" | "30">
               value={days}
@@ -333,8 +321,8 @@ export function DashboardPage() {
           </div>
           <div className="chart-summary">
             <div>
-              <small>O‘rtacha davomat</small>
-              <b>{avgRate}%</b>
+              <small>Davomat</small>
+              <b>{avgRate === null ? "—" : `${avgRate}%`}</b>
             </div>
             <div>
               <small>Kechikishlar</small>
@@ -354,82 +342,80 @@ export function DashboardPage() {
               <span>
                 <i style={{ background: "var(--chart-bad)" }} /> Kelmagan
               </span>
-              <span>
-                <i style={{ background: "var(--chart-brand)", height: 2, borderRadius: 1 }} /> Davomat %
-              </span>
             </div>
           </div>
-          <div className="chart-box">
-            <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={chart} margin={{ left: -18, right: 0, top: 12 }} barCategoryGap={days === "30" ? "18%" : "34%"}>
-                <defs>
-                  <linearGradient id="g-present" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--chart-ok)" />
-                    <stop offset="100%" stopColor="var(--chart-ok)" />
-                  </linearGradient>
-                  <linearGradient id="g-late" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--chart-late)" />
-                    <stop offset="100%" stopColor="var(--chart-late)" />
-                  </linearGradient>
-                  <linearGradient id="g-absent" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--chart-bad)" />
-                    <stop offset="100%" stopColor="var(--chart-bad)" />
-                  </linearGradient>
-                  <linearGradient id="g-rate" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--chart-brand)" stopOpacity={0.16} />
-                    <stop offset="100%" stopColor="var(--chart-brand)" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid stroke="var(--chart-grid)" strokeDasharray="3 4" vertical={false} />
-                <XAxis
-                  dataKey="day"
-                  axisLine={false}
-                  tickLine={false}
-                  fontSize={11}
-                  tick={(props: { x: number; y: number; payload: { value: string } }) => (
-                    <text x={props.x} y={props.y + 12} textAnchor="middle" fontSize={11} fontWeight={props.payload.value === "Bugun" ? 700 : 400} fill={props.payload.value === "Bugun" ? "var(--chart-brand)" : "var(--chart-axis)"}>
-                      {props.payload.value}
-                    </text>
-                  )}
-                  interval={days === "30" ? 2 : 0}
-                />
-                <YAxis yAxisId="count" allowDecimals={false} axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "var(--chart-axis)" }} />
-                <YAxis yAxisId="rate" orientation="right" domain={[0, 100]} ticks={[0, 50, 100]} axisLine={false} tickLine={false} fontSize={11} tick={{ fill: "var(--chart-rate)" }} tickFormatter={(v: number) => `${v}%`} width={40} />
-                <Tooltip cursor={{ fill: "var(--hover-tint)", radius: 8 } as object} content={<ChartTooltip />} />
-                <Area yAxisId="rate" dataKey="rate" type="monotone" stroke="none" fill="url(#g-rate)" connectNulls isAnimationActive={false} />
-                {rated.length > 1 && <ReferenceLine yAxisId="rate" y={avgRate} stroke="var(--chart-rate)" strokeDasharray="4 4" label={{ value: `o‘rtacha ${avgRate}%`, position: "insideTopLeft", fill: "var(--chart-rate)", fontSize: 10.5 }} />}
-                {(["present", "late", "absent"] as const).map((key) => (
-                  <Bar
-                    key={key}
-                    yAxisId="count"
-                    dataKey={key}
-                    name={key === "present" ? "Vaqtida" : key === "late" ? "Kechikkan" : "Kelmagan"}
-                    stackId="a"
-                    fill={`url(#g-${key})`}
-                    maxBarSize={30}
-                    shape={(raw: unknown) => {
-                      const { x, y, width, height, fill, payload } = raw as { x: number; y: number; width: number; height: number; fill: string; payload: { top: string } };
-                      if (!height || height <= 0) return <g />;
-                      const r = payload.top === key ? Math.min(6, width / 2, height) : 0;
-                      return <path d={`M${x},${y + height} V${y + r} Q${x},${y} ${x + r},${y} H${x + width - r} Q${x + width},${y} ${x + width},${y + r} V${y + height} Z`} fill={fill} />;
-                    }}
+          {firstData < 0 ? (
+            <Empty icon={Clock3} title="Hali davomat yo‘q" text="Xodimlar kelib-ketishni belgilay boshlagach, kunlik davomat shu yerda ko‘rinadi." />
+          ) : (
+            <div className="chart-box">
+              <ResponsiveContainer width="100%" height="100%">
+                {/* Bitta o‘q — kishi soni. Foiz alohida o‘q emas: yuqoridagi «Davomat» va har ustun tooltip’ida. */}
+                <BarChart data={chart} margin={{ left: -14, right: 4, top: 8 }} barCategoryGap={chart.length > 14 ? "22%" : "38%"}>
+                  <CartesianGrid stroke="var(--chart-grid)" vertical={false} />
+                  <XAxis
+                    dataKey="day"
+                    axisLine={false}
+                    tickLine={false}
+                    minTickGap={6}
+                    interval={chart.length > 14 ? "preserveStartEnd" : 0}
+                    tick={(props: { x: number; y: number; payload: { value: string } }) => (
+                      <text x={props.x} y={props.y + 12} textAnchor="middle" fontSize={11} fontWeight={props.payload.value === "Bugun" ? 600 : 400} fill={props.payload.value === "Bugun" ? "var(--ink)" : "var(--chart-axis)"}>
+                        {props.payload.value}
+                      </text>
+                    )}
                   />
-                ))}
-                <Line
-                  yAxisId="rate"
-                  dataKey="rate"
-                  name="Davomat"
-                  type="monotone"
-                  stroke="var(--chart-brand)"
-                  strokeWidth={2.5}
-                  strokeLinecap="round"
-                  dot={days === "30" ? false : { r: 3.5, strokeWidth: 2, fill: "var(--chart-dot)", stroke: "var(--chart-brand)" }}
-                  activeDot={{ r: 5, strokeWidth: 2, fill: "var(--chart-dot)", stroke: "var(--chart-brand)" }}
-                  connectNulls
-                />
-              </ComposedChart>
-            </ResponsiveContainer>
-          </div>
+                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} width={40} tick={{ fill: "var(--chart-axis)", fontSize: 11 }} />
+                  <Tooltip cursor={{ fill: "var(--hover-tint)" }} content={<ChartTooltip />} isAnimationActive={false} />
+                  {(["present", "late", "absent"] as const).map((key) => (
+                    <Bar
+                      key={key}
+                      dataKey={key}
+                      name={key === "present" ? "Vaqtida" : key === "late" ? "Kechikkan" : "Kelmagan"}
+                      stackId="day"
+                      maxBarSize={28}
+                      isAnimationActive={false}
+                      shape={(raw: unknown) => {
+                        const { x, y, width, height, payload } = raw as { x: number; y: number; width: number; height: number; payload: { top: string } };
+                        if (!height || height <= 0) return <g />;
+                        const color = `var(--chart-${key === "present" ? "ok" : key === "late" ? "late" : "bad"})`;
+                        // Eng yuqori qism — uchi 4px yumaloq; pastdagilar ustidan 2px oraliq qoladi (segmentlar ajralib turadi).
+                        if (payload.top !== key) {
+                          const h = Math.max(0, height - 2);
+                          return h ? <rect x={x} y={y + 2} width={width} height={h} style={{ fill: color }} /> : <g />;
+                        }
+                        const r = Math.min(4, width / 2, height);
+                        return <path d={`M${x},${y + height} V${y + r} Q${x},${y} ${x + r},${y} H${x + width - r} Q${x + width},${y} ${x + width},${y + r} V${y + height} Z`} style={{ fill: color }} />;
+                      }}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+              {/* Ekran o‘quvchilar uchun jadval ko‘rinishi */}
+              <table className="sr-only">
+                <caption>Kunlik davomat</caption>
+                <thead>
+                  <tr>
+                    <th>Sana</th>
+                    <th>Vaqtida</th>
+                    <th>Kechikkan</th>
+                    <th>Kelmagan</th>
+                    <th>Davomat</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {series.map((d) => (
+                    <tr key={d.date}>
+                      <td>{dateUz(d.date)}</td>
+                      <td>{d.present}</td>
+                      <td>{d.late}</td>
+                      <td>{d.absent}</td>
+                      <td>{d.rate === null ? "—" : `${d.rate}%`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         <section className="card dash-feed">

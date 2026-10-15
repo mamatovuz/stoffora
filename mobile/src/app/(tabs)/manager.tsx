@@ -1,7 +1,7 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { mediaUri } from "@/lib/config";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
 import { BranchMap } from "@/components/BranchMap";
 import { FineSheet, MoneyView } from "@/components/MoneyTools";
 import { DevicesView } from "@/components/DevicesView";
@@ -13,7 +13,7 @@ import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Lo
 import { ApiError, errorText } from "@/lib/api";
 import { dateUz, dayTitle, duration, som, tashkentIsoDate, timeAgo } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
-import { useTheme } from "@/lib/theme";
+import { typo, useTheme } from "@/lib/theme";
 
 type MView = "desk" | "today" | "requests" | "map" | "week" | "money" | "devices" | "admin";
 type Emp = { id: string; firstName: string; lastName: string; photoDataUrl?: string; branchId: string };
@@ -279,25 +279,6 @@ export default function Manager() {
       refreshing={loading}
       onRefresh={load}
     >
-      {/* Tezkor amallar — yozuvli tugmalar (faqat ikonkadan nima qilishi tushunarsiz edi). */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }} style={{ flexGrow: 0 }}>
-        {can(auth.user.role, "announcements.create") || auth.user.role === "BRANCH_MANAGER" ? (
-          <Pressable onPress={() => setAnnouncing(true)} style={[st.quick, { backgroundColor: c.card }]}>
-            <Icon name="megaphone-outline" size={17} color={c.accent} />
-            <Text style={[st.quickText, { color: c.ink }]}>E’lon yuborish</Text>
-          </Pressable>
-        ) : null}
-        {canFine ? (
-          <Pressable onPress={() => setFining(true)} style={[st.quick, { backgroundColor: c.card }]}>
-            <Icon name="hammer-outline" size={17} color={c.accent} />
-            <Text style={[st.quickText, { color: c.ink }]}>Jarima</Text>
-          </Pressable>
-        ) : null}
-        <Pressable onPress={() => router.push("/badge-scan")} style={[st.quick, { backgroundColor: c.card }]}>
-          <Icon name="scan-outline" size={17} color={c.accent} />
-          <Text style={[st.quickText, { color: c.ink }]}>ID tekshirish</Text>
-        </Pressable>
-      </ScrollView>
       <Segmented<MView>
         value={tabOf(view)}
         onChange={(v) => {
@@ -383,10 +364,10 @@ export default function Manager() {
                     <View key={n.id} style={[st.row, i < Math.min(5, notices.length) - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
                       <Icon name="hourglass-outline" size={18} color={c.warn} />
                       <View style={{ flex: 1 }}>
-                        <Text style={{ color: c.ink, fontWeight: "600" }}>
+                        <Text style={[typo.bodyStrong, { color: c.ink }]}>
                           {n.employeeName} · ~{duration(n.minutes)}
                         </Text>
-                        <Text style={{ color: c.muted, fontSize: 13 }}>
+                        <Text style={[typo.sub, { color: c.muted }]}>
                           «{n.reason}» · {timeAgo(n.createdAt)}
                         </Text>
                       </View>
@@ -397,7 +378,7 @@ export default function Manager() {
             ) : null}
             <View style={[st.search, { backgroundColor: c.card }]}>
               <Icon name="search" size={17} color={c.muted} />
-              <TextInput value={query} onChangeText={setQuery} placeholder="Xodimni qidirish" placeholderTextColor={c.muted} style={{ flex: 1, color: c.ink, fontSize: 16 }} />
+              <TextInput value={query} onChangeText={setQuery} placeholder="Xodimni qidirish" placeholderTextColor={c.muted} style={[typo.body, { flex: 1, color: c.ink }]} />
             </View>
             {filter !== "ALL" ? (
               <Pressable onPress={() => setFilter("ALL")} style={{ alignSelf: "flex-start" }}>
@@ -433,10 +414,10 @@ export default function Manager() {
               >
                 <Icon name="document-text-outline" size={18} color={d.status === "EXPIRED" ? c.danger : c.warn} />
                 <View style={{ flex: 1 }}>
-                  <Text style={{ color: c.ink, fontWeight: "600" }} numberOfLines={1}>
+                  <Text style={[typo.bodyStrong, { color: c.ink }]} numberOfLines={1}>
                     {d.employeeName}
                   </Text>
-                  <Text style={{ color: c.muted, fontSize: 12.5 }} numberOfLines={1}>
+                  <Text style={[typo.sub, { color: c.muted }]} numberOfLines={1}>
                     {d.title} · {d.branchName}
                   </Text>
                 </View>
@@ -448,7 +429,7 @@ export default function Manager() {
       ) : null}
       {view === "requests" && pending.length > 1 ? (
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 }}>
-          <Text style={{ color: c.muted, fontSize: 13.5 }}>{pending.length} ta so‘rov kutmoqda</Text>
+          <Text style={[typo.sub, { color: c.muted }]}>{pending.length} ta so‘rov kutmoqda</Text>
           <Pressable
             onPress={() => {
               haptic.select();
@@ -478,10 +459,10 @@ export default function Manager() {
                 >
                   <Icon name={on ? "checkbox" : "square-outline"} size={22} color={on ? c.accent : c.muted} />
                   <View style={{ flex: 1 }}>
-                    <Text style={{ color: c.ink, fontWeight: "600" }} numberOfLines={2}>
+                    <Text style={[typo.bodyStrong, { color: c.ink }]} numberOfLines={2}>
                       {p.title}
                     </Text>
-                    <Text style={{ color: c.muted, fontSize: 12.5 }} numberOfLines={1}>
+                    <Text style={[typo.sub, { color: c.muted }]} numberOfLines={1}>
                       {p.sub}
                     </Text>
                   </View>
@@ -500,7 +481,7 @@ export default function Manager() {
             {marks.length ? <GroupTitle>Belgilash so‘rovlari</GroupTitle> : null}
             {markDays.map((date) => (
               <View key={date} style={{ gap: 8 }}>
-                <Text style={{ color: c.muted, fontSize: 13, fontWeight: "600", marginLeft: 4 }}>{dayTitle(date)}</Text>
+                <Text style={[typo.sub, { color: c.muted, fontWeight: "600", marginLeft: 4 }]}>{dayTitle(date)}</Text>
                 {marks
                   .filter((p) => p.date === date)
                   .map((p) => (
@@ -510,13 +491,13 @@ export default function Manager() {
             ))}
             {others.length && marks.length ? <GroupTitle>Boshqa so‘rovlar</GroupTitle> : null}
             {others.map((p) => (
-              <Card key={`${p.kind}-${p.id}`} style={{ gap: 8 }}>
-                <Text style={{ color: c.ink, fontWeight: "700", fontSize: 15.5 }}>{p.title}</Text>
-                <Text style={{ color: c.muted, fontSize: 13.5 }}>{p.sub}</Text>
-                {p.extra ? <Text style={{ color: c.ink, fontSize: 13.5 }}>«{p.extra}»</Text> : null}
-                <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
+              <Card key={`${p.kind}-${p.id}`} style={{ gap: 6 }}>
+                <Text style={[typo.bodyStrong, { color: c.ink }]}>{p.title}</Text>
+                <Text style={[typo.sub, { color: c.muted }]}>{p.sub}</Text>
+                {p.extra ? <Text style={[typo.body, { color: c.ink, marginTop: 2 }]}>«{p.extra}»</Text> : null}
+                <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+                  <Button title="Rad etish" icon="close" tone="danger" disabled={busy === p.id} onPress={() => void decide(p, false)} style={{ flex: 1, height: 44 }} />
                   <Button title="Tasdiqlash" icon="checkmark" busy={busy === p.id} onPress={() => void decide(p, true)} style={{ flex: 1, height: 44 }} />
-                  <Button title="Rad" tone="danger" disabled={busy === p.id} onPress={() => void decide(p, false)} style={{ flex: 0, minWidth: 90, height: 44 }} />
                 </View>
               </Card>
             ))}
@@ -549,12 +530,12 @@ export default function Manager() {
                 const good = label === "Kelmagan" ? delta <= 0 : delta >= 0;
                 return (
                   <View key={label} style={[{ flex: 1, alignItems: "center", gap: 2 }, i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: c.line }]}>
-                    <Text style={{ color: c.ink, fontSize: 22, fontWeight: "800" }}>
+                    <Text style={[typo.stat, { color: c.ink }]}>
                       {now}
                       {unit}
                     </Text>
-                    <Text style={{ color: c.muted, fontSize: 12 }}>{label}</Text>
-                    {delta ? <Text style={{ color: good ? c.success : c.danger, fontSize: 11.5, fontWeight: "600" }}>{`${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)}`}</Text> : null}
+                    <Text style={[typo.caption, { color: c.muted }]}>{label}</Text>
+                    {delta ? <Text style={[typo.caption, { color: good ? c.success : c.danger, fontWeight: "600" }]}>{`${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)}`}</Text> : null}
                   </View>
                 );
               })}
@@ -566,8 +547,8 @@ export default function Manager() {
                   {analytics.punctual.slice(0, 5).map((p, i) => (
                     <View key={p.id} style={[st.row, i < Math.min(5, analytics.punctual.length) - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
                       <Icon name="medal" size={18} color={["#F5B301", "#A8B0BA", "#C97A40"][i] || c.muted} />
-                      <Text style={{ flex: 1, color: c.ink }}>{p.name}</Text>
-                      <Text style={{ color: c.muted }}>{p.present} kun</Text>
+                      <Text style={[typo.body, { flex: 1, color: c.ink }]}>{p.name}</Text>
+                      <Text style={[typo.sub, { color: c.muted }]}>{p.present} kun</Text>
                     </View>
                   ))}
                 </Group>
@@ -580,8 +561,8 @@ export default function Manager() {
                   {analytics.latecomers.slice(0, 5).map((p, i) => (
                     <View key={p.id} style={[st.row, i < Math.min(5, analytics.latecomers.length) - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
                       <Icon name="alarm-outline" size={18} color={c.warn} />
-                      <Text style={{ flex: 1, color: c.ink }}>{p.name}</Text>
-                      <Text style={{ color: c.warn }}>
+                      <Text style={[typo.body, { flex: 1, color: c.ink }]}>{p.name}</Text>
+                      <Text style={[typo.sub, { color: c.warn }]}>
                         {p.late} marta · {duration(p.lateMinutes)}
                       </Text>
                     </View>
@@ -595,8 +576,8 @@ export default function Manager() {
                 <Group>
                   {analytics.branches.map((b, i) => (
                     <View key={b.id} style={[st.row, i < analytics.branches.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
-                      <Text style={{ flex: 1, color: c.ink }}>{b.name}</Text>
-                      <Text style={{ color: c.muted }}>
+                      <Text style={[typo.body, { flex: 1, color: c.ink }]}>{b.name}</Text>
+                      <Text style={[typo.sub, { color: c.muted }]}>
                         {b.attendanceRate}% · {b.punctuality}% vaqtida
                       </Text>
                     </View>
@@ -608,6 +589,16 @@ export default function Manager() {
         )
       ) : null}
 
+      {view === "desk" && auth ? (
+        // Tezkor amallar — yozuvli, teng kenglikdagi tugmalar (faqat «Umumiy»da, boshqa tablarni chalkashtirmaydi).
+        <View style={st.quickRow}>
+          {can(auth.user.role, "announcements.create") || auth.user.role === "BRANCH_MANAGER" ? (
+            <Quick icon="megaphone-outline" label="E’lon" onPress={() => setAnnouncing(true)} />
+          ) : null}
+          {canFine ? <Quick icon="hammer-outline" label="Jarima" onPress={() => setFining(true)} /> : null}
+          <Quick icon="scan-outline" label="ID tekshirish" onPress={() => router.push("/badge-scan")} />
+        </View>
+      ) : null}
       {view === "desk" && auth ? <DeskView
           role={auth.user.role}
           reloadKey={moneyKey + pending.length}
@@ -666,14 +657,37 @@ function RosterLine({ row, last }: { row: RosterRow; last: boolean }) {
         </View>
       )}
       <View style={{ flex: 1 }}>
-        <Text style={{ color: c.ink, fontWeight: "600" }} numberOfLines={1}>
+        <Text style={[typo.bodyStrong, { color: c.ink }]} numberOfLines={1}>
           {name(r.employee)}
           {r.record?.flags?.length ? " ⚑" : ""}
         </Text>
-        {r.branch ? <Text style={{ color: c.muted, fontSize: 12 }}>{r.branch}</Text> : null}
+        {r.branch ? (
+          <Text style={[typo.sub, { color: c.muted }]} numberOfLines={1}>
+            {r.branch}
+          </Text>
+        ) : null}
       </View>
       <Badge text={label} tone={tone} />
       <Icon name="chevron-forward" size={16} color={c.muted} />
+    </Pressable>
+  );
+}
+
+/** Tezkor amal: ikonka va qisqa yozuv, teng kenglikda. */
+function Quick({ icon, label, onPress }: { icon: "megaphone-outline" | "hammer-outline" | "scan-outline"; label: string; onPress: () => void }) {
+  const { c } = useTheme();
+  return (
+    <Pressable
+      onPress={() => {
+        haptic.select();
+        onPress();
+      }}
+      style={({ pressed }) => [st.quickTile, { backgroundColor: c.card }, pressed && { opacity: 0.6 }]}
+    >
+      <Icon name={icon} size={20} color={c.accent} />
+      <Text style={[typo.caption, { color: c.ink, fontWeight: "600" }]} numberOfLines={1}>
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -693,22 +707,22 @@ function MarkCard({ item, busy, onDecide }: { item: Pending; busy: boolean; onDe
           </View>
         )}
         <View style={{ flex: 1 }}>
-          <Text style={{ color: c.ink, fontWeight: "700", fontSize: 15.5 }} numberOfLines={2}>
+          <Text style={[typo.bodyStrong, { color: c.ink }]} numberOfLines={2}>
             {item.title}
           </Text>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <Icon name="business-outline" size={13} color={c.muted} />
-            <Text style={{ color: c.muted, fontSize: 13 }} numberOfLines={1}>
+            <Text style={[typo.sub, { color: c.muted }]} numberOfLines={1}>
               {item.branch}
             </Text>
           </View>
         </View>
         <View style={{ alignItems: "flex-end" }}>
-          <Text style={{ color: tone, fontSize: 12, fontWeight: "700" }}>{item.markKind === "IN" ? "KIRISH" : "CHIQISH"}</Text>
-          <Text style={{ color: c.ink, fontSize: 20, fontWeight: "700", fontVariant: ["tabular-nums"] }}>{item.time}</Text>
+          <Text style={[typo.caption, { color: tone, fontWeight: "700" }]}>{item.markKind === "IN" ? "Kirish" : "Chiqish"}</Text>
+          <Text style={[typo.time, { color: c.ink }]}>{item.time}</Text>
         </View>
       </Pressable>
-      {item.extra ? <Text style={{ color: c.ink, fontSize: 14, lineHeight: 20 }}>«{item.extra}»</Text> : null}
+      {item.extra ? <Text style={[typo.body, { color: c.ink, lineHeight: 21 }]}>«{item.extra}»</Text> : null}
       <View style={{ flexDirection: "row", gap: 8 }}>
         <Button title="Rad etish" icon="close" tone="danger" disabled={busy} onPress={() => onDecide(false)} style={{ flex: 1, height: 44 }} />
         <Button title="Qabul qilish" icon="checkmark" busy={busy} onPress={() => onDecide(true)} style={{ flex: 1, height: 44 }} />
@@ -769,14 +783,13 @@ function AnnounceSheet({ visible, branches, onClose }: { visible: boolean; branc
 }
 
 const st = StyleSheet.create({
-  round: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   quick: { flexDirection: "row", alignItems: "center", gap: 7, height: 38, paddingHorizontal: 14, borderRadius: 12 },
-  quickText: { fontSize: 14, fontWeight: "500" },
-  bar: { height: 8, borderRadius: 4, overflow: "hidden" },
-  tile: { flex: 1, alignItems: "center", paddingVertical: 10, borderRadius: 12, borderWidth: 1.5 },
-  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
-  avatar: { width: 36, height: 36, borderRadius: 18 },
-  search: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, height: 42, borderRadius: 12 },
+  quickText: { fontSize: 13, fontWeight: "600" },
+  quickRow: { flexDirection: "row", gap: 8 },
+  quickTile: { flex: 1, height: 64, borderRadius: 14, alignItems: "center", justifyContent: "center", gap: 5 },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 10, minHeight: 56 },
+  avatar: { width: 40, height: 40, borderRadius: 20 },
+  search: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, height: 44, borderRadius: 12 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15.5 },
   chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, borderWidth: 1 },
 });

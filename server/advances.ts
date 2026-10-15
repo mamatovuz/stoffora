@@ -5,7 +5,8 @@ import { notifyRequest } from "./request-actions";
 import { z } from "zod";
 import { audit, readDb, updateDb } from "../lib/store";
 import { canAny } from "../lib/permissions";
-import { tashkentIsoDate } from "../lib/format";
+import { dateLongUz, tashkentIsoDate } from "../lib/format";
+import { advanceWindow } from "../lib/payroll";
 import { workingDaysInMonth } from "../lib/schedule";
 import type { AdvanceRequest, Database, Employee, Role } from "../lib/types";
 import type { AuthedRequest, EmployeeSession } from "./auth";
@@ -54,7 +55,7 @@ const payoutSchema = z
   .optional();
 
 /** Oy uchun avans chegarasi: oylikning N foizi − allaqachon berilgan − kutilayotgan. */
-export function advanceLimit(db: Database, employee: Employee, month: string) {
+export function advanceLimit(db: Database, employee: Employee, month: string, today = tashkentIsoDate()) {
   const company = db.companies.find((c) => c.id === employee.companyId);
   const enabled = company?.payroll?.advanceRequestsEnabled !== false;
   const percent = Math.min(100, Math.max(0, company?.payroll?.advanceMaxPercent ?? DEFAULT_ADVANCE_PERCENT));
@@ -74,7 +75,14 @@ export function advanceLimit(db: Database, employee: Employee, month: string) {
     pending,
     available: enabled && !closed ? Math.max(0, max - taken - pending) : 0,
     closed,
+    /** Qaysi kunlari so‘rash mumkin (kompaniya sozlamasi) — bugungi holat bilan. */
+    window: advanceWindow(company?.payroll, today),
   };
+}
+
+/** Oyna yopiq bo‘lsa — xodimga tushunarli xabar. */
+export function advanceWindowMessage(window: ReturnType<typeof advanceWindow>) {
+  return `Avans so‘rovlari ${window.text} qabul qilinadi.${window.opensOn ? ` Keyingi imkoniyat: ${dateLongUz(window.opensOn)}.` : ""}`;
 }
 
 /** Xodimning shu oydagi ish haqi holati (bugungi kungacha). */
@@ -171,6 +179,7 @@ export function createMiniAdvanceRouter() {
         if (!employee) throw httpError("Xodim topilmadi.", 404);
         const limit = advanceLimit(db, employee, month);
         if (!limit.enabled) throw httpError(limit.closed ? "Bu oy yopilgan — avans so‘rab bo‘lmaydi." : "Kompaniyada avans so‘rash yoqilmagan.", 422);
+        if (!limit.window.open) throw httpError(advanceWindowMessage(limit.window), 422);
         if (db.advanceRequests.some((a) => a.employeeId === employee.id && (a.status === "PENDING" || a.status === "HR_APPROVED")))
           throw httpError("Avvalgi so‘rovingiz hali ko‘rib chiqilmoqda.", 409);
         if (input.amount > limit.available) throw httpError(`Bu oy ko‘pi bilan ${som(limit.available)} so‘rash mumkin.`, 422);

@@ -134,6 +134,14 @@ export interface PayrollSettings {
   advanceRequestsEnabled?: boolean;
   /** Bir oyda olinadigan avans chegarasi — oylikning shuncha foizi. */
   advanceMaxPercent?: number;
+  /**
+   * Avans so‘rovlari qabul qilinadigan kunlar: har oyning `from`-kunidan `to`-kunigacha (ikkalasi ham kiradi).
+   * Standart 1–31 — oy davomida. Oy qisqa bo‘lsa (fevral) — oyning oxirgi kunigacha.
+   */
+  advanceWindowFrom?: number;
+  advanceWindowTo?: number;
+  /** Oyna ochilgan kuni (09:00) xodimlarga «avans oluvchilar ro‘yxati» xabari avtomatik yuboriladi (standart: ha). */
+  advanceAnnounce?: boolean;
   /** Avans avval HR, keyin moliya tasdiqlaydi (standart: yoqilgan). O‘chirilsa — faqat moliya. */
   advanceHrApproval?: boolean;
   /**
@@ -484,6 +492,12 @@ export interface Announcement {
   remindedAt?: string;
   /** So‘rovnoma: javob variantlari (bo‘sh — oddiy e’lon). */
   options?: string[];
+  /** Maxsus e’lon: ADVANCE — «avans oluvchilar ro‘yxati» (tugma avans formasini ochadi). */
+  kind?: "ADVANCE";
+  /** ADVANCE e’loni qaysi oy uchun (YYYY-MM) — takror yubormaslik uchun. */
+  month?: string;
+  /** Avans oynasi ochilganda tizim o‘zi yuborgan. */
+  auto?: boolean;
   report?: {
     staffora?: { recipients: number; delivered: number; acknowledged?: number; answers?: Record<string, number> };
     telegram?: { recipients: number; delivered: number; failed: number };

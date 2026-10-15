@@ -2,7 +2,7 @@ import { router } from "expo-router";
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { mediaUri } from "@/lib/config";
 import { tashkentClock } from "@/lib/format";
-import { useTheme } from "@/lib/theme";
+import { typo, useTheme } from "@/lib/theme";
 import { Card, Empty, Group, Icon, haptic } from "./ui";
 
 /*
@@ -60,11 +60,11 @@ export function Briefing({
     stats.flagged ? { key: "FLAGGED" as const, text: `${stats.flagged} ta shubhali belgi`, color: c.danger } : null,
   ].filter(Boolean) as { key: BriefTarget; text: string; color: string }[];
   return (
-    <Card style={{ gap: 8 }}>
-      <Text style={{ color: c.ink, fontSize: 17, fontWeight: "700" }}>
+    <Card style={{ gap: 10 }}>
+      <Text style={[typo.title, { color: c.ink }]}>
         {greet}, {name.split(" ")[0]}!
       </Text>
-      <Text style={{ color: c.muted, fontSize: 14 }}>
+      <Text style={[typo.sub, { color: c.muted, marginTop: -6 }]}>
         Bugun {stats.expected} kishi ishlashi kerak, {stats.in} kishi keldi.{!items.length ? " Hammasi joyida." : ""}
       </Text>
       {items.length ? (
@@ -78,7 +78,7 @@ export function Briefing({
               }}
               style={({ pressed }) => [st.chip, { backgroundColor: `${item.color}18`, opacity: pressed ? 0.6 : 1 }]}
             >
-              <Text style={{ color: item.color, fontSize: 13, fontWeight: "600" }}>{item.text}</Text>
+              <Text style={[typo.sub, { color: item.color, fontWeight: "600" }]}>{item.text}</Text>
             </Pressable>
           ))}
         </View>
@@ -105,10 +105,10 @@ export function LiveFeed({ rows }: { rows: Row[] }) {
         {events.map(({ r, time, kind }) => (
           <Pressable key={`${r.employee.id}:${kind}`} onPress={() => openEmployee(r.employee.id)} style={[st.feed, { backgroundColor: c.card }]}>
             <Avatar person={r.employee} size={34} />
-            <Text style={{ color: c.ink, fontWeight: "600", fontSize: 13 }} numberOfLines={1}>
+            <Text style={[typo.sub, { color: c.ink, fontWeight: "600" }]} numberOfLines={1}>
               {r.employee.firstName}
             </Text>
-            <Text style={{ color: kind === "in" ? (r.late ? c.warn : c.success) : c.muted, fontSize: 12, fontWeight: "600" }}>
+            <Text style={[typo.caption, { color: kind === "in" ? (r.late ? c.warn : c.success) : c.muted, fontWeight: "600" }]}>
               {kind === "in" ? "Keldi" : "Ketdi"} {time}
             </Text>
           </Pressable>
@@ -135,7 +135,7 @@ export function BranchChips({ value, options, onChange }: { value: string; optio
             }}
             style={[st.chip, { backgroundColor: on ? c.accent : c.card }]}
           >
-            <Text style={{ color: on ? "#fff" : c.ink, fontSize: 13.5, fontWeight: "600" }}>{name || "Barcha filiallar"}</Text>
+            <Text style={[typo.sub, { color: on ? "#fff" : c.ink, fontWeight: "600" }]}>{name || "Barcha filiallar"}</Text>
           </Pressable>
         );
       })}
@@ -160,11 +160,11 @@ export function TrendsList({ rows }: { rows: TrendRow[] | null }) {
           >
             <Avatar person={{ firstName, lastName: rest.join(" ") || " ", photoDataUrl: row.photoDataUrl }} />
             <View style={{ flex: 1, gap: 2 }}>
-              <Text style={{ color: c.ink, fontWeight: "600" }} numberOfLines={1}>
+              <Text style={[typo.bodyStrong, { color: c.ink }]} numberOfLines={1}>
                 {row.name}
               </Text>
               {row.alerts.map((a) => (
-                <Text key={a.kind} style={{ color: a.severity >= 2 ? c.danger : c.warn, fontSize: 12.5 }}>
+                <Text key={a.kind} style={[typo.sub, { color: a.severity >= 2 ? c.danger : c.warn }]}>
                   {a.text}
                 </Text>
               ))}
@@ -183,8 +183,8 @@ export function StackBar({ total, slices }: { total: number; slices: { key: stri
   const shown = slices.filter((s) => s.value > 0);
   return (
     <View style={{ gap: 12 }}>
-      <Text style={{ color: c.muted, fontSize: 14 }}>
-        <Text style={{ color: c.ink, fontSize: 24, fontWeight: "700" }}>{total}</Text> xodim
+      <Text style={[typo.sub, { color: c.muted }]}>
+        <Text style={[typo.stat, { color: c.ink }]}>{total}</Text> xodim
       </Text>
       <View style={[st.bar, { backgroundColor: c.tint }]}>
         {shown.map((s) => (
@@ -195,8 +195,8 @@ export function StackBar({ total, slices }: { total: number; slices: { key: stri
         {shown.map((s) => (
           <View key={s.key} style={{ flexDirection: "row", alignItems: "center", gap: 9 }}>
             <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: s.color }} />
-            <Text style={{ flex: 1, color: c.ink, fontSize: 14 }}>{s.label[0].toUpperCase() + s.label.slice(1)}</Text>
-            <Text style={{ color: c.ink, fontWeight: "600", fontVariant: ["tabular-nums"] }}>{s.value}</Text>
+            <Text style={[typo.body, { flex: 1, color: c.ink }]}>{s.label[0].toUpperCase() + s.label.slice(1)}</Text>
+            <Text style={[typo.bodyStrong, { color: c.ink, fontVariant: ["tabular-nums"] }]}>{s.value}</Text>
           </View>
         ))}
       </View>
@@ -208,7 +208,7 @@ const st = StyleSheet.create({
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   chip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99 },
   title: { fontSize: 12, fontWeight: "600", letterSpacing: 0.5, marginLeft: 4 },
-  feed: { width: 92, alignItems: "center", gap: 4, paddingVertical: 10, paddingHorizontal: 6, borderRadius: 14 },
-  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 11 },
+  feed: { width: 96, alignItems: "center", gap: 4, paddingVertical: 12, paddingHorizontal: 6, borderRadius: 14 },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 10, minHeight: 56 },
   bar: { flexDirection: "row", gap: 2, height: 10, borderRadius: 5, overflow: "hidden" },
 });

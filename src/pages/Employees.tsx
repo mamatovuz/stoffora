@@ -63,6 +63,7 @@ import {
 } from "@/lib/format";
 import type { Attendance, AuditLog, Branch, Employee, LeaveRequest } from "@/lib/types";
 import { BotProfileTab } from "../components/BotProfile";
+import { EmployeeCalendar } from "../components/EmployeeCalendar";
 import { leaveTypeLabel, verificationLabel, weekdayShort, weekOrder, type Meta } from "../types";
 
 type EmployeeListRow = Employee & { todayAttendance?: Attendance };
@@ -807,6 +808,7 @@ export function EmployeeProfilePage() {
   const off = user?.modules || [];
   const tabs = [
     ["overview", "Umumiy"],
+    ["calendar", "Kalendar"],
     ["attendance", `Davomat (${data.attendance.length})`],
     ...(off.includes("leave") ? [] : [["leave", `Ta’til (${data.leave.length})`]]),
     ["documents", "Hujjatlar"],
@@ -837,23 +839,16 @@ export function EmployeeProfilePage() {
         </div>
       )}
       <section className="card profile-hero">
-        <Avatar first={e.firstName} last={e.lastName} photo={e.photoDataUrl} size="xl" />
+        <Avatar first={e.firstName} last={e.lastName} photo={e.photoDataUrl} size="lg" />
         <div>
           <h1>
             {e.firstName} {e.lastName}
+            {/* Oddiy holat («Faol») ko‘rsatilmaydi — faqat e’tibor talab qiladigani (sinov, ta’til, bo‘shagan…). */}
+            {e.status !== "ACTIVE" && <Status value={e.status} />}
           </h1>
           <p>
             {position || "Lavozim belgilanmagan"} · {department || "—"} · {e.employeeNo}
           </p>
-          <div className="tags">
-            <Status value={e.status} />
-            <span className="badge blue plain">
-              <Send size={12} /> {e.telegramConnected ? `Telegram ulangan${e.telegramUsername ? ` · @${e.telegramUsername}` : ""}` : "Telegram ulanmagan"}
-            </span>
-            <span className={`badge plain ${e.faceEnrolledAt ? "green" : "gray"}`}>
-              <ScanFace size={12} /> {e.faceEnrolledAt ? "Face ID faol" : "Face ID yo‘q"}
-            </span>
-          </div>
         </div>
         <div className="hero-stats">
           <div>
@@ -889,7 +884,7 @@ export function EmployeeProfilePage() {
         </div>
       </section>
 
-      <div className="profile-grid">
+      <div className={`profile-grid ${tab === "calendar" ? "cal-mode" : ""}`}>
         <aside className="card">
           <div className="card-head">
             <h3>Bugun</h3>
@@ -1009,6 +1004,7 @@ export function EmployeeProfilePage() {
                 )}
               </div>
             )}
+            {tab === "calendar" && <EmployeeCalendar employeeId={e.id} />}
             {tab === "attendance" && <AttendanceTable rows={data.attendance} />}
             {tab === "documents" && <DocumentsPanel employeeId={e.id} canEdit={canEditDocs} />}
             {tab === "bot" && <BotProfileTab employeeId={e.id} canEdit={canEditDocs} />}

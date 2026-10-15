@@ -108,12 +108,18 @@ export function historyMonth(db: Database, employee: Employee, month: string, to
       working,
       start: plan.start,
       end: plan.end,
+      overridden: plan.overridden,
       reason: plan.reason,
       leave: leave?.type,
       checkIn: a?.checkIn,
       checkOut: a?.checkOut,
       lateMinutes: a?.lateMinutes || 0,
+      earlyLeaveMinutes: a?.earlyLeaveMinutes || 0,
       workedMinutes: a?.workedMinutes || 0,
+      overtimeMinutes: a?.overtimeMinutes || 0,
+      plannedMinutes: working ? span(plan.start, plan.end) : 0,
+      /** Keldi, lekin ketishni belgilamadi va smena allaqachon tugagan. */
+      noCheckout: Boolean(a?.checkIn && !a.checkOut && !inProgress),
     };
   });
   return { month, label: monthLabel(month), today, days, stats };

@@ -106,11 +106,12 @@ export function NotificationsSheet({ onClose, onChanged, onNavigate }: { onClose
 
   const link = open?.go ? parseDeepLink(open.go) : null;
   const action = open && needsAction(open);
+  const linkText = link?.tab === "home" && link.action === "advance" ? "💰 Avans so‘rash" : "Bo‘limni ochish";
   useMainButton(
     open && action
       ? { text: open.options?.length ? (answer ? `«${answer}» — yuborish` : "Variantni tanlang") : "✅ Tanishdim", onClick: () => void acknowledge(), disabled: Boolean(open.options?.length && !answer), progress: busy }
-      : open && link && link.tab !== "home"
-        ? { text: "Bo‘limni ochish", onClick: () => onNavigate(link) }
+      : open && link && (link.tab !== "home" || link.action === "advance")
+        ? { text: linkText, onClick: () => onNavigate(link) }
         : null,
   );
 
@@ -225,9 +226,9 @@ export function NotificationsSheet({ onClose, onChanged, onNavigate }: { onClose
                 {open.options?.length ? "Javobni yuborish" : "Tanishdim"}
               </button>
             )}
-            {!window.Telegram?.WebApp?.initData && !action && link && link.tab !== "home" && (
+            {!window.Telegram?.WebApp?.initData && !action && link && (link.tab !== "home" || link.action === "advance") && (
               <button className="mini-btn" style={{ marginTop: 14 }} onClick={() => onNavigate(link)}>
-                Bo‘limni ochish
+                {linkText}
               </button>
             )}
           </div>

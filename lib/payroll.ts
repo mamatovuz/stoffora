@@ -31,11 +31,59 @@ export function normalizePayrollSettings(
     overtimeRequiresApproval: Boolean(merged.overtimeRequiresApproval),
     advanceRequestsEnabled: merged.advanceRequestsEnabled !== false,
     advanceMaxPercent: int(merged.advanceMaxPercent ?? 50, 0, 100, 50),
+    ...(() => {
+      const from = int(merged.advanceWindowFrom ?? 1, 1, 31, 1);
+      const to = int(merged.advanceWindowTo ?? 31, 1, 31, 31);
+      return { advanceWindowFrom: Math.min(from, to), advanceWindowTo: Math.max(from, to) };
+    })(),
     advanceHrApproval: merged.advanceHrApproval !== false,
+    advanceAnnounce: merged.advanceAnnounce !== false,
     absenceCompensation: merged.absenceCompensation !== false,
     deductBreaks: Boolean(merged.deductBreaks),
     overtimeTwoStep: Boolean(merged.overtimeTwoStep),
   };
+}
+
+export type AdvanceWindow = {
+  from: number;
+  to: number;
+  /** 1–31: oy davomida cheklov yo‘q. */
+  always: boolean;
+  /** Bugun so‘rov qabul qilinadimi. */
+  open: boolean;
+  /** Oyna yopiq bo‘lsa — keyingi ochilish sanasi (YYYY-MM-DD). */
+  opensOn?: string;
+  /** Oyna ochiq bo‘lsa — oxirgi kun (YYYY-MM-DD). */
+  closesOn?: string;
+  /** «har oyning 10–20-kunlari» */
+  text: string;
+};
+
+const lastDayOf = (year: number, month: number) => new Date(Date.UTC(year, month, 0)).getUTCDate();
+const isoDay = (year: number, month: number, day: number) => `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+/** Avans so‘rash oynasi: `today` (Toshkent sanasi, YYYY-MM-DD) uchun ochiq/yopiq va keyingi sana. */
+export function advanceWindow(settings: Pick<PayrollSettings, "advanceWindowFrom" | "advanceWindowTo"> | undefined, today: string): AdvanceWindow {
+  const clamp = (n: unknown, fallback: number) => {
+    const x = Math.round(Number(n));
+    return Number.isFinite(x) ? Math.min(31, Math.max(1, x)) : fallback;
+  };
+  const a = clamp(settings?.advanceWindowFrom ?? 1, 1);
+  const b = clamp(settings?.advanceWindowTo ?? 31, 31);
+  const from = Math.min(a, b);
+  const to = Math.max(a, b);
+  const text = to >= 31 ? (from <= 1 ? "oy davomida" : `har oyning ${from}-kunidan oy oxirigacha`) : `har oyning ${from}–${to}-kunlari`;
+  const [year, month, day] = today.split("-").map(Number);
+  if (from <= 1 && to >= 31) return { from, to, always: true, open: true, text };
+  // Qisqa oyda (fevral) chegaralar oyning oxirgi kuniga suriladi.
+  const last = lastDayOf(year, month);
+  const start = Math.min(from, last);
+  const end = Math.min(to, last);
+  if (day >= start && day <= end) return { from, to, always: false, open: true, closesOn: isoDay(year, month, end), text };
+  if (day < start) return { from, to, always: false, open: false, opensOn: isoDay(year, month, start), text };
+  const nextYear = month === 12 ? year + 1 : year;
+  const nextMonth = month === 12 ? 1 : month + 1;
+  return { from, to, always: false, open: false, opensOn: isoDay(nextYear, nextMonth, Math.min(from, lastDayOf(nextYear, nextMonth))), text };
 }
 
 export type PayrollExtras = {

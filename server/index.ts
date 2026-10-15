@@ -90,6 +90,7 @@ import { createSwapRouter } from "./swaps";
 import { registerAccountingReports } from "./tabel";
 import { registerEmployeeImport } from "./employee-import";
 import { createAdvanceRouter } from "./advances";
+import { createAdvanceAnnounceRouter } from "./advance-announce";
 import { createManagerAuthRouter } from "./manager";
 import { createManagerExtraRouter, createMiniPublicRouter } from "./mini-extra";
 import { createHelpdeskRouter } from "./helpdesk";
@@ -718,6 +719,7 @@ app.use("/api", createDocumentRouter());
 app.use("/api", createAnalyticsRouter());
 app.use("/api", createSwapRouter());
 app.use("/api", createAdvanceRouter());
+app.use("/api", createAdvanceAnnounceRouter());
 app.use("/api", createManagerExtraRouter());
 app.use("/api", createHelpdeskRouter());
 app.use("/api", createDayOffRouter());
@@ -3027,11 +3029,15 @@ app.put(
         overtimeRequiresApproval: z.boolean().default(false),
         advanceRequestsEnabled: z.boolean().default(true),
         advanceMaxPercent: z.coerce.number().int().min(0).max(100).default(50),
+        advanceWindowFrom: z.coerce.number().int().min(1, "Kun 1 dan 31 gacha bo‘lsin.").max(31, "Kun 1 dan 31 gacha bo‘lsin.").default(1),
+        advanceWindowTo: z.coerce.number().int().min(1, "Kun 1 dan 31 gacha bo‘lsin.").max(31, "Kun 1 dan 31 gacha bo‘lsin.").default(31),
         advanceHrApproval: z.boolean().default(true),
+        advanceAnnounce: z.boolean().default(true),
         absenceCompensation: z.boolean().default(true),
         deductBreaks: z.boolean().default(false),
         overtimeTwoStep: z.boolean().default(false),
       })
+      .refine((v) => v.advanceWindowFrom <= v.advanceWindowTo, { message: "Avans oynasi: boshlanish kuni tugash kunidan katta bo‘lmasin.", path: ["advanceWindowTo"] })
       .parse(req.body);
     const tenant = companyId(req);
     const settings = normalizePayrollSettings(input);
