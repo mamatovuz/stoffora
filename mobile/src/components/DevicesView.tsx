@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "@/components/T";
 import { errorText } from "@/lib/api";
 import { mediaUri } from "@/lib/config";
 import { dateUz, timeAgo } from "@/lib/format";

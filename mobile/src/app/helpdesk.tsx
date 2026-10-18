@@ -1,6 +1,8 @@
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useEffect, useLayoutEffect, useState } from "react";
-import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { t } from "@/lib/i18n";
+import { Text, TextInput } from "@/components/T";
 import { Badge, Button, Empty, ErrorBox, Group, Icon, Loading, Row, Segmented, Sheet, haptic } from "@/components/ui";
 import { errorText, post } from "@/lib/api";
 import { openFile } from "@/lib/download";
@@ -28,7 +30,7 @@ export default function Helpdesk() {
   const { c } = useTheme();
   const [view, setView] = useState<View3>(params.view || "questions");
   useLayoutEffect(() => {
-    navigation.setOptions({ title: view === "certificates" ? "Ma’lumotnoma" : view === "feedback" ? "Taklif va shikoyat" : "HR’ga savol" });
+    navigation.setOptions({ title: t(view === "certificates" ? "Ma’lumotnoma" : view === "feedback" ? "Taklif va shikoyat" : "HR’ga savol") });
   }, [navigation, view]);
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>

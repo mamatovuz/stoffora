@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { mediaUri } from "@/lib/config";
-import { FlatList, Image, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { FlatList, Image, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "@/components/T";
 import { Empty, ErrorBox, Icon, Loading } from "@/components/ui";
 import { radius, useTheme } from "@/lib/theme";
 import { useData } from "@/lib/useData";

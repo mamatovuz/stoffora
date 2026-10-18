@@ -113,3 +113,59 @@ export async function handleRequestCallback(ctx: Context, companyId?: string) {
     .catch(() => ctx.editMessageReplyMarkup({ reply_markup: undefined }).catch(() => undefined));
   return true;
 }
+
+/**
+ * Rahbarlarga (egasi, HR, shu filial rahbari) muhim hodisa: Telegram xabari va telefon push’i.
+ * `go` — bosilganda ochiladigan bo‘lim (Mini App va ilovada bir xil nomlar).
+ */
+export async function alertManagers(db: Database, input: { companyId: string; branchId?: string; text: string; pushTitle: string; pushBody: string; go: string }) {
+  const managers = branchManagers(db, input.companyId, input.branchId);
+  const results = await Promise.allSettled(
+    managers.map(async (u) => {
+      const sent = process.env.TELEGRAM_BOT_TOKEN && u.telegramId ? await sendTelegramMessage(u.telegramId, input.text, { go: input.go }).catch(() => false) : false;
+      const pushed = await pushToManager(db, u, input.pushTitle, input.pushBody, input.go).catch(() => 0);
+      return sent || pushed > 0;
+    }),
+  );
+  return results.filter((r) => r.status === "fulfilled" && r.value).length;
+}
+
+const FLAG_TEXT: Record<string, string> = {
+  GPS_ACCURACY: "GPS aniqligi g‘ayritabiiy",
+  GPS_EXACT_REPEAT: "koordinata avvalgisi bilan aynan bir xil",
+  GPS_TELEPORT: "imkonsiz tezlikda joy o‘zgargan",
+  GPS_EDGE: "hudud chegarasida (faqat aniqlik hisobiga ichkarida)",
+  GPS_STALE: "eski (keshlangan) joylashuv",
+  DEVICE_STILL: "telefon umuman qimirlamagan",
+  DESKTOP: "kompyuterdan belgilangan",
+  MOCK_LOCATION: "soxta joylashuv (mock GPS)",
+};
+
+/**
+ * Shubhali belgi (soxta GPS, chegarada, teleport…) — rahbarga darhol. Xodim uchun kuniga bir marta
+ * (ketishda yana bayroq chiqsa ham takrorlanmaydi). «Internetsiz» yolg‘iz o‘zi shubhali hisoblanmaydi.
+ */
+export async function alertSuspiciousMark(
+  employee: { id: string; companyId: string; firstName: string; lastName: string },
+  input: { branchId: string; branchName: string; date: string; time: string; action: "CHECK_IN" | "CHECK_OUT"; flags: string[] },
+) {
+  const serious = input.flags.filter((f) => f !== "OFFLINE");
+  if (!serious.length) return false;
+  const key = `FLAGALERT:${employee.id}:${input.date}`;
+  const { readDb: read, updateDb: update } = await import("../lib/store");
+  const before = await read();
+  if (before.sentGreetings.some((g) => g.key === key)) return false;
+  await update((next) => void next.sentGreetings.push({ key, at: new Date().toISOString() }));
+  const db = await read();
+  const name = `${employee.firstName} ${employee.lastName}`.trim();
+  const labels = serious.map((f) => FLAG_TEXT[f] || f);
+  await alertManagers(db, {
+    companyId: employee.companyId,
+    branchId: input.branchId,
+    text: `⚠️ <b>Shubhali belgi</b>\n${name} · ${input.action === "CHECK_IN" ? "kelish" : "ketish"} ${input.time} · ${input.branchName}\n${labels.map((l) => `• ${l}`).join("\n")}\n\nDavomatda ko‘rib chiqing.`,
+    pushTitle: "⚠️ Shubhali belgi",
+    pushBody: `${name} (${input.branchName}): ${labels.join(", ")}`,
+    go: "manager_today_FLAGGED",
+  });
+  return true;
+}

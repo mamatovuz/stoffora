@@ -7,12 +7,14 @@ import { duration, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { assertFaceDescriptor, faceMatchThreshold, isReplayedDescriptor, matchFace, verifyIdentity } from "../lib/face";
 import { FLAG_LABELS, gpsFlags } from "../lib/gps";
 import { dayPlan, minutesSinceCheckIn, shiftDateAt } from "../lib/schedule";
-import { audit, dataIndexes, updateDb } from "../lib/store";
+import { audit, dataIndexes, readDb, updateDb } from "../lib/store";
+import { alertSuspiciousMark } from "./request-actions";
 import { isPracticeDay } from "../lib/counting";
 import type { Attendance, AttendanceFlag } from "../lib/types";
 import type { EmployeeSession } from "./auth";
 import { onStafforaAttendance } from "./integrations/hooks";
 import { enqueueAttendancePhoto } from "./photo-channel";
+import { describeFace } from "./face-server";
 
 /*
  * Internetsiz davomat. Ombor, yerto‘la kabi joylarda aloqa bo‘lmasa, Mini App
@@ -23,6 +25,8 @@ import { enqueueAttendancePhoto } from "./photo-channel";
  *   - vaqt qurilma soatiga emas, "necha ms oldin" ga qarab server soatidan hisoblanadi;
  *   - 12 soatdan eski yozuv qabul qilinmaydi;
  *   - har bir yozuv "Internetsiz" belgisi bilan HR ko‘rigiga chiqadi.
+ * Mobil ilova yuz deskriptorini hisoblay olmaydi — u 2–3 ta kadr (rasm) yuboradi, deskriptorni
+ * server o‘zi chiqaradi va jonlilikni (kadrlar bir xil emasligini) tekshiradi.
  */
 
 const MAX_AGE_MS = 12 * 3_600_000;
@@ -31,8 +35,11 @@ const descriptor = z.array(z.number()).length(128);
 const itemSchema = z.object({
   clientId: z.string().min(8).max(64),
   action: z.enum(["CHECK_IN", "CHECK_OUT"]),
-  descriptor,
+  /** Mini App: brauzerda hisoblangan yuz deskriptori. */
+  descriptor: descriptor.optional(),
   turnDescriptor: descriptor.optional(),
+  /** Mobil ilova: 2–3 ta JPEG kadr (base64) — deskriptorni server hisoblaydi. */
+  photos: z.array(z.string().min(100).max(300_000)).min(2).max(3).optional(),
   latitude: z.coerce.number().min(-90).max(90),
   longitude: z.coerce.number().min(-180).max(180),
   accuracy: z.coerce.number().min(0).max(100_000).optional(),
@@ -48,8 +55,33 @@ export function createMiniOfflineRouter() {
   router.post("/mini/attendance/offline", (req: Request, res: Response, next: NextFunction) =>
     Promise.resolve(
       (async () => {
-        const { items } = z.object({ items: z.array(itemSchema).min(1).max(6) }).parse(req.body);
+        const { items } = z
+          .object({ items: z.array(itemSchema.refine((i) => i.descriptor || i.photos, "Yuz ma’lumoti yo‘q.")).min(1).max(6) })
+          .parse(req.body);
         const auth = session(req);
+        // Mobil ilova kadrlari: deskriptorlar (tranzaksiyadan oldin — yuz tahlili sekin).
+        const fromPhotos = new Map<string, { descriptors?: number[][]; error?: string }>();
+        for (const item of items) {
+          if (item.descriptor || !item.photos) continue;
+          try {
+            const faces = await Promise.all(item.photos.map((p) => describeFace(p.replace(/^data:image\/\w+;base64,/, ""))));
+            if (faces.some((f) => !f)) {
+              fromPhotos.set(item.clientId, { error: "Kadrlarda yuz aniq ko‘rinmadi — belgi qabul qilinmadi." });
+              continue;
+            }
+            const descriptors = faces.map((f) => f!.descriptor);
+            const spread = Math.max(...descriptors.slice(1).map((d) => Math.sqrt(d.reduce((sum, v, i) => sum + (v - descriptors[0][i]) ** 2, 0))));
+            if (spread < 0.002) {
+              fromPhotos.set(item.clientId, { error: "Jonli yuz aniqlanmadi (bir xil kadrlar) — belgi qabul qilinmadi." });
+              continue;
+            }
+            fromPhotos.set(item.clientId, { descriptors });
+          } catch (reason) {
+            // Yuz serveri band / vaqtincha ishlamayapti — so‘rov xato qaytaradi, telefon belgini saqlab, keyin qayta yuboradi.
+            if ((reason as { status?: number }).status === 503) throw reason;
+            fromPhotos.set(item.clientId, { error: (reason as Error).message || "Yuzni tekshirib bo‘lmadi." });
+          }
+        }
         // Eng eskisidan boshlab (kelish → ketish tartibi buzilmasin).
         const ordered = [...items].sort((a, b) => b.ageMs - a.ageMs);
         const results: Result[] = [];
@@ -77,6 +109,18 @@ export function createMiniOfflineRouter() {
               fail("Face ID sozlanmagan.");
               continue;
             }
+            const computed = fromPhotos.get(item.clientId);
+            if (computed?.error) {
+              fail(computed.error);
+              continue;
+            }
+            const extra = computed?.descriptors || [];
+            if (!item.descriptor) item.descriptor = extra[0];
+            if (!item.descriptor) {
+              fail("Yuz ma’lumoti yo‘q.");
+              continue;
+            }
+            if (!item.photoDataUrl && item.photos?.length) item.photoDataUrl = item.photos[0].startsWith("data:") ? item.photos[0] : `data:image/jpeg;base64,${item.photos[0]}`;
             try {
               assertFaceDescriptor(item.descriptor);
               if (item.turnDescriptor) assertFaceDescriptor(item.turnDescriptor);
@@ -90,7 +134,8 @@ export function createMiniOfflineRouter() {
             }
             const front = matchFace(profile, item.descriptor);
             const turned = item.turnDescriptor ? matchFace(profile, item.turnDescriptor, faceMatchThreshold() + 0.06) : undefined;
-            const identity = verifyIdentity(profile, [item.descriptor], db.faceProfiles.filter((p) => p.companyId === profile.companyId && p.employeeId !== profile.employeeId));
+            // Mobil kadrlar bo‘lsa — hammasi tekshiriladi (bitta tasodifiy o‘xshashlik yetmaydi).
+            const identity = verifyIdentity(profile, extra.length ? extra : [item.descriptor], db.faceProfiles.filter((p) => p.companyId === profile.companyId && p.employeeId !== profile.employeeId));
             if (!front.matched || !identity.matched || (turned && !turned.matched)) {
               fail(identity.reason === "LOOKALIKE" ? "Yuz boshqa xodimga o‘xshab chiqdi — belgi qabul qilinmadi." : "Yuz profildagi Face ID bilan mos kelmadi.");
               continue;
@@ -148,6 +193,7 @@ export function createMiniOfflineRouter() {
                 graceMinutes: schedule?.graceMinutes || 0,
               });
               attendance.checkIn = time;
+              attendance.branchId = branch.id;
               attendance.lateMinutes = calculated.lateMinutes;
               attendance.status = calculated.status;
               if (!day?.enabled) attendance.note = "Dam olish kunida ishga keldi";
@@ -233,6 +279,23 @@ export function createMiniOfflineRouter() {
           }
         });
         for (const row of synced) onStafforaAttendance(auth.companyId, row.attendance, row.action);
+        // Internetsiz belgida ham GPS bo‘yicha shubha bo‘lsa — rahbarga darhol.
+        if (synced.length) {
+          const db = await readDb();
+          const employee = db.employees.find((e) => e.id === auth.employeeId);
+          for (const row of synced) {
+            const branch = db.branches.find((b) => b.id === row.attendance.branchId);
+            if (employee && branch && row.attendance.flags?.length)
+              void alertSuspiciousMark(employee, {
+                branchId: branch.id,
+                branchName: branch.name,
+                date: row.attendance.date,
+                time: (row.action === "CHECK_IN" ? row.attendance.checkIn : row.attendance.checkOut) || "",
+                action: row.action,
+                flags: row.attendance.flags,
+              }).catch(() => undefined);
+          }
+        }
         res.json({ results });
       })(),
     ).catch(next),

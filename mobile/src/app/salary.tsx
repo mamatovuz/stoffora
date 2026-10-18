@@ -1,6 +1,7 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Text, TextInput } from "@/components/T";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Row, Sheet, haptic } from "@/components/ui";
 import { errorText, post } from "@/lib/api";
 import { dateUz, duration, som, tashkentIsoDate } from "@/lib/format";

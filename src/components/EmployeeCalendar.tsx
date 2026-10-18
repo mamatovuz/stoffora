@@ -35,6 +35,7 @@ type Day = {
   recordId?: string;
   manual?: boolean;
   note?: string;
+  branchId?: string;
 };
 type Month = {
   month: string;

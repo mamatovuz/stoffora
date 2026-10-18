@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { type ComponentProps, type ReactNode } from "react";
-import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
+import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
+import { Text } from "@/components/T";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { elevation, ios, radius, typo, useTheme } from "@/lib/theme";
 import { TAB_BAR_SPACE } from "./FloatingTabBar";

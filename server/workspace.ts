@@ -4,6 +4,7 @@ import { dataIndexes, readDb } from "../lib/store";
 import { can, canAny } from "../lib/permissions";
 import { duration, tashkentClock, tashkentIsoDate } from "../lib/format";
 import { dayPlan } from "../lib/schedule";
+import { dayBranchId } from "../lib/branches";
 import type { Database, Employee, Role } from "../lib/types";
 import type { AuthedRequest } from "./auth";
 import { documentStatus } from "./documents";
@@ -295,6 +296,12 @@ function todayStats(db: Database, employees: Employee[], date: string, now: stri
   return { stat, issues: issues.sort((a, b) => (a.tone === b.tone ? 0 : a.tone === "bad" ? -1 : 1)) };
 }
 
+/** Xodim bugun qaysi filialda: keldi qilgan filial yoki o‘z filiali (lib/branches → dayBranchId). */
+function todayBranchOf(db: Database, date: string) {
+  const index = dataIndexes(db);
+  return (e: Employee) => dayBranchId(e, index.attendanceByKey.get(`${e.id}|${date}`));
+}
+
 /** Ertangi smena: kim rejada (dam/ta’til emas) va filialga kerakli soni bilan solishtirish. */
 function tomorrowReadiness(db: Database, employees: Employee[], date: string, required?: number) {
   const index = dataIndexes(db);
@@ -367,8 +374,9 @@ function buildActions(db: Database, tenant: string, role: Role, scope: Set<strin
     const { stat } = todayStats(db, employees, today, tashkentClock());
     push({ level: "orange", text: "xodim bugun kelmagan", count: stat.absent, link: "/attendance", view: "today" });
     // Filial bo‘yicha muammo: davomat 70% dan past.
+    const at = todayBranchOf(db, today);
     const weak = db.branches.filter((b) => b.companyId === tenant && (!scope || scope.has(b.id))).filter((b) => {
-      const s = todayStats(db, employees.filter((e) => e.branchId === b.id), today, tashkentClock()).stat;
+      const s = todayStats(db, employees.filter((e) => at(e) === b.id), today, tashkentClock()).stat;
       return s.planned >= 3 && s.came + s.notYet < s.planned * 0.7;
     });
     push({ level: "red", text: "filialda davomat 70% dan past", count: weak.length, link: "/map", view: "map" });
@@ -456,12 +464,14 @@ export function createWorkspaceRouter() {
       const scope = scopeOf(db, req);
       const today = tashkentIsoDate();
       const now = tashkentClock();
-      const employees = db.employees.filter((e) => e.companyId === tenant && e.status === "ACTIVE" && (!scope || scope.has(e.branchId)));
+      const at = todayBranchOf(db, today);
+      // Filial rahbari: o‘z filiali xodimlari va boshqa filialdan kelib, uning filialida keldi qilganlar.
+      const employees = db.employees.filter((e) => e.companyId === tenant && e.status === "ACTIVE" && (!scope || scope.has(e.branchId) || scope.has(at(e))));
       const { stat } = todayStats(db, employees, today, now);
       const branches = db.branches
         .filter((b) => b.companyId === tenant && b.status !== "INACTIVE" && (!scope || scope.has(b.id)))
         .map((b) => {
-          const s = todayStats(db, employees.filter((e) => e.branchId === b.id), today, now).stat;
+          const s = todayStats(db, employees.filter((e) => at(e) === b.id), today, now).stat;
           return { id: b.id, name: b.name, ...s, rate: s.planned ? Math.round(((s.came) / Math.max(1, s.planned - s.notYet)) * 100) : 100 };
         })
         .filter((b) => b.planned)
@@ -493,9 +503,13 @@ export function createWorkspaceRouter() {
       const today = tashkentIsoDate();
       const now = tashkentClock();
       const branches = db.branches.filter((b) => b.companyId === tenant && b.status !== "INACTIVE" && (!scope || scope.has(b.id)));
+      const at = todayBranchOf(db, today);
       res.json(
         branches.map((b) => {
-          const staff = db.employees.filter((e) => e.companyId === tenant && e.status === "ACTIVE" && e.branchId === b.id);
+          const active = db.employees.filter((e) => e.companyId === tenant && e.status === "ACTIVE");
+          // Bugun — shu filialda keldi qilganlar va (hali keldi qilmagan) o‘z xodimlari; ertaga — o‘z xodimlari.
+          const staff = active.filter((e) => at(e) === b.id);
+          const own = active.filter((e) => e.branchId === b.id);
           const { stat, issues } = todayStats(db, staff, today, now);
           const plan = staff.map((e) => dayPlan(db, e, today)).filter((p) => p.enabled);
           return {
@@ -504,7 +518,7 @@ export function createWorkspaceRouter() {
             today: stat,
             window: plan.length ? { start: plan.map((p) => p.start).sort()[0], end: plan.map((p) => p.end).sort().pop() } : null,
             issues: issues.slice(0, 15),
-            tomorrow: tomorrowReadiness(db, staff, addDays(today, 1), b.requiredStaff),
+            tomorrow: tomorrowReadiness(db, own, addDays(today, 1), b.requiredStaff),
           };
         }),
       );

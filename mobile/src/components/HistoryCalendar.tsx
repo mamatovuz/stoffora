@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
-import { Image, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Badge, Card, ErrorBox, Icon, Loading, haptic, type IconName } from "./ui";
 import { Donut } from "./Donut";
+import { AttendanceEditSheet, type EditTarget } from "./AttendanceEditSheet";
 import { MiniMap } from "./MiniMap";
 import { WEEKDAYS_SHORT, dateLongUz, duration, monthUz, tashkentIsoDate } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
@@ -11,6 +13,7 @@ import { useTheme } from "@/lib/theme";
  * Davomat tarixi (kalendar): kun rangi, tanlangan kun tafsiloti (kirish/chiqish, grafik,
  * tafsilotlar, qaydnoma → rasm va xarita, so‘rovlar) va oylik statistika diagrammasi.
  * Xodimning o‘zi (/mini/history) va rahbar (/employees/:id/history) uchun bir xil.
+ * Rahbarda (`edit` berilsa) — kun tanlanib, kelish/ketish vaqtini shu yerning o‘zida tuzatish mumkin.
  */
 
 type Tone = "ontime" | "late" | "absent" | "leave" | "off" | "future" | "working" | "restwork" | "none";
@@ -20,7 +23,7 @@ type Mark = { kind: "IN" | "OUT"; time: string; branchName: string; latitude?: n
 type DayData = {
   date: string;
   plan: { working: boolean; start: string; end: string; reason?: string; leave?: string; plannedMinutes: number };
-  attendance: { checkIn?: string; checkOut?: string; lateMinutes: number; earlyLeaveMinutes: number; workedMinutes: number; overtimeMinutes: number; note?: string } | null;
+  attendance: { id?: string; manual?: boolean; checkIn?: string; checkOut?: string; lateMinutes: number; earlyLeaveMinutes: number; workedMinutes: number; overtimeMinutes: number; note?: string } | null;
   breaks: { start: string; end?: string }[];
   marks: Mark[];
   requests: { id: string; kind: string; detail: string; status: string }[];
@@ -38,7 +41,16 @@ const shift = (month: string, d: number) => {
 const firstOffset = (month: string) => (new Date(`${month}-01T12:00:00Z`).getUTCDay() + 6) % 7;
 const hours = (m: number) => (m % 60 ? duration(m) : `${m / 60} soat`);
 
-export function HistoryCalendar({ fetcher, base }: { fetcher: Fetch; base: string }) {
+export function HistoryCalendar({
+  fetcher,
+  base,
+  edit,
+}: {
+  fetcher: Fetch;
+  base: string;
+  /** Rahbar / HR: davomatni tuzatish (attendance.edit huquqi bo‘lsa). */
+  edit?: { employeeId: string; employeeName: string; save: (path: string, body: unknown, method: "POST" | "PUT") => Promise<unknown> };
+}) {
   const { c } = useTheme();
   const today = tashkentIsoDate();
   const [month, setMonth] = useState(today.slice(0, 7));
@@ -47,6 +59,9 @@ export function HistoryCalendar({ fetcher, base }: { fetcher: Fetch; base: strin
   const [day, setDay] = useState<DayData | null>(null);
   const [error, setError] = useState("");
   const [mark, setMark] = useState<Mark | null>(null);
+  const [editing, setEditing] = useState<EditTarget | null>(null);
+  // Tuzatishdan keyin oy va kun qayta yuklanadi.
+  const [version, setVersion] = useState(0);
   const colors: Record<Tone, string> = { ontime: "#5BA24A", working: "#5BA24A", restwork: c.accent, late: "#E8A03A", absent: "#E5484D", leave: "#8B5CF6", off: `${c.accent}33`, future: c.tint, none: c.tint };
 
   useEffect(() => {
@@ -59,7 +74,7 @@ export function HistoryCalendar({ fetcher, base }: { fetcher: Fetch; base: strin
     return () => {
       live = false;
     };
-  }, [fetcher, base, month]);
+  }, [fetcher, base, month, version]);
   useEffect(() => {
     let live = true;
     setDay(null);
@@ -69,7 +84,7 @@ export function HistoryCalendar({ fetcher, base }: { fetcher: Fetch; base: strin
     return () => {
       live = false;
     };
-  }, [fetcher, base, selected]);
+  }, [fetcher, base, selected, version]);
 
   const go = (d: number) => {
     haptic.select();
@@ -150,7 +165,31 @@ export function HistoryCalendar({ fetcher, base }: { fetcher: Fetch; base: strin
         <Loading />
       ) : (
         <>
-          <Text style={{ color: c.muted, fontSize: 13, fontWeight: "600", marginLeft: 4 }}>{dateLongUz(new Date(`${day.date}T07:00:00Z`))}</Text>
+          <View style={st.dayHead}>
+            <Text style={{ flex: 1, color: c.muted, fontSize: 13, fontWeight: "600", marginLeft: 4 }}>{dateLongUz(new Date(`${day.date}T07:00:00Z`))}</Text>
+            {edit && day.date <= today ? (
+              <Pressable
+                onPress={() => {
+                  haptic.select();
+                  setEditing({
+                    employeeId: edit.employeeId,
+                    employeeName: edit.employeeName,
+                    date: day.date,
+                    plan: day.plan.working ? `${day.plan.start}–${day.plan.end}` : undefined,
+                    record: day.attendance?.id ? { id: day.attendance.id, checkIn: day.attendance.checkIn, checkOut: day.attendance.checkOut } : undefined,
+                  });
+                }}
+                hitSlop={8}
+                style={({ pressed }) => [st.editBtn, { backgroundColor: `${c.accent}18`, opacity: pressed ? 0.6 : 1 }]}
+              >
+                <Icon name="create-outline" size={15} color={c.accent} />
+                <Text style={{ color: c.accent, fontSize: 13, fontWeight: "600" }}>{day.attendance?.id ? "Tuzatish" : "Davomat kiritish"}</Text>
+              </Pressable>
+            ) : null}
+          </View>
+          {day.attendance?.manual && day.attendance.note ? (
+            <Text style={{ color: c.muted, fontSize: 12.5, marginLeft: 4, marginTop: -4 }}>✎ {day.attendance.note}</Text>
+          ) : null}
           <Card style={{ flexDirection: "row" }}>
             <Big value={day.attendance?.checkIn || "--:--"} label="kirish" />
             <Big value={day.attendance?.checkOut || "--:--"} label="chiqish" />
@@ -245,6 +284,17 @@ export function HistoryCalendar({ fetcher, base }: { fetcher: Fetch; base: strin
         </Section>
       ) : null}
 
+      {edit ? (
+        <AttendanceEditSheet
+          target={editing}
+          save={edit.save}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            setVersion((v) => v + 1);
+          }}
+        />
+      ) : null}
       <MarkModal mark={mark} date={day?.date || selected} onClose={() => setMark(null)} />
     </>
   );
@@ -343,6 +393,8 @@ function MarkModal({ mark, date, onClose }: { mark: Mark | null; date: string; o
 }
 
 const st = StyleSheet.create({
+  dayHead: { flexDirection: "row", alignItems: "center", gap: 8 },
+  editBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 99 },
   nav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   navBtn: { width: 44, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   row: { flexDirection: "row" },

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
+import { Text } from "@/components/T";
 import { Card, ErrorBox, Hint, Loading, Segmented, haptic } from "@/components/ui";
 import { errorText, put } from "@/lib/api";
 import { useTheme } from "@/lib/theme";

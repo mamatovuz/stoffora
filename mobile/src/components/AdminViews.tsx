@@ -1,11 +1,11 @@
 import { router } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Linking, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Linking, Pressable, StyleSheet, Switch, View } from "react-native";
+import { Text, TextInput } from "@/components/T";
 import { errorText } from "@/lib/api";
-import { SERVER_ORIGIN } from "@/lib/config";
 import { duration, forwardMinutes, som, tashkentIsoDate, toMinutes } from "@/lib/format";
 import { currentFix } from "@/lib/location";
-import { canOpenPage, canWeb, mcall } from "@/lib/manager";
+import { canOpenPage, canWeb, mcall, openPanelFile } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
 import { Badge, Button, Card, Empty, Group, GroupTitle, Icon, Loading, Row, Segmented, Sheet, haptic, type IconName } from "./ui";
 
@@ -1285,10 +1285,7 @@ function TicketSheet({ ticket, onClose, onChanged }: { ticket: Ticket; onClose: 
 }
 
 /* ================================================================ Hisobotlar === */
-async function downloadPanelFile(path: string) {
-  const { path: link } = await mcall<{ path: string }>("/file-link", { path });
-  await Linking.openURL(SERVER_ORIGIN + link);
-}
+const downloadPanelFile = openPanelFile;
 
 function ReportsScreen({ role }: { role: Role }) {
   const thisMonth = tashkentIsoDate().slice(0, 7);
@@ -1301,6 +1298,8 @@ function ReportsScreen({ role }: { role: Role }) {
     () =>
       [
         { key: "att", name: "Davomat", desc: "Har kun: kelish, ketish, kechikish, soat", path: `/reports/attendance.xlsx?from=${from}&to=${to}`, need: ["reports.view", "attendance.view"] },
+        { key: "grid", name: "Tabel (xodim × kun)", desc: "Har katakda keldi / ketdi vaqti, rangli", path: `/attendance/grid.xlsx?month=${period}`, need: ["attendance.view"] },
+        { key: "adv", name: "Avans ro‘yxati", desc: "Kartaga o‘tkazish, naqd qaydnoma, barcha so‘rovlar", path: `/payroll/advances.xlsx?month=${period}`, need: ["payroll.edit", "leave.approve", "employees.edit"] },
         { key: "late", name: "Kechikishlar", desc: "Faqat kechikkan kunlar", path: `/reports/attendance.xlsx?from=${from}&to=${to}&type=late`, need: ["reports.view", "attendance.view"] },
         { key: "pay", name: "Ish haqi qaydnomasi", desc: "Ish kuni, ushlanma, qo‘lga", path: `/reports/payroll.xlsx?month=${period}`, need: ["payroll.view", "reports.view"] },
         { key: "t13", name: "T-13 tabel", desc: "Buxgalteriya uchun standart tabel", path: `/reports/t13.xlsx?month=${period}`, need: ["payroll.view", "reports.view", "employees.edit"] },

@@ -1,7 +1,8 @@
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { router, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Animated, AppState, Linking, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Animated, AppState, Linking, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TileMap } from "@/components/TileMap";
 import { Button, Icon, haptic } from "@/components/ui";
@@ -11,6 +12,7 @@ import { duration, tashkentClock } from "@/lib/format";
 import { currentFix, distanceMeters, locationPermission, quickFix, type Fix } from "@/lib/location";
 import type { Attendance, HomeData } from "@/lib/types";
 import { invalidate, useData } from "@/lib/useData";
+import { flushMarks, knownBranches, queueMark } from "@/lib/offlineMarks";
 
 /*
  * Kundalik Face ID (sozlangandan keyin) — Mini App’dagi kabi, lekin native:
@@ -20,9 +22,12 @@ import { invalidate, useData } from "@/lib/useData";
  *  • ~1 soniya yashil turgach kadrlar server Face ID’siga yuboriladi (qaror — serverda);
  *  • pastda xarita: filial, ruxsat etilgan radius va xodim turgan joy.
  * Davomat faqat server tasdiqlagandan keyin «muvaffaqiyatli» ko‘rsatiladi.
+ * Internet yo‘q bo‘lsa — kadrlar, GPS va vaqt telefonda saqlanadi (filial hududida bo‘lsa) va
+ * aloqa tiklanishi bilan yuboriladi; yakuniy tekshiruv baribir serverda (lib/offlineMarks).
  */
 
-type Phase = "face" | "verifying" | "locating" | "qr" | "committing" | "done" | "error";
+type Phase = "face" | "verifying" | "locating" | "qr" | "committing" | "done" | "error" | "offline" | "saved";
+const isOffline = (reason: unknown) => reason instanceof ApiError && reason.code === "NETWORK";
 const GREEN_STREAK = 2;
 
 export default function FaceCheck() {
@@ -31,7 +36,8 @@ export default function FaceCheck() {
   const { data: home } = useData<HomeData>("/mini/home", { refetchOnFocus: false });
   const [fix, setFix] = useState<Fix | null>(null);
   // «Istalgan filialdan» lavozimi: xodim turgan joyga eng mos ruxsat etilgan filial (yakuniy qaror — serverda).
-  const branchList = useMemo(() => (home?.branches?.length ? home.branches : home?.branch ? [home.branch] : []), [home]);
+  // Internetsiz ochilganda — telefonda saqlangan oxirgi filiallar ro‘yxati.
+  const branchList = useMemo(() => (home?.branches?.length ? home.branches : home?.branch ? [home.branch] : knownBranches()), [home]);
   const branch = useMemo(() => pickBranch(branchList, fix), [branchList, fix]);
   const [permission, requestPermission] = useCameraPermissions();
   const camera = useRef<CameraView>(null);
@@ -47,6 +53,9 @@ export default function FaceCheck() {
   const alive = useRef(true);
   const active = useRef(true);
   const session = useRef<{ id: string; requiresQr: boolean; photo: string } | null>(null);
+  // Oxirgi tasdiqlangan kadrlar — qayd paytida internet uzilsa, internetsiz belgi uchun.
+  const frames = useRef<string[]>([]);
+  const [savedAt, setSavedAt] = useState("");
   const [area, setArea] = useState<{ w: number; h: number } | null>(null);
   // Oxirgi aniqlangan yuz (rasmga nisbatan 0..1) — ramka shu joyga suriladi.
   const [faceBox, setFaceBox] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
@@ -85,90 +94,6 @@ export default function FaceCheck() {
   useEffect(() => {
     void locate(false).catch(() => undefined);
   }, [locate]);
-
-  /* ------------------------------------------------- yuz tsikli --- */
-  useEffect(() => {
-    if (!ready || phase !== "face" || !permission?.granted) return;
-    let stop = false;
-    let streak = 0;
-    let greens: string[] = [];
-    let smooth: number | null = null;
-    (async () => {
-      while (!stop && alive.current) {
-        if (!active.current || !camera.current) {
-          await new Promise((r) => setTimeout(r, 300));
-          continue;
-        }
-        let photo: string;
-        let probe: Awaited<ReturnType<typeof probeFace>>;
-        try {
-          photo = await grabFrame(camera.current);
-          if (stop) return;
-          probe = await probeFace(photo);
-        } catch (reason) {
-          if (stop || !alive.current) return;
-          // Server rad etsa (masalan, Face ID sozlanmagan) — to‘xtaymiz; tarmoq/kadr xatosi — davom.
-          if (reason instanceof ApiError && reason.status >= 400 && reason.status !== 429 && reason.status !== 503) {
-            setError(errorText(reason));
-            setPhase("error");
-            return;
-          }
-          await new Promise((r) => setTimeout(r, 700));
-          continue;
-        }
-        if (stop) return;
-        // Serverni ortiqcha yuklamaslik: kadrlar orasida kamida ~0.6 soniya.
-        await new Promise((r) => setTimeout(r, 600));
-        if (stop) return;
-        setPass(probe.passPercent);
-        setFaceBox(probe.face?.box ?? null);
-        const where = placement(probe.face);
-        smooth = !probe.face || probe.percent === null ? null : smooth === null ? probe.percent : Math.round(smooth * 0.5 + probe.percent * 0.5);
-        setPercent(smooth);
-        const ok = where === "ok" && smooth !== null && smooth >= probe.passPercent;
-        setPlace(where);
-        setGreen(ok);
-        if (!ok) {
-          streak = 0;
-          greens = [];
-          continue;
-        }
-        if (!streak) haptic.tap();
-        streak += 1;
-        greens.push(photo);
-        if (streak < GREEN_STREAK) continue;
-
-        /* ------------------------------- yakuniy tekshiruv (serverda) --- */
-        stop = true;
-        haptic.success();
-        setPhase("verifying");
-        try {
-          const verified = await verifyFaces(greens.slice(-3));
-          const created = await post<{ id: string; requiresQr: boolean }>("/mini/attendance/session", { action, faceProof: verified.proof });
-          session.current = { id: created.id, requiresQr: created.requiresQr, photo: greens[greens.length - 1] };
-          setPercent(verified.percent);
-        } catch (reason) {
-          if (!alive.current) return;
-          if (reason instanceof ApiError && ["NO_FACE", "NOT_LIVE", "REPLAY"].includes(reason.code || "")) {
-            // Kadrlar yaroqsiz — jimgina qaytadan (effekt qayta ishga tushadi).
-            setGreen(false);
-            setPhase("face");
-            return;
-          }
-          haptic.error();
-          setError(reason instanceof ApiError && reason.code === "FACE_MISMATCH" ? "Yuz profildagi Face ID bilan mos kelmadi. Yorug‘roq joyda qayta urinib ko‘ring." : errorText(reason));
-          setPhase("error");
-          return;
-        }
-        await afterFace();
-        return;
-      }
-    })();
-    return () => {
-      stop = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, phase, permission?.granted]);
 
   /* --------------------------------------- GPS → (QR) → davomat --- */
   const afterFace = async () => {
@@ -211,11 +136,147 @@ export default function FaceCheck() {
       setResult(attendance);
       setPhase("done");
     } catch (reason) {
+      if (isOffline(reason) && frames.current.length >= 2) {
+        await saveOffline(frames.current);
+        return;
+      }
       haptic.error();
       setError(errorText(reason, "Davomat qayd etilmadi."));
       setPhase("error");
     }
   };
+
+  /**
+   * Internetsiz belgi: kadrlar (berilmasa — hozir 3 ta olinadi), GPS va vaqt telefonda saqlanadi.
+   * Faqat filial hududida (GPS) — aks holda server baribir rad etadi.
+   */
+  const saveOffline = async (photos?: string[]) => {
+    try {
+      setPhase("locating");
+      let shots = photos && photos.length >= 2 ? photos : [];
+      if (shots.length < 2) {
+        if (!camera.current) throw new Error("Kamera tayyor emas.");
+        for (let i = 0; i < 3; i += 1) {
+          shots.push(await grabFrame(camera.current));
+          if (i < 2) await new Promise((r) => setTimeout(r, 450));
+        }
+      }
+      shots = shots.slice(-3);
+      const point = await locate(true);
+      const here = pickBranch(branchList, point);
+      if (!here) throw new Error("Filial biriktirilmagan — HR bilan bog‘laning.");
+      const away = Math.round(distanceMeters(point.latitude, point.longitude, here.latitude, here.longitude) - here.radiusMeters - Math.min(35, point.accuracy));
+      if (away > 0) throw new Error(`Siz filial hududidan ${away} m tashqaridasiz — internetsiz belgi faqat filial hududida saqlanadi.`);
+      queueMark({ action, photos: shots, latitude: point.latitude, longitude: point.longitude, accuracy: point.accuracy });
+      haptic.success();
+      setSavedAt(tashkentClock());
+      setPhase("saved");
+      // Aloqa shu orada tiklangan bo‘lishi mumkin — darhol urinib ko‘ramiz.
+      void flushMarks().catch(() => undefined);
+    } catch (reason) {
+      haptic.error();
+      setError(errorText(reason, "Belgini saqlab bo‘lmadi."));
+      setPhase("error");
+    }
+  };
+  /* ------------------------------------------------- yuz tsikli --- */
+  // Yuz tsikli — afterFace / saveOffline e’lon qilingandan keyin (effekt ularni chaqiradi).
+  useEffect(() => {
+    if (!ready || phase !== "face" || !permission?.granted) return;
+    let stop = false;
+    let streak = 0;
+    let greens: string[] = [];
+    let smooth: number | null = null;
+    let offline = 0;
+    (async () => {
+      while (!stop && alive.current) {
+        if (!active.current || !camera.current) {
+          await new Promise((r) => setTimeout(r, 300));
+          continue;
+        }
+        let photo: string;
+        let probe: Awaited<ReturnType<typeof probeFace>>;
+        try {
+          photo = await grabFrame(camera.current);
+          if (stop) return;
+          probe = await probeFace(photo);
+        } catch (reason) {
+          if (stop || !alive.current) return;
+          // Internet yo‘q (ketma-ket 2 marta) — telefonda saqlash rejimi.
+          if (isOffline(reason) && ++offline >= 2) {
+            stop = true;
+            setPhase("offline");
+            return;
+          }
+          // Server rad etsa (masalan, Face ID sozlanmagan) — to‘xtaymiz; tarmoq/kadr xatosi — davom.
+          if (reason instanceof ApiError && reason.status >= 400 && reason.status !== 429 && reason.status !== 503) {
+            setError(errorText(reason));
+            setPhase("error");
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 700));
+          continue;
+        }
+        if (stop) return;
+        offline = 0;
+        // Serverni ortiqcha yuklamaslik: kadrlar orasida kamida ~0.6 soniya.
+        await new Promise((r) => setTimeout(r, 600));
+        if (stop) return;
+        setPass(probe.passPercent);
+        setFaceBox(probe.face?.box ?? null);
+        const where = placement(probe.face);
+        smooth = !probe.face || probe.percent === null ? null : smooth === null ? probe.percent : Math.round(smooth * 0.5 + probe.percent * 0.5);
+        setPercent(smooth);
+        const ok = where === "ok" && smooth !== null && smooth >= probe.passPercent;
+        setPlace(where);
+        setGreen(ok);
+        if (!ok) {
+          streak = 0;
+          greens = [];
+          continue;
+        }
+        if (!streak) haptic.tap();
+        streak += 1;
+        greens.push(photo);
+        if (streak < GREEN_STREAK) continue;
+
+        /* ------------------------------- yakuniy tekshiruv (serverda) --- */
+        stop = true;
+        haptic.success();
+        setPhase("verifying");
+        frames.current = greens.slice(-3);
+        try {
+          const verified = await verifyFaces(greens.slice(-3));
+          const created = await post<{ id: string; requiresQr: boolean }>("/mini/attendance/session", { action, faceProof: verified.proof });
+          session.current = { id: created.id, requiresQr: created.requiresQr, photo: greens[greens.length - 1] };
+          setPercent(verified.percent);
+        } catch (reason) {
+          if (!alive.current) return;
+          if (isOffline(reason)) {
+            await saveOffline(frames.current);
+            return;
+          }
+          if (reason instanceof ApiError && ["NO_FACE", "NOT_LIVE", "REPLAY"].includes(reason.code || "")) {
+            // Kadrlar yaroqsiz — jimgina qaytadan (effekt qayta ishga tushadi).
+            setGreen(false);
+            setPhase("face");
+            return;
+          }
+          haptic.error();
+          setError(reason instanceof ApiError && reason.code === "FACE_MISMATCH" ? "Yuz profildagi Face ID bilan mos kelmadi. Yorug‘roq joyda qayta urinib ko‘ring." : errorText(reason));
+          setPhase("error");
+          return;
+        }
+        await afterFace();
+        return;
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, phase, permission?.granted]);
+
   const scanned = useRef(false);
   const onQr = (event: BarcodeScanningResult) => {
     if (scanned.current) return;
@@ -283,6 +344,8 @@ export default function FaceCheck() {
           ? "Qayd etilmoqda…"
           : phase === "qr"
             ? "Filial ekranidagi QR kodni skanerlang"
+            : phase === "offline"
+              ? "Internet yo‘q — yuzingizni ramkaga qo‘yib, «Telefonda saqlash»ni bosing"
             : phase === "error"
               ? error
               : place === "loading"
@@ -306,7 +369,7 @@ export default function FaceCheck() {
     );
 
   if (phase === "done" && result) return <Receipt action={action} attendance={result} percent={percent} branchName={branch?.name} distance={gap} />;
-
+  if (phase === "saved") return <SavedOffline action={action} time={savedAt} branchName={branch?.name} />;
 
   return (
     <View style={st.root}>
@@ -351,6 +414,7 @@ export default function FaceCheck() {
         {branch ? (
           <View style={st.mapWrap}>
             <TileMap
+              compact
               height={210}
               fitKey={`${branch.id}:${fix ? "me" : ""}`}
               points={[
@@ -388,6 +452,11 @@ export default function FaceCheck() {
               <Text style={st.actionText}>Qayta urinish</Text>
             </Pressable>
           ) : null}
+          {phase === "offline" ? (
+            <Pressable onPress={() => void saveOffline()} style={({ pressed }) => [st.action, { backgroundColor: "#0A84FF" }, pressed && { opacity: 0.8 }]}>
+              <Text style={st.actionText}>Telefonda saqlash</Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     </View>
@@ -410,6 +479,24 @@ function cornerStyle(i: number) {
   if (i === 1) return { ...base, right: 0, top: 0, borderLeftWidth: 0, borderBottomWidth: 0, borderTopRightRadius: r };
   if (i === 2) return { ...base, right: 0, bottom: 0, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: r };
   return { ...base, left: 0, bottom: 0, borderRightWidth: 0, borderTopWidth: 0, borderBottomLeftRadius: r };
+}
+
+/** Internetsiz saqlandi: aloqa tiklanishi bilan yuboriladi (yakuniy tekshiruv serverda). */
+function SavedOffline({ action, time, branchName }: { action: string; time: string; branchName?: string }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View style={[st.root, { paddingTop: insets.top + 60, paddingHorizontal: 24, alignItems: "center", gap: 14 }]}>
+      <View style={{ width: 86, height: 86, borderRadius: 43, backgroundColor: "rgba(10,132,255,0.18)", alignItems: "center", justifyContent: "center" }}>
+        <Icon name="cloud-offline-outline" size={44} color="#0A84FF" />
+      </View>
+      <Text style={st.permTitle}>{action === "CHECK_IN" ? "Kelish" : "Ketish"} telefonda saqlandi</Text>
+      <Text style={{ color: "#fff", fontSize: 44, fontWeight: "700", fontVariant: ["tabular-nums"] }}>{time}</Text>
+      <Text style={st.permText}>
+        {branchName ? `${branchName} · ` : ""}Internet tiklanishi bilan avtomatik yuboriladi. Server yuzingiz va joylashuvingizni tekshiradi — natija bildirishnomada keladi.
+      </Text>
+      <Button title="Tayyor" onPress={() => router.back()} style={{ alignSelf: "stretch", marginTop: 12 }} />
+    </View>
+  );
 }
 
 /** Natija: faqat server qayd etgandan keyin ko‘rsatiladi. */

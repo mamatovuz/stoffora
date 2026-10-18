@@ -2,13 +2,15 @@ import { useCameraPermissions } from "expo-camera";
 import * as LocalAuthentication from "expo-local-authentication";
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Icon, type IconName } from "@/components/ui";
 import { locationPermission } from "@/lib/location";
 import { pushPermission, registerPush, type PushState } from "@/lib/push";
 import { useSession } from "@/lib/session";
 import { ios, useTheme } from "@/lib/theme";
+import { t } from "@/lib/i18n";
 
 /*
  * Ruxsatlar bilan tanishtiruv: har biri nima uchun kerakligi tushuntiriladi va faqat xodim
@@ -80,7 +82,7 @@ export default function Permissions() {
           state={prefs.appLock ? "granted" : "undetermined"}
           allowText="Yoqish"
           onAllow={() =>
-            void LocalAuthentication.authenticateAsync({ promptMessage: "Qulfni yoqish" }).then((r) => {
+            void LocalAuthentication.authenticateAsync({ promptMessage: t("Qulfni yoqish") }).then((r) => {
               if (r.success) void setPrefs({ appLock: true });
             })
           }

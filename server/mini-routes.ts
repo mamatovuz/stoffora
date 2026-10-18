@@ -39,6 +39,7 @@ import { createMiniDocumentRouter } from "./documents";
 import { createMiniSwapRouter } from "./swaps";
 import { createMiniPayrollRouter } from "./payroll-routes";
 import { createMiniOfflineRouter } from "./offline";
+import { alertSuspiciousMark } from "./request-actions";
 import { createMiniAdvanceRouter } from "./advances";
 import { companyBotTokens } from "./company-bots";
 import { countedRecords, countingStartDate, isPracticeDay } from "../lib/counting";
@@ -1019,6 +1020,8 @@ export function createMiniRouter() {
             graceMinutes: schedule?.graceMinutes || 0,
           });
           attendance.checkIn = time;
+          // Qaysi filialda keldi qilgan bo‘lsa — kun o‘sha filialda hisoblanadi (ro‘yxat, xarita, statistika).
+          attendance.branchId = branch.id;
           attendance.lateMinutes = calculated.lateMinutes;
           attendance.status = calculated.status;
           if (!day?.enabled) attendance.note = "Dam olish kunida ishga keldi";
@@ -1158,6 +1161,16 @@ export function createMiniRouter() {
       const a = result.attendance;
       // Integratsiya: keldi-ketdini xodimlar botiga ham yuborish (navbat orqali, xatoda qayta urinadi).
       onStafforaAttendance(auth.companyId, a, result.action);
+      // Shubhali belgi (soxta GPS, chegarada…) — rahbarga darhol Telegram va telefon push.
+      if (a.flags?.length && !a.flagsReviewedBy)
+        void alertSuspiciousMark(result.employee, {
+          branchId: result.branch.id,
+          branchName: result.branch.name,
+          date: a.date,
+          time: result.action === "CHECK_IN" ? a.checkIn || "" : a.checkOut || "",
+          action: result.action,
+          flags: a.flags,
+        }).catch(() => undefined);
       const practiceNote = result.practiceUntil
         ? `\n\n🧪 Mashq davri: ${result.practiceUntil.split("-").reverse().join(".")} gacha kechikish va ushlanmalar hisoblanmaydi.`
         : "";

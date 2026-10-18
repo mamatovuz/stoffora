@@ -30,6 +30,8 @@ export type GridCell = {
   reason?: string;
   manual: boolean;
   recordId?: string;
+  /** Boshqa filialda keldi qilgan bo‘lsa — o‘sha filial nomi. */
+  branch?: string;
 };
 export type GridRow = {
   employee: { id: string; name: string; employeeNo: string; photo?: string; branchId: string };
@@ -80,6 +82,7 @@ export function attendanceGrid(
         reason: d.reason,
         manual: d.manual,
         recordId: d.recordId,
+        branch: d.branchId && d.branchId !== employee.branchId ? branchName.get(d.branchId) : undefined,
       }));
       const counted = cells.filter((c) => c.date <= today);
       return {
@@ -214,6 +217,7 @@ export function buildGridWorkbook(grid: ReturnType<typeof attendanceGrid>, branc
         c.late ? `Kechikdi: ${duration(c.late)}` : "",
         c.early ? `Erta ketdi: ${duration(c.early)}` : "",
         c.worked ? `Ishladi: ${duration(c.worked)}` : "",
+        c.branch ? `Filial: ${c.branch}` : "",
         c.manual ? "Qo‘lda tahrirlangan" : "",
         c.reason || "",
       ].filter(Boolean);

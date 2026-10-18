@@ -1,7 +1,8 @@
 import { router } from "expo-router";
 import { go } from "@/lib/nav";
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "@/components/T";
 import Svg, { Circle } from "react-native-svg";
 import { Badge, Button, Card, ErrorBox, GroupTitle, Hint, Icon, Loading, Screen, Sheet, haptic, type IconName } from "@/components/ui";
 import { mediaUri } from "@/lib/config";
@@ -11,6 +12,9 @@ import { elevation, ios, radius, useTheme } from "@/lib/theme";
 import type { HomeData, Notification, Salary, Stats } from "@/lib/types";
 import { invalidate, useData } from "@/lib/useData";
 import { syncGeofence } from "@/lib/geofence";
+import { UpdateBanner } from "@/components/UpdateBanner";
+import { OfflineBanner } from "@/components/OfflineBanner";
+import { pendingToday, rememberBranches, useOfflineMarks } from "@/lib/offlineMarks";
 import { updateTodayWidget } from "@/widgets/sync";
 
 function useClock(ms = 1000) {
@@ -29,11 +33,15 @@ export default function Home() {
   const salary = useData<Salary>("/mini/salary", { maxAgeMs: 60_000 });
   const now = useClock();
   const [lateOpen, setLateOpen] = useState(false);
+  // Internetsiz saqlangan belgilar o‘zgarsa — holat yangilanadi.
+  useOfflineMarks();
   // Bosh ekran vidjeti va fon geofence — har yangi ma’lumotda.
   useEffect(() => {
     if (!data) return;
     void updateTodayWidget(data).catch(() => undefined);
     void syncGeofence(data).catch(() => undefined);
+    // Internetsiz belgilash uchun filiallar telefonga yoziladi.
+    rememberBranches(data.branches?.length ? data.branches : data.branch ? [data.branch] : []);
   }, [data]);
 
   if (loading && !data)
@@ -50,7 +58,12 @@ export default function Home() {
     );
 
   const a = data.attendance;
-  const working = Boolean(a?.checkIn && !a.checkOut);
+  // Internetsiz saqlangan (hali yuborilmagan) bugungi belgilar — tugma va vaqt shunga qarab.
+  const pendingIn = !a?.checkIn ? pendingToday("CHECK_IN") : undefined;
+  const pendingOut = !a?.checkOut ? pendingToday("CHECK_OUT") : undefined;
+  const clockOf = (ms: number) => tashkentClock(new Date(ms));
+  const inTime = a?.checkIn || (pendingIn ? clockOf(pendingIn.createdAt) : undefined);
+  const working = Boolean(inTime && !a?.checkOut && !pendingOut);
   const finished = Boolean(a?.checkOut);
   const day = data.todayPlan;
   const missingSetup = !data.branch || !data.schedule;
@@ -84,6 +97,8 @@ export default function Home() {
 
   return (
     <Screen refreshing={refreshing} onRefresh={refresh}>
+      <UpdateBanner />
+      <OfflineBanner />
       {/* ------------------------------------------------------ sarlavha --- */}
       <View style={st.header}>
         <Pressable onPress={() => go("/(tabs)/profile")} accessibilityLabel="Profil">
@@ -135,15 +150,15 @@ export default function Home() {
         <View style={st.times}>
           <View style={[st.timeCell, { backgroundColor: c.tint }]}>
             <Text style={[st.timeLabel, { color: c.muted }]}>Keldi</Text>
-            <Text style={[st.timeValue, { color: a?.checkIn ? c.ink : c.muted }]}>{a?.checkIn || "--:--"}</Text>
-            <Text style={{ color: a?.checkIn ? (a.lateMinutes ? c.warn : c.success) : c.muted, fontSize: 12, fontWeight: "600" }}>
-              {a?.checkIn ? (a.lateMinutes ? `${duration(a.lateMinutes)} kech` : "vaqtida") : "hali yo‘q"}
+            <Text style={[st.timeValue, { color: inTime ? c.ink : c.muted }]}>{inTime || "--:--"}</Text>
+            <Text style={{ color: a?.checkIn ? (a.lateMinutes ? c.warn : c.success) : pendingIn ? c.accent : c.muted, fontSize: 12, fontWeight: "600" }}>
+              {a?.checkIn ? (a.lateMinutes ? `${duration(a.lateMinutes)} kech` : "vaqtida") : pendingIn ? "telefonda saqlangan" : "hali yo‘q"}
             </Text>
           </View>
           <View style={[st.timeCell, { backgroundColor: c.tint }]}>
             <Text style={[st.timeLabel, { color: c.muted }]}>{finished ? "Ketdi" : "Ishlangan"}</Text>
             <Text style={[st.timeValue, { color: finished || working ? c.ink : c.muted }]}>
-              {finished ? a?.checkOut : working && a?.checkIn ? clockDuration(minutesSince(a.checkIn, now)) : "--:--"}
+              {finished ? a?.checkOut : working && inTime ? clockDuration(minutesSince(inTime, now)) : "--:--"}
             </Text>
             <Text style={{ color: finished ? c.success : c.muted, fontSize: 12, fontWeight: "600" }}>
               {finished ? `${clockDuration(a?.workedMinutes || 0)} soat` : working ? "davom etmoqda" : "—"}
@@ -157,6 +172,11 @@ export default function Home() {
           <View style={[st.done, { backgroundColor: c.tint }]}>
             <Icon name="alert-circle" size={18} color={c.warn} />
             <Text style={{ color: c.warn, fontWeight: "500" }}>HR filial va grafikni biriktirishi kerak</Text>
+          </View>
+        ) : pendingOut ? (
+          <View style={[st.done, { backgroundColor: `${c.accent}14` }]}>
+            <Icon name="cloud-offline-outline" size={18} color={c.accent} />
+            <Text style={{ color: c.ink, fontWeight: "500", flexShrink: 1 }}>Ketish {clockOf(pendingOut.createdAt)} telefonda saqlangan — internet tiklanishi bilan yuboriladi</Text>
           </View>
         ) : finished ? (
           <View style={[st.done, { backgroundColor: c.tint }]}>
@@ -217,7 +237,7 @@ export default function Home() {
 
       {/* -------------------------------------------------- statistika --- */}
       <GroupTitle>Shu oy</GroupTitle>
-      <Card style={st.stats}>
+      <Card style={st.stats} onPress={() => go("/my-month")}>
         <Stat value={String(data.month.days)} label="kun keldi" />
         <Stat value={String(data.month.late)} label="kechikish" warn={data.month.late > 0} border />
         {streak > 0 ? (
@@ -232,6 +252,7 @@ export default function Home() {
       {/* ----------------------------------------------- tezkor bo‘limlar --- */}
       <GroupTitle>Tezkor bo‘limlar</GroupTitle>
       <Card style={st.quick}>
+        <Tile icon="pie-chart-outline" label="Mening oyim" onPress={() => go("/my-month")} />
         <Tile icon="calendar-outline" label="Grafigim" onPress={() => go({ pathname: "/(tabs)/history", params: { view: "schedule" } })} />
         <Tile icon="stats-chart-outline" label="Statistika" onPress={() => go({ pathname: "/(tabs)/history", params: { view: "stats" } })} />
         <Tile icon="finger-print-outline" label="Belgilash" onPress={() => go("/mark-request")} />

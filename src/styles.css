@@ -10650,3 +10650,5 @@ button.ecal-cell:hover { background: var(--row-hover); }
 }
 /* Tabel keng — ekranning butun kengligidan foydalanadi (31 kun ustuni). */
 .page.tgrid-page { max-width: none; }
+/* Boshqa filialda keldi qilgan kun (tabel) */
+.tgrid-away { position: absolute; bottom: 1px; right: 3px; color: var(--violet); font-size: 9px; font-style: normal; font-weight: 700; }

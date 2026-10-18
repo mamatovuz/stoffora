@@ -18,7 +18,7 @@ import { AttendanceEditModal, type EditTarget } from "../components/AttendanceEd
  */
 
 type State = "PLANNED" | "ON_TIME" | "LATE" | "IN" | "NO_CHECKOUT" | "ABSENT" | "REST" | "REST_WORKED" | "LEAVE" | "BEFORE_START";
-type Cell = { date: string; state: State; in?: string; out?: string; late: number; early: number; worked: number; plan?: string; leave?: string; reason?: string; manual: boolean; recordId?: string };
+type Cell = { date: string; state: State; in?: string; out?: string; late: number; early: number; worked: number; plan?: string; leave?: string; reason?: string; manual: boolean; recordId?: string; branch?: string };
 type Row = {
   employee: { id: string; name: string; employeeNo: string; photo?: string; branchId: string };
   branch: string;
@@ -60,6 +60,7 @@ function cellTitle(row: Row, c: Cell) {
     `${row.employee.name} · ${dateLongUz(c.date, true)}`,
     c.plan ? `Grafik: ${c.plan}` : c.state === "REST" ? `Dam olish${c.reason ? ` (${c.reason})` : ""}` : "",
     c.in ? `Keldi ${c.in}${c.out ? ` · ketdi ${c.out}` : ""}` : STATE_LABEL[c.state],
+    c.branch ? `Filial: ${c.branch} (boshqa filialda keldi qildi)` : "",
     c.late ? `Kechikdi: ${duration(c.late)}` : "",
     c.early ? `Erta ketdi: ${duration(c.early)}` : "",
     c.worked ? `Ishladi: ${duration(c.worked)}` : "",
@@ -225,6 +226,7 @@ export function AttendanceGridPage() {
                                 <span className="mark">T</span>
                               ) : null}
                               {c.manual && <i className="tgrid-manual">✎</i>}
+                              {c.branch && <i className="tgrid-away">↗</i>}
                             </button>
                           </td>
                         );
@@ -262,6 +264,7 @@ export function AttendanceGridPage() {
             <i className="s-rest" /> Dam olish
           </span>
           <span>✎ Qo‘lda tuzatilgan</span>
+          <span>↗ Boshqa filialda keldi qilgan</span>
           {canEdit && <span className="tgrid-hint">Katakni bosing — davomatni tuzatish</span>}
         </div>
       </section>

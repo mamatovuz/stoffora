@@ -59,6 +59,7 @@ import type { Company, PayrollSettings } from "@/lib/types";
 import { advanceWindow, calculatePayroll, defaultPayrollSettings } from "@/lib/payroll";
 import { dateUz, money, tashkentIsoDate } from "@/lib/format";
 import { resizePhoto } from "./Employees";
+import { TimeInput } from "../components/TimeInput";
 
 type Tab = "profile" | "security" | "lock" | "devices" | "apps" | "company" | "payroll" | "reports" | "channel" | "bot" | "miniapp" | "regbot" | "integrations";
 const tabs: [Tab, string, typeof UserRound][] = [
@@ -891,6 +892,7 @@ type MiniAppForm = {
   breaksEnabled: boolean;
   leaderboardEnabled: boolean;
   managerDigest: boolean;
+  managerReportAt: string;
 };
 const miniDefaults: MiniAppForm = {
   biometricEnabled: true,
@@ -900,6 +902,7 @@ const miniDefaults: MiniAppForm = {
   breaksEnabled: false,
   leaderboardEnabled: true,
   managerDigest: true,
+  managerReportAt: "10:00",
 };
 function MiniAppSection() {
   const toast = useToast();
@@ -962,7 +965,12 @@ function MiniAppSection() {
           {form.directoryEnabled && toggle("directoryPhones", "Ma’lumotnomada telefon raqamlari", "Yoqilsa, hamkasblar bir-biriga qo‘ng‘iroq qila oladi. Shaxsiy ma’lumot — ehtiyot bo‘ling")}
           {toggle("leaderboardEnabled", "Vaqtida kelish reytingi", "Statistikada filial ichidagi o‘rin va eng intizomli 3 kishi (faqat ism) ko‘rinadi")}
           {toggle("breaksEnabled", "Tanaffus (tushlik) belgilash", "Ish vaqtida «Tanaffus» tugmasi chiqadi. Ma’lumot uchun — ish haqiga ta’sir qilmaydi")}
-          {toggle("managerDigest", "Rahbarlarga «hali kelmaganlar» xabari", "Ish boshlanib 20 daqiqa o‘tgach, filial rahbari va HR’ga kelmaganlar ro‘yxati Telegram’da boradi")}
+          {toggle("managerDigest", "Rahbarlarga kunlik davomat xabari", "Ish boshlanib 20 daqiqa o‘tgach — «hali kelmaganlar», belgilangan vaqtda — kim kelmadi va kim kechikdi (Telegram va ilovaga push)")}
+          {form.managerDigest && (
+            <Field label="Kunlik hisobot vaqti" hint="Rahbar, HR va filial rahbariga «Kelmadi 3: … · Kechikdi 2: …» xabari shu vaqtda boradi">
+              <TimeInput className="input" value={form.managerReportAt || "10:00"} onChange={(v) => setForm({ ...form, managerReportAt: v || "10:00" })} style={{ maxWidth: 160 }} required />
+            </Field>
+          )}
         </div>
         <ErrorBox message={error} />
         <div className="form-actions">
@@ -976,7 +984,7 @@ function MiniAppSection() {
 }
 
 type ClientLog = { id: string; kind: string; message: string; detail?: string; platform?: string; version?: string; at: string; employeeName?: string };
-const logKinds: Record<string, string> = { gps: "GPS", camera: "Kamera", auth: "Kirish", biometric: "Biometriya", js: "Ilova", promise: "Ilova" };
+const logKinds: Record<string, string> = { gps: "GPS", camera: "Kamera", auth: "Kirish", biometric: "Biometriya", js: "Ilova", promise: "Ilova", crash: "Ilova qulashi", screen: "Ekran xatosi" };
 function ClientLogsSection() {
   const { data, loading, error, reload } = useApi<ClientLog[]>("/client-logs");
   const [open, setOpen] = useState<string | null>(null);
@@ -984,8 +992,8 @@ function ClientLogsSection() {
     <section className="card">
       <div className="card-head">
         <div>
-          <h2>Mini App xatolari</h2>
-          <p>Xodimlarning telefonida yuz bergan muammolar (GPS, kamera, kirish) — yordam berish uchun</p>
+          <h2>Ilova va Mini App xatolari</h2>
+          <p>Xodimlarning telefonida yuz bergan muammolar (ilova qulashi, GPS, kamera, kirish) — qaysi telefon va versiya bilan</p>
         </div>
         <button className="btn btn-ghost btn-sm" onClick={() => void reload()}>
           Yangilash
@@ -1015,7 +1023,9 @@ function ClientLogsSection() {
                   <tr key={log.id} onClick={() => setOpen(open === log.id ? null : log.id)} style={{ cursor: log.detail ? "pointer" : undefined }}>
                     <td style={{ whiteSpace: "nowrap" }}>{new Date(log.at).toLocaleString("ru-RU", { timeZone: "Asia/Tashkent" })}</td>
                     <td>{log.employeeName || "—"}</td>
-                    <td>{logKinds[log.kind] || log.kind}</td>
+                    <td>
+                      <span className={log.kind === "crash" ? "badge red plain" : undefined}>{logKinds[log.kind] || log.kind}</span>
+                    </td>
                     <td>
                       {log.message}
                       {open === log.id && log.detail && <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, margin: "6px 0 0", opacity: 0.75 }}>{log.detail}</pre>}

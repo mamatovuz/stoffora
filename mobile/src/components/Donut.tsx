@@ -1,4 +1,5 @@
-import { Text, View } from "react-native";
+import { View } from "react-native";
+import { Text } from "@/components/T";
 import Svg, { Circle } from "react-native-svg";
 import { useTheme } from "@/lib/theme";
 

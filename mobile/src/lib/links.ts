@@ -66,8 +66,13 @@ export function routeForGo(go?: string | null): Href | null {
     case "profile":
     case "settings":
       return "/(tabs)/profile";
-    case "manager":
-      return value === "manager_requests" ? { pathname: "/(tabs)/manager", params: { view: "requests", t: String(Date.now()) } } : "/(tabs)/manager";
+    case "manager": {
+      // manager_requests · manager_today · manager_today_ABSENT / _LATE / _FLAGGED (davomat filtri bilan).
+      const [, view, filter] = value.split("_");
+      if (view === "requests") return { pathname: "/(tabs)/manager", params: { view: "requests", t: String(Date.now()) } };
+      if (view === "today") return { pathname: "/(tabs)/manager", params: { view: "today", filter: filter || "ALL", t: String(Date.now()) } };
+      return "/(tabs)/manager";
+    }
     default:
       return null;
   }

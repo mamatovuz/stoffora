@@ -1,10 +1,11 @@
 import * as Clipboard from "expo-clipboard";
 import { useEffect, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "@/components/T";
 import { mediaUri } from "@/lib/config";
 import { errorText } from "@/lib/api";
 import { som } from "@/lib/format";
-import { mcall } from "@/lib/manager";
+import { mcall, openPanelFile } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
 import { Button, Card, Empty, Group, GroupTitle, Hint, Icon, Loading, Sheet, haptic } from "./ui";
 
@@ -211,6 +212,56 @@ export function MoneyView({ canAdvances, canFines, reloadKey }: { canAdvances: b
     if (canFines) mcall<FineRow[]>(`/fines?month=${month}`).then((r) => setFines(r.filter((f) => f.status === "APPROVED"))).catch((e) => setError(errorText(e)));
     else setFines([]);
   }, [canAdvances, canFines, reloadKey, tick]);
+  const [month] = useState(() => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 7));
+  /** Avans ro‘yxati Excel’da: kartaga o‘tkazish (bank), naqd qaydnoma, barcha so‘rovlar. */
+  const exportAdvances = async () => {
+    setBusy("excel");
+    try {
+      await openPanelFile(`/payroll/advances.xlsx?month=${month}`);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+  /** «Avans oluvchilar ro‘yxatini shakllantiryapmiz — siz ham ro‘yxatdamisiz?» — e’lon + Telegram + push. */
+  const announce = async () => {
+    setBusy("announce");
+    try {
+      const pre = await mcall<{ title: string; message: string; recipients: number; requested: number; blocker?: string; last: { at: string } | null }>("/payroll/advances/announce");
+      if (pre.blocker) return Alert.alert("Yuborib bo‘lmaydi", pre.blocker);
+      if (!pre.recipients) return Alert.alert("Yuboriladigan xodim yo‘q", "Hammasi avans so‘ragan yoki oyligi kiritilmagan.");
+      Alert.alert(
+        pre.title,
+        [
+          pre.message,
+          `${pre.recipients} xodimga boradi (ilovada e’lon, Telegram, push). Bosilsa avans formasi ochiladi.`,
+          pre.last ? "Bu oy allaqachon yuborilgan — faqat hali so‘ramaganlarga boradi." : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+        [
+          { text: "Bekor qilish", style: "cancel" },
+          {
+            text: `${pre.recipients} xodimga yuborish`,
+            onPress: async () => {
+              try {
+                const r = await mcall<{ recipients: number; telegram: number }>("/payroll/advances/announce", { title: pre.title, message: pre.message });
+                haptic.success();
+                Alert.alert("Yuborildi", `${r.recipients} xodimga yuborildi (Telegram: ${r.telegram}).`);
+              } catch (e) {
+                Alert.alert("Xatolik", errorText(e));
+              }
+            },
+          },
+        ],
+      );
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  };
   const advTotal = (advances || []).reduce((s, r) => s + r.amount, 0);
   const fineTotal = (fines || []).reduce((s, r) => s + r.amount, 0);
   return (
@@ -251,6 +302,10 @@ export function MoneyView({ canAdvances, canFines, reloadKey }: { canAdvances: b
       {canAdvances ? (
         <>
           <GroupTitle>Avans oluvchilar — shu oy</GroupTitle>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <Button title="Excel ro‘yxat" icon="document-text-outline" tone="soft" busy={busy === "excel"} onPress={() => void exportAdvances()} style={{ flex: 1, height: 44 }} />
+            <Button title="Xodimlarga xabar" icon="megaphone-outline" tone="soft" busy={busy === "announce"} onPress={() => void announce()} style={{ flex: 1, height: 44 }} />
+          </View>
           {!advances ? (
             <Loading />
           ) : !advances.length ? (

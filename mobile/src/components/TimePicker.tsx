@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { useTheme } from "@/lib/theme";
 import { haptic } from "./ui";
 

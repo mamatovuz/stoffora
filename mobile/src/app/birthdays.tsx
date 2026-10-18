@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { mediaUri } from "@/lib/config";
-import { Alert, Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { Button, Card, Empty, ErrorBox, Loading, haptic } from "@/components/ui";
 import { errorText, post } from "@/lib/api";
 import { dateUz } from "@/lib/format";

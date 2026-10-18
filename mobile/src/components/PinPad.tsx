@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { useTheme } from "@/lib/theme";
 import { Icon, haptic } from "./ui";
 

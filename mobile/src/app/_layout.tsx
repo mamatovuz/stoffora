@@ -1,20 +1,44 @@
 import "@/lib/polyfills";
+import { installErrorReporting, reportError } from "@/lib/report";
+import { checkForAppUpdate, watchAppUpdates } from "@/lib/updates";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as Notifications from "expo-notifications";
-import { Stack, router, useSegments } from "expo-router";
+import { Stack, router, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { PinFlow } from "@/components/PinFlow";
 import { Icon } from "@/components/ui";
+import { t, useT } from "@/lib/i18n";
 import { routeForGo } from "@/lib/links";
 import { registerPush, watchPushToken } from "@/lib/push";
+import { watchOfflineMarks } from "@/lib/offlineMarks";
 import { SessionProvider, useSession } from "@/lib/session";
 import { ios, useTheme } from "@/lib/theme";
 import { invalidate } from "@/lib/useData";
 
 const handledPushes = new Set<string>();
+// Xatolar jurnali — ilova ishga tushishi bilan (qulashlar ham ushlanadi).
+installErrorReporting();
+
+/** Ekran xatosi: oq ekran o‘rniga tushunarli oyna va «Qayta urinish»; xato jurnalga yoziladi. */
+export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
+  useEffect(() => {
+    reportError("screen", error.message, error);
+  }, [error]);
+  return (
+    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 14, backgroundColor: "#F2F3F5" }}>
+      <Text style={{ fontSize: 40 }}>⚠️</Text>
+      <Text style={{ fontSize: 20, fontWeight: "700", color: "#0F172A", textAlign: "center" }}>Kutilmagan xato</Text>
+      <Text style={{ fontSize: 15, color: "#6B7280", textAlign: "center" }}>Xato haqida ma’lumot avtomatik yuborildi. Qayta urinib ko‘ring.</Text>
+      <Pressable onPress={() => void retry()} style={{ marginTop: 6, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 14, backgroundColor: "#2563EB" }}>
+        <Text style={{ color: "#fff", fontWeight: "600", fontSize: 16 }}>Qayta urinish</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 function Gate() {
   const { state, prefs } = useSession();
@@ -33,6 +57,8 @@ function Gate() {
     if (state !== "signedIn") return;
     void registerPush(false).catch(() => undefined);
     const stopWatch = watchPushToken();
+    // Internetsiz saqlangan belgilar — aloqa tiklanishi bilan avtomatik yuboriladi.
+    const stopMarks = watchOfflineMarks();
     const open = (response: Notifications.NotificationResponse | null) => {
       if (!response) return;
       // Har bir push faqat bir marta ochiladi (ilova qayta ochilganda takrorlanmasin).
@@ -48,6 +74,7 @@ function Gate() {
     const received = Notifications.addNotificationReceivedListener(() => invalidate("/mini/"));
     return () => {
       stopWatch();
+      stopMarks();
       sub.remove();
       received.remove();
     };
@@ -68,7 +95,7 @@ function AppLock() {
   const enabled = (pin || bio) && state === "signedIn";
 
   const biometric = async () => {
-    const result = await LocalAuthentication.authenticateAsync({ promptMessage: "Staffora’ni ochish", cancelLabel: pin ? "PIN-kod" : "Bekor qilish", disableDeviceFallback: pin });
+    const result = await LocalAuthentication.authenticateAsync({ promptMessage: t("Staffora’ni ochish"), cancelLabel: t(pin ? "PIN-kod" : "Bekor qilish"), disableDeviceFallback: pin });
     if (result.success) setLocked(false);
   };
   const lock = () => {
@@ -132,8 +159,14 @@ function BioLock({ onUnlock }: { onUnlock: () => void }) {
 }
 
 function Shell() {
+  const tr = useT();
   const { state } = useSession();
   const { c, dark } = useTheme();
+  // Build’siz yangilanishlar: ishga tushganda va fondan qaytganda tekshiriladi.
+  useEffect(() => {
+    void checkForAppUpdate(true);
+    return watchAppUpdates();
+  }, []);
   if (state === "loading")
     return (
       <View style={{ flex: 1, backgroundColor: c.bg, alignItems: "center", justifyContent: "center" }}>
@@ -151,7 +184,7 @@ function Shell() {
           headerStyle: { backgroundColor: c.bg },
           headerTitleStyle: { color: c.ink },
           headerShadowVisible: false,
-          headerBackTitle: "Orqaga",
+          headerBackTitle: tr("Orqaga"),
         }}
       >
         <Stack.Screen name="(tabs)" />
@@ -160,20 +193,21 @@ function Shell() {
         <Stack.Screen name="permissions" options={{ gestureEnabled: false }} />
         <Stack.Screen name="face-check" options={{ presentation: "fullScreenModal", animation: "fade", contentStyle: { backgroundColor: "#000" } }} />
         <Stack.Screen name="face-enroll" options={{ presentation: "fullScreenModal", contentStyle: { backgroundColor: "#000" } }} />
-        <Stack.Screen name="notifications" options={{ headerShown: true, title: "Bildirishnomalar", headerLargeTitle: ios }} />
-        <Stack.Screen name="salary" options={{ headerShown: true, title: "Mening oyligim" }} />
-        <Stack.Screen name="security" options={{ headerShown: true, title: "Sozlamalar" }} />
-        <Stack.Screen name="directory" options={{ headerShown: true, title: "Hamkasblar" }} />
-        <Stack.Screen name="payslips" options={{ headerShown: true, title: "Hisob varaqalar" }} />
-        <Stack.Screen name="documents" options={{ headerShown: true, title: "Hujjatlarim" }} />
-        <Stack.Screen name="helpdesk" options={{ headerShown: true, title: "HR bilan aloqa" }} />
-        <Stack.Screen name="badge" options={{ headerShown: true, title: "Mening ID" }} />
+        <Stack.Screen name="notifications" options={{ headerShown: true, title: tr("Bildirishnomalar"), headerLargeTitle: ios }} />
+        <Stack.Screen name="salary" options={{ headerShown: true, title: tr("Mening oyligim") }} />
+        <Stack.Screen name="my-month" options={{ headerShown: true, title: tr("Mening oyim") }} />
+        <Stack.Screen name="security" options={{ headerShown: true, title: tr("Sozlamalar") }} />
+        <Stack.Screen name="directory" options={{ headerShown: true, title: tr("Hamkasblar") }} />
+        <Stack.Screen name="payslips" options={{ headerShown: true, title: tr("Hisob varaqalar") }} />
+        <Stack.Screen name="documents" options={{ headerShown: true, title: tr("Hujjatlarim") }} />
+        <Stack.Screen name="helpdesk" options={{ headerShown: true, title: tr("HR bilan aloqa") }} />
+        <Stack.Screen name="badge" options={{ headerShown: true, title: tr("Mening ID") }} />
         <Stack.Screen name="badge-scan" options={{ headerShown: false, presentation: "fullScreenModal" }} />
         <Stack.Screen name="pin" options={{ presentation: "modal", gestureEnabled: false }} />
-        <Stack.Screen name="birthdays" options={{ headerShown: true, title: "Tug‘ilgan kunlar" }} />
-        <Stack.Screen name="mark-request" options={{ headerShown: true, title: "Belgilash so‘rovi" }} />
-        <Stack.Screen name="reminders" options={{ headerShown: true, title: "Eslatmalar" }} />
-        <Stack.Screen name="employee/[id]" options={{ headerShown: true, title: "Xodimning profili" }} />
+        <Stack.Screen name="birthdays" options={{ headerShown: true, title: tr("Tug‘ilgan kunlar") }} />
+        <Stack.Screen name="mark-request" options={{ headerShown: true, title: tr("Belgilash so‘rovi") }} />
+        <Stack.Screen name="reminders" options={{ headerShown: true, title: tr("Eslatmalar") }} />
+        <Stack.Screen name="employee/[id]" options={{ headerShown: true, title: tr("Xodimning profili") }} />
       </Stack>
       <Gate />
       <AppLock />

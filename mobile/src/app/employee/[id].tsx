@@ -1,7 +1,9 @@
 import * as Clipboard from "expo-clipboard";
 import { useLocalSearchParams, useNavigation } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useState, type ReactNode } from "react";
-import { Alert, Image, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { t } from "@/lib/i18n";
+import { Text } from "@/components/T";
 import { Badge, Card, ErrorBox, Icon, Loading, Segmented, haptic, type IconName } from "@/components/ui";
 import { errorText } from "@/lib/api";
 import { mediaUri } from "@/lib/config";
@@ -100,7 +102,7 @@ export default function EmployeeProfile() {
   const canEditProfile = Boolean(auth && can(auth.user.role, "employees.edit") && data);
   useLayoutEffect(() => {
     navigation.setOptions({
-      title: "Xodimning profili",
+      title: t("Xodimning profili"),
       headerRight: canEditProfile
         ? () => (
             <Pressable onPress={() => setEditing(true)} hitSlop={10}>
@@ -201,7 +203,14 @@ export default function EmployeeProfile() {
         </>
       ) : null}
 
-      {view === "attendance" ? <HistoryCalendar fetcher={mcall} base={`/employees/${id}/history`} /> : null}
+      {view === "attendance" ? (
+        <HistoryCalendar
+          fetcher={mcall}
+          base={`/employees/${id}/history`}
+          // Rahbar / HR: kunni tanlab, kelish-ketish vaqtini shu yerda tuzatish (audit bilan).
+          edit={auth && can(auth.user.role, "attendance.edit") ? { employeeId: e.id, employeeName: fullName, save: (path, body, method) => mcall(path, body, method) } : undefined}
+        />
+      ) : null}
 
       {view === "history" ? (
         <>

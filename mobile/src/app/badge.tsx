@@ -1,6 +1,8 @@
 import { useNavigation } from "expo-router";
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
-import { Image, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, ScrollView, StyleSheet, View } from "react-native";
+import { t } from "@/lib/i18n";
+import { Text } from "@/components/T";
 import { Card, Loading } from "@/components/ui";
 import { api } from "@/lib/api";
 import { mediaUri } from "@/lib/config";
@@ -17,7 +19,7 @@ export default function BadgeScreen() {
   const navigation = useNavigation();
   const { c } = useTheme();
   useLayoutEffect(() => {
-    navigation.setOptions({ title: "Mening ID" });
+    navigation.setOptions({ title: t("Mening ID") });
   }, [navigation]);
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>

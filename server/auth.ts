@@ -37,7 +37,7 @@ export function signSession(session: Session) {
  * orqali yuklaydi — u yerda sessiya sarlavhasi yuborilmaydi. Shuning uchun 5 daqiqalik
  * imzolangan havola: ichida yo‘l va o‘sha foydalanuvchining sessiyasi (huquqlar o‘zgarmaydi).
  */
-export const FILE_LINK_PATH = /^\/(reports\/[\w.-]+\.(xlsx|csv)|payroll\/\d{4}-\d{2}\/bank\.csv)(\?[\w=&%.-]*)?$/;
+export const FILE_LINK_PATH = /^\/(reports\/[\w.-]+\.(xlsx|csv)|payroll\/\d{4}-\d{2}\/bank\.csv|payroll\/advances\.xlsx|attendance\/grid\.xlsx)(\?[\w=&%.-]*)?$/;
 export function signFileLink(path: string, sessionToken: string) {
   return jwt.sign({ t: "FILE_LINK", p: path, s: sessionToken }, `${secret}-file-link`, { expiresIn: 300, issuer: "staffora" });
 }

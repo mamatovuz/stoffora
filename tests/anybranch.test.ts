@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedBranches, branchAt } from "../lib/branches";
+import { allowedBranches, branchAt, dayBranchId } from "../lib/branches";
 import type { Branch, Position } from "../lib/types";
 
 const branch = (id: string, lat: number, lng: number, extra: Partial<Branch> = {}): Branch => ({
@@ -42,6 +42,11 @@ describe("lavozim: istalgan filialdan keldi-ketdi", () => {
     const nowhere = branchAt(list, 40.0, 71.0);
     expect(nowhere.inside).toBeNull();
     expect(nowhere.nearest).not.toBeNull();
+  });
+  it("kun filiali: keldi qilgan bo‘lsa — keldi qilgan filial, aks holda — o‘z filiali", () => {
+    expect(dayBranchId(hr, { checkIn: "09:00", branchId: "kurgan" })).toBe("kurgan");
+    expect(dayBranchId(hr, { branchId: "kurgan" })).toBe("head");
+    expect(dayBranchId(hr, null)).toBe("head");
   });
   it("odatiy xodim boshqa filial hududida bo‘lsa ham qabul qilinmaydi", () => {
     const list = allowedBranches(db(pos({})), hr);

@@ -1,7 +1,8 @@
 import { CameraView, useCameraPermissions, type BarcodeScanningResult } from "expo-camera";
 import { router } from "expo-router";
 import { useRef, useState } from "react";
-import { Image, Linking, StyleSheet, Text, View } from "react-native";
+import { Image, Linking, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Badge, Button, Icon, haptic } from "@/components/ui";
 import { errorText } from "@/lib/api";

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { Card, Icon, haptic } from "./ui";
 import { StackBar } from "./ManagerExtras";
 import { dateLongUz, tashkentIsoDate } from "@/lib/format";

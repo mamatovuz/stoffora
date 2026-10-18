@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { ActivityIndicator, AppState, Text, View } from "react-native";
+import { ActivityIndicator, AppState, View } from "react-native";
+import { Text } from "@/components/T";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button, Hint, Icon } from "@/components/ui";
 import { errorText } from "@/lib/api";

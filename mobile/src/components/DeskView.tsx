@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { errorText } from "@/lib/api";
 import { som } from "@/lib/format";
 import { can, mcall } from "@/lib/manager";

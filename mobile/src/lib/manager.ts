@@ -1,5 +1,6 @@
+import { Linking } from "react-native";
 import { ApiError, post } from "./api";
-import { API_URL } from "./config";
+import { API_URL, SERVER_ORIGIN } from "./config";
 
 /*
  * Rahbar rejimi: ishonchli telefon orqali panel sessiyasi olinadi va panelning o‘z API’lari
@@ -60,3 +61,12 @@ export const can = (role: Role, permission: string) => (ROLE_PERMS[role] || []).
 
 
 export { canOpenPage, canWeb } from "./permissions";
+
+/**
+ * Panel faylini (Excel/CSV hisobot) ochish: server 5 daqiqalik bir martalik imzolangan havola beradi —
+ * doimiy token URL’ga qo‘yilmaydi. Fayl tizim brauzerida ochiladi (u yerdan saqlash / ulashish).
+ */
+export async function openPanelFile(path: string) {
+  const { path: link } = await mcall<{ path: string }>("/file-link", { path });
+  await Linking.openURL(SERVER_ORIGIN + link);
+}

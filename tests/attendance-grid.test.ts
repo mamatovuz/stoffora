@@ -101,6 +101,17 @@ describe("umumiy tabel", () => {
     expect(grid.cellText(cell("2026-09-01"))).toBe("09:00\n18:00");
     expect(grid.cellText(cell("2026-09-07"))).toBe("Kelmadi");
   });
+  it("boshqa filialda keldi qilingan kun — katakda filial nomi", async () => {
+    const now = new Date().toISOString();
+    await store.updateDb((db) => {
+      db.attendance.push({ id: "att-a-away", companyId: "c1", employeeId: "a", branchId: "b2", date: "2026-09-08", scheduledStart: "09:00", scheduledEnd: "18:00", checkIn: "09:00", checkOut: "18:00", lateMinutes: 0, earlyLeaveMinutes: 0, workedMinutes: 480, overtimeMinutes: 0, status: "PRESENT", verification: ["FACE"], updatedAt: now } as Database["attendance"][number]);
+    });
+    const db = await store.readDb();
+    const a = grid.attendanceGrid(db, "c1", "2026-09", { today: "2026-10-15", clock: "12:00" }).rows[0];
+    expect(a.cells.find((c) => c.date === "2026-09-08")).toMatchObject({ state: "ON_TIME", branch: "B2" });
+    // O‘z filialida keldi qilingan kunda filial nomi yozilmaydi.
+    expect(a.cells.find((c) => c.date === "2026-09-01")!.branch).toBeUndefined();
+  });
   it("filial rahbari faqat o‘z filiali xodimlarini ko‘radi; filial filtri", async () => {
     const db = await store.readDb();
     expect(grid.attendanceGrid(db, "c1", "2026-09", { scope: new Set(["b2"]) }).rows.map((r) => r.employee.id)).toEqual(["b"]);

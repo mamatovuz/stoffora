@@ -1,8 +1,10 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { mediaUri } from "@/lib/config";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, Switch, Text, TextInput, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, Switch, View } from "react-native";
+import { Text, TextInput } from "@/components/T";
 import { BranchMap } from "@/components/BranchMap";
+import { TimesheetGrid } from "@/components/TimesheetGrid";
 import { FineSheet, MoneyView } from "@/components/MoneyTools";
 import { DevicesView } from "@/components/DevicesView";
 import { AttendanceOverview } from "@/components/AttendanceOverview";
@@ -11,11 +13,11 @@ import { BranchChips, Briefing, LiveFeed, TrendsList, type BriefTarget, type Tre
 import { AdminBack, AdminMenu, AdminScreen, ADMIN_ITEMS, adminItemsFor, type AdminKey } from "@/components/AdminViews";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
-import { dateUz, dayTitle, duration, som, tashkentIsoDate, timeAgo } from "@/lib/format";
+import { dateUz, dayTitle, duration, som, tashkentClock, tashkentIsoDate, timeAgo } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { typo, useTheme } from "@/lib/theme";
 
-type MView = "desk" | "today" | "requests" | "map" | "week" | "money" | "devices" | "admin";
+type MView = "desk" | "today" | "requests" | "map" | "grid" | "week" | "money" | "devices" | "admin";
 type Emp = { id: string; firstName: string; lastName: string; photoDataUrl?: string; branchId: string };
 type RosterRow = {
   employee: Emp;
@@ -23,7 +25,10 @@ type RosterRow = {
   state: "PRACTICE" | "IN" | "LEFT" | "ABSENT" | "ON_LEAVE" | "DAY_OFF" | "NOT_YET" | "UPCOMING";
   late: boolean;
   scheduledStart?: string;
+  /** Bugungi filial (keldi qilgan joy) va boshqa filialda bo‘lsa — asosiy filiali. */
+  branchId?: string;
   branch?: string;
+  homeBranch?: string;
 };
 type Day = { date: string; rows: RosterRow[] };
 type Branch = { id: string; name: string; latitude: number; longitude: number; radiusMeters: number };
@@ -60,7 +65,7 @@ const name = (e: { firstName: string; lastName: string }) => `${e.firstName} ${e
 export default function Manager() {
   const { c } = useTheme();
   const [auth, setAuth] = useState<ManagerAuth | null>(null);
-  const params = useLocalSearchParams<{ view?: MView; t?: string }>();
+  const params = useLocalSearchParams<{ view?: MView; t?: string; filter?: string }>();
   const [view, setView] = useState<MView>(params.view || "desk");
   // «Boshqaruv» ichidagi bo‘lim (xodimlar, ish haqi, grafiklar…).
   const [adminScreen, setAdminScreen] = useState<AdminKey | null>(null);
@@ -90,6 +95,10 @@ export default function Manager() {
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("ALL");
+  // Push’dan (masalan «Kelmadi 3: …» yoki «Shubhali belgi») — davomat ro‘yxati shu filtr bilan.
+  useEffect(() => {
+    if (params.filter && ["ALL", "IN", "LATE", "ABSENT", "NOT_YET", "ON_LEAVE", "FLAGGED"].includes(params.filter)) setFilter(params.filter as Filter);
+  }, [params.filter, params.t]);
   const [query, setQuery] = useState("");
   const [branch, setBranch] = useState("");
   const [trends, setTrends] = useState<TrendRow[] | null>(null);
@@ -182,6 +191,29 @@ export default function Manager() {
     }
   };
 
+  /** «Hali kelmadingiz — qachon kelasiz?» — ish boshlangan, lekin kelmaganlarga (Telegram + push). */
+  const nudge = () => {
+    const ids = late.map((r) => r.employee.id);
+    Alert.alert("Kelmaganlarga eslatma", `${ids.length} kishiga «Hali kelmadingiz — qachon kelasiz?» xabari boradi (Telegram va ilova). Bir xodimga soatiga bir marta.`, [
+      { text: "Bekor qilish", style: "cancel" },
+      {
+        text: "Yuborish",
+        onPress: async () => {
+          setBusy("nudge");
+          try {
+            const r = await mcall<{ sent: number; skipped: number }>("/attendance/nudge", { employeeIds: ids });
+            haptic.success();
+            Alert.alert("Yuborildi", `${r.sent} kishiga yuborildi.${r.skipped ? ` ${r.skipped} kishi o‘tkazib yuborildi (yaqinda eslatilgan yoki allaqachon kelgan).` : ""}`);
+          } catch (e) {
+            Alert.alert("Xatolik", errorText(e));
+          } finally {
+            setBusy(null);
+          }
+        },
+      },
+    ]);
+  };
+
   const bulkApprove = async () => {
     const items = pending.filter((p) => selected.includes(p.id));
     if (!items.length) return;
@@ -232,6 +264,9 @@ export default function Manager() {
       (!query.trim() || name(r.employee).toLowerCase().includes(query.trim().toLowerCase())),
   );
   const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
+  // Ish boshlangan, lekin hali kelmaganlar (eslatma uchun).
+  const nowClock = tashkentClock();
+  const late = rows.filter((r) => r.state === "ABSENT" || (r.state === "NOT_YET" && r.scheduledStart && r.scheduledStart <= nowClock));
   const role = auth?.user.role || "";
   const fineDirectRole = can(role, "employees.edit") || can(role, "payroll.edit");
   const canFine = fineDirectRole || role === "BRANCH_MANAGER";
@@ -246,7 +281,7 @@ export default function Manager() {
   // Davomatni ko‘rmaydigan rol (moliya) — darhol «Moliya».
   const noAttendance = Boolean(auth) && !can(role, "attendance.view");
   useEffect(() => {
-    if (noAttendance && (view === "today" || view === "map")) setView(canMoney ? "money" : canDevices && !canRequests ? "devices" : "requests");
+    if (noAttendance && (view === "today" || view === "map" || view === "grid")) setView(canMoney ? "money" : canDevices && !canRequests ? "devices" : "requests");
   }, [noAttendance, view, canMoney, canDevices]);
   const adminExtra = [
     ...(can(role, "dashboard.view") ? [{ key: "week", label: "Xulosa va trendlar", hint: "davomat reytingi, diqqat talab qilganlar", icon: "stats-chart-outline" as const }] : []),
@@ -254,7 +289,7 @@ export default function Manager() {
     ...(canDevices ? [{ key: "devices", label: "Telefonlar (qurilmalar)", hint: "ulash, almashtirish, o‘chirish", icon: "phone-portrait-outline" as const }] : []),
   ];
   const hasAdmin = adminExtra.length > 0 || adminItemsFor(role).length > 0;
-  const tabOf = (v: MView): MView => (v === "map" ? "today" : v === "week" || v === "money" || v === "devices" ? "admin" : v);
+  const tabOf = (v: MView): MView => (v === "map" || v === "grid" ? "today" : v === "week" || v === "money" || v === "devices" ? "admin" : v);
   const marks = pending.filter((p) => p.kind === "mark");
   const others = pending.filter((p) => p.kind !== "mark");
   const markDays = [...new Set(marks.map((p) => p.date!))].sort((a, b) => b.localeCompare(a));
@@ -293,13 +328,14 @@ export default function Manager() {
           ...(hasAdmin ? ([["admin", "Boshqaruv"]] as [MView, string][]) : []),
         ]}
       />
-      {(view === "today" || view === "map") && canAttendanceView ? (
+      {(view === "today" || view === "map" || view === "grid") && canAttendanceView ? (
         <Segmented<MView>
           value={view}
           onChange={setView}
           options={[
             ["today", "Ro‘yxat"],
             ["map", "Xarita"],
+            ["grid", "Tabel"],
           ]}
         />
       ) : null}
@@ -348,6 +384,22 @@ export default function Manager() {
               />
             ) : null}
             <BranchChips value={branch} options={branchNames} onChange={setBranch} />
+            {dayDate === tashkentIsoDate() && late.length ? (
+              <Card style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 }}>
+                <Icon name="alarm-outline" size={22} color={c.warn} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[typo.bodyStrong, { color: c.ink }]}>{late.length} kishi hali kelmadi</Text>
+                  <Text style={[typo.sub, { color: c.muted }]} numberOfLines={1}>
+                    {late
+                      .slice(0, 3)
+                      .map((r) => r.employee.firstName)
+                      .join(", ")}
+                    {late.length > 3 ? ` +${late.length - 3}` : ""}
+                  </Text>
+                </View>
+                <Button title="Eslatma" icon="notifications-outline" tone="soft" busy={busy === "nudge"} onPress={() => nudge()} style={{ height: 40, paddingHorizontal: 14 }} />
+              </Card>
+            ) : null}
             {dayDate === tashkentIsoDate() ? <LiveFeed rows={rows} /> : null}
             {stats.flagged ? (
               <Pressable onPress={() => setFilter(filter === "FLAGGED" ? "ALL" : "FLAGGED")}>
@@ -506,6 +558,7 @@ export default function Manager() {
       ) : null}
 
       {view === "map" ? <BranchMap rows={rows} branches={branches} /> : null}
+      {view === "grid" && auth ? <TimesheetGrid role={auth.user.role} /> : null}
 
       {view === "week" && canAttendanceView ? (
         <>
@@ -664,6 +717,7 @@ function RosterLine({ row, last }: { row: RosterRow; last: boolean }) {
         {r.branch ? (
           <Text style={[typo.sub, { color: c.muted }]} numberOfLines={1}>
             {r.branch}
+            {r.homeBranch ? ` (asosiy: ${r.homeBranch})` : ""}
           </Text>
         ) : null}
       </View>

@@ -227,7 +227,8 @@ type Db = Awaited<ReturnType<typeof readDb>>;
 async function runDailyJobs(db: Db, date: string, now: number) {
   const done = new Set(db.sentGreetings.map((g) => g.key));
   const keys: string[] = [];
-  if (now >= REPORT_AT && now < REPORT_AT + 60) keys.push(...(await managerReports(db, date, now, done)));
+  // Har kompaniya o‘z vaqtida (Sozlamalar → Mini App → hisobot vaqti; standart 10:00).
+  keys.push(...(await managerReports(db, date, now, done)));
   if (addDays(date, 1).slice(0, 7) !== date.slice(0, 7) && now >= MONTH_SUMMARY_AT) keys.push(...(await monthSummaries(db, date, done)));
   if (!keys.length) return;
   await updateDb((next) => {
@@ -247,6 +248,8 @@ async function managerReports(db: Db, date: string, now: number, done: Set<strin
   type Row = { employee: Employee; late: number };
   for (const company of db.companies) {
     if (company.status === "SUSPENDED" || company.miniApp?.managerDigest === false) continue;
+    const at = /^\d{2}:\d{2}$/.test(company.miniApp?.managerReportAt || "") ? toMinutes(company.miniApp!.managerReportAt!) : REPORT_AT;
+    if (now < at || now >= at + 60) continue;
     const key = `MREPORT:${company.id}:${date}`;
     if (done.has(key)) continue;
     keys.push(key);
@@ -298,7 +301,10 @@ async function managerReports(db: Db, date: string, now: number, done: Set<strin
         // Xodimning maxfiylik sozlamasi tugmani taqiqlasa — xabar tugmalarsiz qayta yuboriladi.
         if (!ok && writable.length) await sendTelegramMessage(manager.telegramId, text, { go: "manager" }).catch(() => false);
       }
-      await pushToManager(db, manager, "📋 Bugungi davomat", !a.length && !l.length ? "Hamma o‘z vaqtida keldi." : `Kelmadi: ${a.length} · Kechikdi: ${l.length}`, "manager").catch(() => 0);
+      // Push: kim kelmadi / kechikdi (ismlar bilan); bosilsa — ilovada bugungi davomat ro‘yxati.
+      const names = (rows: Row[]) => rows.slice(0, 3).map((r) => r.employee.firstName).join(", ") + (rows.length > 3 ? ` +${rows.length - 3}` : "");
+      const body = !a.length && !l.length ? "Hamma o‘z vaqtida keldi." : [a.length ? `Kelmadi ${a.length}: ${names(a)}` : "", l.length ? `Kechikdi ${l.length}: ${names(l)}` : ""].filter(Boolean).join(" · ");
+      await pushToManager(db, manager, `📋 Bugungi davomat · ${tashkentClock().slice(0, 5)}`, body, a.length ? "manager_today_ABSENT" : l.length ? "manager_today_LATE" : "manager_today").catch(() => 0);
     }
   }
   return keys;

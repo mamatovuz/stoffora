@@ -87,7 +87,8 @@ export function AttendancePage() {
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (data?.rows || [])
-      .filter((row) => !branch || row.employee.branchId === branch)
+      // Filial bo‘yicha — bugungi filial (boshqa filialda keldi qilgan xodim o‘sha filialda).
+      .filter((row) => !branch || (row.branchId || row.employee.branchId) === branch)
       .filter((row) =>
         !q
           ? true
@@ -299,9 +300,12 @@ export function AttendancePage() {
                             first={row.employee.firstName}
                             last={row.employee.lastName}
                             photo={row.employee.photoDataUrl}
-                            sub={[row.position, row.branch]
-                              .filter(Boolean)
-                              .join(" · ")}
+                            sub={
+                              // Boshqa filialda keldi qilgan bo‘lsa — avval keldi qilgan filial, keyin asosiy filiali.
+                              row.homeBranch
+                                ? `${row.branch} · asosiy: ${row.homeBranch}`
+                                : [row.position, row.branch].filter(Boolean).join(" · ")
+                            }
                           />
                         </Link>
                       </td>

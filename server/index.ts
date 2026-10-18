@@ -89,6 +89,7 @@ import { createAnalyticsRouter } from "./analytics";
 import { createSwapRouter } from "./swaps";
 import { registerAccountingReports } from "./tabel";
 import { registerEmployeeImport } from "./employee-import";
+import { dayBranchId } from "../lib/branches";
 import { createAdvanceRouter } from "./advances";
 import { createAdvanceAnnounceRouter } from "./advance-announce";
 import { registerAttendanceGrid } from "./attendance-grid";
@@ -324,8 +325,9 @@ const branchScope = (req: AuthedRequest, db: Database): Set<string> | null => {
   return new Set(user?.branchIds || []);
 };
 const inScope = (scope: Set<string> | null, branchId?: string) => !scope || Boolean(branchId && scope.has(branchId));
-const scopeRoster = <T extends { employee: { branchId: string } }>(scope: Set<string> | null, rows: T[]) =>
-  scope ? rows.filter((row) => scope.has(row.employee.branchId)) : rows;
+/** Filial rahbari: o‘z filiali xodimlari + boshqa filialdan kelib, uning filialida keldi qilganlar. */
+const scopeRoster = <T extends { employee: { branchId: string }; branchId?: string }>(scope: Set<string> | null, rows: T[]) =>
+  scope ? rows.filter((row) => scope.has(row.employee.branchId) || Boolean(row.branchId && scope.has(row.branchId))) : rows;
 
 /** Ruxsatlardan kamida bittasi bo‘lsa o‘tkazadi. */
 const requireAnyPermission =
@@ -1357,6 +1359,9 @@ function computeDayRoster(db: Database, tenant: string, date: string) {
       } else state = "ABSENT";
       // Mashq davrida kelmaslik "Kelmadi" deb sanalmaydi, kechikish ham hisoblanmaydi.
       if (practice && state === "ABSENT") state = "PRACTICE";
+      // Istalgan filialdan keldi-ketdi: keldi qilgan filialda ko‘rinadi; asosiy filiali alohida yoziladi.
+      const branchId = dayBranchId(employee, record);
+      const home = branches.get(employee.branchId);
       return {
         employee: rosterEmployee(employee),
         record: record || null,
@@ -1366,7 +1371,10 @@ function computeDayRoster(db: Database, tenant: string, date: string) {
         leaveType: leave?.type,
         scheduledStart: record?.scheduledStart || (day?.enabled ? day.start : undefined),
         scheduledEnd: record?.scheduledEnd || (day?.enabled ? day.end : undefined),
-        branch: branches.get(employee.branchId)?.name,
+        branchId,
+        branch: branches.get(branchId)?.name || home?.name,
+        /** Boshqa filialda keldi qilgan bo‘lsa — xodimning asosiy filiali. */
+        homeBranch: branchId !== employee.branchId ? home?.name : undefined,
         department: departments.get(employee.departmentId)?.name,
         position: positions.get(employee.positionId)?.name,
         schedule: schedule?.name,

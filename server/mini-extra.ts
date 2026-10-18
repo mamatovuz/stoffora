@@ -19,6 +19,7 @@ import { readDocumentFile } from "./documents";
 import { addPayslipSheet, createWorkbook, sendWorkbook } from "./excel";
 import { closedPeriod, monthLabel } from "./payroll-routes";
 import { monthPlan } from "./month-plan";
+import { notifyEmployee } from "./integrations/hooks";
 
 /*
  * Mini App’ning qo‘shimcha imkoniyatlari:
@@ -646,6 +647,67 @@ export function createManagerExtraRouter() {
     }),
   );
 
+  /**
+   * Kechikkan / hali kelmaganlarga bir bosishda eslatma: «Hali kelmadingiz — qachon kelasiz?».
+   * Telegram (tugmasi — «Kechikaman» oynasi) va ilovaga push. Bir xodimga soatiga ko‘pi bilan bir marta.
+   */
+  router.post(
+    "/attendance/nudge",
+    rateLimit({ windowMs: 60_000, limit: 10, standardHeaders: true, legacyHeaders: false }),
+    route(async (req, res) => {
+      const auth = req as AuthedRequest;
+      if (!can(auth.session!.role, "attendance.view")) return res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
+      const tenant = tenantOf(auth);
+      const { employeeIds } = z.object({ employeeIds: z.array(z.string().min(1).max(64)).min(1).max(100) }).parse(req.body);
+      const today = tashkentIsoDate();
+      const clock = tashkentClock();
+      const since = Date.now() - 60 * 60_000;
+      const picked = await updateDb((db) => {
+        const scope = auth.session!.role === "BRANCH_MANAGER" ? new Set(db.users.find((u) => u.id === auth.session!.userId)?.branchIds || []) : null;
+        const index = dataIndexes(db);
+        const out: { employee: Employee; start: string }[] = [];
+        let skipped = 0;
+        for (const id of [...new Set(employeeIds)]) {
+          const employee = db.employees.find((e) => e.id === id && e.companyId === tenant && e.status === "ACTIVE");
+          const plan = employee ? dayPlan(db, employee, today) : undefined;
+          const record = employee ? index.attendanceByKey.get(`${employee.id}|${today}`) : undefined;
+          const onLeave = employee ? (index.approvedLeaveByEmployee.get(employee.id) || []).some((l) => l.startDate <= today && l.endDate >= today) : false;
+          const recent = db.sentGreetings.some((g) => g.key.startsWith(`NUDGE:${id}:${today}`) && Date.parse(g.at) > since);
+          if (!employee || (scope && !scope.has(employee.branchId)) || !plan?.enabled || record?.checkIn || onLeave || recent) {
+            skipped += 1;
+            continue;
+          }
+          const now = new Date().toISOString();
+          db.sentGreetings.push({ key: `NUDGE:${id}:${today}:${clock}`, at: now });
+          db.notifications.unshift({
+            id: randomUUID(),
+            companyId: tenant,
+            employeeId: employee.id,
+            title: "⏰ Hali kelmadingiz",
+            body: `Ish ${plan.start} da boshlangan. Qachon kelasiz? Kechikayotgan bo‘lsangiz — «Kechikaman» deb yozib qo‘ying.`,
+            type: "ATTENDANCE",
+            read: false,
+            createdAt: now,
+            go: "late",
+          });
+          out.push({ employee, start: plan.start });
+        }
+        if (out.length) db.auditLogs.unshift(audit(tenant, auth.session!.name, `Kelmaganlarga eslatma yuborildi (${out.length} kishi)`, "attendance", today));
+        return { out, skipped };
+      });
+      const db = await readDb();
+      await Promise.allSettled(
+        picked.out.map(({ employee, start }) =>
+          notifyEmployee(db, employee, "attendance", `⏰ <b>${employee.firstName}, hali kelmadingiz</b>\nIsh ${start} da boshlangan. Qachon kelasiz?\n\nKechikayotgan bo‘lsangiz — «Kechikaman» tugmasini bosib, sababini yozing.`, {
+            title: "Hali kelmadingiz",
+            go: "late",
+          }),
+        ),
+      );
+      res.json({ sent: picked.out.length, skipped: picked.skipped });
+    }),
+  );
+
   /** Mini App xatolari: kompaniya admini o‘z xodimlarinikini, super admin — hammasini. */
   router.get(
     "/client-logs",
@@ -678,6 +740,10 @@ export function createManagerExtraRouter() {
           breaksEnabled: z.boolean(),
           leaderboardEnabled: z.boolean(),
           managerDigest: z.boolean(),
+          managerReportAt: z
+            .string()
+            .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Vaqt SS:DD ko‘rinishida bo‘lsin.")
+            .default("10:00"),
         })
         .parse(req.body);
       const company = await updateDb((db) => {

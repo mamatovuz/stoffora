@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Pressable, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "@/components/T";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { errorText } from "@/lib/api";
 import { MAX_PIN_ATTEMPTS, checkPin, pinBlocked, removePin, requestPinReset, setPin, verifyPinReset } from "@/lib/pin";

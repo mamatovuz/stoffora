@@ -77,8 +77,11 @@ export function parseDeepLink(raw?: string | null): DeepLink | null {
       return { tab: "profile", section: "helpdesk", id };
     case "birthdays":
       return { tab: "profile", section: "birthdays" };
-    case "manager":
-      return { tab: "manager", view: tail === "requests" || tail === "map" || tail === "week" || tail === "money" || tail === "devices" || tail === "today" ? tail : "desk" };
+    case "manager": {
+      // «manager_today_LATE» — davomat ro‘yxati (filtr ilovada qo‘llanadi; Mini App’da — davomat bo‘limi).
+      const view = tail.split("_")[0];
+      return { tab: "manager", view: view === "requests" || view === "map" || view === "week" || view === "money" || view === "devices" || view === "today" ? view : "desk" };
+    }
     case "badge":
       return { tab: "badge" };
     default:

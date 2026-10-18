@@ -60,6 +60,8 @@ export interface MiniAppSettings {
   leaderboardEnabled?: boolean;
   /** Rahbarlarga «hali kelmaganlar» xulosasi (ish boshlanib 20 daqiqa o‘tgach). */
   managerDigest?: boolean;
+  /** Rahbarga kunlik davomat hisoboti vaqti (Toshkent, «HH:MM»; standart 10:00). */
+  managerReportAt?: string;
 }
 export interface CompanyBotSettings {
   /** AES-256-GCM bilan shifrlangan bot tokeni — frontendga qaytmaydi. */

@@ -24,7 +24,11 @@ export type RosterRow = {
   leaveType?: string;
   scheduledStart?: string;
   scheduledEnd?: string;
+  /** Bugungi filial: keldi qilgan filial (istalgan filialdan), aks holda — o‘z filiali. */
+  branchId?: string;
   branch?: string;
+  /** Boshqa filialda keldi qilgan bo‘lsa — xodimning asosiy filiali. */
+  homeBranch?: string;
   department?: string;
   position?: string;
   schedule?: string;

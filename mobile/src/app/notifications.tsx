@@ -1,7 +1,8 @@
 import * as Notifications from "expo-notifications";
 import { router, useNavigation } from "expo-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
+import { FlatList, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { Badge, Button, Empty, ErrorBox, Icon, Loading, haptic, type IconName } from "@/components/ui";
 import { errorText, post } from "@/lib/api";
 import { timeAgo } from "@/lib/format";

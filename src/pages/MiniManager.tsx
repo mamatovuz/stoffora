@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { ApiError } from "../api";
 import { can } from "@/lib/permissions";
-import { dateLongUz, dateUz, duration, tashkentIsoDate } from "@/lib/format";
+import { dateLongUz, dateUz, duration, tashkentClock, tashkentIsoDate } from "@/lib/format";
 import { FineSheet, MoneyView } from "./mini/MoneyTools";
 import { DevicesView } from "./mini/DevicesView";
 import { useBadgeScanner } from "./mini/BadgeCheck";
@@ -97,8 +97,19 @@ export type RosterRow = {
   state: "PRACTICE" | "IN" | "LEFT" | "ABSENT" | "ON_LEAVE" | "DAY_OFF" | "NOT_YET" | "UPCOMING";
   late: boolean;
   scheduledStart?: string;
+  /** Bugungi filial: keldi qilgan filial yoki o‘z filiali. */
+  branchId?: string;
   branch?: string;
+  /** Boshqa filialda keldi qilgan bo‘lsa — asosiy filiali. */
+  homeBranch?: string;
 };
+
+/** Xaritadagi joy — keldi qilgan joy («Kirish» belgisi); eski yozuvlarda — oxirgi koordinata. */
+export function checkInSpot(record?: Attendance) {
+  const mark = record?.marks?.find((m) => m.kind === "IN" && typeof m.latitude === "number" && typeof m.longitude === "number");
+  if (mark) return { lat: mark.latitude!, lng: mark.longitude! };
+  return typeof record?.latitude === "number" && typeof record?.longitude === "number" ? { lat: record.latitude, lng: record.longitude } : null;
+}
 type Day = { date: string; stats: { total: number; present: number; inNow: number; late: number; absent: number; leave: number; dayOff: number; notYet: number }; rows: RosterRow[] };
 type LeaveRow = LeaveRequest & { employee?: Employee };
 type SwapRow = { id: string; requesterName: string; colleagueName: string; giveDate: string; takeDate?: string; giveShift?: string; reason?: string; status: string };
@@ -329,6 +340,22 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const rows = day?.rows || [];
   const branchNames = [...new Set(rows.map((r) => r.branch).filter(Boolean))] as string[];
   const scoped = rows.filter((r) => !branch || r.branch === branch);
+  // Ish boshlangan, lekin hali kelmaganlar — «Hali kelmadingiz» eslatmasi uchun.
+  const lateNow = scoped.filter((r) => r.state === "ABSENT" || (r.state === "NOT_YET" && r.scheduledStart && r.scheduledStart <= tashkentClock()));
+  const [nudging, setNudging] = useState(false);
+  const nudge = async () => {
+    if (!(await confirmNative(`${lateNow.length} kishiga «Hali kelmadingiz — qachon kelasiz?» xabari boradi. Yuborilsinmi?`, { ok: "Yuborish" }))) return;
+    setNudging(true);
+    try {
+      const r = await call<{ sent: number; skipped: number }>("/attendance/nudge", { employeeIds: lateNow.map((x) => x.employee.id) });
+      haptic.success();
+      onToast(`${r.sent} kishiga eslatma yuborildi${r.skipped ? ` · ${r.skipped} o‘tkazib yuborildi` : ""}`);
+    } catch (reason) {
+      onToast(reason instanceof Error ? reason.message : "Xatolik", "error");
+    } finally {
+      setNudging(false);
+    }
+  };
   const flagged = (r: RosterRow) => Boolean(r.record?.flags?.length && !r.record.flagsReviewedBy);
   const noticeOf = (employeeId: string) => notices.find((n) => n.employeeId === employeeId);
   const stats = {
@@ -411,6 +438,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
                           </b>
                           <small>
                             {r.branch}
+                            {r.homeBranch ? ` (asosiy: ${r.homeBranch})` : ""}
                             {r.record?.checkIn ? ` · ${r.record.checkIn}${r.record.checkOut ? ` → ${r.record.checkOut}` : ""}` : r.scheduledStart ? ` · grafik ${r.scheduledStart}` : ""}
                             {r.record?.breaks?.some((b) => !b.end) ? " · tanaffusda" : ""}
                           </small>
@@ -536,6 +564,15 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
             <section className="mini-card">
               <StackBar total={scoped.length} slices={TODAY_GROUPS.map((g) => ({ key: g.key, label: g.label, value: scoped.filter(g.test).length, color: g.color }))} />
             </section>
+            {lateNow.length > 0 && (
+              <button className="mg-alert info" onClick={() => void nudge()} disabled={nudging}>
+                <Hourglass size={17} />
+                <span>
+                  <b>{lateNow.length} kishi hali kelmadi</b> — {lateNow.slice(0, 3).map((r) => r.employee.firstName).join(", ")}
+                  {lateNow.length > 3 ? ` +${lateNow.length - 3}` : ""}. Bosing — eslatma yuborish
+                </span>
+              </button>
+            )}
             {notices.length > 0 && (
               <div className="mg-alert info">
                 <Hourglass size={17} />
@@ -1019,7 +1056,8 @@ export function BranchMap({
       </div>
     );
 
-  const byBranch = (id: string) => rows.filter((r) => r.employee.branchId === id);
+  // Istalgan filialdan keldi-ketdi: xodim keldi qilgan filialda ko‘rinadi (hali kelmagan — o‘z filialida).
+  const byBranch = (id: string) => rows.filter((r) => (r.branchId || r.employee.branchId) === id);
   const stat = (list: RosterRow[]) => ({
     in: list.filter((r) => r.state === "IN" || r.state === "LEFT").length,
     expected: list.filter((r) => !["DAY_OFF", "ON_LEAVE", "UPCOMING"].includes(r.state)).length,
@@ -1077,8 +1115,9 @@ export function BranchMap({
   // Bitta filial
   const list = byBranch(branch.id);
   const located = list
-    .filter((r) => typeof r.record?.latitude === "number" && typeof r.record?.longitude === "number")
-    .map((r) => ({ r, distance: Math.round(haversineDistance(branch.latitude, branch.longitude, r.record!.latitude!, r.record!.longitude!)) }));
+    .map((r) => ({ r, spot: checkInSpot(r.record) }))
+    .filter((p): p is { r: RosterRow; spot: { lat: number; lng: number } } => Boolean(p.spot))
+    .map(({ r, spot }) => ({ r, spot, distance: Math.round(haversineDistance(branch.latitude, branch.longitude, spot.lat, spot.lng)) }));
   const counts = {
     ok: located.filter((p) => !p.r.late && !(p.r.record?.flags?.length && !p.r.record.flagsReviewedBy)).length,
     late: located.filter((p) => p.r.late).length,
@@ -1098,10 +1137,10 @@ export function BranchMap({
   );
   const points: MapPoint[] = [
     { id: `branch:${branch.id}`, lat: branch.latitude, lng: branch.longitude, kind: "branch", label: branch.name, tone: "info" },
-    ...visible.map(({ r }) => ({
+    ...visible.map(({ r, spot }) => ({
       id: r.employee.id,
-      lat: r.record!.latitude!,
-      lng: r.record!.longitude!,
+      lat: spot.lat,
+      lng: spot.lng,
       kind: "person" as const,
       label: r.employee.firstName,
       initials: `${r.employee.firstName[0] || ""}${r.employee.lastName[0] || ""}`,
@@ -1161,6 +1200,11 @@ export function BranchMap({
                 {pick.r.record?.checkOut ? ` · ketdi ${pick.r.record.checkOut}` : ""} · {pick.distance} m
                 {pick.distance > branch.radiusMeters ? " (chegarada)" : ""}
               </small>
+              {pick.r.homeBranch && (
+                <small>
+                  {branch.name} filialida keldi qildi · asosiy filiali: {pick.r.homeBranch}
+                </small>
+              )}
               {pick.r.record?.flags?.length && !pick.r.record.flagsReviewedBy ? (
                 <small className="bad">⚠️ {pick.r.record.flags.map((f) => FLAG_LABELS[f as keyof typeof FLAG_LABELS] || f).join(", ")}</small>
               ) : null}

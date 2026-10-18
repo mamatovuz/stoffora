@@ -122,6 +122,8 @@ export function historyMonth(db: Database, employee: Employee, month: string, to
       noCheckout: Boolean(a?.checkIn && !a.checkOut && !inProgress),
       /** Davomat qaydi (tahrirlash uchun) va u qo‘lda kiritilgan/tahrirlanganmi. */
       recordId: a?.id,
+      /** Keldi qilingan filial (istalgan filialdan keldi-ketdi). */
+      branchId: a?.checkIn ? a.branchId : undefined,
       manual: Boolean(a?.verification.includes("MANUAL")),
       note: a?.note,
     };

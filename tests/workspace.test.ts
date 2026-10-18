@@ -113,6 +113,25 @@ describe("Action Center va markazlar", () => {
     expect(s[0].issues.some((i: any) => i.text.includes("kechikdi"))).toBe(true);
     expect(s[0].tomorrow).toMatchObject({ planned: 2, required: 5, shortage: 3 });
   });
+  it("Istalgan filialdan: B2 xodimi B1 da keldi qilsa — bugun B1 da sanaladi (ertangi reja — o‘z filialida)", async () => {
+    const now = new Date().toISOString();
+    await store.updateDb((db) => {
+      db.attendance.push({ id: "att-c", companyId: "c1", employeeId: "c", branchId: "b1", date: today(), scheduledStart: "00:01", scheduledEnd: "23:58", checkIn: "00:05", lateMinutes: 4, earlyLeaveMinutes: 0, workedMinutes: 0, overtimeMinutes: 0, status: "LATE", verification: [], updatedAt: now } as unknown as Database["attendance"][number]);
+    });
+    panel = { role: "BRANCH_MANAGER", userId: "bm1" };
+    const s = (await get("/api/workspace/branch-shift")).body;
+    expect(s[0].today).toMatchObject({ planned: 3, came: 2 });
+    expect(s[0].tomorrow).toMatchObject({ planned: 2 });
+    panel = { role: "COMPANY_OWNER", userId: "o" };
+    const o = (await get("/api/workspace/overview")).body;
+    const b1 = o.branches.find((b: any) => b.id === "b1");
+    expect(b1).toMatchObject({ planned: 3, came: 2 });
+    // B2 da bugun hech kim rejada qolmadi — ro‘yxatda chiqmaydi.
+    expect(o.branches.some((b: any) => b.id === "b2")).toBe(false);
+    await store.updateDb((db) => {
+      db.attendance = db.attendance.filter((a) => a.id !== "att-c");
+    });
+  });
   it("IT: qurilmalar markazi bor, moliya uchun — yo‘q", async () => {
     panel = { role: "IT_ADMIN", userId: "it" };
     expect((await get("/api/workspace/devices")).body.stats.replacement).toBe(1);

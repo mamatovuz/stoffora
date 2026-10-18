@@ -27,3 +27,12 @@ export function branchAt(branches: Branch[], latitude: number, longitude: number
     .sort((a, b) => a.outside - b.outside);
   return { inside: ranked.find((r) => r.outside <= 0) || null, nearest: ranked[0] || null };
 }
+
+/**
+ * Xodim shu kuni qaysi filialda hisoblanadi: keldi qilgan bo‘lsa — keldi qilgan filiali
+ * («istalgan filialdan» lavozimi), aks holda — o‘z (asosiy) filiali. Kunlik ro‘yxat, xarita va
+ * filiallar statistikasi shu qoidadan foydalanadi — boshqa filialda keldi qilgan xodim o‘sha filialda ko‘rinadi.
+ */
+export function dayBranchId(employee: Pick<Employee, "branchId">, record?: { checkIn?: string; branchId?: string } | null) {
+  return record?.checkIn && record.branchId ? record.branchId : employee.branchId;
+}

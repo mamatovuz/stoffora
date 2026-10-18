@@ -1,5 +1,6 @@
 import { router } from "expo-router";
-import { Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { mediaUri } from "@/lib/config";
 import { tashkentClock } from "@/lib/format";
 import { typo, useTheme } from "@/lib/theme";

@@ -1,6 +1,7 @@
 import { BlurView } from "expo-blur";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Animated, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from "react-native";
+import { Animated, Pressable, StyleSheet, View, type LayoutChangeEvent } from "react-native";
+import { Text } from "@/components/T";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ios, useTheme } from "@/lib/theme";
 import { haptic } from "./ui";

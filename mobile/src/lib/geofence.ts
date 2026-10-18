@@ -3,6 +3,7 @@ import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import * as TaskManager from "expo-task-manager";
 import type { Branch, HomeData } from "./types";
+import { t } from "@/lib/i18n";
 
 /*
  * Fon rejimidagi geofence: filial hududiga kirganda «Ishga keldingizmi?» bildirishnomasi.
@@ -41,7 +42,7 @@ TaskManager.defineTask<{ eventType: Location.GeofencingEventType; region: Locati
   await writeState({ ...state, notified: day });
   const name = (data.region.identifier && state.names[data.region.identifier]) || "filial";
   await Notifications.scheduleNotificationAsync({
-    content: { title: "Ishga keldingizmi?", body: `Siz ${name} yonidasiz. «Ishga keldim»ni bosing.`, data: { go: "checkin" }, sound: "default" },
+    content: { title: t("Ishga keldingizmi?"), body: t(`Siz ${name} yonidasiz. «Ishga keldim»ni bosing.`), data: { go: "checkin" }, sound: "default" },
     trigger: null,
   });
 });

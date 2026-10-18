@@ -529,7 +529,10 @@ export function DashboardPage() {
                         sub={row.position || row.employee.employeeNo}
                       />
                     </td>
-                    <td data-label="Filial">{row.branch || "—"}</td>
+                    <td data-label="Filial">
+                      {row.branch || "—"}
+                      {row.homeBranch && <small className="muted"> · asosiy: {row.homeBranch}</small>}
+                    </td>
                     <td data-label="Grafik" className="num">
                       {row.scheduledStart
                         ? `${row.scheduledStart}–${row.scheduledEnd}`

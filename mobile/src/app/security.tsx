@@ -1,10 +1,14 @@
 import * as Clipboard from "expo-clipboard";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useEffect, useState } from "react";
-import { Alert, Linking, Pressable, ScrollView, Switch, Text, View } from "react-native";
+import { Alert, Linking, Pressable, ScrollView, Switch, View } from "react-native";
+import { Text } from "@/components/T";
 import { Group, GroupTitle, Hint, Icon, Row, Sheet, haptic } from "@/components/ui";
 import { API_URL, APP_VERSION } from "@/lib/config";
+import { appVersion } from "@/lib/report";
+import { updateInfo } from "@/lib/updates";
 import { dateUz } from "@/lib/format";
+import { setLang, t, useLang, type Lang } from "@/lib/i18n";
 import { lastPushError, pushPermission, registerPush, type PushState } from "@/lib/push";
 import { useSession, type Prefs } from "@/lib/session";
 import { ios, useTheme } from "@/lib/theme";
@@ -16,6 +20,11 @@ const THEMES: [NonNullable<Prefs["theme"]>, string][] = [
   ["system", "Tizimdagi kabi"],
   ["light", "Yorug‘"],
   ["dark", "Qorong‘i"],
+];
+// Til nomi o‘z tilida yoziladi (tarjima qilinmaydi).
+const LANGS: [Lang, string][] = [
+  ["uz", "O‘zbekcha"],
+  ["ru", "Русский"],
 ];
 
 /**
@@ -29,6 +38,8 @@ export default function Settings() {
   const [push, setPush] = useState<PushState>("undetermined");
   const [bio, setBio] = useState({ available: false, label: ios ? "Face ID" : "Barmoq izi" });
   const [themeOpen, setThemeOpen] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
+  const lang = useLang();
   useEffect(() => {
     // Ruxsat bo‘lsa — tokenni darhol (qayta) ro‘yxatdan o‘tkazamiz va natijani ko‘rsatamiz.
     void pushPermission().then((p) => (p === "granted" ? registerPush(false).then(setPush) : setPush(p)));
@@ -40,7 +51,7 @@ export default function Settings() {
   }, []);
 
   const toggleLock = async (next: boolean) => {
-    const r = await LocalAuthentication.authenticateAsync({ promptMessage: next ? "Qulfni yoqish" : "Qulfni o‘chirish" });
+    const r = await LocalAuthentication.authenticateAsync({ promptMessage: t(next ? "Qulfni yoqish" : "Qulfni o‘chirish") });
     if (r.success) await setPrefs({ appLock: next });
   };
   const enablePush = async () => {
@@ -66,7 +77,7 @@ export default function Settings() {
       <GroupTitle>Interfeys</GroupTitle>
       <Group>
         <Row icon="color-palette" iconColor="#5856D6" label="Mavzu" value={THEMES.find(([k]) => k === theme)?.[1]} onPress={() => setThemeOpen(true)} />
-        <Row icon="language" iconColor="#0A84FF" label="Ilova tili" value="O‘zbekcha" last />
+        <Row icon="language" iconColor="#0A84FF" label="Ilova tili" value={LANGS.find(([k]) => k === lang)?.[1]} onPress={() => setLangOpen(true)} last />
       </Group>
 
       <GroupTitle>Xavfsizlik</GroupTitle>
@@ -115,7 +126,7 @@ export default function Settings() {
       <GroupTitle>Ilova haqida</GroupTitle>
       <Group>
         <Row icon="barcode" iconColor="#8E8E93" label="Seriya raqami" sub={d?.id || "—"} right={d ? <Icon name="copy-outline" size={18} color={c.muted} /> : undefined} onPress={d ? () => void copySerial() : undefined} />
-        <Row icon="information-circle" iconColor="#8E8E93" label="Versiyasi" value={APP_VERSION} />
+        <Row icon="information-circle" iconColor="#8E8E93" label="Versiyasi" value={appVersion() || APP_VERSION} sub={`Yangilanish: ${updateInfo()}`} />
         <Row icon="document-lock" iconColor="#0A84FF" label="Maxfiylik siyosati" onPress={() => void Linking.openURL(`${API_URL.replace(/\/api$/, "")}/privacy.html`)} />
         <Row icon="trash-outline" iconColor="#FF3B30" label="Hisobni o‘chirish" onPress={() => void Linking.openURL(`${API_URL.replace(/\/api$/, "")}/delete-account.html`)} last />
       </Group>
@@ -139,6 +150,27 @@ export default function Settings() {
               <Text style={{ flex: 1, color: c.ink, fontSize: 16 }}>{label}</Text>
               <View>
                 <Icon name={theme === key ? "radio-button-on" : "radio-button-off"} size={22} color={theme === key ? c.accent : c.muted} />
+              </View>
+            </Pressable>
+          ))}
+        </Group>
+      </Sheet>
+
+      <Sheet visible={langOpen} title="Ilova tili" onClose={() => setLangOpen(false)}>
+        <Group>
+          {LANGS.map(([key, label], i) => (
+            <Pressable
+              key={key}
+              onPress={() => {
+                haptic.select();
+                void setLang(key);
+                setLangOpen(false);
+              }}
+              style={{ flexDirection: "row", alignItems: "center", paddingHorizontal: 16, minHeight: 52, borderBottomWidth: i < LANGS.length - 1 ? 0.5 : 0, borderBottomColor: c.line }}
+            >
+              <Text style={{ flex: 1, color: c.ink, fontSize: 16 }}>{label}</Text>
+              <View>
+                <Icon name={lang === key ? "radio-button-on" : "radio-button-off"} size={22} color={lang === key ? c.accent : c.muted} />
               </View>
             </Pressable>
           ))}

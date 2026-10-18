@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "@/components/T";
 import { Button, Card, Empty, ErrorBox, Loading } from "@/components/ui";
 import { errorText } from "@/lib/api";
 import { openFile } from "@/lib/download";
