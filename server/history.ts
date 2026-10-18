@@ -120,6 +120,10 @@ export function historyMonth(db: Database, employee: Employee, month: string, to
       plannedMinutes: working ? span(plan.start, plan.end) : 0,
       /** Keldi, lekin ketishni belgilamadi va smena allaqachon tugagan. */
       noCheckout: Boolean(a?.checkIn && !a.checkOut && !inProgress),
+      /** Davomat qaydi (tahrirlash uchun) va u qo‘lda kiritilgan/tahrirlanganmi. */
+      recordId: a?.id,
+      manual: Boolean(a?.verification.includes("MANUAL")),
+      note: a?.note,
     };
   });
   return { month, label: monthLabel(month), today, days, stats };
@@ -160,6 +164,8 @@ export async function historyDay(db: Database, employee: Employee, date: string,
     plan: { working: plan.enabled && !leave, start: plan.start, end: plan.end, reason: plan.reason, leave: leave?.type, plannedMinutes: plan.enabled && !leave ? span(plan.start, plan.end) : 0 },
     attendance: a
       ? {
+          id: a.id,
+          manual: a.verification.includes("MANUAL"),
           checkIn: a.checkIn,
           checkOut: a.checkOut,
           lateMinutes: a.lateMinutes,

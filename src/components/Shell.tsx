@@ -63,6 +63,7 @@ const menu: NavItem[] = [
       ["/attendance", "Bugun"],
       ["/map", "Xarita"],
       ["/calendar", "Kalendar"],
+      ["/attendance-grid", "Tabel"],
       ["/attendance-requests", "Belgilash so‘rovlari"],
     ],
   },

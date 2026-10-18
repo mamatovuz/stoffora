@@ -15,6 +15,7 @@ import { closedPeriod, monthLabel } from "./payroll-routes";
 import { payrollRows } from "./reports";
 import { decryptSecret, encryptSecret } from "./integrations/secrets";
 import { cardBrand, cardDigits, cardError, holderError, maskCard, normalizeHolder, CARD_BRAND_LABELS } from "../lib/card";
+import { addTableSheet, createWorkbook, sendWorkbook, type Row as SheetRow, type Tone } from "./excel";
 
 /*
  * «Mening oyligim» (real vaqtda) va avans so‘rovi.
@@ -470,6 +471,163 @@ export function createAdvanceRouter() {
       }
       res.setHeader("Cache-Control", "no-store");
       res.json({ number: number.replace(/(\d{4})(?=\d)/g, "$1 "), holder: result.holder, brand: result.brand });
+    }),
+  );
+
+  /**
+   * Avans ro‘yxati (Excel) — oy bo‘yicha, 3 varaq:
+   *   «Kartaga o‘tkazish» — bankka yuklash uchun (F.I.Sh., karta, egasi, summa);
+   *   «Naqd (kassa)» — imzo ustuni bilan, chop etishga tayyor;
+   *   «Barcha so‘rovlar» — holati, kim tasdiqlagani va to‘langan sana.
+   * To‘liq karta raqami faqat moliyaga (har yuklab olish auditga yoziladi); HR — yashirin raqam.
+   */
+  router.get(
+    "/payroll/advances.xlsx",
+    permitAny,
+    route(async (req, res) => {
+      const auth = req as AuthedRequest;
+      const tenant = auth.session!.companyId!;
+      const month = z
+        .string()
+        .regex(/^\d{4}-\d{2}$/, "Oy YYYY-MM ko‘rinishida bo‘lsin.")
+        .parse(String(req.query.month || tashkentIsoDate().slice(0, 7)));
+      const full = isAdvanceFinance(auth.session!.role);
+      const db = await readDb();
+      const company = db.companies.find((c) => c.id === tenant)?.name || "Kompaniya";
+      const rows = db.advanceRequests.filter((a) => a.companyId === tenant && a.month === month).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const person = (id: string) => {
+        const e = db.employees.find((x) => x.id === id);
+        return {
+          fio: e ? `${e.lastName} ${e.firstName}`.trim() : "—",
+          no: e?.employeeNo || "",
+          branch: db.branches.find((b) => b.id === e?.branchId)?.name || "",
+          position: db.positions.find((p) => p.id === e?.positionId)?.name || "",
+        };
+      };
+      const cardNumber = (a: AdvanceRequest) => {
+        if (!a.payout?.cardEnc) return a.payout?.cardMask || "";
+        if (!full) return a.payout.cardMask || "";
+        try {
+          return decryptSecret(a.payout.cardEnc).replace(/(\d{4})(?=\d)/g, "$1 ");
+        } catch {
+          return `${a.payout.cardMask || ""} (ochilmadi)`;
+        }
+      };
+      const approved = rows.filter((a) => a.status === "APPROVED");
+      const card = approved.filter((a) => a.payout?.method === "CARD");
+      const cash = approved.filter((a) => a.payout?.method !== "CARD");
+      const paidCell = (a: AdvanceRequest): SheetRow[string] => (a.paidAt ? { text: `✓ ${tashkentIsoDate(a.paidAt).split("-").reverse().join(".")}`, tone: "green" } : { text: "To‘lanmagan", tone: "amber" });
+      const sum = (list: AdvanceRequest[]) => list.reduce((s, a) => s + a.amount, 0);
+      const label = monthLabel(month);
+      const workbook = createWorkbook();
+
+      addTableSheet(workbook, {
+        name: "Kartaga o‘tkazish",
+        title: `Avans — kartaga o‘tkazish (${label})`,
+        subtitle: `${company} · tasdiqlangan avanslar · ${full ? "to‘liq karta raqamlari — maxfiy hujjat" : "karta raqamlari yashirilgan (to‘liq raqam — moliya bo‘limida)"}`,
+        kpis: [
+          { label: "Xodimlar", value: card.length, tone: "blue" },
+          { label: "Jami summa", value: sum(card), tone: "green", type: "money" },
+          { label: "To‘lanmagan", value: card.filter((a) => !a.paidAt).length, tone: "amber" },
+        ],
+        columns: [
+          { header: "№", key: "i", width: 6, type: "number" },
+          { header: "F.I.Sh.", key: "fio", width: 28 },
+          { header: "Tabel №", key: "no", width: 10, align: "center" },
+          { header: "Filial", key: "branch", width: 18 },
+          { header: "Karta raqami", key: "card", width: 23, align: "center" },
+          { header: "Karta egasi", key: "holder", width: 24 },
+          { header: "Turi", key: "brand", width: 10, align: "center" },
+          { header: "Summa", key: "amount", width: 16, type: "money", total: "sum" },
+          { header: "To‘langan", key: "paid", width: 14, type: "status" },
+        ],
+        rows: card.map((a, i) => {
+          const p = person(a.employeeId);
+          return { i: i + 1, fio: p.fio, no: p.no, branch: p.branch, card: cardNumber(a), holder: a.payout?.holder || "", brand: a.payout?.cardBrand || "", amount: a.amount, paid: paidCell(a) };
+        }),
+        totalsLabel: "JAMI",
+        emptyText: "Bu oy kartaga o‘tkaziladigan tasdiqlangan avans yo‘q",
+        signatures: ["Moliya bo‘limi", "Rahbar"],
+      });
+
+      addTableSheet(workbook, {
+        name: "Naqd (kassa)",
+        title: `Avans — naqd berish qaydnomasi (${label})`,
+        subtitle: `${company} · tasdiqlangan avanslar · xodim pulni olganda imzo qo‘yadi`,
+        kpis: [
+          { label: "Xodimlar", value: cash.length, tone: "blue" },
+          { label: "Jami summa", value: sum(cash), tone: "green", type: "money" },
+        ],
+        columns: [
+          { header: "№", key: "i", width: 6, type: "number" },
+          { header: "F.I.Sh.", key: "fio", width: 30 },
+          { header: "Tabel №", key: "no", width: 10, align: "center" },
+          { header: "Filial", key: "branch", width: 18 },
+          { header: "Lavozim", key: "position", width: 18 },
+          { header: "Summa", key: "amount", width: 16, type: "money", total: "sum" },
+          { header: "Berilgan sana", key: "paid", width: 14, type: "status" },
+          { header: "Imzo", key: "sign", width: 20 },
+        ],
+        rows: cash.map((a, i) => {
+          const p = person(a.employeeId);
+          return { i: i + 1, fio: p.fio, no: p.no, branch: p.branch, position: p.position, amount: a.amount, paid: paidCell(a), sign: "" };
+        }),
+        totalsLabel: "JAMI",
+        emptyText: "Bu oy naqd beriladigan tasdiqlangan avans yo‘q",
+        signatures: ["Kassir", "Moliya bo‘limi"],
+      });
+
+      const STATUS: Record<AdvanceRequest["status"], [string, Tone]> = {
+        PENDING: ["HR ko‘rmoqda", "amber"],
+        HR_APPROVED: ["Moliyada", "blue"],
+        APPROVED: ["Tasdiqlangan", "green"],
+        REJECTED: ["Rad etilgan", "red"],
+        CANCELLED: ["Bekor qilingan", "gray"],
+      };
+      addTableSheet(workbook, {
+        name: "Barcha so‘rovlar",
+        title: `Avans so‘rovlari (${label})`,
+        subtitle: `${company} · ${rows.length} ta so‘rov`,
+        columns: [
+          { header: "So‘ralgan", key: "date", width: 12, type: "date" },
+          { header: "F.I.Sh.", key: "fio", width: 28 },
+          { header: "Tabel №", key: "no", width: 10, align: "center" },
+          { header: "Filial", key: "branch", width: 18 },
+          { header: "Summa", key: "amount", width: 15, type: "money", total: "sum" },
+          { header: "Usul", key: "method", width: 10, align: "center" },
+          { header: "Holat", key: "status", width: 15, type: "status" },
+          { header: "HR", key: "hr", width: 18 },
+          { header: "Moliya", key: "finance", width: 18 },
+          { header: "To‘langan", key: "paid", width: 13, align: "center" },
+          { header: "Izoh", key: "note", width: 30, wrap: true },
+        ],
+        rows: rows.map((a) => {
+          const p = person(a.employeeId);
+          const [text, tone] = STATUS[a.status];
+          return {
+            date: tashkentIsoDate(a.createdAt),
+            fio: p.fio,
+            no: p.no,
+            branch: p.branch,
+            amount: a.amount,
+            method: a.payout?.method === "CARD" ? "Karta" : a.payout?.method === "CASH" ? "Naqd" : "—",
+            status: { text, tone },
+            hr: a.hrDecidedBy || "",
+            finance: a.decidedBy || "",
+            paid: a.paidAt ? tashkentIsoDate(a.paidAt).split("-").reverse().join(".") : "",
+            note: [a.reason, a.hrNote, a.decidedNote].filter(Boolean).join(" · "),
+          };
+        }),
+        totalsLabel: "JAMI",
+        emptyText: "Bu oy avans so‘rovlari yo‘q",
+      });
+
+      if (full && card.length)
+        await updateDb((next) => {
+          next.auditLogs.unshift(audit(tenant, auth.session!.name, `Avans ro‘yxati yuklab olindi (${label}, karta raqamlari bilan: ${card.length} ta)`, "company", tenant));
+        });
+      res.setHeader("Cache-Control", "no-store");
+      await sendWorkbook(res, workbook, `avans-${month}.xlsx`);
     }),
   );
 

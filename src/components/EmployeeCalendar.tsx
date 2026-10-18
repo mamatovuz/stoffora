@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { Camera, ChevronLeft, ChevronRight, LogIn, LogOut, MapPin, X } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, LogIn, LogOut, MapPin, Pencil, X } from "lucide-react";
 import { useApi } from "../hooks";
 import { ErrorBox, Loading } from "./ui";
+import { AttendanceEditModal, type EditTarget } from "./AttendanceEdit";
 import { dateLongUz, duration, tashkentIsoDate } from "@/lib/format";
 import { leaveTypeLabel, weekdayShort, weekOrder } from "../types";
 
@@ -9,7 +10,8 @@ import { leaveTypeLabel, weekdayShort, weekOrder } from "../types";
  * Xodim kalendari (sayt, xodim profili): har kunda ikki qator —
  *   ko‘k — grafik bo‘yicha reja (14:00 – 00:00), qizg‘ish — dam olish kuni, binafsha — ta’til;
  *   yashil — haqiqatda keldi-ketdi (14:06 – 23:53), sariq — ketish belgilanmagan, qizil — kelmadi;
- * pastida og‘ishlar: kechikish va erta ketish. Kun bosilsa — qaydnoma (vaqt, filial, rasm).
+ * pastida og‘ishlar: kechikish va erta ketish. Kun bosilsa — qaydnoma (vaqt, filial, rasm) va
+ * (huquq bo‘lsa) «Tuzatish» — kelish/ketish vaqtini shu yerning o‘zida o‘zgartirish (audit bilan).
  * Ma’lumot manbai — /employees/:id/history (Mini App va ilovadagi taqvim bilan bir xil).
  */
 
@@ -30,6 +32,9 @@ type Day = {
   workedMinutes: number;
   overtimeMinutes?: number;
   noCheckout?: boolean;
+  recordId?: string;
+  manual?: boolean;
+  note?: string;
 };
 type Month = {
   month: string;
@@ -41,7 +46,7 @@ type Month = {
 type DayDetail = {
   date: string;
   plan: { working: boolean; start: string; end: string; reason?: string; leave?: string; plannedMinutes: number };
-  attendance: { checkIn?: string; checkOut?: string; lateMinutes: number; earlyLeaveMinutes: number; workedMinutes: number; overtimeMinutes: number; note?: string } | null;
+  attendance: { id?: string; manual?: boolean; checkIn?: string; checkOut?: string; lateMinutes: number; earlyLeaveMinutes: number; workedMinutes: number; overtimeMinutes: number; note?: string } | null;
   breaks: { start: string; end?: string }[];
   marks: { kind: "IN" | "OUT"; time: string; branchName: string; method: string; distanceMeters?: number; accuracy?: number; photo?: string; photoExpired?: boolean }[];
   requests: { id: string; kind: string; detail: string; status: string }[];
@@ -59,11 +64,14 @@ const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T12:00:00
 /** Kechikish: 1 soatgacha — sariq, undan ko‘p — qizil (Verifix’dagidek). */
 const severity = (minutes: number) => (minutes >= 60 ? "bad" : "warn");
 
-export function EmployeeCalendar({ employeeId }: { employeeId: string }) {
+export function EmployeeCalendar({ employeeId, employeeName, canEdit = false }: { employeeId: string; employeeName: string; canEdit?: boolean }) {
   const current = tashkentIsoDate().slice(0, 7);
   const [month, setMonth] = useState(current);
   const [picked, setPicked] = useState<string | null>(null);
-  const { data, loading, error } = useApi<Month>(`/employees/${employeeId}/history?month=${month}`);
+  const [editing, setEditing] = useState<EditTarget | null>(null);
+  // Tuzatishdan keyin kun tafsiloti ham qayta yuklanadi.
+  const [dayKey, setDayKey] = useState(0);
+  const { data, loading, error, reload } = useApi<Month>(`/employees/${employeeId}/history?month=${month}`);
   const shown = data?.month === month ? data : null;
 
   if (error) return <ErrorBox message={error} />;
@@ -158,9 +166,45 @@ export function EmployeeCalendar({ employeeId }: { employeeId: string }) {
         <span>
           <i className="dev" /> Kechikish / erta ketish
         </span>
+        <span>
+          <em className="ecal-manual">✎</em> Qo‘lda tuzatilgan
+        </span>
       </div>
 
-      {picked && <DayPanel employeeId={employeeId} date={picked} onClose={() => setPicked(null)} />}
+      {picked && (
+        <DayPanel
+          key={`${picked}:${dayKey}`}
+          employeeId={employeeId}
+          date={picked}
+          onClose={() => setPicked(null)}
+          onEdit={
+            canEdit && picked <= today
+              ? () => {
+                  const d = days.find((x) => x.date === picked);
+                  setEditing({
+                    employeeId,
+                    employeeName,
+                    date: picked,
+                    plan: d?.working ? `${d.start}–${d.end}` : undefined,
+                    record: d?.recordId ? { id: d.recordId, checkIn: d.checkIn, checkOut: d.checkOut, note: d.note, manual: d.manual } : undefined,
+                  });
+                }
+              : undefined
+          }
+          hasRecord={Boolean(days.find((x) => x.date === picked)?.recordId)}
+        />
+      )}
+      {editing && (
+        <AttendanceEditModal
+          target={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            setDayKey((k) => k + 1);
+            void reload(true);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -197,6 +241,11 @@ function DayCell({ day: d, today, picked, onPick }: { day: Day; today: string; p
       role="gridcell"
     >
       <span className="ecal-num">
+        {d.manual && (
+          <i className="ecal-manual" title="Qo‘lda tuzatilgan">
+            ✎
+          </i>
+        )}
         {isToday && <em>Bugun</em>}
         {Number(d.date.slice(8))}
       </span>
@@ -209,13 +258,18 @@ function DayCell({ day: d, today, picked, onPick }: { day: Day; today: string; p
 }
 
 /** Tanlangan kun: reja, fakt, og‘ishlar va qaydnoma (har bir belgi: vaqt, filial, usul, rasm). */
-function DayPanel({ employeeId, date, onClose }: { employeeId: string; date: string; onClose: () => void }) {
+function DayPanel({ employeeId, date, onClose, onEdit, hasRecord }: { employeeId: string; date: string; onClose: () => void; onEdit?: () => void; hasRecord: boolean }) {
   const { data, loading, error } = useApi<DayDetail>(`/employees/${employeeId}/history/day?date=${date}`);
   const d = data?.date === date ? data : null;
   return (
     <section className="ecal-day">
       <div className="ecal-day-head">
         <b>{dateLongUz(date, true)}</b>
+        {onEdit && (
+          <button className="btn btn-sm" onClick={onEdit}>
+            <Pencil size={14} /> {hasRecord ? "Tuzatish" : "Davomat kiritish"}
+          </button>
+        )}
         <button className="icon-btn" onClick={onClose} aria-label="Yopish">
           <X size={16} />
         </button>
@@ -263,6 +317,7 @@ function DayPanel({ employeeId, date, onClose }: { employeeId: string; date: str
             ) : null}
           </div>
           {d.plan.reason && <p className="hint">{d.plan.reason}</p>}
+          {d.attendance?.manual && d.attendance.note && <p className="hint">✎ {d.attendance.note}</p>}
           {d.marks.length > 0 && (
             <div className="ecal-marks">
               {d.marks.map((m, i) => (

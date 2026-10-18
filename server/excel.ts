@@ -94,7 +94,7 @@ export function numFmt(type?: Column["type"] | Kpi["type"]) {
  * Varaq tepasi: kichik brend satri, katta sarlavha, izoh va KPI kartochkalari.
  * Keyingi bo‘sh qator raqamini qaytaradi.
  */
-function drawHeader(sheet: ExcelJS.Worksheet, span: number, title: string, subtitle: string, kpis: Kpi[] = []) {
+export function drawHeader(sheet: ExcelJS.Worksheet, span: number, title: string, subtitle: string, kpis: Kpi[] = []) {
   const width = Math.max(span, 4);
   const band = (row: number, value: string, font: Partial<ExcelJS.Font>, height: number) => {
     sheet.mergeCells(row, 1, row, width);

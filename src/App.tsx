@@ -78,6 +78,7 @@ const RolesPage = lazy(() =>
 const SettingsPage = lazy(() =>
   import("./pages/Settings").then((m) => ({ default: m.SettingsPage })),
 );
+const AttendanceGridPage = lazy(() => import("./pages/AttendanceGrid").then((m) => ({ default: m.AttendanceGridPage })));
 const CalendarPage = lazy(() =>
   import("./pages/Calendar").then((m) => ({ default: m.CalendarPage })),
 );
@@ -160,6 +161,7 @@ export default function App() {
           <Route path="/attendance" element={<AttendancePage />} />
           <Route path="/map" element={<MapPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
+          <Route path="/attendance-grid" element={<AttendanceGridPage />} />
           <Route path="/branches" element={<BranchesPage />} />
           <Route path="/schedules" element={<SchedulesPage />} />
           <Route path="/leave" element={<LeavePage />} />

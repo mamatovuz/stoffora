@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Banknote, Check, Copy, CreditCard, Eye, HandCoins, Megaphone, Send, X } from "lucide-react";
+import { Banknote, Check, Copy, CreditCard, Download, Eye, HandCoins, Megaphone, Send, X } from "lucide-react";
 import { errorText, post } from "../api";
 import { useApi } from "../hooks";
 import { useAuth } from "../auth";
@@ -67,6 +67,8 @@ export function AdvanceRequestsPanel({ mode, onChanged }: { mode: "hr" | "financ
   const [busy, setBusy] = useState<string | null>(null);
   const [cards, setCards] = useState<Record<string, { number: string; holder?: string; brand?: string }>>({});
   const [announcing, setAnnouncing] = useState(false);
+  // Excel ro‘yxati qaysi oy uchun (standart — joriy oy, Toshkent vaqti).
+  const [exportMonth, setExportMonth] = useState(() => new Date(Date.now() + 5 * 3600_000).toISOString().slice(0, 7));
   const rows = (data || []).filter((r) =>
     filter === "ALL" ? true : actionable(r) || (mode === "finance" && r.status === "APPROVED" && !r.paidAt),
   );
@@ -123,9 +125,20 @@ export function AdvanceRequestsPanel({ mode, onChanged }: { mode: "hr" | "financ
             Tartib: xodim → HR → moliya → to‘lov
           </span>
         )}
-        <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => setAnnouncing(true)}>
-          <Megaphone size={14} /> Xodimlarga xabar yuborish
-        </button>
+        <span className="adv-export" style={{ marginLeft: "auto" }}>
+          <input type="month" className="input" value={exportMonth} onChange={(e) => e.target.value && setExportMonth(e.target.value)} aria-label="Ro‘yxat oyi" />
+          <a
+            className="btn btn-sm"
+            href={`/api/payroll/advances.xlsx?month=${exportMonth}`}
+            download
+            title={isFinance ? "Kartaga o‘tkazish (to‘liq karta raqamlari bilan), naqd qaydnoma va barcha so‘rovlar" : "Karta raqamlari yashirilgan — to‘liq raqam moliya bo‘limida"}
+          >
+            <Download size={14} /> Excel ro‘yxat
+          </a>
+          <button className="btn btn-sm" onClick={() => setAnnouncing(true)}>
+            <Megaphone size={14} /> Xodimlarga xabar
+          </button>
+        </span>
       </div>
       {announcing && <AdvanceAnnounceModal onClose={() => setAnnouncing(false)} />}
       {loading && !data ? (

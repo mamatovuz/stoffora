@@ -1004,7 +1004,7 @@ export function EmployeeProfilePage() {
                 )}
               </div>
             )}
-            {tab === "calendar" && <EmployeeCalendar employeeId={e.id} />}
+            {tab === "calendar" && <EmployeeCalendar employeeId={e.id} employeeName={`${e.firstName} ${e.lastName}`} canEdit={Boolean(user && can(user.role, "attendance.edit"))} />}
             {tab === "attendance" && <AttendanceTable rows={data.attendance} />}
             {tab === "documents" && <DocumentsPanel employeeId={e.id} canEdit={canEditDocs} />}
             {tab === "bot" && <BotProfileTab employeeId={e.id} canEdit={canEditDocs} />}

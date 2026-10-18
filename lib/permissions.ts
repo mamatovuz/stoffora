@@ -58,6 +58,7 @@ export const pagePermissions: Record<string, string[]> = {
   "/attendance": ["attendance.view"],
   "/map": ["attendance.view"],
   "/calendar": ["attendance.view", "leave.view"],
+  "/attendance-grid": ["attendance.view"],
   "/employees": ["employees.view"],
   "/dismissed": ["employees.view"],
   "/registrations": ["registrations.view"],

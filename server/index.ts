@@ -91,6 +91,7 @@ import { registerAccountingReports } from "./tabel";
 import { registerEmployeeImport } from "./employee-import";
 import { createAdvanceRouter } from "./advances";
 import { createAdvanceAnnounceRouter } from "./advance-announce";
+import { registerAttendanceGrid } from "./attendance-grid";
 import { createManagerAuthRouter } from "./manager";
 import { createManagerExtraRouter, createMiniPublicRouter } from "./mini-extra";
 import { createHelpdeskRouter } from "./helpdesk";
@@ -3012,6 +3013,11 @@ registerExcelReports(app, {
 registerAccountingReports(app, {
   requirePermission: requirePermission as unknown as (permission: string) => express.RequestHandler,
   companyId: companyId as (req: Request) => string,
+});
+registerAttendanceGrid(app, {
+  requirePermission: requirePermission as unknown as (permission: string) => express.RequestHandler,
+  companyId: companyId as (req: Request) => string,
+  branchScope: branchScope as unknown as (req: Request, db: Database) => Set<string> | null,
 });
 
 app.put(
