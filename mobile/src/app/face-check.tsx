@@ -219,8 +219,8 @@ export default function FaceCheck() {
         }
         if (stop) return;
         offline = 0;
-        // Serverni ortiqcha yuklamaslik: kadrlar orasida kamida ~0.6 soniya.
-        await new Promise((r) => setTimeout(r, 600));
+        // Kadrlar orasida qisqa tanaffus (server navbati cheklangan; yakuniy tasdiq shu kadrlarni keshdan oladi).
+        await new Promise((r) => setTimeout(r, 200));
         if (stop) return;
         setPass(probe.passPercent);
         setFaceBox(probe.face?.box ?? null);

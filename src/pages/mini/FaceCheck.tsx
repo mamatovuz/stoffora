@@ -14,7 +14,9 @@ import { haptic, reportError } from "./tg";
  * Kundalik Face ID (ro‘yxatdan o‘tgandan keyin) — ilovadagi bilan bir xil ko‘rinish:
  *   • kamera tepani to‘liq egallaydi (zoom yo‘q); ramka — 4 burchak, yuzni kuzatadi, topilmasa markazda;
  *   • yuz yo‘q / qiyshiq / ramkadan tashqarida / moslik past — ramka QIZIL;
- *   • yuz to‘g‘ri va moslik ≥ 65% — YASHIL; ~0,9 soniya yashil turgach rasm olinadi va tasdiqlanadi.
+ *   • yuz to‘g‘ri va moslik ≥ 65% — YASHIL; ~0,7 soniya yashil turgach rasm olinadi va tasdiqlanadi;
+ *   • bir lahzalik uzilish (detektor 1–2 kadrda yuzni «yo‘qotsa») jarayonni boshidan boshlamaydi;
+ *   • serverga eng sifatli (keskin, to‘g‘ri) kadrlar ketadi, boshqalardan uzoq «chetdagi» kadr tashlanadi.
  * Pastda xarita: filial, ruxsat etilgan radius va xodim turgan joy (GPS aniqligi bilan).
  * Jonli foiz telefonda hisoblanadi (xodimning o‘z namunasi bilan); yakuniy qaror — serverda.
  */
@@ -23,9 +25,22 @@ type Reference = { descriptor: number[]; samples: number[][]; threshold: number;
 type Box = { x: number; y: number; width: number; height: number };
 type Status = "loading" | "none" | "far" | "near" | "offcenter" | "tilted" | "dark" | "low" | "ok" | "sending" | "done" | "fail";
 
-const HOLD_MS = 900;
+const HOLD_MS = 700;
+/** Shuncha yaxshi kadr yig‘ilmaguncha tasdiqqa yuborilmaydi (server mediana bo‘yicha qaror qiladi). */
+const MIN_FRAMES = 3;
+/** Bir lahzalik yo‘qotish (yuz topilmadi / bir kadr qiyshiq) — shu vaqt ichida ushlab turish davom etadi. */
+const GRACE_MS = 350;
+/** Tanlangan kadrlar o‘rtachasidan shuncha uzoq kadr — chetdagi (xira, boshqa burchak), hisobga olinmaydi. */
+const OUTLIER = 0.18;
 const distance = (a: number[], b: number[]) => Math.sqrt(a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0));
 const mean = (rows: number[][]) => rows[0].map((_, i) => rows.reduce((s, r) => s + r[i], 0) / rows.length);
+/** Eng sifatli 5 kadr, ulardan chetdagilari olib tashlanadi — o‘rtacha deskriptor barqarorroq. */
+function bestFrames<T extends { descriptor: number[]; quality: number }>(items: T[]) {
+  const top = [...items].sort((a, b) => b.quality - a.quality).slice(0, 5);
+  const center = mean(top.map((c) => c.descriptor));
+  const kept = top.filter((c) => distance(c.descriptor, center) <= OUTLIER);
+  return kept.length >= 2 ? kept : top;
+}
 // Server bilan bir xil shkala: chegara = 75%, chegaradan oshganda tez tushadi.
 const percentOf = (d: number, threshold: number) => matchPercent(d, threshold);
 
@@ -247,6 +262,8 @@ export function FaceCheck({
       let collected: { descriptor: number[]; quality: number; box: Box }[] = [];
       let frames = 0;
       let failures = 0;
+      let lastGood = 0;
+      const inGrace = () => holdStart > 0 && performance.now() - lastGood < GRACE_MS;
       setStatus("none");
       while (active()) {
         await nextFrame();
@@ -255,12 +272,15 @@ export function FaceCheck({
         frames += 1;
         const face = await faceapi.detectSingleFace(video, detector).withFaceLandmarks(true);
         if (!active()) return;
-        const reset = (next: Status) => {
+        const reset = (next: Status, force = false) => {
+          // Qisqa uzilish — yig‘ilgan kadrlar va ushlab turish saqlanadi, ramka ham sakramaydi.
+          if (!force && inGrace()) return;
           setStatus(next);
           holdStart = 0;
           collected = [];
         };
         if (!face) {
+          if (inGrace()) continue;
           setTrack(null);
           smooth = null;
           setPercent(null);
@@ -319,24 +339,26 @@ export function FaceCheck({
           continue;
         }
         setStatus("ok");
+        lastGood = performance.now();
         const quality = face.detection.score * Math.min(1, q.sharp / 120) * (1 - Math.min(0.6, Math.abs(g.yaw) * 2));
         collected.push({ descriptor, quality, box: { x: box.x, y: box.y, width: box.width, height: box.height } });
         if (!holdStart) holdStart = performance.now();
         const progress = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
-        if (progress < 1 || collected.length < 2) continue;
+        if (progress < 1 || collected.length < MIN_FRAMES) continue;
 
         /* ---------------------------------------- rasm va tasdiqlash --- */
         // Jonlilik (passiv): kadrlar aynan bir xil bo‘lmasligi kerak — qotgan rasm/yozuv emas.
         const spread = distance(collected[0].descriptor, collected[collected.length - 1].descriptor);
         if (spread < 0.0015) {
-          reset("tilted");
+          reset("tilted", true);
           continue;
         }
-        const best = collected.reduce((a, b) => (b.quality > a.quality ? b : a));
+        const chosen = bestFrames(collected);
+        const best = chosen[0];
         const photo = capturePhoto(video, best.box);
         haptic.success();
         setStatus("sending");
-        const capture: FaceCapture = { descriptor: mean(collected.slice(-5).map((c) => c.descriptor)), photo };
+        const capture: FaceCapture = { descriptor: mean(chosen.map((c) => c.descriptor)), photo };
         onCapture?.(capture);
         if (onOffline && navigator.onLine === false) {
           stopCamera();
@@ -347,7 +369,7 @@ export function FaceCheck({
           const result = await post<{ proof: string; score: number }>("/mini/face/verify", {
             descriptor: capture.descriptor,
             // Har bir ushlab turilgan kadr ham — server mediana va 1:N (boshqa xodimlar) bo‘yicha qaror qiladi.
-            frames: collected.slice(-5).map((c) => c.descriptor),
+            frames: chosen.map((c) => c.descriptor),
             liveness: { challenge: "hold", passed: true, frames },
             photoDataUrl: photo,
             photoQuality: Number(Math.max(0, Math.min(1, best.quality)).toFixed(3)),
@@ -374,7 +396,7 @@ export function FaceCheck({
           setError(text);
           await new Promise((r) => setTimeout(r, 1300));
           setError("");
-          reset("none");
+          reset("none", true);
         }
       }
     } catch (reason) {

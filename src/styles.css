@@ -1762,116 +1762,6 @@ button.stat.selected {
   color: var(--faint);
   font-size: 12px;
 }
-.auth-aside {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 32px;
-  padding: 48px;
-  margin: 12px;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--surface-2);
-  color: var(--ink);
-}
-.auth-aside h2 {
-  max-width: 480px;
-  font-size: clamp(30px, 3.2vw, 44px);
-  font-weight: 650;
-  line-height: 1.1;
-  letter-spacing: -0.035em;
-}
-.auth-aside h2 em {
-  font-style: normal;
-  color: var(--brand);
-}
-.auth-aside > div > p {
-  max-width: 440px;
-  margin-top: 14px;
-  color: var(--muted);
-  font-size: 15px;
-}
-.auth-features {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  max-width: 540px;
-}
-.auth-feature {
-  display: flex;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
-}
-.auth-feature > svg {
-  flex: none;
-  color: var(--brand);
-}
-.auth-feature b {
-  display: block;
-  font-size: 13.5px;
-  font-weight: 600;
-}
-.auth-feature small {
-  color: var(--muted);
-  font-size: 12px;
-}
-.auth-preview {
-  display: grid;
-  gap: 8px;
-  max-width: 400px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-}
-.auth-preview-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px;
-  border-radius: 10px;
-  font-size: 13px;
-}
-.auth-preview-row + .auth-preview-row {
-  border-top: 1px solid var(--line-2);
-  border-radius: 0 0 10px 10px;
-}
-.auth-preview-row i {
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--gray-bg);
-  color: var(--ink-2);
-  font-style: normal;
-  font-weight: 650;
-  font-size: 11px;
-}
-.auth-preview-row span {
-  flex: 1;
-  display: grid;
-}
-.auth-preview-row small {
-  color: var(--muted);
-}
-.auth-preview-row em {
-  padding: 3px 8px;
-  border-radius: 99px;
-  background: var(--green-bg);
-  color: var(--green);
-  font-style: normal;
-  font-size: 11.5px;
-  font-weight: 600;
-}
-.auth-preview-row em.late {
-  background: var(--amber-bg);
-  color: var(--amber);
-}
 .steps-mini {
   display: flex;
   gap: 6px;
@@ -2834,12 +2724,6 @@ a.check-item:hover {
   .user-trigger > svg {
     display: none;
   }
-  .auth-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-  .auth-aside {
-    display: none;
-  }
   .qr-stage {
     grid-template-columns: minmax(0, 1fr);
     justify-items: center;
@@ -2858,8 +2742,7 @@ a.check-item:hover {
   }
   .form-grid,
   .form-grid.cols-3,
-  .mode-options,
-  .auth-features {
+  .mode-options {
     grid-template-columns: minmax(0, 1fr);
   }
   .hero {
@@ -3400,35 +3283,6 @@ button.mini-row {
   color: var(--m-ink);
 }
 
-/* Pastki menyu */
-.mini-tabbar {
-  position: fixed;
-  z-index: 50;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
-  border-top: 0.5px solid var(--m-line);
-  background: color-mix(in srgb, var(--m-card) 92%, transparent);
-  backdrop-filter: blur(20px);
-}
-.mini-tabbar button {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  padding: 6px 0;
-  border: 0;
-  background: transparent;
-  color: var(--m-muted);
-  font-size: 11px;
-  font-weight: 500;
-}
-.mini-tabbar button.active {
-  color: var(--m-accent);
-}
-
 /* Yuklanish / xato ekrani */
 .mini-splash {
   display: grid;
@@ -3875,7 +3729,6 @@ button.mini-row {
 }
 @media (min-width: 560px) {
   .mini-app,
-  .mini-tabbar,
   .sheet {
     max-width: 520px;
     margin: 0 auto;
@@ -4876,9 +4729,6 @@ button.mini-row {
 }
 .mini-splash {
   padding-top: calc(28px + var(--m-safe-top));
-}
-.mini-tabbar {
-  padding-bottom: calc(6px + var(--m-safe-bottom));
 }
 .mini-app {
   padding-bottom: calc(84px + var(--m-safe-bottom));
@@ -6026,12 +5876,6 @@ button.ic-stat small {
 .mini-action.out {
   box-shadow: none;
 }
-.mini-tabbar button {
-  transition: color 0.15s ease, transform 0.12s ease;
-}
-.mini-tabbar button:active {
-  transform: scale(0.94);
-}
 @media (min-width: 560px) {
   .mini-app {
     max-width: 520px;
@@ -6363,13 +6207,6 @@ button.ic-stat small {
   width: 40px;
   height: 40px;
   background: var(--m-card);
-}
-.mini-tabbar {
-  border-top: 0;
-  box-shadow: 0 -0.5px 0 var(--m-line);
-}
-.mini-tabbar button span {
-  font-size: 11px;
 }
 @media (max-width: 360px) {
   .mh-clock {
@@ -8003,9 +7840,6 @@ html[data-mini-contrast="1"] .mini {
 html[data-mini-contrast="1"] .mini b, html[data-mini-contrast="1"] .mini h1 { font-weight: 700; }
 html[data-mini-font="large"] .mini-app, html[data-mini-font="large"] .sheet { zoom: 1.12; }
 
-/* Tab bar: 4 yoki 5 ta bo‘lim (rahbar rejimi) — bir qatorda */
-.mini-tabbar { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
-
 /* =====================================================================
    Mini App 2.0 — tezkor bo‘limlar, grafik, statistika, rahbar xaritasi
    ===================================================================== */
@@ -9093,53 +8927,6 @@ html[data-tg-scheme="dark"] .rc-card, html[data-mini-theme="dark"] .rc-card { bo
   gap: 8px;
 }
 
-/* ---------- Mini App: suzuvchi pastki menyu (iOS 26 / Telegram / Instagram uslubi) ---------- */
-.mini-tabbar {
-  left: 12px;
-  right: 12px;
-  bottom: calc(10px + var(--m-safe-bottom, env(safe-area-inset-bottom)));
-  max-width: 496px;
-  margin: 0 auto;
-  padding: 6px;
-  border: 0.5px solid color-mix(in srgb, var(--m-ink) 10%, transparent);
-  border-radius: 30px;
-  background: color-mix(in srgb, var(--m-card) 80%, transparent);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  backdrop-filter: blur(24px) saturate(180%);
-  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.16), 0 2px 6px rgba(15, 23, 42, 0.06), inset 0 0.5px 0 rgba(255, 255, 255, 0.5);
-  isolation: isolate;
-}
-.mini-tabbar::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  top: 6px;
-  bottom: 6px;
-  left: 6px;
-  width: calc((100% - 12px) / var(--n, 4));
-  border-radius: 24px;
-  background: color-mix(in srgb, var(--m-accent) 14%, transparent);
-  transform: translateX(calc(var(--i, 0) * 100%));
-  transition: transform 0.38s cubic-bezier(0.3, 1.25, 0.5, 1);
-}
-.mini-tabbar button {
-  position: relative;
-  padding: 7px 0 6px;
-  border-radius: 24px;
-}
-.mini-tabbar button span {
-  font-size: 10.5px;
-}
-.mini-tabbar button.active span {
-  font-weight: 700;
-}
-.mini-app {
-  padding-bottom: calc(100px + var(--m-safe-bottom, env(safe-area-inset-bottom)));
-}
-@media (prefers-reduced-motion: reduce) {
-  .mini-tabbar::before { transition: none; }
-}
-
 /* ---------- Sozlamalar → Ilovalar ---------- */
 .apps-search {
   position: relative;
@@ -9821,26 +9608,102 @@ html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
    Telegram’ning o‘z ro‘yxatlariga o‘xshash: tekis kartalar, yozuvli qatorlar,
    pastda oddiy menyu. Rang faqat ma’no uchun (ok / kechikish / xato).
    ===================================================================== */
-.mini-tabbar {
+/* Pastki menyu (Nav Menu): tanlangan bo‘lim yozuvi bilan to‘q «tabletka», qolganlari — ikonka. */
+.mini-nav {
+  --nm-h: 48px;
+  --nm-gap: 4px;
+  --nm-pad: 6px;
+  --nm-spring: cubic-bezier(0.3, 1.3, 0.5, 1);
+  position: fixed;
+  z-index: 50;
   left: 0;
   right: 0;
-  bottom: 0;
-  max-width: 560px;
+  bottom: calc(12px + var(--m-safe-bottom, env(safe-area-inset-bottom)));
+  display: flex;
+  gap: var(--nm-gap);
+  width: fit-content;
+  max-width: calc(100% - 24px);
   margin: 0 auto;
-  padding: 4px 6px calc(4px + var(--m-safe-bottom, env(safe-area-inset-bottom)));
-  border: 0;
-  border-top: 0.5px solid var(--m-line);
-  border-radius: 0;
-  background: var(--m-card);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  box-shadow: none;
+  padding: var(--nm-pad);
+  border: 0.5px solid var(--m-line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--m-card) 88%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.06);
 }
-.mini-tabbar::before { display: none; }
-.mini-tabbar button { padding: 6px 0 4px; border-radius: 0; }
-.mini-tabbar button span { font-size: 10.5px; font-weight: 500; }
-.mini-tabbar button.active span { font-weight: 600; }
-.mini-app { padding-bottom: calc(76px + var(--m-safe-bottom, env(safe-area-inset-bottom))); }
+@supports (transition-timing-function: linear(0, 1)) {
+  .mini-nav {
+    --nm-spring: linear(0, 0.054, 0.18, 0.336, 0.494, 0.638, 0.759, 0.855, 0.926, 0.976, 1.008, 1.026, 1.034, 1.036, 1.033, 1.028, 1.023, 1.017, 1.012, 1.008, 1.005, 1.002, 1.001, 1, 1);
+  }
+}
+.nm-key {
+  display: flex;
+  flex: none;
+  align-items: center;
+  height: var(--nm-h);
+  min-width: var(--nm-h);
+  padding: 0 calc((var(--nm-h) - 22px) / 2);
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--m-ink);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color 0.2s ease, color 0.22s ease, transform 0.12s ease;
+}
+.nm-key > svg { flex: none; }
+.nm-key.on {
+  background: var(--m-ink);
+  color: var(--m-card);
+}
+.nm-key:active { transform: scale(0.94); }
+.nm-key.on:active { transform: none; }
+.nm-key:focus-visible { outline: 2px solid var(--m-accent); outline-offset: 2px; }
+@media (hover: hover) {
+  .nm-key:not(.on):hover { background: var(--m-tint); }
+}
+.nm-label {
+  display: block;
+  width: 0;
+  overflow: hidden;
+  transition: width 0.48s var(--nm-spring);
+}
+.nm-key.on .nm-label { width: auto; }
+/* Yozuv ekranga sig‘masa, uch nuqta bilan qisqaradi (5 ta bo‘lim + tor ekran). */
+.nm-text {
+  display: block;
+  width: max-content;
+  max-width: max(48px, calc(min(100vw, 560px) - 26px - 2 * var(--nm-pad) - var(--nm-n, 4) * var(--nm-h) - (var(--nm-n, 4) - 1) * var(--nm-gap) - 12px));
+  padding: 0 4px 0 8px;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0;
+  filter: blur(3px);
+  transform: translateX(-6px);
+  transition: opacity 0.14s ease, filter 0.14s ease, transform 0.2s ease;
+}
+.nm-key.on .nm-text {
+  opacity: 1;
+  filter: none;
+  transform: none;
+  transition: opacity 0.26s ease 0.06s, filter 0.3s ease 0.04s, transform 0.48s var(--nm-spring) 0.02s;
+}
+@media (max-width: 400px) {
+  .mini-nav { --nm-h: 46px; --nm-gap: 2px; }
+  .mini-nav.many { --nm-h: 42px; }
+  .nm-text { font-size: 14.5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nm-key, .nm-label, .nm-text, .nm-key.on .nm-text { transition: none; }
+}
+.mini-app { padding-bottom: calc(92px + var(--m-safe-bottom, env(safe-area-inset-bottom))); }
 
 .mh-status i,
 .mh-hero.on .mh-status i,
@@ -10448,63 +10311,90 @@ html[data-theme="dark"] { --bg: #0e1217; }
 .ecal-sum .ok i { background: var(--chart-ok); }
 .ecal-sum .warn i { background: var(--chart-late); }
 .ecal-sum .bad i { background: var(--chart-bad); }
-.ecal-sum .rest i { background: var(--chart-leave); }
-.ecal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
-.ecal-wd { padding: 8px 6px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 600; text-align: center; }
-.ecal-cell { display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-height: 104px; padding: 6px; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
-  background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background-color 0.12s var(--ease); }
+.ecal-sum .leave i { background: var(--chart-leave); }
+/* Kalendar to‘ri: ingichka chiziqlar, katakda faqat vaqt va holat nuqtasi. */
+.ecal-grid { position: relative; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); border-radius: 12px; }
+.ecal-grid > :nth-child(1) { border-top-left-radius: 12px; }
+.ecal-grid > :nth-child(7) { border-top-right-radius: 12px; }
+.ecal-wd { padding: 9px 10px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); color: var(--muted); font-size: 12px; font-weight: 600; text-align: left; }
+.ecal-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-height: 86px; padding: 8px 10px; border: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); font: inherit; text-align: left; cursor: pointer; transition: background-color 0.15s ease, box-shadow 0.15s ease; }
 button.ecal-cell:hover { background: var(--row-hover); }
 .ecal-cell.other { background: var(--surface-2); cursor: default; }
 .ecal-cell.other .ecal-num { color: var(--faint); }
-.ecal-cell.today { background: color-mix(in srgb, var(--brand) 5%, var(--surface)); }
-.ecal-cell.picked { box-shadow: inset 0 0 0 2px var(--brand); }
-.ecal-num { display: flex; justify-content: flex-end; align-items: baseline; gap: 6px; color: var(--muted); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.ecal-cell.today .ecal-num { color: var(--red); }
-.ecal-num em { font-size: 11px; font-style: normal; font-weight: 600; }
-.ecal-bar { display: block; padding: 3px 6px; border-radius: 5px; font-size: 12px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-.ecal-bar.plan { background: color-mix(in srgb, var(--brand) 82%, #1e3a8a); color: #fff; }
-.ecal-bar.plan.changed { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--brand) 82%, #1e3a8a) 0 8px, color-mix(in srgb, var(--brand) 68%, #1e3a8a) 8px 16px); }
-.ecal-bar.rest { background: color-mix(in srgb, var(--chart-bad) 78%, #fff); color: #fff; }
-.ecal-bar.leave { background: var(--chart-leave); color: #fff; }
-.ecal-bar.fact { background: var(--chart-ok); color: #fff; }
-.ecal-bar.nocheck { background: color-mix(in srgb, var(--chart-late) 85%, #fde68a); color: #3b2300; }
-.ecal-bar.absent { border: 1px solid var(--red-line); background: var(--red-bg); color: var(--red); }
-.ecal-dev { display: block; padding: 2px 6px; border: 1px dashed; border-radius: 5px; font-size: 11.5px; font-weight: 600; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ecal-dev.warn { border-color: color-mix(in srgb, var(--chart-late) 70%, transparent); color: var(--amber); background: var(--amber-bg); }
-.ecal-dev.bad { border-color: color-mix(in srgb, var(--chart-bad) 70%, transparent); color: var(--red); background: var(--red-bg); }
-.ecal-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 12.5px; }
-.ecal-legend span { display: inline-flex; align-items: center; gap: 6px; }
-.ecal-legend i { width: 14px; height: 8px; border-radius: 3px; }
-.ecal-legend i.plan { background: color-mix(in srgb, var(--brand) 82%, #1e3a8a); }
-.ecal-legend i.fact { background: var(--chart-ok); }
-.ecal-legend i.nocheck { background: color-mix(in srgb, var(--chart-late) 85%, #fde68a); }
-.ecal-legend i.rest { background: color-mix(in srgb, var(--chart-bad) 78%, #fff); }
-.ecal-legend i.dev { border: 1px dashed var(--chart-late); background: var(--amber-bg); }
-.ecal-day { display: grid; gap: 12px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
-.ecal-day-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.ecal-day-head b { margin-right: auto; }
-.ecal-manual { color: var(--brand); font-size: 12px; font-style: normal; font-weight: 700; }
-.ecal-day-head b { font-size: 15px; font-weight: 600; }
-.ecal-day-facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 10px; }
-.ecal-day-facts div { display: grid; gap: 2px; }
-.ecal-day-facts small { color: var(--muted); font-size: 12px; }
-.ecal-day-facts b { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.ecal-day-facts b.warn { color: var(--amber); }
-.ecal-day-facts b.ok { color: var(--green); }
-.ecal-marks { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 8px; }
-.ecal-mark { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
-.ecal-mark img, .ecal-mark-ph { flex: none; width: 48px; height: 48px; border-radius: 8px; object-fit: cover; }
+.ecal-cell.t-off, .ecal-cell.t-leave { background: color-mix(in srgb, var(--surface-2) 70%, var(--surface)); }
+.ecal-cell.picked { box-shadow: inset 0 0 0 2px var(--ink); }
+.ecal-num { display: flex; align-items: center; gap: 6px; width: 100%; margin-bottom: 4px; color: var(--muted); font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Bugun — to‘q doira ichida. */
+.ecal-cell.today .ecal-num > span:first-child { display: grid; place-items: center; min-width: 22px; height: 22px; margin: -3px 0 -3px -4px; padding: 0 5px; border-radius: 11px; background: var(--ink); color: var(--on-ink); }
+.ecal-manual { display: inline-grid; color: var(--brand); font-style: normal; }
+.ecal-dot { display: inline-block; flex: none; width: 7px; height: 7px; margin-left: auto; border-radius: 50%; background: var(--faint); }
+.ecal-dot.ok { background: var(--chart-ok); }
+.ecal-dot.warn { background: var(--chart-late); }
+.ecal-dot.bad { background: var(--chart-bad); }
+.ecal-dot.leave { background: var(--chart-leave); }
+.ecal-time { color: var(--ink); font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ecal-plan { color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ecal-note { max-width: 100%; overflow: hidden; color: var(--muted); font-size: 12px; font-weight: 500; white-space: nowrap; text-overflow: ellipsis; }
+.ecal-note.warn { color: var(--amber); }
+.ecal-note.bad { color: var(--red); font-weight: 600; }
+.ecal-note.ok { color: var(--green); }
+.ecal-note.leave { color: var(--violet); font-weight: 600; }
+.ecal-note.rest { color: var(--faint); }
+
+/* Kun oynasi — bosilgan katak yonida ochiladi. */
+.ecal-pop { position: absolute; z-index: 20; display: grid; gap: 12px; width: min(var(--pop-w, 340px), calc(100% - 16px)); padding: 14px; border: 1px solid var(--line); border-radius: 16px;
+  background: var(--surface); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 18px 48px -12px rgba(15, 23, 42, 0.25); animation: ecal-pop 0.32s cubic-bezier(0.2, 1.1, 0.4, 1) both; }
+.ecal-pop.side-right { transform-origin: left top; }
+.ecal-pop.side-left { transform-origin: right top; }
+.ecal-pop.side-below { transform-origin: center top; }
+@keyframes ecal-pop { from { opacity: 0; transform: scale(0.96) translateY(4px); } to { opacity: 1; transform: none; } }
+.ecal-pop-head { display: flex; align-items: flex-start; gap: 4px; }
+.ecal-pop-head > div { display: grid; gap: 4px; margin-right: auto; }
+.ecal-pop-head b { font-size: 15px; font-weight: 650; }
+.ecal-pop-head .icon-btn { margin: -4px 0; }
+.ecal-status { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12.5px; font-weight: 500; }
+.ecal-status .ecal-dot { margin: 0; }
+.ecal-status.warn { color: var(--amber); }
+.ecal-status.bad { color: var(--red); }
+.ecal-status.ok { color: var(--green); }
+.ecal-status.leave { color: var(--violet); }
+.ecal-pop-facts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.55fr); gap: 6px; }
+.ecal-pop-facts div { display: grid; gap: 2px; padding: 10px; border-radius: 10px; background: var(--surface-2); }
+.ecal-pop-facts small { color: var(--muted); font-size: 11.5px; }
+.ecal-pop-facts b { font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ecal-pop-facts b.warn { color: var(--amber); }
+.ecal-pop-rows { display: grid; gap: 6px; font-size: 13px; }
+.ecal-pop-rows div { display: flex; justify-content: space-between; gap: 10px; }
+.ecal-pop-rows span { color: var(--muted); }
+.ecal-pop-rows b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ecal-pop-rows b.warn { color: var(--amber); }
+.ecal-pop-rows b.ok { color: var(--green); }
+.ecal-pop-rows b.changed { text-decoration: underline dotted; text-underline-offset: 3px; }
+.ecal-pop-note { color: var(--muted); font-size: 12.5px; }
+.ecal-pop-skel { display: grid; gap: 6px; }
+.ecal-pop-skel i { height: 52px; border-radius: 10px; background: linear-gradient(90deg, var(--surface-2), var(--gray-bg), var(--surface-2)); background-size: 200% 100%; animation: ecal-shimmer 1.2s linear infinite; }
+@keyframes ecal-shimmer { to { background-position: -200% 0; } }
+.ecal-marks { display: grid; gap: 6px; }
+.ecal-mark { display: flex; align-items: center; gap: 10px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; }
+.ecal-mark img, .ecal-mark-ph { flex: none; width: 40px; height: 40px; border-radius: 8px; object-fit: cover; }
 .ecal-mark-ph { display: grid; place-items: center; background: var(--gray-bg); color: var(--faint); }
 .ecal-mark > span:last-child { display: grid; gap: 2px; min-width: 0; }
-.ecal-mark b { display: inline-flex; align-items: center; gap: 5px; font-size: 13.5px; font-weight: 600; }
+.ecal-mark b { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600; }
 .ecal-mark b.in { color: var(--green); }
 .ecal-mark b.out { color: var(--ink-2); }
-.ecal-mark small { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ecal-mark small { display: inline-flex; align-items: center; gap: 4px; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ecal-reqs { display: flex; flex-wrap: wrap; gap: 6px; }
 @media (max-width: 760px) {
-  .ecal-cell { min-height: 72px; padding: 4px; gap: 3px; }
-  .ecal-bar, .ecal-dev { padding: 2px 3px; font-size: 10.5px; }
-  .ecal-num em { display: none; }
+  .ecal-cell { min-height: 64px; padding: 5px; gap: 2px; }
+  .ecal-time { font-size: 11px; }
+  .ecal-plan, .ecal-note { font-size: 10.5px; }
+  .ecal-wd { padding: 7px 5px; }
+  /* Telefonda — pastdan chiquvchi varaq. */
+  .ecal-pop { position: fixed; top: auto !important; right: 8px; bottom: 8px; left: 8px !important; width: auto; max-height: 72vh; overflow: auto; transform-origin: center bottom; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ecal-pop, .ecal-pop-skel i { animation: none; }
 }
 
 /* ---------- Rahbar paneli (Mini App): yagona shrift shkalasi 12 / 13 / 15 / 17 / 24 ----------
@@ -10652,3 +10542,345 @@ button.ecal-cell:hover { background: var(--row-hover); }
 .page.tgrid-page { max-width: none; }
 /* Boshqa filialda keldi qilgan kun (tabel) */
 .tgrid-away { position: absolute; bottom: 1px; right: 3px; color: var(--violet); font-size: 9px; font-style: normal; font-weight: 700; }
+
+/* =====================================================================
+   Kirish sahifasi — minimal karta (Login Card).
+   Bitta karta, yorliqsiz maydonlar, bosqichlar orasida prujinali o‘tish.
+   ===================================================================== */
+.lg-page {
+  --lg-h: 48px;
+  --lg-r: 14px;
+  --lg-fill: var(--gray-bg);
+  --lg-focus: color-mix(in srgb, var(--brand) 55%, transparent);
+  --lg-spring: cubic-bezier(0.3, 1.3, 0.5, 1);
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 24px 16px;
+  background: var(--surface-2);
+}
+@supports (transition-timing-function: linear(0, 1)) {
+  .lg-page {
+    --lg-spring: linear(0, 0.054, 0.18, 0.336, 0.494, 0.638, 0.759, 0.855, 0.926, 0.976, 1.008, 1.026, 1.034, 1.036, 1.033, 1.028, 1.023, 1.017, 1.012, 1.008, 1.005, 1.002, 1.001, 1, 1);
+  }
+}
+.lg-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 22px;
+  width: min(360px, 100%);
+}
+.lg-card {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 16px 40px -18px rgba(15, 23, 42, 0.18);
+}
+/* Balandlik silliq o‘zgaradi; yon tomonda silkinish uchun joy qoldiriladi. */
+.lg-auto {
+  margin: 0 -10px;
+  padding: 0 10px;
+  overflow: hidden;
+  transition: height 0.5s var(--lg-spring);
+}
+.lg-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lg-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: var(--lg-h);
+  padding: 0 14px;
+  color: var(--ink);
+}
+.lg-head svg { flex: none; }
+.lg-head h1 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  white-space: nowrap;
+}
+
+/* Almashtirgich: to‘q «tabletka» tanlangan tomonga siljiydi. */
+.lg-seg {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  height: var(--lg-h);
+  margin-bottom: 4px;
+  border-radius: var(--lg-r);
+  background: var(--lg-fill);
+}
+.lg-sel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 50%;
+  border-radius: var(--lg-r);
+  background: var(--ink);
+  transform: translateX(calc(var(--k, 0) * 100%));
+  transition: transform 0.5s var(--lg-spring);
+}
+.lg-tab {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--lg-r);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.22s ease;
+}
+.lg-tab svg { flex: none; }
+.lg-tab[aria-selected="true"] { color: var(--on-ink); cursor: default; }
+.lg-tab:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--lg-focus); }
+
+/* Maydonlar — yorliqsiz, faqat ikonka + placeholder. */
+.lg-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: var(--lg-h);
+  border-radius: var(--lg-r);
+  background: var(--lg-fill);
+  cursor: text;
+  transition: box-shadow 0.18s ease;
+}
+.lg-field:focus-within { box-shadow: inset 0 0 0 2px var(--lg-focus); }
+.lg-field.bad { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--red) 45%, transparent); }
+.lg-field.bad:focus-within { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--red) 65%, transparent); }
+.lg-fic {
+  flex: none;
+  margin: 0 0 0 15px;
+  color: var(--muted);
+}
+.lg-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 14px 0 11px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+}
+.lg-input::placeholder { color: var(--faint); }
+.lg-field:has(.lg-eye) .lg-input { padding-right: 4px; }
+.lg-eye {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: calc(var(--lg-h) - 10px);
+  height: calc(var(--lg-h) - 10px);
+  margin-right: 5px;
+  border: 0;
+  border-radius: calc(var(--lg-r) - 5px);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.lg-eye:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--lg-focus); }
+@media (hover: hover) {
+  .lg-eye:hover { background: var(--surface); color: var(--ink); }
+}
+
+/* Kod bosqichi */
+.lg-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 2px 14px 4px;
+  color: var(--muted);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.lg-line b {
+  min-width: 0;
+  margin-left: auto;
+  overflow: hidden;
+  color: var(--ink);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+}
+.lg-otp {
+  position: relative;
+  display: block;
+  height: var(--lg-h);
+  cursor: text;
+}
+.lg-cells {
+  display: flex;
+  gap: 8px;
+  height: 100%;
+}
+.lg-cell {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-width: 0;
+  border-radius: var(--lg-r);
+  background: var(--lg-fill);
+  color: var(--ink);
+  font-size: 19px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 0.22s ease, box-shadow 0.18s ease, color 0.22s ease;
+}
+.lg-otp.foc .lg-cell.cur { box-shadow: inset 0 0 0 2px var(--lg-focus); }
+.lg-otp.bad .lg-cell { background: var(--red-bg); color: var(--red); }
+.lg-otp.good .lg-cell { background: color-mix(in srgb, var(--green) 12%, transparent); color: var(--green); }
+.lg-digit { display: block; animation: lg-roll 0.32s var(--lg-spring) both; }
+.lg-otp input {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 16px;
+  opacity: 0;
+}
+.lg-resend {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  height: var(--lg-h);
+  padding: 0 14px 0 15px;
+  border: 0;
+  border-radius: var(--lg-r);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.22s ease, background-color 0.15s ease;
+}
+.lg-resend b { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+.lg-resend[aria-disabled="true"] { color: var(--muted); cursor: default; }
+.lg-resend[aria-disabled="true"] b { color: var(--ink); }
+.lg-resend:focus-visible { outline: none; box-shadow: inset 0 0 0 2px var(--lg-focus); }
+@media (hover: hover) {
+  .lg-resend:not([aria-disabled="true"]):hover { background: var(--lg-fill); }
+}
+.lg-ring { flex: none; width: 18px; height: 18px; overflow: visible; transform: rotate(-90deg); }
+.lg-ring circle { fill: none; stroke-width: 2; }
+.lg-ring .trk { stroke: color-mix(in srgb, var(--ink) 18%, transparent); }
+.lg-ring .arc { stroke: var(--ink); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+
+/* Tayyor */
+.lg-done {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 14px 0 22px;
+  color: var(--muted);
+  font-size: 14px;
+  text-align: center;
+}
+.lg-badge {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+  animation: lg-pop 0.5s var(--lg-spring) 0.08s both;
+}
+
+.lg-err {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 2px 14px;
+  color: var(--red);
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.lg-err svg { flex: none; margin-top: 1px; }
+
+/* Tugmalar */
+.lg-foot { display: flex; gap: 8px; margin-top: 4px; }
+.lg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: var(--lg-h);
+  padding: 0 18px 0 14px;
+  border: 0;
+  border-radius: var(--lg-r);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.22s ease, color 0.22s ease, transform 0.12s ease;
+}
+.lg-btn:active:not([aria-disabled="true"]):not(:disabled) { transform: scale(0.97); }
+.lg-btn:focus-visible { outline: 2px solid var(--lg-focus); outline-offset: 2px; }
+.lg-back { background: var(--lg-fill); color: var(--ink); }
+.lg-go { flex: 1; padding: 0 18px; background: var(--ink); color: var(--on-ink); }
+.lg-go.off { background: color-mix(in srgb, var(--ink) 10%, var(--surface)); color: color-mix(in srgb, var(--ink) 42%, var(--surface)); cursor: default; }
+@media (hover: hover) {
+  .lg-back:hover { background: color-mix(in srgb, var(--ink) 9%, var(--lg-fill)); }
+  .lg-go:not(.off):hover { background: color-mix(in srgb, var(--ink) 88%, var(--surface)); }
+}
+
+/* Animatsiyalar: paydo bo‘lish, matn almashuvi, ikonka, raqam. */
+.lg-rise { animation: lg-rise 0.5s var(--lg-spring) both; animation-delay: var(--d, 0ms); }
+.lg-morph { display: inline-block; animation: lg-morph 0.42s ease both; }
+.lg-pop { animation: lg-pop 0.45s var(--lg-spring) both; }
+@keyframes lg-rise {
+  from { opacity: 0; transform: translateY(8px); filter: blur(2px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes lg-morph {
+  from { opacity: 0; transform: translateY(4px); filter: blur(4px); }
+  to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes lg-pop {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes lg-roll {
+  from { opacity: 0; transform: translateY(40%); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lg-auto, .lg-sel, .lg-ring .arc { transition: none; }
+  .lg-rise, .lg-morph, .lg-pop, .lg-digit, .lg-badge { animation: none; }
+}
+
+/* Birinchi sozlash sahifasi ham bitta ustunda, o‘rtada. */
+.auth-layout { grid-template-columns: minmax(0, 1fr); background: var(--surface-2); }
+.auth-layout .auth-main { align-items: center; }
+.auth-layout .auth-form { padding: 28px; border: 1px solid var(--line); border-radius: 24px; background: var(--surface); }

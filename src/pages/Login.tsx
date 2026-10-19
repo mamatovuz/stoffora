@@ -1,109 +1,111 @@
 import { homePage } from "@/lib/permissions";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import {
+  AlertCircle,
   ArrowRight,
   Building2,
+  Check,
+  ChevronLeft,
   Eye,
   EyeOff,
-  Fingerprint,
   KeyRound,
   LoaderCircle,
   Lock,
+  LogIn,
   Mail,
-  MapPin,
+  MessageSquareText,
   Phone,
-  QrCode,
-  Send,
-  ShieldCheck,
+  RefreshCw,
+  Smartphone,
   User,
+  UserCheck,
 } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { api, errorText, post } from "../api";
 import { useAuth } from "../auth";
 import { ErrorBox } from "../components/ui";
 
-function AuthAside() {
-  return (
-    <section className="auth-aside" aria-hidden="true">
-      <Logo />
-      <div>
-        <h2>
-          Keldi-ketdi.
-          <br />
-          <em>Aniq, halol</em> va tez.
-        </h2>
-        <p>
-          Xodimlar Telegram orqali Face ID, GPS va dinamik QR bilan davomatni
-          belgilaydi. Siz esa hammasini bir paneldan real vaqtda ko‘rasiz.
-        </p>
-      </div>
-      <div className="auth-preview">
-        <div className="auth-preview-row">
-          <i>AS</i>
-          <span>
-            <b>Aziza S.</b>
-            <small>08:54 · Bosh ofis</small>
-          </span>
-          <em>Vaqtida</em>
-        </div>
-        <div className="auth-preview-row">
-          <i>JK</i>
-          <span>
-            <b>Jasur K.</b>
-            <small>09:12 · Chilonzor</small>
-          </span>
-          <em className="late">12 daq kech</em>
-        </div>
-      </div>
-      <div className="auth-features">
-        <div className="auth-feature">
-          <Fingerprint size={20} />
-          <span>
-            <b>Face ID</b>
-            <small>Jonlilik tekshiruvi bilan</small>
-          </span>
-        </div>
-        <div className="auth-feature">
-          <MapPin size={20} />
-          <span>
-            <b>GPS hudud</b>
-            <small>Filial radiusi nazorati</small>
-          </span>
-        </div>
-        <div className="auth-feature">
-          <QrCode size={20} />
-          <span>
-            <b>Dinamik QR</b>
-            <small>Har 30 soniyada yangilanadi</small>
-          </span>
-        </div>
-        <div className="auth-feature">
-          <Send size={20} />
-          <span>
-            <b>Telegram bot</b>
-            <small>Eslatma va bildirishnomalar</small>
-          </span>
-        </div>
-      </div>
-    </section>
+type Step = "email" | "phone" | "code" | "done";
+type Via = "email" | "phone";
+type LoginResult = { redirect: string; requires2fa?: boolean; challengeId?: string; telegram?: string };
+type Key = "email" | "password" | "phone";
+
+const RESEND_AFTER = 60;
+const digits = (value: string) => value.replace(/\D/g, "");
+/** "901234567" / "+998901234567" → "+998 90 123 45 67" */
+function formatPhone(value: string) {
+  let d = digits(value);
+  if (d.startsWith("998")) d = d.slice(3);
+  d = d.slice(0, 9);
+  return "+998 " + [d.slice(0, 2), d.slice(2, 5), d.slice(5, 7), d.slice(7, 9)].filter(Boolean).join(" ");
+}
+const valid: Record<Key, (v: string) => boolean> = {
+  email: (v) => /^\S+@\S+\.\S+$/.test(v.trim()),
+  password: (v) => v.length > 0,
+  phone: (v) => digits(v).length === 12 && digits(v).startsWith("998"),
+};
+/** Xato maydonni silkitish (Web Animations API — holat kerak emas). */
+function nope(el: Element | null | undefined) {
+  el?.animate?.(
+    [{ transform: "translateX(0)" }, { transform: "translateX(-6px)" }, { transform: "translateX(5px)" }, { transform: "translateX(-3px)" }, { transform: "translateX(0)" }],
+    { duration: 360, easing: "ease-out" },
   );
 }
 
+/** Ichidagi kontent balandligi o‘zgarsa, karta silliq cho‘ziladi yoki qisqaradi. */
+function AutoHeight({ children }: { children: ReactNode }) {
+  const inner = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState<number>();
+  useLayoutEffect(() => {
+    const el = inner.current;
+    if (!el) return;
+    const measure = () => setHeight(el.offsetHeight);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <div className="lg-auto" style={{ height }}>
+      <div className="lg-stack" ref={inner}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+/*
+ * Kirish kartasi: email+parol yoki telefon raqam → Telegram’ga 6 xonali kod.
+ * Minimal: bitta karta, yorliqlarsiz maydonlar, bosqichlar orasida silliq o‘tish.
+ */
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, refresh } = useAuth();
-  const [email, setEmail] = useState(""),
-    [password, setPassword] = useState(""),
-    [show, setShow] = useState(false),
-    [error, setError] = useState(""),
-    [loading, setLoading] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
-  const [challenge, setChallenge] = useState<{ id: string; telegram: string } | null>(null);
+  const [step, setStep] = useState<Step>("email");
+  const [via, setVia] = useState<Via>("email");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [show, setShow] = useState(false);
+  const [phone, setPhone] = useState("");
   const [code, setCode] = useState("");
-  const [mode, setMode] = useState<"email" | "phone">("email");
-  const [phone, setPhone] = useState("+998 ");
+  const [codeState, setCodeState] = useState<"" | "bad" | "good">("");
+  const [otpFocus, setOtpFocus] = useState(false);
+  const [tried, setTried] = useState<Partial<Record<Key, boolean>>>({});
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [challenge, setChallenge] = useState<{ id: string; telegram: string } | null>(null);
+  const [left, setLeft] = useState(0);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const phoneRef = useRef<HTMLInputElement>(null);
+  const codeRef = useRef<HTMLInputElement>(null);
+  const goRef = useRef<HTMLButtonElement>(null);
+  const otpRef = useRef<HTMLLabelElement>(null);
+  const fields = useRef<Partial<Record<Key, HTMLDivElement | null>>>({});
 
   useEffect(() => {
     void api<{ needsSetup: boolean }>("/setup/status")
@@ -111,207 +113,363 @@ export function LoginPage() {
       .catch(() => undefined);
   }, []);
 
-  if (user)
-    return (
-      <Navigate
-        to={user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role, user.modules)}
-        replace
-      />
-    );
+  // Qayta yuborish taymeri.
+  useEffect(() => {
+    if (left <= 0) return;
+    const timer = window.setTimeout(() => setLeft((value) => value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [left]);
+
+  // Bosqich almashganda birinchi bo‘sh maydonga fokus.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const target =
+        step === "email" ? (valid.email(emailRef.current?.value || "") ? passwordRef : emailRef) : step === "phone" ? phoneRef : step === "code" ? codeRef : null;
+      target?.current?.focus({ preventScroll: true });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [step]);
+
+  if (user) return <Navigate to={user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role, user.modules)} replace />;
   if (needsSetup) return <Navigate to="/setup" replace />;
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
-    setLoading(true);
+  const inputs: Record<Key, React.RefObject<HTMLInputElement | null>> = { email: emailRef, password: passwordRef, phone: phoneRef };
+  const value: Record<Key, string> = { email, password, phone };
+  const need: Record<Step, Key[]> = { email: ["email", "password"], phone: ["phone"], code: [], done: [] };
+  const ok = (key: Key) => valid[key](value[key]);
+  const bad = (key: Key) => Boolean(tried[key]) && !ok(key);
+  const ready = step === "code" ? code.length === 6 : step === "done" || need[step].every(ok);
+
+  const switchTo = (next: Via) => {
+    if (busy || next === step) return;
+    setStep(next);
+    setError("");
+  };
+
+  const request = (mode: Via) =>
+    post<LoginResult>(mode === "phone" ? "/auth/telegram-code" : "/auth/login", mode === "phone" ? { phone } : { email: email.trim(), password });
+
+  async function finish(redirect: string) {
+    setStep("done");
+    await new Promise((resolve) => window.setTimeout(resolve, 650));
+    await refresh();
+    const from = (location.state as { from?: { pathname?: string } })?.from?.pathname;
+    navigate(from && from !== "/login" ? from : redirect, { replace: true });
+  }
+
+  async function next() {
+    if (busy || step === "done") return;
+    if (!ready) {
+      if (step === "code") return nope(otpRef.current);
+      setTried((t) => ({ ...t, ...Object.fromEntries(need[step].map((k) => [k, true])) }));
+      need[step].filter((k) => !ok(k)).forEach((k) => nope(fields.current[k]));
+      return;
+    }
+    const current = step;
+    setBusy(true);
     setError("");
     try {
-      const result = await post<{
-        redirect: string;
-        requires2fa?: boolean;
-        challengeId?: string;
-        telegram?: string;
-      }>(mode === "phone" ? "/auth/telegram-code" : "/auth/login", mode === "phone" ? { phone } : { email, password });
+      if (current === "code") {
+        const result = await post<{ redirect: string }>("/auth/login/verify", { challengeId: challenge?.id, code });
+        setCodeState("good");
+        setBusy(false);
+        await finish(result.redirect);
+        return;
+      }
+      const result = await request(current);
+      setBusy(false);
       if (result.requires2fa && result.challengeId) {
         setChallenge({ id: result.challengeId, telegram: result.telegram || "Telegram" });
+        setVia(current);
         setCode("");
+        setCodeState("");
+        setLeft(RESEND_AFTER);
+        setStep("code");
         return;
       }
       await finish(result.redirect);
     } catch (reason) {
-      setError(errorText(reason, "Kirish amalga oshmadi"));
-    } finally {
-      setLoading(false);
+      setBusy(false);
+      const message = errorText(reason, current === "code" ? "Kod noto‘g‘ri" : current === "phone" ? "Kod yuborilmadi" : "Kirish amalga oshmadi");
+      setError(message);
+      if (current !== "code") return need[current].forEach((k) => nope(fields.current[k]));
+      setCodeState("bad");
+      nope(otpRef.current);
+      // Muddati o‘tgan yoki urinishlar tugagan — boshidan.
+      if (/muddati|Qaytadan/.test(message)) {
+        setStep(via);
+        setLeft(0);
+        return;
+      }
+      window.setTimeout(() => {
+        setCode("");
+        setCodeState("");
+        codeRef.current?.focus({ preventScroll: true });
+      }, 700);
     }
   }
 
-  async function verify(value: string) {
-    if (!challenge || value.length !== 6) return;
-    setLoading(true);
+  async function resend() {
+    if (left > 0 || busy || step !== "code") return;
     setError("");
+    setCode("");
+    setCodeState("");
+    setLeft(RESEND_AFTER);
+    codeRef.current?.focus({ preventScroll: true });
     try {
-      const result = await post<{ redirect: string }>("/auth/login/verify", {
-        challengeId: challenge.id,
-        code: value,
-      });
-      await finish(result.redirect);
+      const result = await request(via);
+      if (result.challengeId) setChallenge({ id: result.challengeId, telegram: result.telegram || "Telegram" });
     } catch (reason) {
-      setError(errorText(reason, "Kod tasdiqlanmadi"));
-      setCode("");
-      if (reason instanceof Error && /muddati|Qaytadan/.test(reason.message)) setChallenge(null);
-    } finally {
-      setLoading(false);
+      setError(errorText(reason, "Kod yuborilmadi"));
+      setLeft(0);
     }
   }
 
-  async function finish(redirect: string) {
-    {
-      await refresh();
-      const from = (location.state as { from?: { pathname?: string } })?.from
-        ?.pathname;
-      navigate(from && from !== "/login" ? from : redirect, {
-        replace: true,
-      });
-    }
-  }
+  const head =
+    step === "code"
+      ? { Icon: MessageSquareText, title: "Tasdiqlash kodi" }
+      : step === "done"
+        ? { Icon: UserCheck, title: "Xush kelibsiz" }
+        : { Icon: LogIn, title: "Kirish" };
+  const goLabel = busy
+    ? { email: "Kirilmoqda", phone: "Yuborilmoqda", code: "Tekshirilmoqda", done: "" }[step]
+    : { email: "Kirish", phone: "Kod yuborish", code: "Tasdiqlash", done: "" }[step];
+  const target = via === "phone" ? phone : challenge && challenge.telegram !== "Telegram" ? challenge.telegram : "";
+  const ring = 2 * Math.PI * 8;
+
+  const change = (key: Key, setter: (v: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setter(key === "phone" ? formatPhone(e.target.value) : e.target.value);
+    if (error) setError("");
+  };
+  const blur = (key: Key) => () => {
+    if (key === "phone" && digits(phone).length <= 3) setPhone("");
+    if (value[key]) setTried((t) => ({ ...t, [key]: true }));
+  };
+  const field = (key: Key, Icon: typeof Mail, input: ReactNode, delay: number, extra?: ReactNode) => (
+    <div
+      key={key}
+      ref={(el) => {
+        fields.current[key] = el;
+      }}
+      className={`lg-field lg-rise${bad(key) ? " bad" : ""}`}
+      style={{ "--d": `${delay}ms` } as CSSProperties}
+      onPointerDown={(e) => {
+        if (!(e.target instanceof HTMLInputElement) && !(e.target as Element).closest?.("button")) {
+          e.preventDefault();
+          inputs[key].current?.focus();
+        }
+      }}
+    >
+      <Icon size={18} className="lg-fic" aria-hidden />
+      {input}
+      {extra}
+    </div>
+  );
 
   return (
-    <main className="auth-layout" id="main-content">
-      <section className="auth-main">
+    <main className="lg-page" id="main-content">
+      <div className="lg-wrap">
         <Logo />
-        {challenge ? (
-          <form
-            className="auth-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void verify(code);
-            }}
-          >
-            <span className="eyebrow">
-              <ShieldCheck size={12} /> 2 bosqichli kirish
-            </span>
-            <h1>Kodni kiriting</h1>
-            <p>
-              6 xonali kod <b>{challenge.telegram}</b> ga Staffora bot orqali yuborildi.
-              Kod 5 daqiqa amal qiladi.
-            </p>
-            <CodeInput
-              value={code}
-              disabled={loading}
-              onChange={(value) => {
-                setCode(value);
-                if (value.length === 6) void verify(value);
-              }}
-            />
-            <ErrorBox message={error} />
-            <button className="btn btn-primary btn-lg btn-block" disabled={loading || code.length !== 6} style={{ marginTop: 14 }}>
-              {loading ? <LoaderCircle className="spin" size={18} /> : <ShieldCheck size={18} />}
-              Tasdiqlash
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost btn-block"
-              style={{ marginTop: 8 }}
-              onClick={() => {
-                setChallenge(null);
-                setError("");
-              }}
-            >
-              Orqaga
-            </button>
-          </form>
-        ) : (
-        <form className="auth-form" onSubmit={submit}>
-          <span className="eyebrow">
-            <Lock size={12} /> Boshqaruv paneli
-          </span>
-          <h1>Xush kelibsiz</h1>
-          <p>Kompaniya hisobingizga kiring.</p>
-          <div className="login-mode" role="tablist">
-            <button type="button" role="tab" aria-selected={mode === "email"} className={mode === "email" ? "on" : ""} onClick={() => (setMode("email"), setError(""))}>
-              <Mail size={15} /> Email va parol
-            </button>
-            <button type="button" role="tab" aria-selected={mode === "phone"} className={mode === "phone" ? "on" : ""} onClick={() => (setMode("phone"), setError(""))}>
-              <Send size={15} /> Telefon + Telegram kod
-            </button>
-          </div>
-          {mode === "phone" ? (
-            <>
-              <label className="field">
-                <span className="label">Telefon raqamingiz</span>
-                <span className="input-icon">
-                  <Phone size={16} />
-                  <input className="input" type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} required autoFocus placeholder="+998 90 123 45 67" />
-                </span>
-              </label>
-              <p className="hint" style={{ marginTop: -4 }}>
-                HR, moliya, IT va filial rahbarlari uchun: lavozimingizga huquq berilgan bo‘lsa, Telegram’ingizga (Staffora boti) 6 xonali kod keladi.
-              </p>
-            </>
-          ) : (
-          <>
-          <label className="field">
-            <span className="label">Email manzil</span>
-            <span className="input-icon">
-              <Mail size={16} />
-              <input
-                className="input"
-                type="email"
-                autoComplete="email"
-                placeholder="siz@kompaniya.uz"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                autoFocus
-              />
-            </span>
-          </label>
-          <label className="field">
-            <span className="label">Parol</span>
-            <span className="input-icon">
-              <KeyRound size={16} />
-              <input
-                className="input"
-                type={show ? "text" : "password"}
-                autoComplete="current-password"
-                placeholder="••••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                style={{ paddingRight: 44 }}
-              />
-              <button
-                type="button"
-                className="icon-btn input-suffix"
-                aria-label={show ? "Parolni yashirish" : "Parolni ko‘rsatish"}
-                onClick={() => setShow(!show)}
-              >
-                {show ? <EyeOff size={17} /> : <Eye size={17} />}
-              </button>
-            </span>
-          </label>
-          </>
-          )}
-          <ErrorBox message={error} />
-          <button
-            className="btn btn-primary btn-lg btn-block"
-            disabled={loading}
-            style={{ marginTop: 14 }}
-          >
-            {loading ? (
-              <LoaderCircle className="spin" size={18} />
-            ) : (
-              <ArrowRight size={18} />
+        <form
+          className="lg-card"
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            void next();
+          }}
+        >
+          <AutoHeight>
+            <div className="lg-head">
+              <head.Icon key={head.title} size={20} className="lg-pop" aria-hidden />
+              <h1 key={`t-${head.title}`} className="lg-morph">
+                {head.title}
+              </h1>
+            </div>
+
+            {(step === "email" || step === "phone") && (
+              <>
+                <div className="lg-seg lg-rise" role="tablist" style={{ "--k": step === "phone" ? 1 : 0 } as CSSProperties}>
+                  <i className="lg-sel" aria-hidden />
+                  <button type="button" role="tab" aria-selected={step === "email"} className="lg-tab" onClick={() => switchTo("email")}>
+                    <KeyRound size={17} aria-hidden /> Email va parol
+                  </button>
+                  <button type="button" role="tab" aria-selected={step === "phone"} className="lg-tab" onClick={() => switchTo("phone")}>
+                    <Smartphone size={17} aria-hidden /> Telefon raqam
+                  </button>
+                </div>
+                {step === "email" ? (
+                  <>
+                    {field(
+                      "email",
+                      Mail,
+                      <input
+                        ref={emailRef}
+                        className="lg-input"
+                        type="email"
+                        inputMode="email"
+                        autoComplete="username"
+                        spellCheck={false}
+                        placeholder="Email"
+                        aria-label="Email"
+                        value={email}
+                        onChange={change("email", setEmail)}
+                        onBlur={blur("email")}
+                      />,
+                      40,
+                    )}
+                    {field(
+                      "password",
+                      Lock,
+                      <input
+                        ref={passwordRef}
+                        className="lg-input"
+                        type={show ? "text" : "password"}
+                        autoComplete="current-password"
+                        placeholder="Parol"
+                        aria-label="Parol"
+                        value={password}
+                        onChange={change("password", setPassword)}
+                        onBlur={blur("password")}
+                      />,
+                      80,
+                      <button
+                        type="button"
+                        className="lg-eye"
+                        aria-label={show ? "Parolni yashirish" : "Parolni ko‘rsatish"}
+                        aria-pressed={show}
+                        onPointerDown={(e) => e.preventDefault()}
+                        onClick={() => setShow(!show)}
+                      >
+                        {show ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>,
+                    )}
+                  </>
+                ) : (
+                  field(
+                    "phone",
+                    Phone,
+                    <input
+                      ref={phoneRef}
+                      className="lg-input"
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      placeholder="+998 90 123 45 67"
+                      aria-label="Telefon raqam"
+                      value={phone}
+                      onFocus={() => !phone && setPhone("+998 ")}
+                      onChange={change("phone", setPhone)}
+                      onBlur={blur("phone")}
+                    />,
+                    40,
+                  )
+                )}
+              </>
             )}
-            {loading ? "Tekshirilmoqda…" : mode === "phone" ? "Kod yuborish" : "Tizimga kirish"}
-          </button>
-          <p className="hint" style={{ marginTop: 18 }}>
-            Xodimmisiz? Davomat uchun kompaniyangiz Telegram botini oching.
-          </p>
+
+            {step === "code" && (
+              <>
+                <div className="lg-line lg-rise">
+                  <span>Telegram’ga kod yuborildi</span>
+                  {target && <b>{target}</b>}
+                </div>
+                <label ref={otpRef} className={`lg-otp lg-rise ${codeState}${otpFocus ? " foc" : ""}`} style={{ "--d": "40ms" } as CSSProperties}>
+                  <span className="lg-cells" aria-hidden>
+                    {Array.from({ length: 6 }, (_, i) => (
+                      <span key={i} className={`lg-cell${i === Math.min(code.length, 5) ? " cur" : ""}`}>
+                        {code[i] && (
+                          <b key={code[i]} className="lg-digit">
+                            {code[i]}
+                          </b>
+                        )}
+                      </span>
+                    ))}
+                  </span>
+                  <input
+                    ref={codeRef}
+                    value={code}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    aria-label="6 xonali kod"
+                    readOnly={busy}
+                    onFocus={() => setOtpFocus(true)}
+                    onBlur={() => setOtpFocus(false)}
+                    onChange={(e) => {
+                      const d = digits(e.target.value).slice(0, 6);
+                      setCode(d);
+                      setCodeState("");
+                      if (error) setError("");
+                      // To‘liq kod — o‘zi tasdiqlanadi.
+                      if (d.length === 6) window.setTimeout(() => goRef.current?.click(), 160);
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="lg-resend lg-rise"
+                  style={{ "--d": "80ms" } as CSSProperties}
+                  aria-disabled={left > 0}
+                  onClick={() => void resend()}
+                >
+                  {left > 0 ? (
+                    <svg className="lg-ring" viewBox="0 0 20 20" aria-hidden>
+                      <circle className="trk" cx="10" cy="10" r="8" />
+                      <circle className="arc" cx="10" cy="10" r="8" strokeDasharray={ring} strokeDashoffset={ring * (1 - left / RESEND_AFTER)} />
+                    </svg>
+                  ) : (
+                    <RefreshCw size={18} aria-hidden />
+                  )}
+                  <span>Qayta yuborish</span>
+                  {left > 0 && <b>{`${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`}</b>}
+                </button>
+              </>
+            )}
+
+            {step === "done" && (
+              <div className="lg-done lg-rise" style={{ "--d": "60ms" } as CSSProperties}>
+                <span className="lg-badge">
+                  <Check size={26} strokeWidth={2.4} />
+                </span>
+                <span>Siz tizimga kirdingiz</span>
+              </div>
+            )}
+
+            {error && (
+              <div className="lg-err lg-rise" role="alert" key={error}>
+                <AlertCircle size={18} aria-hidden />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {step !== "done" && (
+              <div className="lg-foot">
+                {step === "code" && (
+                  <button
+                    type="button"
+                    className="lg-btn lg-back"
+                    disabled={busy}
+                    onClick={() => {
+                      setStep(via);
+                      setError("");
+                      setLeft(0);
+                    }}
+                  >
+                    <ChevronLeft size={18} aria-hidden /> Orqaga
+                  </button>
+                )}
+                <button ref={goRef} className={`lg-btn lg-go${ready || busy ? "" : " off"}`} aria-disabled={!ready || busy}>
+                  {busy && <LoaderCircle size={18} className="spin" aria-hidden />}
+                  <span key={goLabel} className="lg-morph">
+                    {goLabel}
+                  </span>
+                </button>
+              </div>
+            )}
+          </AutoHeight>
         </form>
-        )}
         <p className="auth-foot">© {new Date().getFullYear()} Staffora</p>
-      </section>
-      <AuthAside />
+      </div>
     </main>
   );
 }
@@ -503,37 +661,6 @@ export function SetupPage() {
         </form>
         <p className="auth-foot">© {new Date().getFullYear()} Staffora</p>
       </section>
-      <AuthAside />
     </main>
-  );
-}
-
-function CodeInput({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="code-input">
-      <input
-        value={value}
-        inputMode="numeric"
-        autoComplete="one-time-code"
-        autoFocus
-        maxLength={6}
-        disabled={disabled}
-        aria-label="Tasdiqlash kodi"
-        onChange={(e) => onChange(e.target.value.replace(/\D/g, "").slice(0, 6))}
-      />
-      {Array.from({ length: 6 }, (_, i) => (
-        <span key={i} className={i === value.length ? "active" : value[i] ? "filled" : ""}>
-          {value[i] || ""}
-        </span>
-      ))}
-    </label>
   );
 }

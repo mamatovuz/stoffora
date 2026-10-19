@@ -56,6 +56,7 @@ const LEAVE_TYPES: Record<string, string> = { VACATION: "Mehnat ta’tili", SICK
 import { createMiniPeopleRouter } from "./people";
 import { createMiniHistoryRouter, marksOf, saveMarkPhoto } from "./history";
 import { lookalikeAlert } from "./face-reference";
+import { warmFaceWorker } from "./face-server";
 import { createMiniEngageRouter } from "./engage";
 import { createMiniBadgeRouter } from "./badge";
 import { deviceFlags, isDeepLinkParam } from "../lib/mini";
@@ -354,6 +355,8 @@ export function createMiniRouter() {
     asyncRoute(async (req, res) => {
       const db = await readDb();
       const session = req.employeeSession!;
+      // Native ilova kadrlarni serverda tekshiradi — model oldindan tayyor tursin.
+      if (session.mdid) warmFaceWorker();
       const employee = db.employees.find(
         (item) =>
           item.id === session.employeeId &&

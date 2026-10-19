@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, ArrowDown, Bell, BriefcaseBusiness, CheckCircle2, Clock3, Home, LoaderCircle, Plane, RefreshCw, RotateCcw, Send, UserRound, WifiOff } from "lucide-react";
+import { AlertCircle, ArrowDown, Bell, BriefcaseBusiness, CheckCircle2, Clock, House, Inbox, LoaderCircle, RefreshCw, RotateCcw, Send, UserRound, WifiOff } from "lucide-react";
 import { ApiError, api, errorText, post, restoreBearerToken, setBearerToken } from "../api";
 import { FaceScanner, type FaceCapture } from "../components/FaceScanner";
 import { enqueueOffline, isNetworkError, readQueue, restoreQueueBackup, syncOfflineQueue } from "./miniOffline";
@@ -40,6 +40,7 @@ import type { HelpdeskView } from "./mini/Helpdesk";
 import { disableZoom } from "./mini/noZoom";
 import { BirthdaysSheet } from "./mini/Birthdays";
 import { FaceCheck } from "./mini/FaceCheck";
+import { NavMenu, type NavMenuItem } from "./mini/NavMenu";
 
 // Bo‘limlar kerak bo‘lganda yuklanadi — birinchi ochilish tezroq.
 const MiniHistory = lazy(() => import("./mini/History").then((m) => ({ default: m.MiniHistory })));
@@ -721,32 +722,22 @@ export function MiniAppPage() {
           )}
         </Suspense>
       </main>
-      <nav
-        className="mini-tabbar"
-        style={{ "--n": manager ? 5 : 4, "--i": Math.max(0, ["home", "history", "leave", "profile", "manager"].indexOf(nav.tab)) } as React.CSSProperties}
-      >
-        {(
+      <NavMenu
+        items={
           [
-            ["home", Home, "Asosiy"],
-            ["history", Clock3, "Tarix"],
-            ["leave", Plane, "So‘rovlar"],
-            ["profile", UserRound, "Profil"],
-            ...(manager ? ([["manager", BriefcaseBusiness, "Rahbar"]] as const) : []),
-          ] as const
-        ).map(([key, Icon, label]) => (
-          <button
-            key={key}
-            className={nav.tab === key ? "active" : ""}
-            onClick={() => {
-              haptic.select();
-              setTab(key);
-            }}
-          >
-            <Icon size={21} strokeWidth={nav.tab === key ? 2.3 : 1.9} />
-            <span>{label}</span>
-          </button>
-        ))}
-      </nav>
+            { key: "home", icon: House, label: "Bosh sahifa" },
+            { key: "history", icon: Clock, label: "Tarix" },
+            { key: "leave", icon: Inbox, label: "So‘rovlar" },
+            { key: "profile", icon: UserRound, label: "Profil" },
+            ...(manager ? [{ key: "manager", icon: BriefcaseBusiness, label: "Rahbar" }] : []),
+          ] as NavMenuItem<Tab>[]
+        }
+        value={nav.tab}
+        onSelect={(key) => {
+          haptic.select();
+          setTab(key);
+        }}
+      />
       {/* Kundalik belgilash: kamera + ramka (qizil/yashil) + xarita. Birinchi marta va biometriya ulashda — to‘liq skaner. */}
       {faceAction && !bioEnroll && home.employee.faceEnrolledAt && (
         <FaceCheck

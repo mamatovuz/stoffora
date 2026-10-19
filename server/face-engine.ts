@@ -58,6 +58,23 @@ export function faceEngine() {
   return ready;
 }
 
+/**
+ * Modellarni oldindan yuklash va birinchi (eng sekin) hisobni bo‘sh kadrda bajarish —
+ * xodim kamerani ochganda birinchi kadr ham tez javob oladi.
+ */
+export async function warmUp() {
+  const { faceapi, tf } = await faceEngine();
+  const blank = tf.zeros([160, 160, 3], "int32");
+  try {
+    await faceapi.detectSingleFace(blank as never, new faceapi.TinyFaceDetectorOptions({ inputSize: 160 }));
+    await faceapi.computeFaceDescriptor(blank as never);
+  } catch {
+    /* isitish ixtiyoriy */
+  } finally {
+    blank.dispose();
+  }
+}
+
 export type ServerFace = {
   descriptor: number[];
   /** Yuz qutisi (kadr o‘lchamiga nisbatan 0–1) — ilovada ramka chizish uchun. */
