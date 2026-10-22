@@ -1,4 +1,4 @@
-import { moduleEnabled } from "../lib/modules";
+import { companyModuleEnabled } from "./modules";
 import { GrammyError, InputFile } from "grammy";
 import { readDb, updateDb } from "../lib/store";
 import type { Attendance, Branch, Database, Employee } from "../lib/types";
@@ -29,7 +29,7 @@ export function enqueueAttendancePhoto(
   const company = db.companies.find((c) => c.id === input.employee.companyId);
   const channel = company?.photoChannel;
   if (!channel?.enabled || !channel.chatId || !input.photoDataUrl) return;
-  if (!moduleEnabled(company?.modules, "photoChannel")) return;
+  if (!companyModuleEnabled(db, input.employee.companyId, "photoChannel")) return;
   const a = input.attendance;
   const checkIn = input.action === "CHECK_IN";
   const lines = [

@@ -1,4 +1,4 @@
-import { disabledModules } from "../lib/modules";
+import { companyDisabledModules } from "./modules";
 import { randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
@@ -61,7 +61,7 @@ export function createManagerAuthRouter() {
           );
           const company = user && db.companies.find((c) => c.id === user.companyId);
           // Rahbar emas — jim qaytamiz, Mini App oddiy xodim rejimida qoladi.
-          if (!user || !company || company.status === "SUSPENDED") return res.status(204).end();
+          if (!user || user.blockedAt || !company || company.status === "SUSPENDED") return res.status(204).end();
           const now = new Date().toISOString();
           const device: PanelSession = {
             id: randomUUID(),
@@ -88,7 +88,7 @@ export function createManagerAuthRouter() {
           };
           res.json({
             token: signSession(session),
-            user: { id: user.id, name: user.name, role: user.role, branchIds: user.branchIds || [], photoDataUrl: user.photoDataUrl, modules: disabledModules(company) },
+            user: { id: user.id, name: user.name, role: user.role, branchIds: user.branchIds || [], photoDataUrl: user.photoDataUrl, modules: companyDisabledModules(db, company) },
             company: { id: company.id, name: company.name },
           });
         })(),

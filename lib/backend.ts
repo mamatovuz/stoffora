@@ -64,6 +64,8 @@ export interface Backend {
   fileIds(): Promise<string[]>;
   /** Umumiy SQL (SQLite sintaksisida yoziladi; PostgreSQL uchun avtomatik moslanadi). */
   all<T>(sql: string, params?: unknown[]): Promise<T[]>;
+  /** Ulanishlar havzasi holati (faqat PostgreSQL). */
+  poolStats?(): { total: number; idle: number; waiting: number; max: number };
   run(sql: string, params?: unknown[]): Promise<number>;
   close(): Promise<void>;
 }
@@ -95,6 +97,86 @@ const OPS_DDL = `
   CREATE INDEX IF NOT EXISTS deliveries_pending ON notification_deliveries(status, channel);
 `;
 const PG_OPS_DDL = OPS_DDL.replace(/INTEGER PRIMARY KEY AUTOINCREMENT/g, "BIGSERIAL PRIMARY KEY");
+
+/*
+ * Super Admin Control Center jurnallari (faqat qo‘shiladi — mavjud jadvallarga tegmaydi):
+ *   platform_audit        — platforma auditi (API orqali o‘zgartirib/o‘chirib bo‘lmaydi, faqat saqlash muddati bo‘yicha tozalanadi);
+ *   platform_errors       — xatolar markazi (fingerprint bo‘yicha guruhlangan);
+ *   platform_metrics      — soatlik API/resurs ko‘rsatkichlari;
+ *   platform_usage        — kunlik agregat foydalanish (kompaniya × metrika);
+ *   platform_active_users — kunlik faol panel foydalanuvchilari (DAU/MAU);
+ *   platform_security     — xavfsizlik hodisalari (muvaffaqiyatsiz kirish va h.k.);
+ *   platform_jobs         — fon ishlari navbati;
+ *   platform_deliveries   — bildirishnoma yetkazish (dedupe_key noyob);
+ *   webhook_deliveries    — webhook yetkazish (qayta urinish bilan);
+ *   company_health        — kunlik sog‘liq bahosi;
+ *   platform_i18n_missing — tarjimasi topilmagan matnlar.
+ */
+export const PLATFORM_TABLES = [
+  "platform_audit",
+  "platform_errors",
+  "platform_metrics",
+  "platform_usage",
+  "platform_active_users",
+  "platform_security",
+  "platform_jobs",
+  "platform_deliveries",
+  "webhook_deliveries",
+  "company_health",
+  "platform_i18n_missing",
+] as const;
+const PLATFORM_DDL = `
+  CREATE TABLE IF NOT EXISTS platform_audit (
+    id TEXT PRIMARY KEY, at TEXT NOT NULL, actor_id TEXT, actor_name TEXT NOT NULL, actor_role TEXT, company_id TEXT,
+    action TEXT NOT NULL, entity TEXT, entity_id TEXT, result TEXT NOT NULL, request_id TEXT, ip TEXT, user_agent TEXT,
+    summary TEXT NOT NULL, details TEXT, privileged INTEGER NOT NULL DEFAULT 0);
+  CREATE INDEX IF NOT EXISTS platform_audit_at ON platform_audit(at DESC);
+  CREATE INDEX IF NOT EXISTS platform_audit_company ON platform_audit(company_id, at DESC);
+  CREATE INDEX IF NOT EXISTS platform_audit_action ON platform_audit(action, at DESC);
+  CREATE TABLE IF NOT EXISTS platform_errors (
+    fingerprint TEXT PRIMARY KEY, service TEXT NOT NULL, company_id TEXT, severity TEXT NOT NULL, message TEXT NOT NULL,
+    stack TEXT, path TEXT, status TEXT NOT NULL, note TEXT, first_seen TEXT NOT NULL, last_seen TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 1);
+  CREATE INDEX IF NOT EXISTS platform_errors_seen ON platform_errors(last_seen DESC);
+  CREATE INDEX IF NOT EXISTS platform_errors_status ON platform_errors(status, last_seen DESC);
+  CREATE TABLE IF NOT EXISTS platform_metrics (
+    bucket TEXT PRIMARY KEY, requests INTEGER NOT NULL DEFAULT 0, errors INTEGER NOT NULL DEFAULT 0, client_errors INTEGER NOT NULL DEFAULT 0,
+    p95_ms INTEGER NOT NULL DEFAULT 0, avg_ms INTEGER NOT NULL DEFAULT 0, rss_mb INTEGER NOT NULL DEFAULT 0, lag_ms INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE IF NOT EXISTS platform_usage (
+    day TEXT NOT NULL, company_id TEXT NOT NULL, metric TEXT NOT NULL, value INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (day, company_id, metric));
+  CREATE INDEX IF NOT EXISTS platform_usage_company ON platform_usage(company_id, day);
+  CREATE INDEX IF NOT EXISTS platform_usage_metric ON platform_usage(metric, day);
+  CREATE TABLE IF NOT EXISTS platform_active_users (
+    day TEXT NOT NULL, company_id TEXT NOT NULL, user_id TEXT NOT NULL, PRIMARY KEY (day, user_id));
+  CREATE INDEX IF NOT EXISTS platform_active_company ON platform_active_users(company_id, day);
+  CREATE TABLE IF NOT EXISTS platform_security (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, type TEXT NOT NULL, severity TEXT NOT NULL, user_id TEXT,
+    subject TEXT, ip TEXT, user_agent TEXT, detail TEXT);
+  CREATE INDEX IF NOT EXISTS platform_security_at ON platform_security(at DESC);
+  CREATE INDEX IF NOT EXISTS platform_security_type ON platform_security(type, at DESC);
+  CREATE TABLE IF NOT EXISTS platform_jobs (
+    id TEXT PRIMARY KEY, type TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL, result TEXT, error TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 3, run_at TEXT NOT NULL, created_at TEXT NOT NULL,
+    started_at TEXT, finished_at TEXT, created_by TEXT, company_id TEXT, dedupe_key TEXT UNIQUE);
+  CREATE INDEX IF NOT EXISTS platform_jobs_due ON platform_jobs(status, run_at);
+  CREATE INDEX IF NOT EXISTS platform_jobs_created ON platform_jobs(created_at DESC);
+  CREATE TABLE IF NOT EXISTS platform_deliveries (
+    id TEXT PRIMARY KEY, notification_id TEXT NOT NULL, company_id TEXT, user_id TEXT, recipient TEXT NOT NULL, channel TEXT NOT NULL,
+    status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, error TEXT, message TEXT, dedupe_key TEXT NOT NULL UNIQUE,
+    next_attempt_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, sent_at TEXT);
+  CREATE INDEX IF NOT EXISTS platform_deliveries_due ON platform_deliveries(status, next_attempt_at);
+  CREATE INDEX IF NOT EXISTS platform_deliveries_notification ON platform_deliveries(notification_id, status);
+  CREATE TABLE IF NOT EXISTS webhook_deliveries (
+    id TEXT PRIMARY KEY, endpoint_id TEXT NOT NULL, company_id TEXT NOT NULL, event TEXT NOT NULL, payload TEXT NOT NULL,
+    status TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, next_attempt_at TEXT NOT NULL, response_status INTEGER,
+    error TEXT, duration_ms INTEGER, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+  CREATE INDEX IF NOT EXISTS webhook_deliveries_due ON webhook_deliveries(status, next_attempt_at);
+  CREATE INDEX IF NOT EXISTS webhook_deliveries_endpoint ON webhook_deliveries(endpoint_id, created_at DESC);
+  CREATE TABLE IF NOT EXISTS company_health (
+    day TEXT NOT NULL, company_id TEXT NOT NULL, score INTEGER NOT NULL, components TEXT NOT NULL, PRIMARY KEY (day, company_id));
+  CREATE TABLE IF NOT EXISTS platform_i18n_missing (
+    lang TEXT NOT NULL, text TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 1, last_seen TEXT NOT NULL, PRIMARY KEY (lang, text));
+`;
+const PG_PLATFORM_DDL = PLATFORM_DDL.replace(/INTEGER PRIMARY KEY AUTOINCREMENT/g, "BIGSERIAL PRIMARY KEY");
 /** SQLite so‘rovini PostgreSQL’ga: ? → $n, INSERT OR IGNORE → ON CONFLICT DO NOTHING. */
 export function toPg(sql: string) {
   let n = 0;
@@ -128,6 +210,7 @@ export function openSqlite(file: string, readonly = false) {
     db.pragma("temp_store = MEMORY");
     db.exec(SQLITE_SCHEMA);
     db.exec(OPS_DDL);
+    db.exec(PLATFORM_DDL);
   }
   return db;
 }
@@ -138,6 +221,10 @@ export class SqliteBackend implements Backend {
   db!: BetterSqlite3.Database;
   constructor(private file: string) {
     this.label = `SQLite ${file}`;
+  }
+  /** Onlayn zaxira nusxa (SQLite backup API — yozuvlar to‘xtamaydi). */
+  async backupTo(destination: string) {
+    await this.db.backup(destination);
   }
   async init() {
     this.db ||= openSqlite(this.file);
@@ -300,6 +387,7 @@ export class PostgresBackend implements Backend {
     this.pool.on("error", (error) => console.error("PostgreSQL ulanish xatosi", error.message));
     await this.pool.query(PG_SCHEMA);
     await this.pool.query(PG_OPS_DDL);
+    await this.pool.query(PG_PLATFORM_DDL);
     // Yozuvchi qulfi: boshqa nusxa ishlayotgan bo‘lsa (deploy qoplanishi) — u to‘xtaguncha kutamiz.
     this.lockClient = await this.pool.connect();
     this.lockClient.on("error", (error) => {
@@ -569,6 +657,9 @@ export class PostgresBackend implements Backend {
   }
   async all<T>(sql: string, params: unknown[] = []) {
     return (await this.pool.query(toPg(sql), params)).rows as T[];
+  }
+  poolStats() {
+    return { total: this.pool?.totalCount ?? 0, idle: this.pool?.idleCount ?? 0, waiting: this.pool?.waitingCount ?? 0, max: 8 };
   }
   async run(sql: string, params: unknown[] = []) {
     return (await this.pool.query(toPg(sql), params)).rowCount ?? 0;

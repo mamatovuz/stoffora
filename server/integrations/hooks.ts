@@ -5,6 +5,7 @@ import { categoryOfRouting, wantsPush } from "../../lib/notify-prefs";
 import { activeIntegration, mappingByLocal, newId, SOURCE_KEY } from "./model";
 import { enqueueOutbox, logIntegration, upsertDelivery } from "./sqlstore";
 import { tashkentToIso } from "./transform";
+import { emitWebhook } from "../platform/integrations-api";
 
 /*
  * Staffora ichidagi hodisalardan integratsiyaga ulanish nuqtalari.
@@ -14,6 +15,16 @@ import { tashkentToIso } from "./transform";
 
 /** Mini App'da qayd etilgan keldi-ketdini xodimlar botiga yuborish uchun navbatga qo‘yadi. */
 export function onStafforaAttendance(companyId: string, attendance: Attendance, action: "CHECK_IN" | "CHECK_OUT") {
+  // Kompaniya webhooklari (Super Admin → Integratsiyalar): imzolangan hodisa, qayta urinish bilan.
+  emitWebhook(companyId, action === "CHECK_IN" ? "attendance.check_in" : "attendance.check_out", {
+    id: attendance.id,
+    employeeId: attendance.employeeId,
+    branchId: attendance.branchId,
+    date: attendance.date,
+    time: action === "CHECK_IN" ? attendance.checkIn : attendance.checkOut,
+    status: attendance.status,
+    lateMinutes: attendance.lateMinutes,
+  });
   void (async () => {
     const db = await readDb();
     const integration = activeIntegration(db, companyId);

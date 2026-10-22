@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "29ac9320-9df4-4c30-9351-df4f5dbdf0db"
+      }
+    },
+    "android": {
+      "package": "com.mamatovuz.staffora"
+    }
+  }
+}

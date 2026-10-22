@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { Camera, ChevronLeft, ChevronRight, LogIn, LogOut, MapPin, Pencil, X } from "lucide-react";
 import { useApi } from "../hooks";
 import { ErrorBox, Loading } from "./ui";
@@ -7,11 +7,12 @@ import { dateLongUz, duration, tashkentIsoDate } from "@/lib/format";
 import { leaveTypeLabel, weekdayShort, weekOrder } from "../types";
 
 /*
- * Xodim kalendari (sayt, xodim profili) — minimal ko‘rinish:
- *   katakda faqat haqiqiy keldi–ketdi vaqti va holat nuqtasi (yashil — vaqtida, sariq — kechikdi,
- *   qizil — kelmadi, binafsha — ta’til); kelajak kunlarda — grafik (och rangda), dam olish kuni — kulrang.
- * Kun bosilsa — katak yonida kichik oyna: asosiy raqamlar darhol (oylik ma’lumotdan), qaydnoma
- * (rasm, filial, usul) esa fonda yuklanadi. Huquq bo‘lsa — «Tuzatish».
+ * Xodim kalendari (sayt, xodim profili): har kunda ikki qator —
+ *   ko‘k — grafik bo‘yicha reja (14:00 – 00:00), qizg‘ish — dam olish kuni, binafsha — ta’til;
+ *   yashil — haqiqatda keldi-ketdi (14:06 – 23:53), sariq — ketish belgilanmagan, qizil — kelmadi;
+ * pastida og‘ishlar: kechikish va erta ketish.
+ * Kun bosilsa — katak yonida kichik karta: asosiy raqamlar darhol (oylik ma’lumotdan), qaydnoma
+ * (rasm, filial, usul) esa fonda yuklanadi. Pastki qatorlarda karta tepaga qarab ochiladi. Huquq bo‘lsa — «Tuzatish».
  * Ma’lumot manbai — /employees/:id/history (Mini App va ilovadagi taqvim bilan bir xil).
  */
 
@@ -52,8 +53,8 @@ type DayDetail = {
   marks: { kind: "IN" | "OUT"; time: string; branchName: string; method: string; distanceMeters?: number; accuracy?: number; photo?: string; photoExpired?: boolean }[];
   requests: { id: string; kind: string; detail: string; status: string }[];
 };
-/** Oyna joylashuvi — bosilgan katakka nisbatan (px, kalendar to‘riga nisbatan). */
-type Spot = { date: string; left: number; top: number; side: "right" | "left" | "below" };
+/** Karta joylashuvi — bosilgan katakka nisbatan (px, .ecal-wrap ga nisbatan). */
+type Spot = { date: string; left: number; cellTop: number; cellBottom: number; side: "right" | "left" | "below" };
 
 const METHOD: Record<string, string> = { FACE: "Face ID", BIOMETRIC: "Barmoq izi / Face (telefon)", MANUAL: "Qo‘lda" };
 const REQUEST_STATUS: Record<string, string> = { PENDING: "Kutilmoqda", APPROVED: "Tasdiqlangan", REJECTED: "Rad etilgan", CANCELLED: "Bekor qilingan" };
@@ -76,6 +77,8 @@ const shiftMonth = (month: string, delta: number) => {
 };
 const addDays = (iso: string, n: number) => new Date(Date.parse(`${iso}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 const restLabel = (d: Day) => (d.reason && d.reason !== "Shaxsiy dam olish kuni" ? d.reason : "Dam olish");
+/** Kechikish: 1 soatgacha — sariq, undan ko‘p — qizil (Verifix’dagidek). */
+const severity = (minutes: number) => (minutes >= 60 ? "bad" : "warn");
 
 export function EmployeeCalendar({ employeeId, employeeName, canEdit = false }: { employeeId: string; employeeName: string; canEdit?: boolean }) {
   const current = tashkentIsoDate().slice(0, 7);
@@ -124,16 +127,17 @@ export function EmployeeCalendar({ employeeId, employeeName, canEdit = false }: 
     setSpot(null);
   };
 
-  /** Oynani katak yoniga joylash: o‘ngda joy bo‘lsa — o‘ngga, bo‘lmasa chapga, u ham bo‘lmasa — ostiga. */
+  /** Kartani katak yoniga joylash: o‘ngda joy bo‘lsa — o‘ngga, bo‘lmasa chapga, u ham bo‘lmasa — ustiga/ostiga. */
   const pick = (date: string, cell: HTMLElement) => {
     if (spot?.date === date) return setSpot(null);
     const width = grid.current?.clientWidth || 0;
     const w = Math.min(POP_W, width - 16);
     const left = cell.offsetLeft;
     const right = left + cell.offsetWidth;
-    if (right + 8 + w <= width) setSpot({ date, left: right + 8, top: cell.offsetTop, side: "right" });
-    else if (left - 8 - w >= 0) setSpot({ date, left: left - 8 - w, top: cell.offsetTop, side: "left" });
-    else setSpot({ date, left: Math.max(0, Math.min(width - w, left + cell.offsetWidth / 2 - w / 2)), top: cell.offsetTop + cell.offsetHeight + 8, side: "below" });
+    const base = { date, cellTop: cell.offsetTop, cellBottom: cell.offsetTop + cell.offsetHeight };
+    if (right + 8 + w <= width) setSpot({ ...base, left: right + 8, side: "right" });
+    else if (left - 8 - w >= 0) setSpot({ ...base, left: left - 8 - w, side: "left" });
+    else setSpot({ ...base, left: Math.max(0, Math.min(width - w, left + cell.offsetWidth / 2 - w / 2)), side: "below" });
   };
 
   return (
@@ -166,12 +170,12 @@ export function EmployeeCalendar({ employeeId, employeeName, canEdit = false }: 
               <i /> Kelmadi <b>{s.absent}</b>
             </span>
             {s.leave ? (
-              <span className="leave">
+              <span className="rest">
                 <i /> Ta’til <b>{s.leave}</b>
               </span>
             ) : null}
             <span className="plain">
-              Ishladi <b>{duration(s.workedMinutes)}</b> / {duration(s.plannedMinutes)}
+              Ishladi <b>{duration(s.workedMinutes)}</b> / reja {duration(s.plannedMinutes)}
             </span>
           </div>
         )}
@@ -180,25 +184,27 @@ export function EmployeeCalendar({ employeeId, employeeName, canEdit = false }: 
       {!shown && loading ? (
         <Loading />
       ) : (
-        <div className="ecal-grid" role="grid" aria-label="Oylik kalendar" ref={grid}>
-          {weekOrder.map((d) => (
-            <div key={d} className="ecal-wd" role="columnheader">
-              {weekdayShort[d]}
-            </div>
-          ))}
-          {Array.from({ length: offset }, (_, i) => (
-            <div key={`p${i}`} className="ecal-cell other" aria-hidden>
-              <span className="ecal-num">{Number(addDays(first, i - offset).slice(8))}</span>
-            </div>
-          ))}
-          {days.map((d) => (
-            <DayCell key={d.date} day={d} today={today} picked={spot?.date === d.date} onPick={(cell) => pick(d.date, cell)} />
-          ))}
-          {Array.from({ length: trailing }, (_, i) => (
-            <div key={`n${i}`} className="ecal-cell other" aria-hidden>
-              <span className="ecal-num">{Number(addDays(lastDate, i + 1).slice(8))}</span>
-            </div>
-          ))}
+        <div className="ecal-wrap">
+          <div className="ecal-grid" role="grid" aria-label="Oylik kalendar" ref={grid}>
+            {weekOrder.map((d) => (
+              <div key={d} className="ecal-wd" role="columnheader">
+                {weekdayShort[d]}
+              </div>
+            ))}
+            {Array.from({ length: offset }, (_, i) => (
+              <div key={`p${i}`} className="ecal-cell other" aria-hidden>
+                <span className="ecal-num">{Number(addDays(first, i - offset).slice(8))}</span>
+              </div>
+            ))}
+            {days.map((d) => (
+              <DayCell key={d.date} day={d} today={today} picked={spot?.date === d.date} onPick={(cell) => pick(d.date, cell)} />
+            ))}
+            {Array.from({ length: trailing }, (_, i) => (
+              <div key={`n${i}`} className="ecal-cell other" aria-hidden>
+                <span className="ecal-num">{Number(addDays(lastDate, i + 1).slice(8))}</span>
+              </div>
+            ))}
+          </div>
           {spot && pickedDay && (
             <DayPop
               key={`${spot.date}:${dayKey}`}
@@ -226,6 +232,27 @@ export function EmployeeCalendar({ employeeId, employeeName, canEdit = false }: 
         </div>
       )}
 
+      <div className="ecal-legend">
+        <span>
+          <i className="plan" /> Grafik (reja)
+        </span>
+        <span>
+          <i className="fact" /> Keldi – ketdi
+        </span>
+        <span>
+          <i className="nocheck" /> Ketish belgilanmagan
+        </span>
+        <span>
+          <i className="rest" /> Dam olish kuni
+        </span>
+        <span>
+          <i className="dev" /> Kechikish / erta ketish
+        </span>
+        <span>
+          <em className="ecal-manual">✎</em> Qo‘lda tuzatilgan
+        </span>
+      </div>
+
       {editing && (
         <AttendanceEditModal
           target={editing}
@@ -243,46 +270,48 @@ export function EmployeeCalendar({ employeeId, employeeName, canEdit = false }: 
 
 function DayCell({ day: d, today, picked, onPick }: { day: Day; today: string; picked: boolean; onPick: (cell: HTMLElement) => void }) {
   const isToday = d.date === today;
-  const status = STATUS[d.tone];
-  const early = d.earlyLeaveMinutes || 0;
-  let main: React.ReactNode = null;
-  let sub: React.ReactNode = null;
+  const plan = d.leave ? (
+    <span className="ecal-bar leave">{leaveTypeLabel[d.leave] || "Ta’til"}</span>
+  ) : d.working ? (
+    <span className={`ecal-bar plan ${d.overridden ? "changed" : ""}`} title={d.overridden ? `Grafik o‘zgartirilgan${d.reason ? `: ${d.reason}` : ""}` : undefined}>
+      {d.start}–{d.end}
+    </span>
+  ) : d.tone !== "none" ? (
+    <span className="ecal-bar rest" title={d.reason}>
+      {d.reason && d.reason !== "Shaxsiy dam olish kuni" ? d.reason : "Dam olish kuni"}
+    </span>
+  ) : null;
+  let fact = null;
   if (d.checkIn) {
     const open = !d.checkOut && !d.noCheckout;
-    main = (
-      <span className="ecal-time">
-        {d.checkIn}
-        {d.checkOut ? ` – ${d.checkOut}` : open ? " – …" : ""}
+    fact = (
+      <span className={`ecal-bar ${d.noCheckout ? "nocheck" : "fact"}`}>
+        {d.checkIn}–{d.checkOut || (open ? "ishda" : "chiqish yo‘q")}
       </span>
     );
-    if (d.lateMinutes > 0) sub = <span className="ecal-note warn">{duration(d.lateMinutes)} kech</span>;
-    else if (early > 0) sub = <span className="ecal-note warn">{duration(early)} erta ketdi</span>;
-    else if (d.noCheckout) sub = <span className="ecal-note warn">Ketish yo‘q</span>;
-    else if (open) sub = <span className="ecal-note ok">Ishda</span>;
-  } else if (d.tone === "absent") main = <span className="ecal-note bad">Kelmadi</span>;
-  else if (d.leave) main = <span className="ecal-note leave">{leaveTypeLabel[d.leave] || "Ta’til"}</span>;
-  else if (d.tone === "off") main = <span className="ecal-note rest">{restLabel(d)}</span>;
-  else if (d.working && d.tone === "future") main = <span className="ecal-plan">{d.start} – {d.end}</span>;
-
+  } else if (d.tone === "absent") fact = <span className="ecal-bar absent">Kelmadi</span>;
+  const early = d.earlyLeaveMinutes || 0;
   return (
     <button
-      className={`ecal-cell t-${d.tone}${isToday ? " today" : ""}${picked ? " picked" : ""}`}
+      className={`ecal-cell ${isToday ? "today" : ""} ${picked ? "picked" : ""} ${d.tone}`}
       onClick={(e) => onPick(e.currentTarget)}
       aria-pressed={picked}
-      aria-label={`${dateLongUz(d.date)}${status ? ` — ${status.label}` : ""}`}
+      aria-label={dateLongUz(d.date)}
       role="gridcell"
     >
       <span className="ecal-num">
-        <span>{Number(d.date.slice(8))}</span>
         {d.manual && (
           <i className="ecal-manual" title="Qo‘lda tuzatilgan">
-            <Pencil size={11} />
+            ✎
           </i>
         )}
-        {status && d.tone !== "future" && d.tone !== "off" && <i className={`ecal-dot ${status.cls}`} />}
+        {isToday && <em>Bugun</em>}
+        {Number(d.date.slice(8))}
       </span>
-      {main}
-      {sub}
+      {plan}
+      {fact}
+      {d.lateMinutes > 0 && <span className={`ecal-dev ${severity(d.lateMinutes)}`}>− {duration(d.lateMinutes)} kech</span>}
+      {early > 0 && <span className={`ecal-dev ${severity(early)}`}>− {duration(early)} erta</span>}
     </button>
   );
 }
@@ -305,6 +334,23 @@ function DayPop({
 }) {
   const { data, loading, error } = useApi<DayDetail>(`/employees/${employeeId}/history/day?date=${d.date}`);
   const detail = data?.date === d.date ? data : null;
+  const self = useRef<HTMLDivElement | null>(null);
+  const [top, setTop] = useState<number | null>(null);
+  // Karta balandligi ma’lum bo‘lgach joylashadi: to‘rning pastki yarmida (20-sanadan keyingi qatorlar) —
+  // katak ostki chizig‘iga tekislanib tepaga ochiladi; har holda kalendardan tashqariga chiqmaydi.
+  useLayoutEffect(() => {
+    const el = self.current;
+    const wrap = el?.offsetParent as HTMLElement | null;
+    if (!el || !wrap) return;
+    const h = el.offsetHeight;
+    const room = wrap.clientHeight;
+    const lower = (spot.cellTop + spot.cellBottom) / 2 > room / 2;
+    let next = spot.side === "below" ? (lower ? spot.cellTop - 8 - h : spot.cellBottom + 8) : lower ? spot.cellBottom - h : spot.cellTop;
+    next = Math.max(0, Math.min(next, room - h));
+    setTop(next);
+    // Karta ekrandan chiqib qolsa — sahifa yumshoq suriladi.
+    requestAnimationFrame(() => el.scrollIntoView?.({ block: "nearest", behavior: "smooth" }));
+  }, [spot, detail, loading]);
   const status = STATUS[d.tone];
   const early = d.earlyLeaveMinutes || 0;
   const plan = d.leave ? leaveTypeLabel[d.leave] || "Ta’til" : d.working ? `${d.start} – ${d.end}` : restLabel(d);
@@ -316,9 +362,13 @@ function DayPop({
 
   return (
     <div
-      ref={ref}
-      className={`ecal-pop side-${spot.side}`}
-      style={{ left: spot.left, top: spot.top, "--pop-w": `${POP_W}px` } as CSSProperties}
+      ref={(el) => {
+        self.current = el;
+        if (typeof ref === "function") ref(el);
+        else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el;
+      }}
+      className={`ecal-pop side-${spot.side}${top !== null && top + 1 < spot.cellTop ? " up" : ""}`}
+      style={{ left: spot.left, top: top ?? spot.cellTop, visibility: top === null ? "hidden" : undefined, "--pop-w": `${POP_W}px` } as CSSProperties}
       role="dialog"
       aria-label={dateLongUz(d.date, true)}
     >

@@ -1,4 +1,5 @@
-import { moduleEnabled, type ModuleKey } from "../lib/modules";
+import { type ModuleKey } from "../lib/modules";
+import { companyModuleEnabled } from "./modules";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { dataIndexes, readDb } from "../lib/store";
 import { can, canAny } from "../lib/permissions";
@@ -252,7 +253,6 @@ export function buildInbox(db: Database, tenant: string, role: Role, scope: Set<
       });
 
   // Super admin o‘chirgan modul so‘rovlari qutida ko‘rinmaydi.
-  const modules = db.companies.find((c) => c.id === tenant)?.modules;
   const kindModule: Partial<Record<InboxItem["kind"], ModuleKey>> = {
     correction: "attendanceRequests",
     dayoff: "attendanceRequests",
@@ -262,7 +262,7 @@ export function buildInbox(db: Database, tenant: string, role: Role, scope: Set<
     registration: "registrations",
   };
   return items
-    .filter((item) => !kindModule[item.kind] || moduleEnabled(modules, kindModule[item.kind]!))
+    .filter((item) => !kindModule[item.kind] || companyModuleEnabled(db, tenant, kindModule[item.kind]!))
     .sort((a, b) => Number(b.urgent) - Number(a.urgent) || a.createdAt.localeCompare(b.createdAt));
 }
 

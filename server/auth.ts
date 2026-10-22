@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import jwt from "jsonwebtoken";
 import type { Role } from "../lib/types";
 import { readDb, updateDb } from "../lib/store";
+import { platformCan } from "../lib/platform/permissions";
 
 export interface Session {
   /** Qurilma (panel sessiyasi) ID — chiqarib yuborish uchun. */
@@ -12,6 +13,11 @@ export interface Session {
   email: string;
   role: Role;
   photoDataUrl?: string;
+  /**
+   * Super admin kompaniya panelini ko‘rmoqda: READ_ONLY — faqat o‘qish (yozish API’lari bloklanadi);
+   * SUPPORT — vaqt cheklangan yordam kirishi (har bir yozuv auditga tushadi).
+   */
+  preview?: { id: string; mode: "READ_ONLY" | "SUPPORT"; adminId: string; companyName?: string; expiresAt: string };
 }
 export interface EmployeeSession {
   employeeId: string;
@@ -31,6 +37,30 @@ const employeeSecret = process.env.JWT_SECRET || `${secret}-employee`;
 
 export function signSession(session: Session) {
   return jwt.sign(session, secret, { expiresIn: "8h", issuer: "staffora" });
+}
+
+/**
+ * Kompaniya panelini ko‘rish tokeni: rahbar paroli va tokeni ishlatilmaydi — alohida, qisqa muddatli,
+ * previewSessions yozuviga (adminId + companyId) bog‘langan. Har so‘rovda yozuv holati tekshiriladi.
+ */
+export function signPreviewToken(input: { previewId: string; adminId: string; companyId: string; mode: "READ_ONLY" | "SUPPORT"; ttlSeconds: number }) {
+  return jwt.sign({ kind: "preview", pid: input.previewId, adminId: input.adminId, companyId: input.companyId, mode: input.mode }, secret, {
+    expiresIn: Math.max(60, Math.min(4 * 3600, input.ttlSeconds)),
+    issuer: "staffora",
+  });
+}
+type PreviewToken = { kind: "preview"; pid: string; adminId: string; companyId: string; mode: "READ_ONLY" | "SUPPORT" };
+
+/** Ko‘rish rejimida (READ_ONLY) ham ruxsat etilgan yozish yo‘llari: chiqish va yuklab olish havolasi. */
+const PREVIEW_WRITE_ALLOWED = new Set(["/api/auth/preview/exit", "/api/auth/logout", "/api/file-link"]);
+/** Faqat o‘qish rejimi: barcha yozish so‘rovlari serverda bloklanadi (UI ga ishonilmaydi). */
+export function previewGuard() {
+  return (req: AuthedRequest, res: Response, next: NextFunction) => {
+    const preview = req.session?.preview;
+    if (!preview || preview.mode !== "READ_ONLY" || ["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
+    if (PREVIEW_WRITE_ALLOWED.has(req.originalUrl.split("?")[0])) return next();
+    return res.status(403).json({ code: "READ_ONLY_PREVIEW", message: "Ko‘rish rejimida o‘zgartirib bo‘lmaydi (faqat o‘qish)." });
+  };
 }
 /*
  * Rahbar Mini App’i va mobil ilovasi hisobotni (Excel/CSV) Telegram yoki telefon
@@ -57,7 +87,9 @@ export async function requireAuth(
 ) {
   // Rahbar Mini App’i cookie o‘rniga Bearer token yuboradi (Telegram ichida cookie ishonchsiz).
   const bearer = req.headers.authorization?.startsWith("Bearer ") ? req.headers.authorization.slice(7) : undefined;
-  const token = req.cookies?.staffora_session || bearer;
+  let token = req.cookies?.staffora_session || bearer;
+  // Ko‘rish rejimi alohida tabda Bearer bilan keladi — o‘sha tabda super admin cookie’sidan ustun.
+  if (bearer && token !== bearer && (jwt.decode(bearer) as { kind?: string } | null)?.kind === "preview") token = bearer;
   if (!token)
     return res
       .status(401)
@@ -70,6 +102,7 @@ export async function requireAuth(
       .status(401)
       .json({ message: "Sessiya muddati tugagan. Qayta kiring." });
   }
+  if ((session as unknown as PreviewToken).kind === "preview") return previewSession(req, res, next, session as unknown as PreviewToken);
   try {
     const db = await readDb();
     const user = db.users.find((u) => u.id === session.userId);
@@ -80,6 +113,8 @@ export async function requireAuth(
       return res.status(401).json({
         message: "Bu qurilmadan chiqarildingiz. Qayta kiring.",
       });
+    if (user.blockedAt)
+      return res.status(401).json({ code: "ACCOUNT_BLOCKED", message: "Hisobingiz bloklangan. Administratorga murojaat qiling." });
     // Ekran qulflangan bo‘lsa — faqat holatni bilish va qulfni ochish mumkin.
     const path = req.originalUrl.split("?")[0];
     if (
@@ -91,13 +126,22 @@ export async function requireAuth(
         code: "LOCKED",
         message: "Ekran qulflangan. Davom etish uchun parolni kiriting.",
       });
+    // Bir nechta kompaniyaga ruxsat berilgan rahbar: tanlangan kompaniya ro‘yxatda bo‘lsa — o‘sha, aks holda asosiysi.
+    const activeCompany =
+      session.companyId &&
+      session.companyId !== user.companyId &&
+      user.extraCompanyIds?.includes(session.companyId) &&
+      db.companies.some((c) => c.id === session.companyId && !c.archive)
+        ? session.companyId
+        : user.companyId;
     // Ism/rasm o‘zgargan bo‘lsa — yangi qiymat ishlatiladi.
     req.session = {
       ...session,
       name: user.name,
       role: user.role,
-      companyId: user.companyId,
+      companyId: activeCompany,
       photoDataUrl: user.photoDataUrl,
+      preview: undefined,
     };
     if (device) {
       const last = lastSeenWrites.get(device.id) || 0;
@@ -114,6 +158,42 @@ export async function requireAuth(
     next(error);
   }
 }
+/** Ko‘rish/yordam sessiyasi: yozuv faol, muddati o‘tmagan, administrator ruxsati va kompaniya mavjud bo‘lishi shart. */
+async function previewSession(req: AuthedRequest, res: Response, next: NextFunction, token: PreviewToken) {
+  try {
+    const db = await readDb();
+    const record = db.previewSessions.find((p) => p.id === token.pid);
+    const admin = db.users.find((u) => u.id === token.adminId && u.role === "SUPER_ADMIN");
+    const company = db.companies.find((c) => c.id === token.companyId);
+    const now = new Date().toISOString();
+    const permission = token.mode === "SUPPORT" ? "companies.support" : "companies.preview";
+    if (
+      !record ||
+      record.status !== "ACTIVE" ||
+      record.expiresAt < now ||
+      record.companyId !== token.companyId ||
+      record.adminId !== token.adminId ||
+      record.mode !== token.mode ||
+      !admin ||
+      admin.blockedAt ||
+      !platformCan(admin.platformRole, permission) ||
+      !company
+    )
+      return res.status(401).json({ code: "PREVIEW_ENDED", message: "Ko‘rish sessiyasi tugagan yoki bekor qilingan." });
+    req.session = {
+      userId: admin.id,
+      companyId: company.id,
+      name: token.mode === "SUPPORT" ? `${admin.name} (Staffora yordam)` : admin.name,
+      email: admin.email,
+      role: "COMPANY_OWNER",
+      preview: { id: record.id, mode: record.mode, adminId: admin.id, companyName: company.name, expiresAt: record.expiresAt },
+    };
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
 export function requireRole(...roles: Role[]) {
   return (req: AuthedRequest, res: Response, next: NextFunction) =>
     roles.includes(req.session!.role)

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { audit, readDb, updateDb } from "../lib/store";
 import { tashkentIsoDate } from "../lib/format";
 import { advanceWindow } from "../lib/payroll";
-import { moduleEnabled } from "../lib/modules";
+import { companyModuleEnabled } from "./modules";
 import type { Announcement, Database, Employee } from "../lib/types";
 import type { AuthedRequest } from "./auth";
 import { notifyEmployee } from "./integrations/hooks";
@@ -41,7 +41,7 @@ export function advanceAudience(db: Database, companyId: string, month: string) 
 export function advanceBlocker(db: Database, companyId: string, month: string) {
   const company = db.companies.find((c) => c.id === companyId);
   if (!company) return "Kompaniya topilmadi.";
-  if (!moduleEnabled(company.modules, "advances")) return "Avanslar moduli o‘chirilgan.";
+  if (!companyModuleEnabled(db, companyId, "advances")) return "Avanslar moduli o‘chirilgan.";
   if (company.payroll?.advanceRequestsEnabled === false) return "Sozlamalarda xodimlarning avans so‘rashi o‘chirilgan.";
   if (closedPeriod(db, companyId, month)) return "Bu oy yopilgan — avans so‘rab bo‘lmaydi.";
   return undefined;

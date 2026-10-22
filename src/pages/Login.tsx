@@ -280,7 +280,7 @@ export function LoginPage() {
         >
           <AutoHeight>
             <div className="lg-head">
-              <head.Icon key={head.title} size={20} className="lg-pop" aria-hidden />
+              <head.Icon key={head.title} size={22} className="lg-pop" aria-hidden />
               <h1 key={`t-${head.title}`} className="lg-morph">
                 {head.title}
               </h1>

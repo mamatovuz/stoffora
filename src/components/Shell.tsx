@@ -33,6 +33,10 @@ import {
   Sun,
   Moon,
   MonitorSmartphone,
+  LifeBuoy,
+  Eye,
+  ChevronsUpDown,
+  TriangleAlert,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -41,7 +45,7 @@ import { roleLabels, useAuth } from "../auth";
 import { canAny, canOpenPage, homePage } from "@/lib/permissions";
 import { ScreenLock } from "./ScreenLock";
 import { CommandPalette } from "./CommandPalette";
-import { api } from "../api";
+import { api, clearPreviewToken } from "../api";
 import { useApi, usePolling } from "../hooks";
 import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
 import { useTheme, type ThemePref } from "../theme";
@@ -121,6 +125,7 @@ const menu: NavItem[] = [
       ["/settings", "Sozlamalar"],
     ],
   },
+  { label: "Yordam", icon: LifeBuoy, tabs: [["/support", "Staffora yordami"]] },
 ];
 
 /** Menyuda yo‘q, lekin ochiladigan sahifalar sarlavhasi. */
@@ -143,7 +148,7 @@ export function Shell() {
   const [lang, setLang] = useState<Lang>(() => storedLang() || "uz");
   useEffect(() => {
     document.documentElement.lang = lang;
-    return startTranslator(document.body, lang);
+    return startTranslator(document.body, lang, { report: true });
   }, [lang]);
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -251,10 +256,37 @@ export function Shell() {
     };
   }, []);
 
+  const preview = user?.preview;
   async function logout() {
+    // Ko‘rish rejimi: faqat shu tab sessiyasi tugatiladi, super admin cookie’si saqlanadi.
+    if (preview) return exitPreview();
     await api("/auth/logout", { method: "POST" }).catch(() => undefined);
     window.location.href = "/login";
   }
+  async function exitPreview() {
+    await api("/auth/preview/exit", { method: "POST" }).catch(() => undefined);
+    clearPreviewToken();
+    window.close();
+    // Tab skript bilan ochilmagan bo‘lsa yopilmaydi — super admin paneliga qaytamiz.
+    window.location.href = "/super-admin";
+  }
+  async function switchCompany(companyId: string) {
+    if (!companyId || companyId === user?.companyId) return;
+    try {
+      await api("/auth/switch-company", { method: "POST", body: JSON.stringify({ companyId }) });
+      window.location.href = "/dashboard";
+    } catch {
+      /* ruxsat yo‘q — tanlov o‘zgarmaydi */
+    }
+  }
+  const [maintenanceHidden, setMaintenanceHidden] = useState(() => {
+    try {
+      return sessionStorage.getItem("staffora_maintenance_hidden") || "";
+    } catch {
+      return "";
+    }
+  });
+  const maintenance = user?.maintenance && maintenanceHidden !== user.maintenance.message ? user.maintenance : null;
   const [firstName, lastName] = (user?.name || "?").split(" ");
 
   return (
@@ -299,7 +331,7 @@ export function Shell() {
           </button>
         </div>
 
-        <div className="company-chip" title={company?.name}>
+        <div className={`company-chip ${user?.companies && user.companies.length > 1 ? "switchable" : ""}`} title={company?.name}>
           <span className="mark">
             {company?.name
               .split(/\s+/)
@@ -312,6 +344,18 @@ export function Shell() {
             <b>{company?.name || "…"}</b>
             <small>{company?.plan ? `${company.plan} tarif` : "Kompaniya"}</small>
           </span>
+          {user?.companies && user.companies.length > 1 && (
+            <>
+              <ChevronsUpDown size={15} className="company-switch-icon" aria-hidden />
+              <select className="company-switch" aria-label="Kompaniyani almashtirish" value={user.companyId} onChange={(e) => void switchCompany(e.target.value)}>
+                {user.companies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
         </div>
 
         <nav className="nav" aria-label="Asosiy navigatsiya">
@@ -352,6 +396,38 @@ export function Shell() {
       </aside>
 
       <div className={`app-main ${collapsed ? "expanded" : ""}`}>
+        {preview && (
+          <div className={`app-banner preview ${preview.mode === "SUPPORT" ? "support" : ""}`} role="status">
+            <Eye size={16} />
+            <span>
+              <b>{preview.mode === "SUPPORT" ? "Yordam rejimi" : "Faqat ko‘rish"}</b> · {preview.companyName || company?.name} ·{" "}
+              {preview.mode === "SUPPORT" ? "har bir o‘zgarish auditga yoziladi" : "o‘zgartirish bloklangan"} · {new Date(preview.expiresAt).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })} gacha
+            </span>
+            <button className="btn btn-sm" onClick={() => void exitPreview()}>
+              Tugatish
+            </button>
+          </div>
+        )}
+        {maintenance && (
+          <div className={`app-banner maintenance ${maintenance.level}`} role="status">
+            <TriangleAlert size={16} />
+            <span>{maintenance.message}</span>
+            <button
+              className="icon-btn"
+              aria-label="Yopish"
+              onClick={() => {
+                try {
+                  sessionStorage.setItem("staffora_maintenance_hidden", maintenance.message);
+                } catch {
+                  /* e’tiborsiz */
+                }
+                setMaintenanceHidden(maintenance.message);
+              }}
+            >
+              <X size={15} />
+            </button>
+          </div>
+        )}
         <header className={`topbar ${scrolled ? "scrolled" : ""}`}>
           <button
             className="icon-btn mobile-menu"
@@ -470,8 +546,11 @@ export function Shell() {
                     <Link to="/settings">
                       <CircleUserRound size={16} /> Profil va sozlamalar
                     </Link>
+                    <Link to="/support">
+                      <LifeBuoy size={16} /> Staffora yordami
+                    </Link>
                     <button className="danger" onClick={() => void logout()}>
-                      <LogOut size={16} /> Tizimdan chiqish
+                      <LogOut size={16} /> {preview ? "Ko‘rishni tugatish" : "Tizimdan chiqish"}
                     </button>
                   </div>
                 </>

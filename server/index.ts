@@ -39,7 +39,7 @@ import {
 } from "../lib/format";
 import { can, canAny, homePage } from "../lib/permissions";
 import { disabledModules, isModuleKey } from "../lib/modules";
-import { moduleGuard } from "./modules";
+import { companyDisabledModules, moduleGuard } from "./modules";
 import { isPracticeDay } from "../lib/counting";
 import { dayPlan } from "../lib/schedule";
 import { alignDepartment, assertEmployeeCapacity, limitInfo, purgeEmployees } from "../lib/limits";
@@ -59,6 +59,7 @@ import type {
 import { normalizePayrollSettings } from "../lib/payroll";
 import {
   FILE_LINK_PATH,
+  previewGuard,
   requireAuth,
   requireRole,
   signFileLink,
@@ -124,6 +125,25 @@ import {
   stopAllCompanyBots,
 } from "./company-bots";
 import { notifyEmployee } from "./integrations/hooks";
+import {
+  activeMaintenance,
+  captureError,
+  companyFeatures,
+  createCompanySupportRouter,
+  createI18nReportRouter,
+  createPlatformRouter,
+  createPublicApiRouter,
+  createPublicI18nRouter,
+  emitWebhook,
+  flushTelemetry,
+  platformAudit,
+  recordSecurityEvent,
+  requestContext,
+  setRosterProvider,
+  startPlatform,
+  telemetryMiddleware,
+} from "./platform";
+import { capacityMessage, effectiveLimits } from "../lib/platform/subscriptions";
 import { activeIntegration } from "./integrations/model";
 import { enqueueAnnouncementToBot, targetEmployees, targetLabel } from "./integrations/announce";
 
@@ -191,6 +211,8 @@ if (production) {
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
+// Har bir so‘rovga ID (X-Request-Id) — audit va xatolar markazi uchun.
+app.use(requestContext());
 app.use(
   helmet({
     contentSecurityPolicy: production
@@ -262,6 +284,8 @@ app.use(
 );
 app.use("/api", slimPhotos);
 app.use(cookieParser());
+// API metrikalari (davomiylik, status, kompaniya bo‘yicha agregat) — Super Admin monitoringi uchun.
+app.use("/api", telemetryMiddleware());
 
 // Event loop kechikishi — server "qotayotgani"ni ko‘rsatadi.
 const loopDelay = monitorEventLoopDelay({ resolution: 20 });
@@ -345,6 +369,16 @@ const requirePermission =
 const dateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Sana YYYY-MM-DD formatida bo‘lsin.");
+/** Obunadagi tarif limiti (filiallar, rahbarlar). Obunasi yo‘q eski kompaniyalar cheklanmaydi. */
+function assertPlanCapacity(db: Database, tenant: string, kind: "branches" | "managers") {
+  const company = db.companies.find((c) => c.id === tenant);
+  if (!company?.subscription) return;
+  const plan = db.subscriptionPlans.find((p) => p.id === company.subscription!.planId);
+  const limit = effectiveLimits(plan, company.subscription)[kind];
+  const used = kind === "branches" ? db.branches.filter((b) => b.companyId === tenant).length : db.users.filter((u) => u.companyId === tenant && u.role !== "EMPLOYEE").length;
+  const message = capacityMessage(kind, limit, used);
+  if (message) throw httpError(message, 402);
+}
 const timeSchema = z
   .string()
   .refine(isValidClockTime, "Vaqt HH:MM formatida bo‘lsin.");
@@ -386,6 +420,9 @@ async function startPanelSession(req: Request, res: Response, user: User) {
     lastSeenAt: now,
   };
   await updateDb((db) => {
+    const row = db.users.find((u) => u.id === user.id);
+    if (row?.blockedAt) throw httpError("Hisobingiz bloklangan. Administratorga murojaat qiling.", 403);
+    if (row) row.lastLoginAt = now;
     // Eski (30 kundan oshgan yoki bekor qilingan) sessiyalarni tozalaymiz.
     const cutoff = Date.now() - 30 * 86_400_000;
     db.panelSessions = db.panelSessions.filter(
@@ -403,6 +440,7 @@ async function startPanelSession(req: Request, res: Response, user: User) {
     photoDataUrl: user.photoDataUrl,
   };
   setSessionCookie(res, session);
+  if (user.role === "SUPER_ADMIN") void recordSecurityEvent({ type: "LOGIN_SUCCESS_ADMIN", severity: "LOW", userId: user.id, email: user.email, req });
   return session;
 }
 
@@ -506,14 +544,22 @@ app.post(
     const user = db.users.find(
       (u) => u.email.toLowerCase() === input.email.toLowerCase(),
     );
-    if (!user || !(await bcrypt.compare(input.password, user.passwordHash)))
+    if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) {
+      void recordSecurityEvent({ type: "LOGIN_FAILED", severity: user?.role === "SUPER_ADMIN" ? "HIGH" : "LOW", userId: user?.id, email: input.email, req });
       return res.status(401).json({ message: "Email yoki parol noto‘g‘ri." });
+    }
+    if (user.blockedAt) {
+      void recordSecurityEvent({ type: "LOGIN_BLOCKED", severity: "MEDIUM", userId: user.id, email: user.email, req });
+      return res.status(403).json({ code: "ACCOUNT_BLOCKED", message: "Hisobingiz bloklangan. Administratorga murojaat qiling." });
+    }
     const company = db.companies.find((item) => item.id === user.companyId);
     if (user.role !== "SUPER_ADMIN" && company?.status === "SUSPENDED")
       return res
         .status(403)
         .json({ message: "Kompaniya hisobi to‘xtatilgan. Qo‘llab-quvvatlashga murojaat qiling." });
-    if (user.twoFactorEnabled && user.telegramId) {
+    // Platforma administratorlari uchun 2FA majburiy qilingan bo‘lsa — Telegram ulangan har bir admin kod bilan kiradi.
+    const adminMfa = user.role === "SUPER_ADMIN" && Boolean(db.platformSettings?.requireAdminMfa);
+    if ((user.twoFactorEnabled || adminMfa) && user.telegramId) {
       cleanupChallenges();
       const code = String(randomInt(100000, 1000000));
       const challengeId = id();
@@ -568,6 +614,7 @@ app.post(
         (u) => u.companyId === employee.companyId && u.role !== "SUPER_ADMIN" && u.role !== "EMPLOYEE" && (u.employeeId === employee.id || u.telegramId === employee.telegramId),
       );
     const company = user && db.companies.find((c) => c.id === user.companyId);
+    if (user?.blockedAt) throw httpError("Hisobingiz bloklangan. Administratorga murojaat qiling.", 403);
     if (!employee || !user || !company)
       throw httpError("Bu raqam bilan rahbar hisobi topilmadi yoki Telegram ulanmagan. HR bilan bog‘laning.", 404);
     if (company.status === "SUSPENDED") throw httpError("Kompaniya hisobi to‘xtatilgan.", 403);
@@ -606,11 +653,13 @@ app.post(
     }
     const expected = Buffer.from(challenge.codeHash, "hex");
     const received = Buffer.from(hashCode(input.code), "hex");
-    if (!timingSafeEqual(expected, received))
+    if (!timingSafeEqual(expected, received)) {
+      void recordSecurityEvent({ type: "CODE_FAILED", severity: "MEDIUM", userId: challenge.userId, req, detail: `${challenge.attempts}-urinish` });
       throw httpError(
         `Kod noto‘g‘ri. Yana ${5 - challenge.attempts} ta urinish qoldi.`,
         400,
       );
+    }
     loginChallenges.delete(input.challengeId);
     const db = await readDb();
     const user = db.users.find((u) => u.id === challenge.userId);
@@ -623,6 +672,9 @@ app.post(
   }),
 );
 app.post("/api/auth/logout", async (req, res) => {
+  // Ko‘rish (preview) tabidan chiqish super admin cookie sessiyasini yopmasligi kerak.
+  const bearer = /^Bearer (.+)$/.exec(req.headers.authorization || "")?.[1];
+  if (bearer && (jwt.decode(bearer) as { kind?: string } | null)?.kind === "preview") return res.json({ ok: true, preview: true });
   try {
     const token = req.cookies?.staffora_session;
     const payload = token ? (jwt.decode(token) as Session | null) : null;
@@ -644,13 +696,21 @@ app.get(
     const db = await readDb();
     const user = db.users.find((u) => u.id === req.session!.userId);
     const device = db.panelSessions.find((s) => s.id === req.session!.sid);
-    const lock = user?.screenLock;
+    const lock = req.session!.preview ? undefined : user?.screenLock;
+    // Faol kompaniya — sessiyadagi (bir nechta kompaniyali rahbar yoki ko‘rish rejimi).
+    const activeCompany = db.companies.find((c) => c.id === req.session!.companyId);
     res.json({
       user: {
         ...req.session,
-        companyName: db.companies.find((c) => c.id === user?.companyId)?.name,
+        companyName: activeCompany?.name,
         // O‘chirilgan modullar — panel menyusi va sahifalar shu bo‘yicha yashiriladi.
-        modules: disabledModules(db.companies.find((c) => c.id === user?.companyId)),
+        modules: companyDisabledModules(db, activeCompany),
+        features: companyFeatures(db, activeCompany?.id),
+        maintenance: req.session!.role === "SUPER_ADMIN" ? null : activeMaintenance(db),
+        companies:
+          user && !req.session!.preview && user.extraCompanyIds?.length
+            ? [user.companyId, ...user.extraCompanyIds].map((id) => db.companies.find((c) => c.id === id)).filter((c) => c && !c.archive).map((c) => ({ id: c!.id, name: c!.name }))
+            : undefined,
         screenLock: {
           enabled: Boolean(lock?.enabled && lock.passwordHash),
           minutes: lock?.minutes || 5,
@@ -659,6 +719,45 @@ app.get(
         locked: Boolean(device?.lockedAt && lock?.enabled && lock.passwordHash),
       },
     });
+  }),
+);
+
+app.post(
+  "/api/auth/preview/exit",
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const preview = req.session?.preview;
+    if (!preview) return res.json({ ok: true });
+    await updateDb((db) => {
+      const row = db.previewSessions.find((p) => p.id === preview.id);
+      if (row && row.status === "ACTIVE") {
+        row.status = "ENDED";
+        row.endedAt = new Date().toISOString();
+        row.endedBy = req.session!.name;
+      }
+    });
+    await platformAudit({ actor: { id: preview.adminId, name: req.session!.name }, companyId: req.session!.companyId, action: "company.preview_end", entity: "preview", entityId: preview.id, summary: "Ko‘rish rejimidan chiqildi" });
+    res.json({ ok: true });
+  }),
+);
+/** Bir nechta kompaniyaga ruxsati bor rahbar faol kompaniyani almashtiradi (sessiya qayta imzolanadi). */
+app.post(
+  "/api/auth/switch-company",
+  requireAuth,
+  asyncRoute(async (req, res) => {
+    const { companyId: target } = z.object({ companyId: z.string().min(1) }).parse(req.body);
+    if (req.session!.preview) throw httpError("Ko‘rish rejimida kompaniya almashtirilmaydi.", 409);
+    const db = await readDb();
+    const user = db.users.find((u) => u.id === req.session!.userId);
+    if (!user) throw httpError("Foydalanuvchi topilmadi.", 404);
+    const allowed = target === user.companyId || (user.extraCompanyIds || []).includes(target);
+    const company = db.companies.find((c) => c.id === target && !c.archive);
+    if (!allowed || !company) throw httpError("Bu kompaniyaga ruxsatingiz yo‘q.", 403);
+    setSessionCookie(res, { ...req.session!, companyId: company.id });
+    await updateDb((next) => {
+      next.auditLogs.unshift(audit(company.id, user.name, "Panelga boshqa kompaniyadan o‘tildi", "user", user.id));
+    });
+    res.json({ ok: true, companyId: company.id, companyName: company.name });
   }),
 );
 
@@ -676,6 +775,9 @@ app.use("/api/public", rateLimit({ windowMs: 60_000, limit: 60, standardHeaders:
 app.use("/api", createPublicBadgeRouter());
 app.use("/api/public/lead", rateLimit({ windowMs: 10 * 60_000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { message: "Juda ko‘p so‘rov. Birozdan keyin qayta urinib ko‘ring." } }));
 app.use("/api", createPublicLeadRouter());
+// Kompaniyalar uchun ochiq API (/api/v1, API kalit bilan) va panel tarjima qo‘shimchalari.
+app.use("/api", createPublicApiRouter());
+app.use("/api", createPublicI18nRouter());
 app.get("/api/file-link/:token", (req, res, next) => {
   const link = verifyFileLink(String(req.params.token));
   if (!link) return res.status(410).type("text/plain; charset=utf-8").send("Havola muddati tugagan. Qaytadan yuklab oling.");
@@ -684,6 +786,25 @@ app.get("/api/file-link/:token", (req, res, next) => {
   next();
 });
 app.use("/api", requireAuth);
+// Super admin ko‘rish rejimi (READ_ONLY): barcha yozish so‘rovlari serverda bloklanadi.
+app.use("/api", previewGuard());
+// Yordam kirishi (SUPPORT): kompaniya panelidagi har bir yozish amali platforma auditiga tushadi.
+app.use("/api", (req, res, next) => {
+  const r = req as AuthedRequest;
+  if (r.session?.preview?.mode === "SUPPORT" && !["GET", "HEAD", "OPTIONS"].includes(req.method))
+    res.on("finish", () => {
+      void platformAudit({
+        actor: { id: r.session!.preview!.adminId, name: r.session!.name, role: "SUPPORT_ACCESS" },
+        companyId: r.session!.companyId,
+        action: "support.write",
+        entity: "request",
+        summary: `${req.method} ${req.originalUrl.split("?")[0]} → ${res.statusCode}`,
+        result: res.statusCode < 400 ? "SUCCESS" : "FAILURE",
+        privileged: true,
+      });
+    });
+  next();
+});
 // Vaqtincha berilgan tasdiqlash vakolati (faqat tasdiqlash yo‘llarida).
 app.use("/api", delegationMiddleware());
 // Super admin o‘chirgan modullarning API yo‘llari yopiladi.
@@ -740,6 +861,11 @@ app.use("/api", createEngageRouter());
 app.use("/api", createBadgeRouter());
 app.use("/api", createInsightRouter());
 app.use("/api", createMobileAdminRouter());
+// Kompaniya panelidan platformaga murojaat (Yordam markazi) va tarjimasi yo‘q matnlar hisoboti.
+app.use("/api", createCompanySupportRouter());
+app.use("/api", createI18nReportRouter());
+// Super Admin Control Center (har bir yo‘l platforma ruxsatini serverda tekshiradi).
+app.use("/api", createPlatformRouter([publicAppUrl, site.landing, process.env.NODE_ENV !== "production" ? "http://localhost:3000" : ""]));
 
 app.get("/api/telegram/status", (_req, res) => {
   const state = getTelegramBotState();
@@ -1659,6 +1785,7 @@ app.post(
       );
       return row;
     });
+    emitWebhook(tenant, "employee.created", { id: created.id, employeeNo: created.employeeNo, firstName: created.firstName, lastName: created.lastName, branchId: created.branchId, status: created.status });
     res.status(201).json(created);
   }),
 );
@@ -1867,6 +1994,7 @@ app.put(
       );
       return next;
     });
+    emitWebhook(tenant, "employee.updated", { id: row.id, employeeNo: row.employeeNo, firstName: row.firstName, lastName: row.lastName, branchId: row.branchId, status: row.status });
     res.json(row);
   }),
 );
@@ -2373,6 +2501,7 @@ app.post(
     const input = branchSchema.parse(req.body),
       tenant = companyId(req);
     const row = await updateDb((db) => {
+      assertPlanCapacity(db, tenant, "branches");
       const branch: Branch = { id: id(), companyId: tenant, ...input, managerEmployeeIds: cleanManagers(db, tenant, input.managerEmployeeIds) };
       db.branches.push(branch);
       syncStaffRoles(db, tenant);
@@ -2678,6 +2807,7 @@ app.patch(
         { go: `leave_${row.leave.id}` },
       ).catch(console.error);
     }
+    emitWebhook(row.leave.companyId, "leave.decided", { id: row.leave.id, employeeId: row.leave.employeeId, status, startDate: row.leave.startDate, endDate: row.leave.endDate });
     res.json(row.leave);
   }),
 );
@@ -3268,6 +3398,7 @@ app.post(
     await updateDb((db) => {
       if (db.users.some((u) => u.email === user.email))
         throw httpError("Bu email bilan foydalanuvchi mavjud.", 409);
+      assertPlanCapacity(db, tenant, "managers");
       if (input.role === "BRANCH_MANAGER")
         user.branchIds = (branchIds || []).filter((id) => db.branches.some((b) => b.id === id && b.companyId === tenant));
       db.users.push(user);
@@ -3569,7 +3700,11 @@ app.use(
         issues: error.flatten(),
       });
     }
-    if (!error.status || error.status >= 500) console.error(error);
+    if (!error.status || error.status >= 500) {
+      console.error(error);
+      const r = _req as AuthedRequest;
+      captureError({ service: "api", error, path: _req.originalUrl, companyId: r.session?.companyId, severity: "HIGH" });
+    }
     res.status(error.status || 500).json({
       message: error.status
         ? error.message
@@ -3594,6 +3729,8 @@ startIntegrationWorker();
 startHrWorker();
 startPushDispatcher();
 startWatchdog();
+setRosterProvider((db, tenant, date) => rosterStats(dayRoster(db, tenant, date)));
+startPlatform();
 void startCompanyBots();
 void updateDb((db) => {
   const fixed = new Map<string, number>();
@@ -3605,7 +3742,7 @@ void updateDb((db) => {
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, () => {
-    void Promise.all([stopTelegramBot(), stopAllCompanyBots()])
+    void Promise.all([stopTelegramBot(), stopAllCompanyBots(), flushTelemetry()])
       .catch(() => undefined)
       .then(() => flushDb())
       .finally(() => {

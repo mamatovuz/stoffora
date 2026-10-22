@@ -1,4 +1,5 @@
-import { disabledModules, moduleEnabled } from "../lib/modules";
+import { companyDisabledModules, companyModuleEnabled } from "./modules";
+import { captureError } from "./platform/telemetry";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
@@ -56,12 +57,12 @@ export function miniFeatures(db: Database, employee: Employee) {
     directory: settings.directoryEnabled !== false,
     breaks: settings.breaksEnabled === true,
     leaderboard: settings.leaderboardEnabled !== false,
-    advances: company?.payroll?.advanceRequestsEnabled !== false && employee.baseSalary > 0 && moduleEnabled(company?.modules, "advances"),
+    advances: company?.payroll?.advanceRequestsEnabled !== false && employee.baseSalary > 0 && companyModuleEnabled(db, employee.companyId, "advances"),
     overtimeApproval: Boolean(company?.payroll?.overtimeRequiresApproval),
     /** Ishda bo‘lganda Telegram emoji-statusi (Premium) — server sozlamasida berilgan bo‘lsa. */
     workEmojiId: process.env.TELEGRAM_WORK_EMOJI_ID?.trim() || undefined,
     /** Super admin o‘chirgan modullar — Mini App ularning bo‘limlarini ko‘rsatmaydi. */
-    modules: disabledModules(company),
+    modules: companyDisabledModules(db, company),
   };
 }
 
@@ -613,6 +614,8 @@ export function createMiniPublicRouter() {
           at: new Date().toISOString(),
         });
       });
+      // Xatolar markaziga (guruhlangan, maxfiy qiymatlar yashiriladi).
+      captureError({ service: input.platform ? `mini-app:${input.platform}` : "mini-app", message: `${input.kind}: ${input.message}`, stack: input.detail, companyId: session?.companyId, severity: "MEDIUM" });
       res.status(204).end();
     }),
   );

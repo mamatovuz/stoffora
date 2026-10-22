@@ -1,3 +1,23 @@
+import type {
+  ApiKey,
+  BackupRecord,
+  BillingRecord,
+  CompanyContract,
+  CompanyPlatformFields,
+  FeatureFlag,
+  PlatformIncident,
+  PlatformNotification,
+  PlatformSettings,
+  PreviewSession,
+  PromoCode,
+  PromoRedemption,
+  SubscriptionPlan,
+  SupportTicket,
+  TranslationOverride,
+  UserPlatformFields,
+  WebhookEndpoint,
+} from "./platform/types";
+
 export type Role =
   | "SUPER_ADMIN"
   | "COMPANY_OWNER"
@@ -12,7 +32,7 @@ export type AttendanceStatus =
   "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "WORKING" | "CHECKED_OUT";
 export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 
-export interface Company {
+export interface Company extends CompanyPlatformFields {
   id: string;
   name: string;
   slug: string;
@@ -545,7 +565,7 @@ export interface Notification {
   /** Mobil ilovaga push yuborilgan vaqt (takror yuborilmasin). */
   pushedAt?: string;
 }
-export interface User {
+export interface User extends UserPlatformFields {
   id: string;
   companyId?: string;
   name: string;
@@ -721,6 +741,23 @@ export interface Database {
   mobileActivationCodes: MobileActivationCode[];
   deviceChangeRequests: DeviceChangeRequest[];
   mobilePushTokens: MobilePushToken[];
+  /* --- Super Admin Control Center (lib/platform/types.ts) --- */
+  subscriptionPlans: SubscriptionPlan[];
+  promoCodes: PromoCode[];
+  promoRedemptions: PromoRedemption[];
+  billingRecords: BillingRecord[];
+  companyContracts: CompanyContract[];
+  supportTickets: SupportTicket[];
+  platformNotifications: PlatformNotification[];
+  featureFlags: FeatureFlag[];
+  apiKeys: ApiKey[];
+  webhookEndpoints: WebhookEndpoint[];
+  platformIncidents: PlatformIncident[];
+  backupRecords: BackupRecord[];
+  previewSessions: PreviewSession[];
+  translationOverrides: TranslationOverride[];
+  /** Global sozlamalar (bitta obyekt). */
+  platformSettings: PlatformSettings;
 }
 export interface PayoutCard {
   companyId: string;

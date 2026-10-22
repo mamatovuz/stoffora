@@ -29,6 +29,38 @@ export function restoreBearerToken() {
   return bearerToken;
 }
 
+/**
+ * Super admin «kompaniyani ko‘rish» (preview) tokeni — alohida tabda, faqat sessionStorage’da saqlanadi
+ * (boshqa tablar va cookie sessiyasiga ta’sir qilmaydi). Server uni Bearer sifatida qabul qiladi.
+ */
+const PREVIEW_KEY = "staffora_preview_token";
+let previewToken: string | null = (() => {
+  try {
+    return typeof sessionStorage === "undefined" ? null : sessionStorage.getItem(PREVIEW_KEY);
+  } catch {
+    return null;
+  }
+})();
+export function setPreviewToken(token: string) {
+  previewToken = token;
+  try {
+    sessionStorage.setItem(PREVIEW_KEY, token);
+  } catch {
+    /* sessionStorage mavjud emas — token faqat xotirada */
+  }
+}
+export function clearPreviewToken() {
+  previewToken = null;
+  try {
+    sessionStorage.removeItem(PREVIEW_KEY);
+  } catch {
+    /* e’tiborsiz */
+  }
+}
+export const hasPreviewToken = () => Boolean(previewToken);
+/** Oddiy fetch (fayl yuklab olish) uchun — Bearer sarlavhasi (Mini App yoki ko‘rish rejimi). */
+export const authHeaders = (): Record<string, string> => (bearerToken || previewToken ? { authorization: `Bearer ${bearerToken || previewToken}` } : {});
+
 /** So‘rov 20 soniyadan oshsa to‘xtatiladi — ekran cheksiz «yuklanmoqda»da qolmasin. */
 const REQUEST_TIMEOUT_MS = 20_000;
 /** Mobil tarmoqdagi qisqa uzilishlarda qayta urinish oraliqlari (ms). */
@@ -53,7 +85,7 @@ export async function api<T>(
         signal: init.signal || controller?.signal,
         headers: {
           ...(init.body ? { "content-type": "application/json" } : {}),
-          ...(bearerToken ? { authorization: `Bearer ${bearerToken}` } : {}),
+          ...(bearerToken || previewToken ? { authorization: `Bearer ${bearerToken || previewToken}` } : {}),
           ...init.headers,
         },
       });
@@ -87,6 +119,8 @@ export async function api<T>(
     } catch {
       /* JSON emas */
     }
+    // Ko‘rish sessiyasi tugagan — token tashlanadi (keyingi so‘rovlar oddiy cookie sessiyasi bilan).
+    if (response.status === 401 && body.code === "PREVIEW_ENDED") clearPreviewToken();
     throw new ApiError(
       body.message || `So‘rov bajarilmadi (${response.status}).`,
       response.status,

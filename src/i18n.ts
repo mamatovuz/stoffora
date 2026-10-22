@@ -511,15 +511,80 @@ export function translate(text: string, lang: Lang): string {
   return t === core ? text : lead + t + trail;
 }
 
+/* ------------------------------------------ super admin tarjima override’lari --- */
+/** Super admin «Tillar» bo‘limida aniqlashtirgan tarjimalar — lug‘atdan ustun turadi. */
+let OVERRIDES: Record<string, string> = {};
+let overridesLoading: Promise<void> | null = null;
+export function loadOverrides(lang: Lang) {
+  if (lang === "uz" || typeof fetch === "undefined") return Promise.resolve();
+  overridesLoading ||= fetch(`/api/i18n/overrides?lang=${lang}`)
+    .then((r) => (r.ok ? r.json() : {}))
+    .then((map: Record<string, string>) => {
+      if (map && typeof map === "object" && Object.keys(map).length) {
+        OVERRIDES = map;
+        window.dispatchEvent(new Event("staffora:i18n-overrides"));
+      }
+    })
+    .catch(() => undefined);
+  return overridesLoading;
+}
+
+/** Interfeys tarjimasi: avval super admin override’i, keyin lug‘at (mobil lug‘at nusxasiga kirmaydi). */
+export function translateUi(text: string, lang: Lang): string {
+  if (lang === "uz" || !text) return text;
+  const core = text.trim();
+  if (core && Object.prototype.hasOwnProperty.call(OVERRIDES, core)) return text.match(/^\s*/)![0] + OVERRIDES[core] + text.match(/\s*$/)![0];
+  return translate(text, lang);
+}
+
 /* --------------------------------------------- DOM bo‘yicha tarjimon --- */
 const ATTRS = ["placeholder", "title", "aria-label"];
+
+/*
+ * Topilmagan tarjimalar hisoboti (faqat panel): interfeys elementlaridagi (tugma, yorliq, sarlavha)
+ * tarjimasiz matnlar 60 soniyada bir marta, ko‘pi bilan 50 ta yuboriladi. Ism-familiyaga o‘xshash,
+ * raqamli matnlar va jadval/ro‘yxat ichidagi ma’lumotlar yuborilmaydi.
+ */
+const REPORT_TAGS = new Set(["BUTTON", "LABEL", "TH", "H1", "LEGEND"]);
+const LOOKS_LIKE_NAME = /^[A-ZА-ЯЁ][\p{L}‘ʻ’'-]+(\s[A-ZА-ЯЁ][\p{L}‘ʻ’'.-]*){1,3}$/u;
+function reportable(text: string) {
+  const t = text.trim();
+  if (t.length < 3 || t.length > 200 || /\d|@|https?:/.test(t)) return false;
+  if (LOOKS_LIKE_NAME.test(t)) return false;
+  return /[a-z‘ʻ’]{3,}/.test(t) && !/[А-Яа-яЁё]/.test(t);
+}
+function createReporter(lang: Lang) {
+  const seen = new Set<string>();
+  let queue: string[] = [];
+  const flush = () => {
+    if (!queue.length) return;
+    const texts = queue.slice(0, 50);
+    queue = queue.slice(50);
+    void fetch("/api/i18n/missing", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ lang, texts }) }).catch(() => undefined);
+  };
+  const timer = window.setInterval(flush, 60_000);
+  return {
+    add(text: string) {
+      const t = text.trim();
+      if (seen.has(t) || seen.size > 2000 || !reportable(t)) return;
+      seen.add(t);
+      queue.push(t);
+    },
+    stop() {
+      window.clearInterval(timer);
+      flush();
+    },
+  };
+}
 
 /**
  * `root` ichidagi barcha matnni tanlangan tilga o‘giradi va o‘zgarishlarni
  * kuzatib boradi. Qaytgan funksiya kuzatishni to‘xtatib, asl matnni tiklaydi.
  */
-export function startTranslator(root: HTMLElement, lang: Lang) {
+export function startTranslator(root: HTMLElement, lang: Lang, options: { report?: boolean } = {}) {
   if (lang === "uz") return () => undefined;
+  void loadOverrides(lang);
+  const reporter = options.report ? createReporter(lang) : null;
   const original = new WeakMap<Node, string>();
   const applied = new WeakMap<Node, string>();
   const attrOriginal = new WeakMap<Element, Record<string, string>>();
@@ -537,52 +602,66 @@ export function startTranslator(root: HTMLElement, lang: Lang) {
     return entry.count > 20;
   };
 
-  const doText = (node: Text) => {
+  const doText = (node: Text, force = false) => {
     const value = node.nodeValue || "";
-    if (applied.get(node) === value) return;
-    const next = translate(value, lang);
-    original.set(node, value);
-    if (next !== value) {
+    const translated = applied.get(node) === value;
+    if (translated && !force) return;
+    // Qayta tarjima (override yuklandi) — asl o‘zbekcha matndan.
+    const source = translated ? (original.get(node) ?? value) : value;
+    const next = translateUi(source, lang);
+    original.set(node, source);
+    if (next !== source) {
+      if (next === value) return;
       if (tooMany(node)) return;
       applied.set(node, next);
       node.nodeValue = next;
-    } else applied.delete(node);
+    } else {
+      applied.delete(node);
+      if (reporter && node.parentElement && REPORT_TAGS.has(node.parentElement.tagName)) reporter.add(source);
+    }
   };
-  const doAttrs = (el: Element) => {
+  const doAttrs = (el: Element, force = false) => {
     for (const name of ATTRS) {
-      const value = el.getAttribute(name);
-      if (!value) continue;
+      const current = el.getAttribute(name);
+      if (!current) continue;
       const done = attrApplied.get(el) || {};
-      if (done[name] === value) continue;
-      const next = translate(value, lang);
+      if (done[name] === current && !force) continue;
+      const value = done[name] === current ? (attrOriginal.get(el)?.[name] ?? current) : current;
+      const next = translateUi(value, lang);
+      if (next === value && reporter && name !== "title") reporter.add(value);
+      if (next === current) continue;
       if (next === value || tooMany(el)) continue;
       attrOriginal.set(el, { ...(attrOriginal.get(el) || {}), [name]: value });
       attrApplied.set(el, { ...done, [name]: next });
       el.setAttribute(name, next);
     }
   };
-  const walk = (node: Node) => {
-    if (node.nodeType === Node.TEXT_NODE) return doText(node as Text);
+  const walk = (node: Node, force = false) => {
+    if (node.nodeType === Node.TEXT_NODE) return doText(node as Text, force);
     if (node.nodeType !== Node.ELEMENT_NODE) return;
     const el = node as Element;
-    if (["SCRIPT", "STYLE", "TEXTAREA", "INPUT"].includes(el.tagName)) return doAttrs(el);
+    if (["SCRIPT", "STYLE", "TEXTAREA", "INPUT"].includes(el.tagName)) return doAttrs(el, force);
     if (el.closest("[data-no-translate]")) return;
-    doAttrs(el);
-    el.childNodes.forEach(walk);
+    doAttrs(el, force);
+    el.childNodes.forEach((child) => walk(child, force));
   };
 
   walk(root);
+  const onOverrides = () => walk(root, true);
+  window.addEventListener("staffora:i18n-overrides", onOverrides);
   const observer = new MutationObserver((mutations) => {
     for (const m of mutations) {
       if (m.type === "characterData") doText(m.target as Text);
       else if (m.type === "attributes") doAttrs(m.target as Element);
-      else m.addedNodes.forEach(walk);
+      else m.addedNodes.forEach((n) => walk(n));
     }
   });
   observer.observe(root, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ATTRS });
 
   return () => {
     observer.disconnect();
+    window.removeEventListener("staffora:i18n-overrides", onOverrides);
+    reporter?.stop();
     // Asl o‘zbekcha matnni tiklaymiz.
     const restore = (node: Node) => {
       if (node.nodeType === Node.TEXT_NODE) {
@@ -602,4 +681,4 @@ export function startTranslator(root: HTMLElement, lang: Lang) {
 }
 
 /** Kod ichida to‘g‘ridan-to‘g‘ri kerak bo‘lganda. */
-export const tr = (text: string, lang: Lang) => translate(text, lang);
+export const tr = (text: string, lang: Lang) => translateUi(text, lang);

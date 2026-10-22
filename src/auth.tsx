@@ -16,6 +16,14 @@ export interface CurrentUser {
   locked?: boolean;
   /** Super admin o‘chirgan modullar (lib/modules.ts kalitlari). */
   modules?: string[];
+  /** Yoqilgan feature flaglar (kompaniya uchun). */
+  features?: string[];
+  /** Platforma texnik ishlar banneri. */
+  maintenance?: { message: string; level: "info" | "warning" | "critical"; endsAt: string | null } | null;
+  /** Rahbar bir nechta kompaniyaga kirsa — almashtirish ro‘yxati. */
+  companies?: { id: string; name: string }[];
+  /** Super admin «kompaniyani ko‘rish» rejimi. */
+  preview?: { id: string; mode: "READ_ONLY" | "SUPPORT"; adminId: string; companyName?: string; expiresAt: string };
 }
 const AuthContext = createContext<{
   user: CurrentUser | null;
@@ -41,7 +49,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
-    void refresh();
+    // Ko‘rish havolasi (/preview#token) — sessiyani PreviewEntry tokenni saqlagandan keyin o‘zi yuklaydi.
+    if (window.location.pathname.startsWith("/preview")) setLoading(false);
+    else void refresh();
     // Super admin modullarni o‘zgartirsa — oynaga qaytganda menyu yangilanadi (5 daqiqada bir martadan ko‘p emas).
     let last = Date.now();
     const onVisible = () => {

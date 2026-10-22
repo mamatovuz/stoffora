@@ -85,9 +85,9 @@ const CalendarPage = lazy(() =>
 const QrScreen = lazy(() =>
   import("./pages/QrScreen").then((m) => ({ default: m.QrScreen })),
 );
-const SuperAdminPage = lazy(() =>
-  import("./pages/SuperAdmin").then((m) => ({ default: m.SuperAdminPage })),
-);
+const SuperAdminApp = lazy(() => import("./pages/superadmin/Layout").then((m) => ({ default: m.SuperAdminApp })));
+const PreviewEntry = lazy(() => import("./pages/PreviewEntry").then((m) => ({ default: m.PreviewEntry })));
+const SupportPage = lazy(() => import("./pages/Support").then((m) => ({ default: m.SupportPage })));
 const AnalyticsPage = lazy(() =>
   import("./pages/Analytics").then((m) => ({ default: m.AnalyticsPage })),
 );
@@ -133,11 +133,12 @@ export default function App() {
             </Protected>
           }
         />
+        <Route path="/preview" element={<PreviewEntry />} />
         <Route
-          path="/super-admin"
+          path="/super-admin/*"
           element={
             <Protected superAdmin>
-              <SuperAdminPage />
+              <SuperAdminApp />
             </Protected>
           }
         />
@@ -188,6 +189,7 @@ export default function App() {
           <Route path="/roles" element={<RolesPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/support" element={<SupportPage />} />
         </Route>
         <Route path="*" element={<HomeRedirect />} />
       </Routes>

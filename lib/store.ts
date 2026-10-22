@@ -103,6 +103,22 @@ function normalizeDatabase(database: Database): Database {
   database.mobileActivationCodes ||= [];
   database.deviceChangeRequests ||= [];
   database.mobilePushTokens ||= [];
+  // Super Admin Control Center — yangi to‘plamlar (eski bazalarda bo‘sh boshlanadi).
+  database.subscriptionPlans ||= [];
+  database.promoCodes ||= [];
+  database.promoRedemptions ||= [];
+  database.billingRecords ||= [];
+  database.companyContracts ||= [];
+  database.supportTickets ||= [];
+  database.platformNotifications ||= [];
+  database.featureFlags ||= [];
+  database.apiKeys ||= [];
+  database.webhookEndpoints ||= [];
+  database.platformIncidents ||= [];
+  database.backupRecords ||= [];
+  database.previewSessions ||= [];
+  database.translationOverrides ||= [];
+  database.platformSettings ||= {};
   return database;
 }
 
@@ -498,6 +514,10 @@ function trimCollections(db: Database) {
   if (db.mobileActivationCodes.length > 200)
     db.mobileActivationCodes = db.mobileActivationCodes.filter((c) => c.expiresAt > cutoff);
   if (db.lateNotices.length > 5000) db.lateNotices = db.lateNotices.slice(0, 5000);
+  // Platforma: yopilgan incidentlar va tugagan ko‘rish sessiyalari cheklanadi (eng yangilari qoladi).
+  if (db.platformIncidents.length > 500) db.platformIncidents = db.platformIncidents.filter((i, index) => i.status !== "RESOLVED" || index < 300);
+  if (db.previewSessions.length > 500) db.previewSessions = db.previewSessions.filter((p, index) => p.status === "ACTIVE" || p.status === "PENDING_APPROVAL" || index < 300);
+  if (db.backupRecords.length > 200) db.backupRecords = db.backupRecords.slice(0, 200);
   if (db.attendanceCorrections.length > 20000) db.attendanceCorrections = db.attendanceCorrections.slice(0, 20000);
   if (db.sentGreetings.length > 5000) db.sentGreetings = db.sentGreetings.slice(-3000);
   // Tugallanmagan anketalar 14 kundan keyin o‘chadi; ko‘rib chiqilganlar tarixda qoladi.
@@ -765,6 +785,12 @@ export async function closeDb() {
 
 /** Hujjat fayllari (document_files) — joriy bazada (SQLite yoki PostgreSQL). */
 export async function documentFiles() {
+  await ensureLoaded();
+  return connect();
+}
+
+/** Platforma jurnallari uchun SQL (platform_* jadvallari, lib/backend.ts → PLATFORM_DDL). */
+export async function opsStore() {
   await ensureLoaded();
   return connect();
 }

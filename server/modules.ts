@@ -1,18 +1,37 @@
 import type { NextFunction, Request, Response } from "express";
 import { readDb } from "../lib/store";
-import type { Database } from "../lib/types";
-import { apiModule, miniModule, moduleByKey, moduleEnabled, type ModuleKey } from "../lib/modules";
+import type { Company, Database } from "../lib/types";
+import { apiModule, effectiveDisabledModules, miniModule, moduleByKey, moduleDecision, type ModuleKey, type ModulePolicy } from "../lib/modules";
 import type { AuthedRequest, EmployeeSession } from "./auth";
 
 /*
  * Modul himoyasi: super admin o‘chirgan funksiyaning API yo‘llari 403 qaytaradi —
  * panel menyusidan yashirish yetarli emas (to‘g‘ridan-to‘g‘ri so‘rov ham to‘xtashi kerak).
+ * Amaldagi holat: global holat → muddatli override → kompaniya holati → obunadagi tarif (lib/modules.ts).
  */
+
+/** Kompaniya uchun modul siyosati (global katalog, tarif modullari, override’lar). */
+export function companyModulePolicy(db: Pick<Database, "platformSettings" | "subscriptionPlans">, company: Pick<Company, "subscription" | "moduleOverrides">): ModulePolicy {
+  const plan = company.subscription ? db.subscriptionPlans?.find((p) => p.id === company.subscription!.planId) : undefined;
+  return {
+    global: db.platformSettings?.modules,
+    planModules: plan?.modules,
+    overrides: company.moduleOverrides,
+  };
+}
+
+/** Amaldagi o‘chirilgan modullar (panel /auth/me, Mini App va boshqalar shu ro‘yxatni oladi). */
+export function companyDisabledModules(db: Pick<Database, "platformSettings" | "subscriptionPlans">, company: Company | undefined | null): ModuleKey[] {
+  if (!company) return [];
+  return effectiveDisabledModules(company, companyModulePolicy(db, company));
+}
 
 /** Kompaniyada modul yoqilganmi (fon ishlari uchun ham). */
 export function companyModuleEnabled(db: Database, companyId: string | undefined, key: ModuleKey) {
   if (!companyId) return true;
-  return moduleEnabled(db.companies.find((c) => c.id === companyId)?.modules, key);
+  const company = db.companies.find((c) => c.id === companyId);
+  if (!company) return true;
+  return moduleDecision(company.modules, key, companyModulePolicy(db, company)).enabled;
 }
 
 function blocked(res: Response, key: ModuleKey) {

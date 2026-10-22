@@ -1,4 +1,4 @@
-import { moduleEnabled } from "../lib/modules";
+import { companyModuleEnabled } from "./modules";
 import type { Database, User } from "../lib/types";
 import { readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
@@ -105,7 +105,7 @@ export async function sendDigests(kind: DigestKind, options: { today?: string; c
   for (const company of db.companies) {
     if (options.companyId && company.id !== options.companyId) continue;
     if (company.status === "SUSPENDED") continue;
-    if (!moduleEnabled(company.modules, "reportDigest")) continue;
+    if (!companyModuleEnabled(db, company.id, "reportDigest")) continue;
     const settings = company.reportDigest || {};
     if (!options.onlyUserId && settings[kind] === false) continue;
     for (const r of digestRecipients(db, company.id)) {
