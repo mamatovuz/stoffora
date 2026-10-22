@@ -339,7 +339,10 @@ export function createOpsRouter() {
         .filter((s) => {
           const user = db.users.find((u) => u.id === s.userId);
           if (user?.role !== "SUPER_ADMIN") return false;
-          return !db.panelSessions.some((o) => o.userId === s.userId && o.id !== s.id && o.ip === s.ip && o.createdAt < s.createdAt);
+          // Birinchi kirish shubhali emas: avval boshqa sessiyalar bo‘lgan, lekin hech biri shu IP’dan emas.
+          const ip = (value: string | undefined) => String(value || "").replace(/^::ffff:/, "");
+          const earlier = db.panelSessions.filter((o) => o.userId === s.userId && o.id !== s.id && o.createdAt < s.createdAt);
+          return earlier.length > 0 && !earlier.some((o) => ip(o.ip) === ip(s.ip));
         })
         .map((s) => ({ id: s.id, user: db.users.find((u) => u.id === s.userId)?.email || "—", ip: s.ip, createdAt: s.createdAt, lastSeenAt: s.lastSeenAt, reason: "Administrator uchun yangi IP manzil" }));
       res.json({
