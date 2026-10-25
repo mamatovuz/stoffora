@@ -30,7 +30,7 @@ import {
   updateDb,
 } from "../lib/store";
 import { calculateAttendance, isValidClockTime } from "../lib/attendance";
-import { isOvernight } from "../lib/shift-time";
+import { addDays, isOvernight } from "../lib/shift-time";
 import {
   dateParts,
   tashkentClock,
@@ -1530,14 +1530,15 @@ app.get(
   asyncRoute(async (req, res) => {
     const db = await readDb(),
       tenant = companyId(req);
-    const today = tashkentIsoDate();
+    const now = tashkentIsoDate();
+    // Bosh sahifadagi sana tanlagich: bugun yoki o‘tgan kun (bir yil ichida); kelajak — bugun.
+    const asked = typeof req.query.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date) ? req.query.date : "";
+    const today = asked && asked <= now && asked >= addDays(now, -366) ? asked : now;
     const scope = branchScope(req, db);
     const roster = scopeRoster(scope, dayRoster(db, tenant, today));
     const days = [7, 14, 30].includes(Number(req.query.days)) ? Number(req.query.days) : 7;
     const weekly = Array.from({ length: days }, (_, index) => {
-      const date = tashkentIsoDate(
-        new Date(Date.now() - (days - 1 - index) * 86_400_000),
-      );
+      const date = addDays(today, index - (days - 1));
       const stats = rosterStats(scopeRoster(scope, dayRoster(db, tenant, date)));
       const expected = stats.present + stats.absent;
       return {
@@ -1552,6 +1553,7 @@ app.get(
       (e) => e.companyId === tenant && e.status === "ACTIVE" && inScope(scope, e.branchId),
     );
     res.json({
+      date: today,
       stats: rosterStats(roster),
       roster: roster
         .filter((row) => row.employee.status === "ACTIVE")

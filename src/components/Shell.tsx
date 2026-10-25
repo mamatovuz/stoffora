@@ -37,6 +37,7 @@ import {
   Eye,
   ChevronsUpDown,
   TriangleAlert,
+  Check,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -55,12 +56,14 @@ import { useTheme, type ThemePref } from "../theme";
  * tabel, avans, jarima, rag‘bat) sahifa tepasidagi tablarda. Rolga ruxsat etilmagan
  * tab va bandlar ko‘rinmaydi; band birinchi ruxsat etilgan sahifaga olib boradi.
  */
-type NavItem = { label: string; icon: typeof Users; tabs: [string, string][]; count?: string };
+type NavGroup = "Asosiy" | "Xodimlar" | "Boshqaruv" | "Tizim";
+type NavItem = { group: NavGroup; label: string; icon: typeof Users; tabs: [string, string][]; count?: string };
 const menu: NavItem[] = [
-  { label: "Bosh sahifa", icon: LayoutDashboard, tabs: [["/dashboard", "Bosh sahifa"]] },
-  { label: "Ish stoli", icon: ClipboardCheck, tabs: [["/workspace", "Ish stoli"]] },
-  { label: "Tasdiqlashlar", icon: Inbox, tabs: [["/inbox", "Tasdiqlashlar"]], count: "inbox" },
+  { group: "Asosiy", label: "Bosh sahifa", icon: LayoutDashboard, tabs: [["/dashboard", "Bosh sahifa"]] },
+  { group: "Asosiy", label: "Ish stoli", icon: ClipboardCheck, tabs: [["/workspace", "Ish stoli"]] },
+  { group: "Asosiy", label: "Tasdiqlashlar", icon: Inbox, tabs: [["/inbox", "Tasdiqlashlar"]], count: "inbox" },
   {
+    group: "Asosiy",
     label: "Keldi-ketdi",
     icon: Clock3,
     tabs: [
@@ -72,6 +75,7 @@ const menu: NavItem[] = [
     ],
   },
   {
+    group: "Xodimlar",
     label: "Xodimlar",
     icon: Users,
     tabs: [
@@ -80,9 +84,10 @@ const menu: NavItem[] = [
       ["/assets", "Aktivlar"],
     ],
   },
-  { label: "Ta’til va yo‘qlik", icon: Plane, tabs: [["/leave", "Ta’til va yo‘qlik"]], count: "leave" },
-  { label: "Arizalar", icon: ClipboardList, tabs: [["/registrations", "Arizalar"]], count: "registrations" },
+  { group: "Xodimlar", label: "Ta’til va yo‘qlik", icon: Plane, tabs: [["/leave", "Ta’til va yo‘qlik"]], count: "leave" },
+  { group: "Xodimlar", label: "Arizalar", icon: ClipboardList, tabs: [["/registrations", "Arizalar"]], count: "registrations" },
   {
+    group: "Xodimlar",
     label: "Tashkilot",
     icon: Building2,
     tabs: [
@@ -93,6 +98,7 @@ const menu: NavItem[] = [
     ],
   },
   {
+    group: "Boshqaruv",
     label: "Moliya",
     icon: Wallet,
     tabs: [
@@ -105,9 +111,10 @@ const menu: NavItem[] = [
     ],
     count: "fines",
   },
-  { label: "E’lonlar", icon: Megaphone, tabs: [["/announcements", "E’lonlar"]] },
-  { label: "Murojaatlar", icon: MessagesSquare, tabs: [["/helpdesk", "Murojaatlar"]] },
+  { group: "Boshqaruv", label: "E’lonlar", icon: Megaphone, tabs: [["/announcements", "E’lonlar"]] },
+  { group: "Boshqaruv", label: "Murojaatlar", icon: MessagesSquare, tabs: [["/helpdesk", "Murojaatlar"]] },
   {
+    group: "Boshqaruv",
     label: "Hisobotlar",
     icon: ChartNoAxesCombined,
     tabs: [
@@ -116,6 +123,7 @@ const menu: NavItem[] = [
     ],
   },
   {
+    group: "Tizim",
     label: "Tizim",
     icon: Settings,
     tabs: [
@@ -125,7 +133,7 @@ const menu: NavItem[] = [
       ["/settings", "Sozlamalar"],
     ],
   },
-  { label: "Yordam", icon: LifeBuoy, tabs: [["/support", "Staffora yordami"]] },
+  { group: "Tizim", label: "Yordam", icon: LifeBuoy, tabs: [["/support", "Staffora yordami"]] },
 ];
 
 /** Menyuda yo‘q, lekin ochiladigan sahifalar sarlavhasi. */
@@ -158,7 +166,8 @@ export function Shell() {
     }
   });
   const [mobile, setMobile] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
+  /** Ochiq ochiluvchi menyu: hisob (yuqorida / yon menyuda), kompaniya yoki til. */
+  const [open, setOpen] = useState<null | "top" | "side" | "company" | "lang">(null);
   const { theme, pref: themePref, choose: chooseTheme, toggle: toggleTheme } = useTheme();
   const [scrolled, setScrolled] = useState(false);
   const { data: company } = useApi<Company>("/company");
@@ -227,6 +236,9 @@ export function Shell() {
     if (location.pathname.startsWith("/employees/")) return "Xodim profili";
     return "Staffora";
   }, [location.pathname]);
+  // Yo‘l ko‘rsatkich: Kompaniya / Bo‘lim / Sahifa (bo‘lim nomi sahifa nomi bilan bir xil bo‘lsa — bir marta).
+  const leaf = pageTitle.split(" · ").pop() || pageTitle;
+  const crumbs = [current?.label, leaf !== current?.label ? leaf : undefined].filter(Boolean) as string[];
 
   useEffect(() => {
     try {
@@ -237,7 +249,7 @@ export function Shell() {
   }, [collapsed]);
   useEffect(() => {
     setMobile(false);
-    setProfileOpen(false);
+    setOpen(null);
     document.title = `${pageTitle} · Staffora`;
   }, [location.pathname, pageTitle]);
   useEffect(() => {
@@ -248,13 +260,28 @@ export function Shell() {
         setPalette(true);
       }
     };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(null);
+    };
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("keydown", shortcut);
+    window.addEventListener("keydown", escape);
     return () => {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("keydown", shortcut);
+      window.removeEventListener("keydown", escape);
     };
   }, []);
+
+  // Ochiluvchi menyu tashqarisiga bosilsa yopiladi.
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Element) || !event.target.closest("[data-pop]")) setOpen(null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [open]);
 
   const preview = user?.preview;
   async function logout() {
@@ -289,6 +316,55 @@ export function Shell() {
   const maintenance = user?.maintenance && maintenanceHidden !== user.maintenance.message ? user.maintenance : null;
   const [firstName, lastName] = (user?.name || "?").split(" ");
 
+  const companyInitials =
+    company?.name
+      .split(/\s+/)
+      .map((word) => word[0])
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "ST";
+  const companies = user?.companies || [];
+  const groups = visibleMenu.reduce<[string, typeof visibleMenu][]>((list, item) => {
+    const last = list[list.length - 1];
+    if (last && last[0] === item.group) last[1].push(item);
+    else list.push([item.group, [item]]);
+    return list;
+  }, []);
+  const toggle = (name: NonNullable<typeof open>) => setOpen((value) => (value === name ? null : name));
+  const accountMenu = (placement: "top" | "side") => (
+    <div className={`popover account-pop ${placement === "side" ? "up" : ""}`} role="menu">
+      <div className="popover-head">
+        <b>{user?.name}</b>
+        <small>{user?.email}</small>
+      </div>
+      <div className="theme-pick" role="radiogroup" aria-label="Ko‘rinish">
+        <small>Ko‘rinish</small>
+        <div>
+          {(
+            [
+              ["light", "Yorug‘", Sun],
+              ["dark", "Tungi", Moon],
+              ["system", "Tizim", MonitorSmartphone],
+            ] as [ThemePref, string, typeof Sun][]
+          ).map(([value, label, Icon]) => (
+            <button key={value} type="button" role="radio" aria-checked={themePref === value} className={themePref === value ? "active" : ""} onClick={() => chooseTheme(value)}>
+              <Icon size={15} /> {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <Link to="/settings" role="menuitem">
+        <CircleUserRound size={16} /> Profil va sozlamalar
+      </Link>
+      <Link to="/support" role="menuitem">
+        <LifeBuoy size={16} /> Staffora yordami
+      </Link>
+      <button className="danger" role="menuitem" onClick={() => void logout()}>
+        <LogOut size={16} /> {preview ? "Ko‘rishni tugatish" : "Tizimdan chiqish"}
+      </button>
+    </div>
+  );
+
   return (
     <div className="app-shell">
       <ScreenLock
@@ -297,101 +373,100 @@ export function Shell() {
           setPageKey((key) => key + 1);
         }}
       />
-      {mobile && (
-        <button
-          className="backdrop"
-          aria-label="Menyuni yopish"
-          onClick={() => setMobile(false)}
-        />
-      )}
-      <aside
-        className={`sidebar ${collapsed ? "collapsed" : ""} ${mobile ? "mobile-open" : ""}`}
-      >
+      {mobile && <button className="backdrop" aria-label="Menyuni yopish" onClick={() => setMobile(false)} />}
+      <aside className={`sidebar ${collapsed ? "collapsed" : ""} ${mobile ? "mobile-open" : ""}`}>
         <div className="sidebar-head">
-          <Link to={user ? homePage(user.role, user.modules) : "/dashboard"}>
+          <Link to={user ? homePage(user.role, user.modules) : "/dashboard"} aria-label="Staffora — bosh sahifa">
             <Logo compact={collapsed} />
           </Link>
-          <button
-            className="icon-btn collapse"
-            aria-label={collapsed ? "Menyuni yoyish" : "Menyuni yig‘ish"}
-            onClick={() => setCollapsed(!collapsed)}
-          >
-            {collapsed ? (
-              <PanelLeftOpen size={17} />
-            ) : (
-              <PanelLeftClose size={17} />
-            )}
+          <button className="icon-btn collapse" aria-label={collapsed ? "Menyuni yoyish" : "Menyuni yig‘ish"} title={collapsed ? "Menyuni yoyish" : "Menyuni yig‘ish"} onClick={() => setCollapsed(!collapsed)}>
+            {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
           </button>
-          <button
-            className="icon-btn mobile-close"
-            aria-label="Menyuni yopish"
-            onClick={() => setMobile(false)}
-          >
+          <button className="icon-btn mobile-close" aria-label="Menyuni yopish" onClick={() => setMobile(false)}>
             <X size={19} />
           </button>
         </div>
 
-        <div className={`company-chip ${user?.companies && user.companies.length > 1 ? "switchable" : ""}`} title={company?.name}>
-          <span className="mark">
-            {company?.name
-              .split(/\s+/)
-              .map((word) => word[0])
-              .slice(0, 2)
-              .join("")
-              .toUpperCase() || "ST"}
-          </span>
-          <span>
-            <b>{company?.name || "…"}</b>
-            <small>{company?.plan ? `${company.plan} tarif` : "Kompaniya"}</small>
-          </span>
-          {user?.companies && user.companies.length > 1 && (
-            <>
-              <ChevronsUpDown size={15} className="company-switch-icon" aria-hidden />
-              <select className="company-switch" aria-label="Kompaniyani almashtirish" value={user.companyId} onChange={(e) => void switchCompany(e.target.value)}>
-                {user.companies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </>
+        <div className="company-wrap" data-pop>
+          <button type="button" className={`company-chip ${open === "company" ? "open" : ""}`} title={company?.name} aria-haspopup="menu" aria-expanded={open === "company"} onClick={() => toggle("company")}>
+            <span className="mark">{companyInitials}</span>
+            <span>
+              <b>{company?.name || "…"}</b>
+              <small>{company?.plan ? `${company.plan} tarif` : "Kompaniya"}</small>
+            </span>
+            <ChevronDown size={15} className="company-switch-icon" aria-hidden />
+          </button>
+          {open === "company" && (
+            <div className="popover company-pop" role="menu">
+              {companies.length > 1 ? (
+                <>
+                  <small className="popover-label">Kompaniyalar</small>
+                  {companies.map((c) => (
+                    <button key={c.id} role="menuitemradio" aria-checked={c.id === user?.companyId} className={c.id === user?.companyId ? "current" : ""} onClick={() => void switchCompany(c.id)}>
+                      <span className="mark sm">
+                        {c.name
+                          .split(/\s+/)
+                          .map((word) => word[0])
+                          .slice(0, 2)
+                          .join("")
+                          .toUpperCase()}
+                      </span>
+                      <span className="grow">{c.name}</span>
+                      {c.id === user?.companyId && <Check size={15} />}
+                    </button>
+                  ))}
+                </>
+              ) : (
+                <div className="popover-head">
+                  <b>{company?.name}</b>
+                  <small>{company?.plan ? `${company.plan} tarif` : "Kompaniya"}</small>
+                </div>
+              )}
+              {user && canOpenPage(user.role, "/settings", user.modules) && (
+                <Link to="/settings" role="menuitem" className="sep">
+                  <Settings size={16} /> Kompaniya sozlamalari
+                </Link>
+              )}
+              {user && canOpenPage(user.role, "/branches", user.modules) && (
+                <Link to="/branches" role="menuitem">
+                  <Building2 size={16} /> Filiallar
+                </Link>
+              )}
+            </div>
           )}
         </div>
 
         <nav className="nav" aria-label="Asosiy navigatsiya">
-          {visibleMenu.map(({ label, icon: Icon, tabs, count }) => {
-            const active = current?.label === label;
-            const total = count ? counts[count] : 0;
-            return (
-              <Link
-                to={tabs[0][0]}
-                key={label}
-                className={`nav-link ${active ? "active" : ""}`}
-                aria-current={active ? "page" : undefined}
-                title={collapsed ? label : undefined}
-              >
-                <Icon size={18} strokeWidth={1.9} />
-                <span>{label}</span>
-                {total > 0 && <em className="nav-count">{total > 99 ? "99+" : total}</em>}
-              </Link>
-            );
-          })}
+          {groups.map(([group, items]) => (
+            <div className="nav-group" key={group} role="group" aria-label={group}>
+              <span className="nav-label" aria-hidden>
+                {group}
+              </span>
+              {items.map(({ label, icon: Icon, tabs, count }) => {
+                const active = current?.label === label;
+                const total = count ? counts[count] : 0;
+                return (
+                  <Link to={tabs[0][0]} key={label} className={`nav-link ${active ? "active" : ""}`} aria-current={active ? "page" : undefined} title={collapsed ? label : undefined}>
+                    <Icon size={17} strokeWidth={1.8} />
+                    <span>{label}</span>
+                    {total > 0 && <em className="nav-count">{total > 99 ? "99+" : total}</em>}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
-        <div className="sidebar-foot">
-          <Avatar first={firstName} last={lastName} photo={user?.photoDataUrl} />
-          <span>
-            <b>{user?.name}</b>
-            <small>{user ? roleLabels[user.role] : ""}</small>
-          </span>
-          <button
-            className="icon-btn"
-            aria-label="Chiqish"
-            title="Chiqish"
-            onClick={() => void logout()}
-          >
-            <LogOut size={16} />
+        <div className="sidebar-foot" data-pop>
+          <button type="button" className={`foot-account ${open === "side" ? "open" : ""}`} aria-haspopup="menu" aria-expanded={open === "side"} aria-label="Hisob menyusi" onClick={() => toggle("side")}>
+            <Avatar first={firstName} last={lastName} photo={user?.photoDataUrl} />
+            <span>
+              <b>{user?.name}</b>
+              <small>{user ? roleLabels[user.role] : ""}</small>
+            </span>
+            <ChevronsUpDown size={15} className="foot-icon" aria-hidden />
           </button>
+          {open === "side" && accountMenu("side")}
         </div>
       </aside>
 
@@ -429,24 +504,66 @@ export function Shell() {
           </div>
         )}
         <header className={`topbar ${scrolled ? "scrolled" : ""}`}>
-          <button
-            className="icon-btn mobile-menu"
-            aria-label="Menyuni ochish"
-            onClick={() => setMobile(true)}
-          >
+          <button className="icon-btn mobile-menu" aria-label="Menyuni ochish" onClick={() => setMobile(true)}>
             <Menu size={21} />
           </button>
-          <div className="topbar-title">
-            <small>{company?.name || "Staffora"}</small>
-            <b>{current && current.tabs.length > 1 && current.tabs.some(([path]) => path === location.pathname) ? current.label : pageTitle}</b>
-          </div>
+          <nav className="crumbs" aria-label="Yo‘l ko‘rsatkich">
+            <span className="crumb-root">{company?.name || "Staffora"}</span>
+            {crumbs.map((crumb, index) => (
+              <Fragment key={crumb}>
+                <span className="crumb-sep" aria-hidden>
+                  /
+                </span>
+                {index === crumbs.length - 1 ? (
+                  <b aria-current="page">{crumb}</b>
+                ) : current && current.tabs[0] ? (
+                  <Link to={current.tabs[0][0]}>{crumb}</Link>
+                ) : (
+                  <span>{crumb}</span>
+                )}
+              </Fragment>
+            ))}
+          </nav>
           <button type="button" className="search search-btn" onClick={() => setPalette(true)} aria-label="Qidiruv (Ctrl+K)">
-            <Search size={16} />
-            <span>Qidirish: xodim, filial, sahifa…</span>
+            <Search size={15} />
+            <span>Xodim, filial yoki sahifa qidirish...</span>
             <kbd>Ctrl K</kbd>
           </button>
           <CommandPalette open={palette} onClose={() => setPalette(false)} pages={visibleMenu.flatMap((item) => item.tabs.map(([path]) => [path, pageNames[path]] as [string, string]))} />
+          <span className="topbar-sep" aria-hidden />
           <div className="top-actions">
+            <div className="lang-menu" data-pop>
+              <button className={`lang-toggle ${open === "lang" ? "open" : ""}`} data-no-translate aria-haspopup="menu" aria-expanded={open === "lang"} aria-label="Interfeys tili" onClick={() => toggle("lang")}>
+                {lang.toUpperCase()}
+                <ChevronDown size={13} aria-hidden />
+              </button>
+              {open === "lang" && (
+                <div className="popover lang-pop" role="menu" data-no-translate>
+                  {(
+                    [
+                      ["uz", "O‘zbekcha"],
+                      ["ru", "Русский"],
+                    ] as [Lang, string][]
+                  ).map(([value, label]) => (
+                    <button
+                      key={value}
+                      role="menuitemradio"
+                      aria-checked={lang === value}
+                      className={lang === value ? "current" : ""}
+                      onClick={() => {
+                        rememberLang(value);
+                        setLang(value);
+                        setOpen(null);
+                      }}
+                    >
+                      <span className="lang-code">{value.toUpperCase()}</span>
+                      <span className="grow">{label}</span>
+                      {lang === value && <Check size={15} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className={`icon-btn theme-toggle ${theme === "dark" ? "is-dark" : ""}`}
@@ -454,107 +571,23 @@ export function Shell() {
               title={theme === "dark" ? "Yorug‘ rejim" : "Tungi rejim"}
               onClick={toggleTheme}
             >
-              <Sun size={18} className="tt-sun" />
-              <Moon size={18} className="tt-moon" />
-            </button>
-            <button
-              className="lang-toggle"
-              data-no-translate
-              title={lang === "uz" ? "Русский язык" : "O‘zbek tili"}
-              onClick={() => {
-                const next = lang === "uz" ? "ru" : "uz";
-                rememberLang(next);
-                setLang(next);
-              }}
-            >
-              {lang === "uz" ? "RU" : "UZ"}
+              <Sun size={17} className="tt-sun" />
+              <Moon size={17} className="tt-moon" />
             </button>
             {user?.screenLock?.enabled && (
-              <button
-                className="icon-btn"
-                aria-label="Ekranni qulflash"
-                title="Ekranni qulflash"
-                onClick={() => window.dispatchEvent(new Event("staffora:lock-now"))}
-              >
-                <Lock size={18} />
+              <button className="icon-btn" aria-label="Ekranni qulflash" title="Ekranni qulflash" onClick={() => window.dispatchEvent(new Event("staffora:lock-now"))}>
+                <Lock size={17} />
               </button>
             )}
-            <Link
-              to="/notifications"
-              className="icon-btn bell"
-              aria-label={`${counts.notifications} ta o‘qilmagan bildirishnoma`}
-            >
-              <Bell size={19} />
-              {counts.notifications > 0 && (
-                <i>{counts.notifications > 9 ? "9+" : counts.notifications}</i>
-              )}
+            <Link to="/notifications" className="icon-btn bell" aria-label={`${counts.notifications} ta o‘qilmagan bildirishnoma`} title="Bildirishnomalar">
+              <Bell size={18} />
+              {counts.notifications > 0 && <i>{counts.notifications > 9 ? "9+" : counts.notifications}</i>}
             </Link>
-            <div className="user-menu">
-              <button
-                className="user-trigger"
-                aria-expanded={profileOpen}
-                onClick={() => setProfileOpen(!profileOpen)}
-              >
-                <Avatar
-                  first={firstName}
-                  last={lastName}
-                  photo={user?.photoDataUrl}
-                  size="sm"
-                />
-                <span>
-                  <b>{firstName}</b>
-                  <small>{user ? roleLabels[user.role] : ""}</small>
-                </span>
-                <ChevronDown size={14} />
+            <div className="user-menu" data-pop>
+              <button className="user-trigger" aria-haspopup="menu" aria-expanded={open === "top"} aria-label="Hisob menyusi" onClick={() => toggle("top")}>
+                <Avatar first={firstName} last={lastName} photo={user?.photoDataUrl} size="sm" />
               </button>
-              {profileOpen && (
-                <>
-                  <button
-                    className="backdrop"
-                    style={{ background: "transparent", zIndex: 70 }}
-                    aria-label="Yopish"
-                    onClick={() => setProfileOpen(false)}
-                  />
-                  <div className="popover">
-                    <div className="popover-head">
-                      <b>{user?.name}</b>
-                      <small>{user?.email}</small>
-                    </div>
-                    <div className="theme-pick" role="radiogroup" aria-label="Ko‘rinish">
-                      <small>Ko‘rinish</small>
-                      <div>
-                        {(
-                          [
-                            ["light", "Yorug‘", Sun],
-                            ["dark", "Tungi", Moon],
-                            ["system", "Tizim", MonitorSmartphone],
-                          ] as [ThemePref, string, typeof Sun][]
-                        ).map(([value, label, Icon]) => (
-                          <button
-                            key={value}
-                            type="button"
-                            role="radio"
-                            aria-checked={themePref === value}
-                            className={themePref === value ? "active" : ""}
-                            onClick={() => chooseTheme(value)}
-                          >
-                            <Icon size={15} /> {label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <Link to="/settings">
-                      <CircleUserRound size={16} /> Profil va sozlamalar
-                    </Link>
-                    <Link to="/support">
-                      <LifeBuoy size={16} /> Staffora yordami
-                    </Link>
-                    <button className="danger" onClick={() => void logout()}>
-                      <LogOut size={16} /> {preview ? "Ko‘rishni tugatish" : "Tizimdan chiqish"}
-                    </button>
-                  </div>
-                </>
-              )}
+              {open === "top" && accountMenu("top")}
             </div>
           </div>
         </header>
