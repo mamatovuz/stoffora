@@ -175,7 +175,10 @@ const ENV_LABELS: Record<string, string> = {
   JWT_SECRET: "JWT_SECRET (≥ 32 belgi)",
   COOKIE_SECURE: "COOKIE_SECURE=true (HTTPS)",
   RAILWAY_VOLUME_MOUNT_PATH: "Doimiy disk (zaxira nusxalar uchun)",
-  RAILWAY_API_TOKEN: "Railway API tokeni (ixtiyoriy)",
+  RAILWAY_API_TOKEN: "Railway API yoki project tokeni (ixtiyoriy)",
+  RAILWAY_PROJECT_ID: "Railway loyiha ID",
+  RAILWAY_SERVICE_ID: "Railway servis ID",
+  RAILWAY_ENVIRONMENT_ID: "Railway muhit ID (ixtiyoriy)",
   APP_URL: "Ilova manzili (APP_URL)",
   EMAIL: "Email yuborish xizmati",
 };

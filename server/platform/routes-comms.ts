@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type Response } from "express";
+import rateLimit from "express-rate-limit";
 import { z } from "zod";
 import { audit, documentFiles, readDb, updateDb } from "../../lib/store";
 import type { Database } from "../../lib/types";
@@ -234,7 +235,7 @@ export function createCommsRouter() {
         id: t.id,
         number: t.number,
         companyId: t.companyId,
-        company: db.companies.find((c) => c.id === t.companyId)?.name || "—",
+        company: t.companyId === "__public__" ? "Ommaviy murojaat" : db.companies.find((c) => c.id === t.companyId)?.name || "—",
         subject: t.subject,
         category: t.category || null,
         priority: t.priority,
@@ -283,7 +284,7 @@ export function createCommsRouter() {
         return t;
       });
       const db = await readDb();
-      res.json({ ...ticket, company: db.companies.find((c) => c.id === ticket.companyId)?.name || "—" });
+      res.json({ ...ticket, company: ticket.companyId === "__public__" ? "Ommaviy murojaat" : db.companies.find((c) => c.id === ticket.companyId)?.name || "—" });
     }),
   );
 
@@ -313,7 +314,7 @@ export function createCommsRouter() {
         return t;
       });
       await platformAudit({ req, companyId: ticket.companyId, action: input.internal ? "support.note" : "support.reply", entity: "ticket", entityId: ticket.id, summary: `#${ticket.number}: ${input.internal ? "ichki izoh" : "javob"}` });
-      if (!input.internal)
+      if (!input.internal && ticket.companyId !== "__public__")
         void notifyPanelUser(await readDb(), ticket.createdById, { key: `ticket:${ticket.id}:${ticket.messages.length}`, title: `Staffora yordam: #${ticket.number}`, body: `«${ticket.subject}» murojaatingizga javob berildi. Panel → Yordam bo‘limida ko‘ring.` });
       res.json(ticket);
     }),
@@ -370,6 +371,87 @@ export function createCommsRouter() {
     }),
   );
 
+  return router;
+}
+
+/** Ommaviy Yordam markazi: kontaktlarni ko‘rish va akkauntsiz murojaat yuborish. */
+export function createPublicSupportRouter() {
+  const router = Router();
+  router.get(
+    "/public/support/contacts",
+    asyncRoute(async (_req, res) => {
+      const db = await readDb();
+      const support = db.platformSettings?.support || {};
+      res.setHeader("Cache-Control", "public, max-age=300");
+      res.json({
+        platformName: db.platformSettings?.platformName || "Staffora",
+        email: support.email || null,
+        telegram: support.telegram || null,
+        phone: support.phone || null,
+        hours: support.hours || null,
+      });
+    }),
+  );
+  router.post(
+    "/public/support/tickets",
+    rateLimit({
+      windowMs: 10 * 60_000,
+      limit: 5,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { message: "Juda ko‘p murojaat yuborildi. Birozdan keyin qayta urinib ko‘ring." },
+    }),
+    asyncRoute(async (req, res) => {
+      const input = z
+        .object({
+          name: z.string().trim().min(2, "Ismingizni yozing.").max(80),
+          email: z.string().trim().email("Email manzil noto‘g‘ri.").max(160),
+          category: z.enum(["Umumiy savol", "Akkaunt va profil", "Davomat", "Kompaniya boshqaruvi", "Texnik muammo", "Tarif va to‘lov", "Maxfiylik va ma’lumotlar"]),
+          subject: z.string().trim().min(3, "Murojaat mavzusini yozing.").max(160),
+          message: z.string().trim().min(10, "Muammoni batafsilroq yozing.").max(5000),
+          website: z.string().max(200).optional(),
+        })
+        .parse(req.body);
+      // Botlar uchun yashirin tuzoq. Haqiqiy ticket yaratilmaydi, lekin neytral javob qaytadi.
+      if (input.website) return res.status(201).json({ ok: true, number: 0 });
+      const ticket = await updateDb((db) => {
+        const now = new Date().toISOString();
+        const row: SupportTicket = {
+          id: randomUUID(),
+          number: db.supportTickets.reduce((max, current) => Math.max(max, current.number), 1000) + 1,
+          companyId: "__public__",
+          createdById: `public:${randomUUID()}`,
+          createdByName: input.name,
+          subject: input.subject,
+          category: input.category,
+          priority: "NORMAL",
+          status: "OPEN",
+          messages: [
+            {
+              id: randomUUID(),
+              author: "COMPANY",
+              authorName: input.name,
+              text: `Aloqa emaili: ${input.email}\n\n${input.message}`,
+              at: now,
+            },
+          ],
+          unreadAdmin: true,
+          unreadCompany: false,
+          createdAt: now,
+          updatedAt: now,
+        };
+        db.supportTickets.unshift(row);
+        return row;
+      });
+      void notifyAdmins({
+        key: `ticket:${ticket.id}`,
+        text: `🆘 Saytdan yangi murojaat #${ticket.number} — ${ticket.createdByName}: ${ticket.subject}`,
+        permission: "support.read",
+        cooldownMinutes: 1,
+      });
+      res.status(201).json({ ok: true, number: ticket.number });
+    }),
+  );
   return router;
 }
 

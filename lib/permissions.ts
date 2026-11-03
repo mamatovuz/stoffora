@@ -84,6 +84,8 @@ export const pagePermissions: Record<string, string[]> = {
   "/users": ["settings.manage"],
   "/roles": ["settings.manage"],
   "/settings": [],
+  "/settings/ai": ["settings.manage"],
+  "/corporate": [],
 };
 
 /**

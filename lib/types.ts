@@ -17,6 +17,8 @@ import type {
   UserPlatformFields,
   WebhookEndpoint,
 } from "./platform/types";
+import type { AgreementAcceptance, AgreementWithdrawalRequest, CorporateAgreement, CorporateApproval, CorporateAuditEntry, CorporateInvestment, CorporateLedgerEntry, CorporateParticipant, CorporateTransaction, EconomicInterestVersion, LegalOwnershipRecord, ParticipantWalletEntry, ProfitDistribution, ReserveExpense, WithdrawalRequest } from "./corporate/types";
+import type { AiActionExecution, AiConfig, AiConversation, AiMessage, AiPairingToken, AiTelegramIntegration, AiTelegramLink, AiUsageLog } from "./ai/types";
 
 export type Role =
   | "SUPER_ADMIN"
@@ -758,6 +760,31 @@ export interface Database {
   translationOverrides: TranslationOverride[];
   /** Global sozlamalar (bitta obyekt). */
   platformSettings: PlatformSettings;
+  /* --- Corporate Management --- */
+  corporateParticipants: CorporateParticipant[];
+  legalOwnershipRecords: LegalOwnershipRecord[];
+  economicInterestVersions: EconomicInterestVersion[];
+  corporateTransactions: CorporateTransaction[];
+  corporateLedgerEntries: CorporateLedgerEntry[];
+  profitDistributions: ProfitDistribution[];
+  participantWalletEntries: ParticipantWalletEntry[];
+  withdrawalRequests: WithdrawalRequest[];
+  reserveExpenses: ReserveExpense[];
+  corporateInvestments: CorporateInvestment[];
+  corporateAgreements: CorporateAgreement[];
+  agreementAcceptances: AgreementAcceptance[];
+  agreementWithdrawalRequests: AgreementWithdrawalRequest[];
+  corporateApprovals: CorporateApproval[];
+  corporateAuditEntries: CorporateAuditEntry[];
+  /* --- Staffora AI --- */
+  aiConfigs: AiConfig[];
+  aiConversations: AiConversation[];
+  aiMessages: AiMessage[];
+  aiActions: AiActionExecution[];
+  aiUsageLogs: AiUsageLog[];
+  aiTelegramIntegrations: AiTelegramIntegration[];
+  aiTelegramLinks: AiTelegramLink[];
+  aiPairingTokens: AiPairingToken[];
 }
 export interface PayoutCard {
   companyId: string;

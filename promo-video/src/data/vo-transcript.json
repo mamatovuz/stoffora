@@ -1,0 +1,246 @@
+{
+  "model": "medium",
+  "segments": [
+    {
+      "start": 0.0,
+      "end": 7.54,
+      "text": "xodumlar boshqarubi, yangi boshqichkia tayyor boling, staforu jamuangizni boshqarishnin zamana viyechimi",
+      "words": [
+        {
+          "text": "xodumlar",
+          "start": 0.0,
+          "end": 0.8
+        },
+        {
+          "text": "boshqarubi,",
+          "start": 0.8,
+          "end": 1.62
+        },
+        {
+          "text": "yangi",
+          "start": 1.84,
+          "end": 2.16
+        },
+        {
+          "text": "boshqichkia",
+          "start": 2.16,
+          "end": 2.88
+        },
+        {
+          "text": "tayyor",
+          "start": 2.88,
+          "end": 3.38
+        },
+        {
+          "text": "boling,",
+          "start": 3.38,
+          "end": 3.82
+        },
+        {
+          "text": "staforu",
+          "start": 4.0,
+          "end": 4.8
+        },
+        {
+          "text": "jamuangizni",
+          "start": 4.8,
+          "end": 5.54
+        },
+        {
+          "text": "boshqarishnin",
+          "start": 5.54,
+          "end": 6.32
+        },
+        {
+          "text": "zamana",
+          "start": 6.32,
+          "end": 6.86
+        },
+        {
+          "text": "viyechimi",
+          "start": 6.86,
+          "end": 7.54
+        }
+      ]
+    },
+    {
+      "start": 7.54,
+      "end": 9.62,
+      "text": "davamat nazorati",
+      "words": [
+        {
+          "text": "davamat",
+          "start": 7.54,
+          "end": 8.9
+        },
+        {
+          "text": "nazorati",
+          "start": 8.9,
+          "end": 9.62
+        }
+      ]
+    },
+    {
+      "start": 9.62,
+      "end": 11.82,
+      "text": "xodumlar boshqarubi",
+      "words": [
+        {
+          "text": "xodumlar",
+          "start": 9.62,
+          "end": 10.6
+        },
+        {
+          "text": "boshqarubi",
+          "start": 10.6,
+          "end": 11.82
+        }
+      ]
+    },
+    {
+      "start": 11.82,
+      "end": 14.0,
+      "text": "ix jarayonlari we batafsil statistika",
+      "words": [
+        {
+          "text": "ix",
+          "start": 11.82,
+          "end": 12.08
+        },
+        {
+          "text": "jarayonlari",
+          "start": 12.08,
+          "end": 12.82
+        },
+        {
+          "text": "we",
+          "start": 12.82,
+          "end": 12.92
+        },
+        {
+          "text": "batafsil",
+          "start": 12.92,
+          "end": 13.52
+        },
+        {
+          "text": "statistika",
+          "start": 13.52,
+          "end": 14.21
+        }
+      ]
+    },
+    {
+      "start": 14.7,
+      "end": 18.58,
+      "text": "barjasi bittatizmda, kulay, anıq va samarali",
+      "words": [
+        {
+          "text": "barjasi",
+          "start": 14.7,
+          "end": 15.48
+        },
+        {
+          "text": "bittatizmda,",
+          "start": 15.48,
+          "end": 16.44
+        },
+        {
+          "text": "kulay,",
+          "start": 16.6,
+          "end": 17.02
+        },
+        {
+          "text": "anıq",
+          "start": 17.18,
+          "end": 17.54
+        },
+        {
+          "text": "va",
+          "start": 17.54,
+          "end": 17.8
+        },
+        {
+          "text": "samarali",
+          "start": 17.8,
+          "end": 18.58
+        }
+      ]
+    },
+    {
+      "start": 18.58,
+      "end": 20.9,
+      "text": "jarayonlarini nazorat giling",
+      "words": [
+        {
+          "text": "jarayonlarini",
+          "start": 18.58,
+          "end": 19.96
+        },
+        {
+          "text": "nazorat",
+          "start": 19.96,
+          "end": 20.5
+        },
+        {
+          "text": "giling",
+          "start": 20.5,
+          "end": 20.9
+        }
+      ]
+    },
+    {
+      "start": 20.9,
+      "end": 24.38,
+      "text": "mukhum malymotlarini kuzating, vaxtingizni tejeng",
+      "words": [
+        {
+          "text": "mukhum",
+          "start": 20.9,
+          "end": 21.48
+        },
+        {
+          "text": "malymotlarini",
+          "start": 21.48,
+          "end": 22.24
+        },
+        {
+          "text": "kuzating,",
+          "start": 22.24,
+          "end": 22.76
+        },
+        {
+          "text": "vaxtingizni",
+          "start": 23.04,
+          "end": 23.68
+        },
+        {
+          "text": "tejeng",
+          "start": 23.68,
+          "end": 24.38
+        }
+      ]
+    },
+    {
+      "start": 24.38,
+      "end": 27.48,
+      "text": "staforu jamuangiz nazoratingizda",
+      "words": [
+        {
+          "text": "staforu",
+          "start": 24.38,
+          "end": 25.38
+        },
+        {
+          "text": "jamuangiz",
+          "start": 25.38,
+          "end": 26.48
+        },
+        {
+          "text": "nazoratingizda",
+          "start": 26.48,
+          "end": 27.48
+        }
+      ]
+    }
+  ]
+}

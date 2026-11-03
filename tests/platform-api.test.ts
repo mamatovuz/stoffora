@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import express, { type NextFunction, type Request, type Response } from "express";
+import bcrypt from "bcryptjs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Database } from "../lib/types";
 
@@ -48,12 +49,13 @@ beforeAll(async () => {
   const comms = await import("../server/platform/routes-comms");
   const integrations = await import("../server/platform/integrations-api");
   const now = new Date().toISOString();
+  const ownerPasswordHash = await bcrypt.hash("PlatformQA-2026!", 4);
   await store.updateDb((db: Database) => {
     const company = (id: string, name: string) => ({ id, name, slug: id, status: "ACTIVE", plan: "Pro", timezone: "Asia/Tashkent", createdAt: now }) as unknown as Database["companies"][number];
     db.companies.push(company("c1", "Alfa"), company("c2", "Beta"));
     const user = (id: string, role: string, extra: object = {}) => ({ id, name: id.toUpperCase(), email: `${id}@t.test`, role, passwordHash: "x", createdAt: now, ...extra }) as unknown as Database["users"][number];
     db.users.push(
-      user("sa", "SUPER_ADMIN"),
+      user("sa", "SUPER_ADMIN", { passwordHash: ownerPasswordHash }),
       user("an", "SUPER_ADMIN", { platformRole: "ANALYST" }),
       user("bl", "SUPER_ADMIN", { platformRole: "ADMIN", blockedAt: now }),
       user("o1", "COMPANY_OWNER", { companyId: "c1" }),
@@ -66,6 +68,7 @@ beforeAll(async () => {
   const app = express();
   app.use(express.json({ limit: "3mb" }));
   app.use("/api", integrations.createPublicApiRouter());
+  app.use("/api", comms.createPublicSupportRouter());
   // Test sessiyasi (x-test-user) yoki haqiqiy requireAuth (ko‘rish tokeni Bearer orqali).
   app.use("/api", (req: Request, res: Response, next: NextFunction) => {
     const who = req.headers["x-test-user"];
@@ -94,6 +97,103 @@ afterAll(() => {
   } catch {
     /* ignore */
   }
+});
+
+describe("ommaviy Yordam markazi", () => {
+  it("kontaktlarni akkauntsiz qaytaradi", async () => {
+    const res = await get("/api/public/support/contacts");
+    expect(res.status).toBe(200);
+    expect(res.body.platformName).toBe("Staffora");
+  });
+
+  it("support form murojaatini haqiqiy ticket sifatida saqlaydi", async () => {
+    const res = await post("/api/public/support/tickets", {
+      name: "QA Tekshiruv",
+      email: "qa@example.com",
+      category: "Texnik muammo",
+      subject: "Support form integratsiya testi",
+      message: "Bu avtomatik QA test murojaati, real foydalanuvchi xabari emas.",
+      website: "",
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.ok).toBe(true);
+    expect(res.body.number).toBeGreaterThan(1000);
+    const db = await store.readDb();
+    const ticket = db.supportTickets.find((row) => row.number === res.body.number);
+    expect(ticket).toMatchObject({ companyId: "__public__", createdByName: "QA Tekshiruv", category: "Texnik muammo", status: "OPEN" });
+    expect(ticket?.messages[0].text).toContain("qa@example.com");
+  });
+
+  it("noto‘g‘ri emailni qabul qilmaydi", async () => {
+    const res = await post("/api/public/support/tickets", {
+      name: "QA",
+      email: "xato-email",
+      category: "Umumiy savol",
+      subject: "Test mavzu",
+      message: "Yetarlicha uzun test murojaati.",
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
+describe("xavfli amallarni qayta tasdiqlash", () => {
+  it("zaxira yaratishda avval parol talab qiladi, tasdiqdan keyin ishni navbatga qo‘yadi", async () => {
+    const denied = await post("/api/super-admin/backups", {}, { as: "owner" });
+    expect(denied.status).toBe(428);
+    expect(denied.body.code).toBe("REAUTH_REQUIRED");
+
+    const wrong = await post("/api/super-admin/reauth", { password: "noto‘g‘ri" }, { as: "owner" });
+    expect(wrong.status).toBe(401);
+
+    const verified = await post("/api/super-admin/reauth", { password: "PlatformQA-2026!" }, { as: "owner" });
+    expect(verified.status).toBe(200);
+    const started = await post("/api/super-admin/backups", {}, { as: "owner" });
+    expect(started.status).toBe(202);
+    expect(started.body.job.type).toBe("BACKUP");
+  });
+});
+
+describe("Super Admin ekranlari — API smoke audit", () => {
+  it("navigatsiyadagi barcha asosiy o‘qish endpointlari javob beradi", async () => {
+    const endpoints = [
+      "/api/super-admin/me",
+      "/api/super-admin/overview",
+      "/api/super-admin/analytics?range=30",
+      "/api/super-admin/companies?page=1&pageSize=25",
+      "/api/super-admin/users?page=1&pageSize=25",
+      "/api/super-admin/plans",
+      "/api/super-admin/subscriptions?page=1&pageSize=25",
+      "/api/super-admin/billing?page=1&pageSize=25",
+      "/api/super-admin/promos?page=1&pageSize=25",
+      "/api/super-admin/contracts?page=1&pageSize=25",
+      "/api/super-admin/modules",
+      "/api/super-admin/flags?page=1&pageSize=25",
+      "/api/super-admin/integrations?page=1&pageSize=25",
+      "/api/super-admin/notifications?page=1&pageSize=25",
+      "/api/super-admin/support/tickets?page=1&pageSize=25",
+      "/api/super-admin/support/admins",
+      "/api/super-admin/admin-roles",
+      "/api/super-admin/admins?page=1&pageSize=25",
+      "/api/super-admin/languages",
+      "/api/super-admin/settings",
+      "/api/super-admin/monitoring",
+      "/api/super-admin/incidents?page=1&pageSize=25",
+      "/api/super-admin/errors?page=1&pageSize=25",
+      "/api/super-admin/backups",
+      "/api/super-admin/jobs?page=1&pageSize=25",
+      "/api/super-admin/security/overview",
+      "/api/super-admin/security/events?page=1&pageSize=25",
+      "/api/super-admin/sessions?kind=panel&page=1&pageSize=25",
+      "/api/super-admin/resources",
+      "/api/super-admin/exports?page=1&pageSize=25",
+      "/api/super-admin/activities?page=1&pageSize=25",
+      "/api/super-admin/audit-logs?page=1&pageSize=25",
+      "/api/super-admin/onboarding?page=1&pageSize=25",
+    ];
+    const results = await Promise.all(endpoints.map(async (endpoint) => ({ endpoint, response: await get(endpoint, { as: "owner" }) })));
+    const failed = results.filter(({ response }) => response.status !== 200).map(({ endpoint, response }) => ({ endpoint, status: response.status, body: response.body }));
+    expect(failed).toEqual([]);
+  });
 });
 
 describe("RBAC — server tomonda", () => {

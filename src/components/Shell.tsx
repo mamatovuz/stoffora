@@ -38,6 +38,7 @@ import {
   ChevronsUpDown,
   TriangleAlert,
   Check,
+  BriefcaseBusiness,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -50,6 +51,7 @@ import { api, clearPreviewToken } from "../api";
 import { useApi, usePolling } from "../hooks";
 import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
 import { useTheme, type ThemePref } from "../theme";
+import { StafforaAI } from "./StafforaAI";
 
 /**
  * Menyu — 12 ta band. Bir bandga tegishli sahifalar (masalan, Moliya: xulosa, ish haqi,
@@ -113,6 +115,7 @@ const menu: NavItem[] = [
   },
   { group: "Boshqaruv", label: "E’lonlar", icon: Megaphone, tabs: [["/announcements", "E’lonlar"]] },
   { group: "Boshqaruv", label: "Murojaatlar", icon: MessagesSquare, tabs: [["/helpdesk", "Murojaatlar"]] },
+  { group: "Boshqaruv", label: "Corporate", icon: BriefcaseBusiness, tabs: [["/corporate", "Corporate Management"]] },
   {
     group: "Boshqaruv",
     label: "Hisobotlar",
@@ -131,9 +134,10 @@ const menu: NavItem[] = [
       ["/roles", "Rollar"],
       ["/audit", "Audit"],
       ["/settings", "Sozlamalar"],
+      ["/settings/ai", "Staffora AI"],
     ],
   },
-  { group: "Tizim", label: "Yordam", icon: LifeBuoy, tabs: [["/support", "Staffora yordami"]] },
+  { group: "Tizim", label: "Yordam", icon: LifeBuoy, tabs: [["/app-support", "Staffora yordami"]] },
 ];
 
 /** Menyuda yo‘q, lekin ochiladigan sahifalar sarlavhasi. */
@@ -356,7 +360,7 @@ export function Shell() {
       <Link to="/settings" role="menuitem">
         <CircleUserRound size={16} /> Profil va sozlamalar
       </Link>
-      <Link to="/support" role="menuitem">
+      <Link to="/app-support" role="menuitem">
         <LifeBuoy size={16} /> Staffora yordami
       </Link>
       <button className="danger" role="menuitem" onClick={() => void logout()}>
@@ -605,6 +609,7 @@ export function Shell() {
             <Outlet />
           </Fragment>
         </main>
+        {!preview && user?.role !== "EMPLOYEE" && <StafforaAI />}
       </div>
     </div>
   );

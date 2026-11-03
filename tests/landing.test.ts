@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { Request, Response } from "express";
-import { landingHostGuard, siteConfig } from "../server/landing";
+import path from "node:path";
+import { indexWithConfig, landingHostGuard, siteConfig } from "../server/landing";
 
 const call = (config: ReturnType<typeof siteConfig>, hostname: string, url: string) => {
   let redirected = "";
@@ -43,5 +44,13 @@ describe("landing va panel domenlari", () => {
   it("landing va panel bir xil domen bo‘lsa — ajratilmaydi", () => {
     process.env.LANDING_URL = "https://staffora.uz";
     expect(siteConfig("https://staffora.uz").landingHosts).toEqual([]);
+  });
+
+  it("public route dastlabki HTML'idayoq to‘g‘ri SEO metadata beradi", () => {
+    const html = indexWithConfig(path.join(process.cwd(), "index.html"), siteConfig("https://hosting.example.uz"), "/privacy");
+    expect(html).toContain("<title>Maxfiylik siyosati — Staffora</title>");
+    expect(html).toContain('content="Staffora platformasida shaxsga doir ma’lumotlarni yig‘ish, ishlatish, saqlash va himoya qilish tartibi."');
+    expect(html).toContain('rel="canonical" href="https://hosting.example.uz/privacy"');
+    expect(html).not.toContain("staffora.uz/privacy");
   });
 });

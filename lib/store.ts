@@ -119,6 +119,29 @@ function normalizeDatabase(database: Database): Database {
   database.previewSessions ||= [];
   database.translationOverrides ||= [];
   database.platformSettings ||= {};
+  database.corporateParticipants ||= [];
+  database.legalOwnershipRecords ||= [];
+  database.economicInterestVersions ||= [];
+  database.corporateTransactions ||= [];
+  database.corporateLedgerEntries ||= [];
+  database.profitDistributions ||= [];
+  database.participantWalletEntries ||= [];
+  database.withdrawalRequests ||= [];
+  database.reserveExpenses ||= [];
+  database.corporateInvestments ||= [];
+  database.corporateAgreements ||= [];
+  database.agreementAcceptances ||= [];
+  database.agreementWithdrawalRequests ||= [];
+  database.corporateApprovals ||= [];
+  database.corporateAuditEntries ||= [];
+  database.aiConfigs ||= [];
+  database.aiConversations ||= [];
+  database.aiMessages ||= [];
+  database.aiActions ||= [];
+  database.aiUsageLogs ||= [];
+  database.aiTelegramIntegrations ||= [];
+  database.aiTelegramLinks ||= [];
+  database.aiPairingTokens ||= [];
   return database;
 }
 

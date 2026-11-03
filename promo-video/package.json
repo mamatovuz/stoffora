@@ -1,0 +1,27 @@
+{
+  "name": "staffora-promo-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Staffora — 30 soniyalik vertikal promo video (Remotion)",
+  "scripts": {
+    "studio": "remotion studio",
+    "audio": "python scripts/build_audio.py",
+    "still": "remotion still StafforaPromo out/frame.png",
+    "render": "remotion render StafforaPromo out/staffora-promo.mp4 --codec=h264 --crf=16 --audio-codec=aac --audio-bitrate=256k --pixel-format=yuv420p",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.539",
+    "@remotion/google-fonts": "4.0.539",
+    "@remotion/layout-utils": "^4.0.539",
+    "@remotion/shapes": "4.0.539",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "remotion": "4.0.539"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "typescript": "^5.7.2"
+  }
+}

@@ -101,11 +101,11 @@ function MonitoringView() {
               ["Xotira (RSS)", `${d.process.rssMb} MB · heap ${d.process.heapUsedMb}/${d.process.heapTotalMb} MB`],
               ["Event loop kechikishi (p99)", `${d.process.eventLoopLagMs} ms`],
               ["Node", d.process.node],
-              ["Railway API", data.integrations.railway ? "Token bor (integratsiya keyingi bosqich)" : "Not configured"],
+              ["Railway API", data.integrations.railway ? "Ulangan — so‘nggi deploy holati tekshiruvlarda" : "Not configured"],
               ["Supabase", data.integrations.supabase ? "Ulangan (DATABASE_URL)" : "Not configured"],
             ]}
           />
-          <p className="muted sa-note">CPU va umumiy konteyner RAM’i Railway API orqali ulanmagan — soxta qiymat ko‘rsatilmaydi.</p>
+          <p className="muted sa-note">Jarayon xotirasi va event loop qiymatlari real vaqtda o‘lchanadi; Railway tekshiruvi so‘nggi deploy holatini API orqali oladi.</p>
         </Section>
       </div>
       <div className="sa-grid-2">
@@ -409,8 +409,9 @@ function Backups() {
       {confirm && (
         <ConfirmDialog
           title="Zaxira nusxa yaratish"
-          text="Ma’lumotlar bazasining to‘liq nusxasi server ichidagi yopiq papkaga yoziladi (fon ishi). Ish to‘xtamaydi. Parolingiz so‘ralishi mumkin."
+          text="Ma’lumotlar bazasining to‘liq nusxasi server ichidagi yopiq papkaga yoziladi (fon ishi). Ish to‘xtamaydi. Amalni boshlash uchun parolingizni tasdiqlang."
           confirmLabel="Yaratish"
+          reauth
           onClose={() => setConfirm(false)}
           onConfirm={async () => {
             await run(() => post("/super-admin/backups", {}), toast, "Zaxira yaratish boshlandi");

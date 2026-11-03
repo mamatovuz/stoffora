@@ -130,7 +130,7 @@ export function LoginPage() {
     return () => window.clearTimeout(timer);
   }, [step]);
 
-  if (user) return <Navigate to={user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role, user.modules)} replace />;
+  if (user) return <Navigate to={user.role === "SUPER_ADMIN" ? "/super-admin" : window.location.hostname.toLowerCase().startsWith("corporate.") ? "/corporate" : homePage(user.role, user.modules)} replace />;
   if (needsSetup) return <Navigate to="/setup" replace />;
 
   const inputs: Record<Key, React.RefObject<HTMLInputElement | null>> = { email: emailRef, password: passwordRef, phone: phoneRef };
@@ -154,7 +154,7 @@ export function LoginPage() {
     await new Promise((resolve) => window.setTimeout(resolve, 650));
     await refresh();
     const from = (location.state as { from?: { pathname?: string } })?.from?.pathname;
-    navigate(from && from !== "/login" ? from : redirect, { replace: true });
+    navigate(from && from !== "/login" ? from : window.location.hostname.toLowerCase().startsWith("corporate.") ? "/corporate" : redirect, { replace: true });
   }
 
   async function next() {

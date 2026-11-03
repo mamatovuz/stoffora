@@ -98,6 +98,7 @@ export function ReauthProvider({ children }: { children: ReactNode }) {
     <ReauthContext.Provider value={withReauth}>
       {children}
       {pending && (
+        <div className="sa-reauth-layer">
         <Modal title="Parolni tasdiqlang" subtitle="Bu xavfli amal — davom etish uchun parolingizni kiriting" onClose={close} size="narrow">
           <form
             onSubmit={async (e) => {
@@ -134,6 +135,7 @@ export function ReauthProvider({ children }: { children: ReactNode }) {
             </div>
           </form>
         </Modal>
+        </div>
       )}
     </ReauthContext.Provider>
   );
@@ -400,6 +402,7 @@ export function ConfirmDialog({
   danger,
   typed,
   reason,
+  reauth,
   onConfirm,
   onClose,
 }: {
@@ -409,6 +412,8 @@ export function ConfirmDialog({
   danger?: boolean;
   typed?: string;
   reason?: { label: string; required?: boolean; min?: number };
+  /** Xavfli amal uchun parolni shu tasdiqlash oynasining o‘zida tekshiradi. */
+  reauth?: boolean;
   onConfirm: (reason: string) => Promise<unknown> | unknown;
   onClose: () => void;
 }) {
@@ -416,7 +421,8 @@ export function ConfirmDialog({
   const [error, setError] = useState("");
   const [confirmText, setConfirmText] = useState("");
   const [why, setWhy] = useState("");
-  const ready = (!typed || confirmText.trim() === typed) && (!reason?.required || why.trim().length >= (reason.min || 3));
+  const [password, setPassword] = useState("");
+  const ready = (!typed || confirmText.trim() === typed) && (!reason?.required || why.trim().length >= (reason.min || 3)) && (!reauth || Boolean(password));
   return (
     <Modal title={title} onClose={onClose} size="narrow">
       <div className="muted sa-confirm-text">{text}</div>
@@ -434,6 +440,16 @@ export function ConfirmDialog({
           <input className="input" value={confirmText} onChange={(e) => setConfirmText(e.target.value)} />
         </label>
       )}
+      {reauth && (
+        <label className="field">
+          <span className="label">Super Admin paroli</span>
+          <span className="input-icon">
+            <KeyRound size={16} />
+            <input className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} required autoFocus />
+          </span>
+          <small className="muted">Parol faqat qayta tasdiqlash uchun yuboriladi va saqlanmaydi.</small>
+        </label>
+      )}
       {error && <p className="sa-error-line">{error}</p>}
       <div className="form-actions">
         <button className="btn" onClick={onClose} disabled={busy}>
@@ -446,6 +462,7 @@ export function ConfirmDialog({
             setBusy(true);
             setError("");
             try {
+              if (reauth) await post("/super-admin/reauth", { password });
               await onConfirm(why.trim());
               onClose();
             } catch (reason) {

@@ -42,6 +42,7 @@ import {
   Users,
   Webhook,
   X,
+  Sparkles,
 } from "lucide-react";
 import { api } from "../../api";
 import { Logo } from "../../components/Logo";
@@ -67,6 +68,7 @@ const pages = {
   comms: lazy(() => import("./Communication")),
   security: lazy(() => import("./Security")),
   system: lazy(() => import("./SystemPages")),
+  ai: lazy(() => import("./AiControl")),
 };
 type PageModule = keyof typeof pages;
 
@@ -115,6 +117,7 @@ export const NAV: NavGroup[] = [
       { path: "api-keys", label: "API kalitlar", icon: KeyRound, perm: "integrations.read", module: "platform", view: "apikeys" },
       { path: "webhooks", label: "Webhooklar", icon: Webhook, perm: "integrations.read", module: "platform", view: "webhooks" },
       { path: "resources", label: "Resurslar", icon: HardDrive, perm: "monitoring.read", module: "platform", view: "resources" },
+      { path: "ai", label: "Staffora AI", icon: Sparkles, perm: "settings.read", module: "ai", view: "overview" },
     ],
   },
   {

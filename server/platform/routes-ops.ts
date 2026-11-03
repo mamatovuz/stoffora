@@ -145,7 +145,7 @@ export function createOpsRouter() {
         workers: workerStates(),
         jobs: jobs.counts,
         incidents: db.platformIncidents.filter((i) => i.status !== "RESOLVED"),
-        integrations: { railway: Boolean(process.env.RAILWAY_API_TOKEN), supabase: /supabase\.(co|com)/i.test(process.env.DATABASE_URL || "") },
+        integrations: { railway: Boolean(process.env.RAILWAY_API_TOKEN || process.env.RAILWAY_PROJECT_TOKEN), supabase: /supabase\.(co|com)/i.test(process.env.DATABASE_URL || "") },
       });
     }),
   );

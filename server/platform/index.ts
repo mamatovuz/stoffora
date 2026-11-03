@@ -15,7 +15,7 @@ import { ensurePlans, purgeDemoCompany } from "./shared";
 import { createCompanyRouter } from "./routes-companies";
 import { createUsersRouter } from "./routes-users";
 import { createBusinessRouter, runSubscriptionJob } from "./routes-business";
-import { createCommsRouter, createCompanySupportRouter } from "./routes-comms";
+import { createCommsRouter, createCompanySupportRouter, createPublicSupportRouter } from "./routes-comms";
 import { createOpsRouter, registerOpsJobs } from "./routes-ops";
 import { createConfigRouter, createI18nReportRouter, createPublicI18nRouter } from "./routes-config";
 import { platformAudit } from "./audit";
@@ -26,7 +26,7 @@ export { createPublicApiRouter, emitWebhook } from "./integrations-api";
 export { setRosterProvider } from "./analytics";
 export { recordSecurityEvent } from "./security-events";
 export { platformAudit } from "./audit";
-export { createPublicI18nRouter, createCompanySupportRouter, createI18nReportRouter };
+export { createPublicI18nRouter, createCompanySupportRouter, createPublicSupportRouter, createI18nReportRouter };
 
 /*
  * Super Admin Control Center — yig‘uvchi modul.

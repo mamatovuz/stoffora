@@ -20,6 +20,84 @@ export type CheckStatus = "OK" | "WARN" | "DOWN" | "NOT_CONFIGURED";
 export type HealthCheck = { key: string; label: string; status: CheckStatus; detail: string; latencyMs?: number };
 
 let webhookCache: { at: number; value: { url?: string; pending?: number; lastError?: string; lastErrorAt?: string } | null } | undefined;
+let railwayCache: { at: number; value: HealthCheck } | undefined;
+
+type RailwayDeployment = { id: string; status: string; createdAt: string };
+type RailwayGraphqlBody = {
+  data?: { deployments?: { edges?: { node?: RailwayDeployment }[] } };
+  errors?: { message?: string }[];
+};
+
+/** Railway Public API — so'nggi deploy holati (2 daqiqalik kesh, token frontendga chiqmaydi). */
+async function railwayHealth(): Promise<HealthCheck> {
+  const apiToken = process.env.RAILWAY_API_TOKEN?.trim();
+  const projectToken = process.env.RAILWAY_PROJECT_TOKEN?.trim();
+  const token = apiToken || projectToken;
+  if (!token) return { key: "railway", label: "Railway monitoring API", status: "NOT_CONFIGURED", detail: "RAILWAY_API_TOKEN berilmagan" };
+
+  const projectId = process.env.RAILWAY_PROJECT_ID?.trim();
+  const serviceId = process.env.RAILWAY_SERVICE_ID?.trim();
+  const environmentId = process.env.RAILWAY_ENVIRONMENT_ID?.trim();
+  const missing = [!projectId && "RAILWAY_PROJECT_ID", !serviceId && "RAILWAY_SERVICE_ID"].filter(Boolean);
+  if (missing.length)
+    return { key: "railway", label: "Railway monitoring API", status: "NOT_CONFIGURED", detail: `${missing.join(", ")} berilmagan` };
+  if (railwayCache && Date.now() - railwayCache.at < 2 * 60_000) return railwayCache.value;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  const started = Date.now();
+  try {
+    const input = environmentId
+      ? { projectId, serviceId, environmentId }
+      : { projectId, serviceId };
+    const response = await fetch("https://backboard.railway.com/graphql/v2", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(projectToken ? { "Project-Access-Token": projectToken } : { Authorization: `Bearer ${apiToken}` }),
+      },
+      body: JSON.stringify({
+        query: `query StafforaDeployHealth($input: DeploymentListInput!) {
+          deployments(input: $input, first: 1) { edges { node { id status createdAt } } }
+        }`,
+        variables: { input },
+      }),
+      signal: controller.signal,
+    });
+    const body = (await response.json()) as RailwayGraphqlBody;
+    if (!response.ok || body.errors?.length) {
+      const reason = body.errors?.[0]?.message?.slice(0, 180) || `HTTP ${response.status}`;
+      const value: HealthCheck = { key: "railway", label: "Railway monitoring API", status: "DOWN", detail: `API xatosi: ${reason}`, latencyMs: Date.now() - started };
+      railwayCache = { at: Date.now(), value };
+      return value;
+    }
+    const deployment = body.data?.deployments?.edges?.[0]?.node;
+    if (!deployment) {
+      const value: HealthCheck = { key: "railway", label: "Railway monitoring API", status: "WARN", detail: "Bu servis uchun deploy topilmadi", latencyMs: Date.now() - started };
+      railwayCache = { at: Date.now(), value };
+      return value;
+    }
+    const normalized = deployment.status.toUpperCase();
+    const checkStatus: CheckStatus = normalized === "SUCCESS" ? "OK" : ["FAILED", "CRASHED", "REMOVED"].includes(normalized) ? "DOWN" : "WARN";
+    const created = Number.isNaN(Date.parse(deployment.createdAt)) ? deployment.createdAt : new Date(deployment.createdAt).toISOString().slice(0, 16).replace("T", " ");
+    const value: HealthCheck = {
+      key: "railway",
+      label: "Railway monitoring API",
+      status: checkStatus,
+      detail: `So'nggi deploy: ${normalized} · ${created} UTC`,
+      latencyMs: Date.now() - started,
+    };
+    railwayCache = { at: Date.now(), value };
+    return value;
+  } catch (error) {
+    const detail = error instanceof Error && error.name === "AbortError" ? "API 6 soniyada javob bermadi" : "Railway API bilan ulanish xatosi";
+    const value: HealthCheck = { key: "railway", label: "Railway monitoring API", status: "DOWN", detail, latencyMs: Date.now() - started };
+    railwayCache = { at: Date.now(), value };
+    return value;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 /** Telegram getWebhookInfo — server tomonda, tokenni frontendga bermasdan (5 daqiqalik kesh). */
 async function telegramWebhookInfo() {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
@@ -134,11 +212,7 @@ export async function runHealthChecks(): Promise<{ overall: CheckStatus; checks:
           detail: lastBackup ? `Oxirgisi: ${lastBackup.startedAt.slice(0, 16).replace("T", " ")} UTC` : "Hali zaxira yo‘q",
         },
   );
-  checks.push(
-    process.env.RAILWAY_API_TOKEN
-      ? { key: "railway", label: "Railway monitoring API", status: "NOT_CONFIGURED", detail: "Token bor, lekin integratsiya hali ulanmagan (keyingi bosqich)" }
-      : { key: "railway", label: "Railway monitoring API", status: "NOT_CONFIGURED", detail: "RAILWAY_API_TOKEN berilmagan" },
-  );
+  checks.push(await railwayHealth());
   const order: CheckStatus[] = ["DOWN", "WARN", "OK"];
   const overall = order.find((s) => checks.some((c) => c.status === s)) || "OK";
   return { overall, checks };

@@ -133,6 +133,7 @@ import {
   createI18nReportRouter,
   createPlatformRouter,
   createPublicApiRouter,
+  createPublicSupportRouter,
   createPublicI18nRouter,
   emitWebhook,
   flushTelemetry,
@@ -146,6 +147,8 @@ import {
 import { capacityMessage, effectiveLimits } from "../lib/platform/subscriptions";
 import { activeIntegration } from "./integrations/model";
 import { enqueueAnnouncementToBot, targetEmployees, targetLabel } from "./integrations/announce";
+import { createCorporateRouter } from "./corporate/routes";
+import { createAiRouter, createAiWebhookRouter } from "./ai/routes";
 
 const fieldLabels: Record<string, string> = {
   firstName: "Ism",
@@ -769,12 +772,14 @@ app.use("/api", createMiniPublicRouter());
 app.use("/api", createManagerAuthRouter());
 app.use("/api", createIntegrationWebhookRouter());
 app.use("/api", createCompanyBotWebhookRouter());
+app.use("/api", createAiWebhookRouter());
 // Imzolangan hisobot havolasi (Mini App / ilova): yo‘l va sessiya tiklanadi, keyin odatiy marshrut ishlaydi.
 // Ochiq ID karta (QR’ni istalgan skaner ochadi) — kirishsiz, so‘rovlar soni cheklangan.
 app.use("/api/public", rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: true, legacyHeaders: false }));
 app.use("/api", createPublicBadgeRouter());
 app.use("/api/public/lead", rateLimit({ windowMs: 10 * 60_000, limit: 5, standardHeaders: true, legacyHeaders: false, message: { message: "Juda ko‘p so‘rov. Birozdan keyin qayta urinib ko‘ring." } }));
 app.use("/api", createPublicLeadRouter());
+app.use("/api", createPublicSupportRouter());
 // Kompaniyalar uchun ochiq API (/api/v1, API kalit bilan) va panel tarjima qo‘shimchalari.
 app.use("/api", createPublicApiRouter());
 app.use("/api", createPublicI18nRouter());
@@ -864,6 +869,9 @@ app.use("/api", createMobileAdminRouter());
 // Kompaniya panelidan platformaga murojaat (Yordam markazi) va tarjimasi yo‘q matnlar hisoboti.
 app.use("/api", createCompanySupportRouter());
 app.use("/api", createI18nReportRouter());
+// Corporate Management va Staffora AI — tenant/RBAC tekshiruvi routerlarning o‘zida ham takrorlanadi.
+app.use("/api", createCorporateRouter());
+app.use("/api", createAiRouter());
 // Super Admin Control Center (har bir yo‘l platforma ruxsatini serverda tekshiradi).
 app.use("/api", createPlatformRouter([publicAppUrl, site.landing, process.env.NODE_ENV !== "production" ? "http://localhost:3000" : ""]));
 
@@ -3681,10 +3689,12 @@ if (existsSync(dist)) {
     }),
   );
   // index.html — sayt sozlamasi (panel/landing domenlari) bilan.
-  const indexHtml = indexWithConfig(path.join(dist, "index.html"), site);
-  app.get("*", (_req, res) => {
+  const indexFile = path.join(dist, "index.html");
+  const indexHtml = indexWithConfig(indexFile, site);
+  const publicIndexHtml = new Map(["/privacy", "/terms", "/support"].map((route) => [route, indexWithConfig(indexFile, site, route)]));
+  app.get("*", (req, res) => {
     res.setHeader("Cache-Control", "no-cache");
-    res.type("html").send(indexHtml);
+    res.type("html").send(publicIndexHtml.get(req.path) || indexHtml);
   });
 }
 app.use(

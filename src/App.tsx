@@ -88,6 +88,11 @@ const QrScreen = lazy(() =>
 const SuperAdminApp = lazy(() => import("./pages/superadmin/Layout").then((m) => ({ default: m.SuperAdminApp })));
 const PreviewEntry = lazy(() => import("./pages/PreviewEntry").then((m) => ({ default: m.PreviewEntry })));
 const SupportPage = lazy(() => import("./pages/Support").then((m) => ({ default: m.SupportPage })));
+const PrivacyPage = lazy(() => import("./pages/public/PrivacyPage").then((m) => ({ default: m.PrivacyPage })));
+const TermsPage = lazy(() => import("./pages/public/TermsPage").then((m) => ({ default: m.TermsPage })));
+const SupportCenterPage = lazy(() => import("./pages/public/SupportCenterPage").then((m) => ({ default: m.SupportCenterPage })));
+const CorporatePage = lazy(() => import("./pages/Corporate").then((m) => ({ default: m.CorporatePage })));
+const AiSettingsPage = lazy(() => import("./pages/AiSettings").then((m) => ({ default: m.AiSettingsPage })));
 const AnalyticsPage = lazy(() =>
   import("./pages/Analytics").then((m) => ({ default: m.AnalyticsPage })),
 );
@@ -107,7 +112,8 @@ const MiniAppPage = lazy(() =>
 function HomeRedirect() {
   const { user, loading } = useAuth();
   if (loading) return null;
-  return <Navigate to={!user ? "/login" : user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role, user.modules)} replace />;
+  const corporateHost = window.location.hostname.toLowerCase().startsWith("corporate.");
+  return <Navigate to={!user ? "/login" : user.role === "SUPER_ADMIN" ? "/super-admin" : corporateHost ? "/corporate" : homePage(user.role, user.modules)} replace />;
 }
 
 export default function App() {
@@ -124,6 +130,9 @@ export default function App() {
         <Route path="/setup" element={<SetupPage />} />
         <Route path="/mini-app" element={<MiniAppPage />} />
         <Route path="/id/:token" element={<IdCardPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/support" element={<SupportCenterPage />} />
         <Route path="/" element={<HomeRedirect />} />
         <Route
           path="/attendance-screen/:branchId"
@@ -189,7 +198,9 @@ export default function App() {
           <Route path="/roles" element={<RolesPage />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/settings" element={<SettingsPage />} />
-          <Route path="/support" element={<SupportPage />} />
+          <Route path="/settings/ai" element={<AiSettingsPage />} />
+          <Route path="/corporate" element={<CorporatePage />} />
+          <Route path="/app-support" element={<SupportPage />} />
         </Route>
         <Route path="*" element={<HomeRedirect />} />
       </Routes>

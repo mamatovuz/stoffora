@@ -48,11 +48,43 @@ export function landingHostGuard(config: ReturnType<typeof siteConfig>) {
   };
 }
 
-/** index.html ichiga sayt sozlamasi (CSP’ga mos: bajarilmaydigan JSON blok). */
-export function indexWithConfig(file: string, config: ReturnType<typeof siteConfig>) {
+const publicPageMeta: Record<string, { title: string; description: string }> = {
+  "/privacy": {
+    title: "Maxfiylik siyosati — Staffora",
+    description: "Staffora platformasida shaxsga doir ma’lumotlarni yig‘ish, ishlatish, saqlash va himoya qilish tartibi.",
+  },
+  "/terms": {
+    title: "Foydalanish shartlari — Staffora",
+    description: "Staffora platformasidan foydalanish qoidalari, foydalanuvchi rollari, obuna, javobgarlik va akkaunt shartlari.",
+  },
+  "/support": {
+    title: "Yordam markazi — Staffora",
+    description: "Staffora bo‘yicha tezkor javoblar, akkaunt va davomat yo‘riqnomalari hamda yordam xizmatiga murojaat formasi.",
+  },
+};
+
+const htmlAttr = (value: string) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
+/** index.html ichiga sayt sozlamasi va route SEO'si (CSP’ga mos JSON blok) qo‘shiladi. */
+export function indexWithConfig(file: string, config: ReturnType<typeof siteConfig>, pathname = "") {
   const html = readFileSync(file, "utf8");
   const json = JSON.stringify({ app: config.app, landing: config.landing, landingHosts: config.landingHosts }).replace(/</g, "\\u003c");
-  return html.replace("</head>", `<script id="staffora-site" type="application/json">${json}</script></head>`);
+  const meta = publicPageMeta[pathname];
+  let output = html;
+  if (meta) {
+    const title = htmlAttr(meta.title);
+    const description = htmlAttr(meta.description);
+    output = output
+      .replace(/<title>[^<]*<\/title>/, `<title>${title}</title>`)
+      .replace(/<meta\s+name="description"\s+content="[^"]*"\s*\/>/i, `<meta name="description" content="${description}" />`)
+      .replace(/<meta\s+property="og:title"\s+content="[^"]*"\s*\/>/i, `<meta property="og:title" content="${title}" />`)
+      .replace(/<meta\s+property="og:description"\s+content="[^"]*"\s*\/>/i, `<meta property="og:description" content="${description}" />`);
+    if (/^https:\/\//i.test(config.app)) {
+      const url = htmlAttr(`${config.app.replace(/\/+$/, "")}${pathname}`);
+      output = output.replace("</head>", `<link rel="canonical" href="${url}" /><meta property="og:url" content="${url}" /></head>`);
+    }
+  }
+  return output.replace("</head>", `<script id="staffora-site" type="application/json">${json}</script></head>`);
 }
 
 /* ======================================================= demo arizalar === */
