@@ -1,6 +1,6 @@
 import { homePage } from "@/lib/permissions";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Link, Navigate, useLocation, useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   ArrowRight,
@@ -468,6 +468,10 @@ export function LoginPage() {
             )}
           </AutoHeight>
         </form>
+        <Link className="corporate-login-link" to="/corporate-login">
+          <Building2 size={16} /> Founder, Investor yoki CEO sifatida kirish
+          <ArrowRight size={15} />
+        </Link>
         <p className="auth-foot">© {new Date().getFullYear()} Staffora</p>
       </div>
     </main>

@@ -1,16 +1,395 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Bot, CheckCircle2, KeyRound, Send, Sparkles, TestTube2 } from "lucide-react";
+import {
+  Bot,
+  CheckCircle2,
+  KeyRound,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import { del, errorText, post, put } from "../api";
 import { useApi } from "../hooks";
 import { PageHeader } from "../components/ui";
 
-type Config={enabled:boolean;provider:string;model:string;responseLanguage:"uz"|"ru"|"en";voiceEnabled:boolean;hasApiKey:boolean;apiKeyHint?:string;lastTestOk?:boolean;lastTestAt?:string;lastError?:string;dailyTokenLimit?:number;monthlyTokenLimit?:number};
-type Telegram={username:string;displayName:string;tokenHint:string;webhookStatus:string;lastError?:string};
-const models:Record<string,string[]>={OPENAI:["gpt-5-mini","gpt-5"],GEMINI:["gemini-2.5-flash","gemini-2.5-pro"],ANTHROPIC:["claude-sonnet-4-5","claude-haiku-4-5"],GROQ:["llama-3.3-70b-versatile","openai/gpt-oss-20b"],STAFFORA:["gpt-5-mini"]};
+type Credential = {
+  id: string;
+  provider: string;
+  model: string;
+  keyHint: string;
+  label?: string;
+  active: boolean;
+  createdAt: string;
+  lastTestAt?: string;
+  lastTestOk?: boolean;
+  lastError?: string;
+};
+type Config = {
+  enabled: boolean;
+  responseLanguage: "uz" | "ru" | "en";
+  voiceEnabled: boolean;
+  credentials: Credential[];
+  dailyTokenLimit?: number;
+  monthlyTokenLimit?: number;
+};
+type BotState = {
+  enabled: boolean;
+  username?: string;
+  status?: string;
+  telegramLinked?: boolean;
+};
+const providerNames: Record<string, string> = {
+  OPENAI: "OpenAI",
+  GEMINI: "Google Gemini",
+  ANTHROPIC: "Anthropic Claude",
+  GROQ: "Groq",
+};
 
-export function AiSettingsPage(){const settings=useApi<Config|null>("/ai/settings");const telegram=useApi<Telegram|null>("/integrations/telegram-ai");const usage=useApi<{totals:{inputTokens:number;outputTokens:number;estimatedCostMicros:number}}>("/ai/usage");const [form,setForm]=useState<Config&{apiKey:string}>({enabled:false,provider:"STAFFORA",model:"gpt-5-mini",responseLanguage:"uz",voiceEnabled:false,hasApiKey:false,apiKey:""});const [botToken,setBotToken]=useState("");const [message,setMessage]=useState("");const [error,setError]=useState("");const [busy,setBusy]=useState(false);
-useEffect(()=>{if(settings.data)setForm({...settings.data,apiKey:""})},[settings.data]);async function run(fn:()=>Promise<unknown>,ok:string){setBusy(true);setError("");setMessage("");try{await fn();setMessage(ok);await Promise.all([settings.reload(true),telegram.reload(true),usage.reload(true)])}catch(e){setError(errorText(e))}finally{setBusy(false)}}
-async function save(e:FormEvent){e.preventDefault();const {hasApiKey:_,apiKeyHint:__,lastTestOk:___,lastTestAt:____,lastError:_____,apiKey,...payload}=form;await run(()=>put("/ai/settings",{...payload,...(apiKey?{apiKey}:{})}),"AI sozlamalari saqlandi.")}
-return <div className="page ai-settings-page"><PageHeader title="Staffora AI" subtitle="Kompaniyangiz uchun xavfsiz AI, real actionlar va Telegram bot" />{message&&<div className="notice success">{message}</div>}{error&&<div className="notice error">{error}</div>}
-<div className="ai-settings-grid"><form className="card" onSubmit={(e)=>void save(e)}><div className="card-head"><div><h3><Sparkles size={18}/> AI provider</h3><p className="muted">API key shifrlangan holda saqlanadi va qayta ko‘rsatilmaydi.</p></div><label className="switch-row"><input type="checkbox" checked={form.enabled} onChange={e=>setForm({...form,enabled:e.target.checked})}/><span>Yoqilgan</span></label></div><div className="form-grid two"><label>Provider<select value={form.provider} onChange={e=>{const provider=e.target.value;setForm({...form,provider,model:models[provider][0]})}}>{Object.keys(models).map(x=><option key={x}>{x}</option>)}</select></label><label>Model<select value={form.model} onChange={e=>setForm({...form,model:e.target.value})}>{models[form.provider]?.map(x=><option key={x}>{x}</option>)}</select></label><label className="span-2">API key {form.hasApiKey&&<small>Saqlangan: {form.apiKeyHint}</small>}<div className="input-icon"><KeyRound size={16}/><input type="password" autoComplete="new-password" placeholder={form.hasApiKey?"O‘zgartirish uchun yangi key kiriting":"Provider API key"} value={form.apiKey} onChange={e=>setForm({...form,apiKey:e.target.value})}/></div></label><label>Javob tili<select value={form.responseLanguage} onChange={e=>setForm({...form,responseLanguage:e.target.value as Config["responseLanguage"]})}><option value="uz">O‘zbekcha</option><option value="ru">Русский</option><option value="en">English</option></select></label><label className="switch-row field-switch"><input type="checkbox" checked={form.voiceEnabled} onChange={e=>setForm({...form,voiceEnabled:e.target.checked})}/><span>Ovozli funksiyalar</span></label><label>Kunlik token limiti<input type="number" value={form.dailyTokenLimit||""} onChange={e=>setForm({...form,dailyTokenLimit:e.target.value?Number(e.target.value):undefined})}/></label><label>Oylik token limiti<input type="number" value={form.monthlyTokenLimit||""} onChange={e=>setForm({...form,monthlyTokenLimit:e.target.value?Number(e.target.value):undefined})}/></label></div><div className="form-actions"><button className="btn btn-primary" disabled={busy}>Saqlash</button><button className="btn" type="button" disabled={busy||!settings.data} onClick={()=>void run(()=>post("/ai/providers/test",{}),"Provider bilan aloqa muvaffaqiyatli.")}><TestTube2 size={15}/> Test qilish</button></div>{form.lastTestAt&&<div className={`provider-result ${form.lastTestOk?"ok":"bad"}`}><CheckCircle2 size={16}/>{form.lastTestOk?"Oxirgi test muvaffaqiyatli":form.lastError||"Provider xatosi"}</div>}</form>
-<section className="card"><div className="card-head"><div><h3><Bot size={18}/> Telegram AI bot</h3><p className="muted">Shu AI orchestrator, ruxsatlar va action confirmation Telegramda ham ishlaydi.</p></div></div>{telegram.data?<div className="telegram-connected"><span className="bot-orb"><Send/></span><div><b>@{telegram.data.username}</b><small>{telegram.data.displayName} · {telegram.data.webhookStatus} · {telegram.data.tokenHint}</small></div><button className="btn" disabled={busy} onClick={()=>void run(()=>post("/integrations/telegram-ai/test",{}),"Telegram webhook tekshirildi.")}>Tekshirish</button><button className="btn danger" disabled={busy} onClick={()=>void run(()=>del("/integrations/telegram-ai/disconnect"),"Telegram bot uzildi.")}>Uzish</button></div>:<><label>BotFather token<input type="password" placeholder="123456:AA..." value={botToken} onChange={e=>setBotToken(e.target.value)}/></label><button className="btn btn-primary" disabled={busy||botToken.length<20} onClick={()=>void run(()=>post("/integrations/telegram-ai/connect",{token:botToken}),"Telegram bot ulandi.")}>Botni ulash</button></>}<div className="ai-usage"><div><small>Kirish tokenlari</small><strong>{usage.data?.totals.inputTokens.toLocaleString()||0}</strong></div><div><small>Javob tokenlari</small><strong>{usage.data?.totals.outputTokens.toLocaleString()||0}</strong></div></div></section></div></div>}
+export function AiSettingsPage() {
+  const settings = useApi<Config | null>("/ai/settings");
+  const usage = useApi<{
+    totals: { inputTokens: number; outputTokens: number };
+  }>("/ai/usage");
+  const company = useApi<BotState>("/ai/company-bot");
+  const [form, setForm] = useState({
+    enabled: false,
+    responseLanguage: "uz" as Config["responseLanguage"],
+    voiceEnabled: false,
+    dailyTokenLimit: undefined as number | undefined,
+    monthlyTokenLimit: undefined as number | undefined,
+  });
+  const [token, setToken] = useState("");
+  const [label, setLabel] = useState("");
+  const [busy, setBusy] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (settings.data)
+      setForm({
+        enabled: settings.data.enabled,
+        responseLanguage: settings.data.responseLanguage,
+        voiceEnabled: settings.data.voiceEnabled,
+        dailyTokenLimit: settings.data.dailyTokenLimit,
+        monthlyTokenLimit: settings.data.monthlyTokenLimit,
+      });
+  }, [settings.data]);
+  async function run(key: string, fn: () => Promise<unknown>, ok: string) {
+    setBusy(key);
+    setError("");
+    setMessage("");
+    try {
+      await fn();
+      setMessage(ok);
+      await Promise.all([
+        settings.reload(true),
+        usage.reload(true),
+        company.reload(true),
+      ]);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy("");
+    }
+  }
+  async function save(e: FormEvent) {
+    e.preventDefault();
+    await run(
+      "save",
+      () => put("/ai/settings", form),
+      "Staffora AI sozlamalari saqlandi.",
+    );
+  }
+  async function addToken(e: FormEvent) {
+    e.preventDefault();
+    await run(
+      "token",
+      () => post("/ai/settings/tokens", { token, label: label || undefined }),
+      "Token saqlandi, provider avtomatik aniqlandi.",
+    );
+    setToken("");
+    setLabel("");
+  }
+  const credentials = settings.data?.credentials || [];
+  const bot = company.data;
+  return (
+    <div className="page ai-settings-page ai-settings-v2">
+      <PageHeader
+        title="Staffora AI"
+        subtitle="Tokenni kiriting — provider avtomatik aniqlanadi va ishlaydigan zaxira tokenlar navbat bilan qo‘llanadi"
+      />
+      {message && <div className="notice success">{message}</div>}
+      {error && <div className="notice error">{error}</div>}
+      <div className="ai-v2-hero">
+        <div>
+          <span>
+            <Sparkles />
+          </span>
+          <div>
+            <h2>Bir AI, barcha Staffora jarayonlari</h2>
+            <p>
+              Veb-panel va kompaniyangizning mavjud Telegram boti bitta xavfsiz
+              AI orchestratoridan foydalanadi.
+            </p>
+          </div>
+        </div>
+        <label className="ai-master-switch">
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+          />
+          <span>
+            <b>{form.enabled ? "AI yoqilgan" : "AI o‘chiq"}</b>
+            <small>
+              {form.enabled
+                ? "Foydalanuvchilar yordamchidan foydalana oladi"
+                : "Tokenlar saqlanadi, lekin so‘rovlar bajarilmaydi"}
+            </small>
+          </span>
+        </label>
+      </div>
+      <div className="ai-v2-grid">
+        <section className="card ai-token-card">
+          <div className="card-head">
+            <div>
+              <h3>
+                <KeyRound /> API tokenlar
+              </h3>
+              <p className="muted">
+                OpenAI, Gemini, Anthropic yoki Groq tokeni. Token shifrlanadi va
+                qayta ko‘rsatilmaydi.
+              </p>
+            </div>
+            <span className="badge blue">{credentials.length} ta token</span>
+          </div>
+          <form className="ai-token-form" onSubmit={(e) => void addToken(e)}>
+            <label>
+              Yangi API token
+              <div className="input-icon">
+                <KeyRound />
+                <input
+                  type="password"
+                  required
+                  minLength={12}
+                  autoComplete="new-password"
+                  placeholder="Tokenni shu yerga kiriting"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                />
+              </div>
+            </label>
+            <label>
+              Nom (ixtiyoriy)
+              <input
+                placeholder="Masalan: asosiy yoki zaxira"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+              />
+            </label>
+            <button className="btn btn-primary" disabled={busy === "token"}>
+              <Plus /> {busy === "token" ? "Aniqlanmoqda…" : "Token qo‘shish"}
+            </button>
+          </form>
+          <div className="ai-token-list">
+            {credentials.length ? (
+              credentials.map((item, index) => (
+                <article key={item.id}>
+                  <span
+                    className={`provider-logo ${item.provider.toLowerCase()}`}
+                  >
+                    {item.provider[0]}
+                  </span>
+                  <div>
+                    <b>
+                      {item.label ||
+                        `${providerNames[item.provider] || item.provider} token`}
+                    </b>
+                    <small>
+                      {item.keyHint} · {item.model}
+                    </small>
+                    <em>{index === 0 ? "Asosiy" : "Zaxira #" + (index + 1)}</em>
+                  </div>
+                  <span
+                    className={`token-health ${item.lastTestOk === false ? "bad" : ""}`}
+                  >
+                    {item.lastTestOk === false ? (
+                      <>
+                        <TriangleAlert /> Xato
+                      </>
+                    ) : item.lastTestOk ? (
+                      <>
+                        <CheckCircle2 /> Ishlaydi
+                      </>
+                    ) : (
+                      "Tekshirilmagan"
+                    )}
+                  </span>
+                  <button
+                    className="btn btn-sm"
+                    disabled={busy === item.id}
+                    onClick={() =>
+                      void run(
+                        item.id,
+                        () =>
+                          post("/ai/providers/test", { credentialId: item.id }),
+                        `${providerNames[item.provider]} token ishlayapti.`,
+                      )
+                    }
+                  >
+                    <RefreshCw /> Test
+                  </button>
+                  <button
+                    className="icon-btn danger"
+                    title="Tokenni o‘chirish"
+                    onClick={() =>
+                      void run(
+                        `delete-${item.id}`,
+                        () => del(`/ai/settings/tokens/${item.id}`),
+                        "Token o‘chirildi.",
+                      )
+                    }
+                  >
+                    <Trash2 />
+                  </button>
+                </article>
+              ))
+            ) : (
+              <div className="ai-token-empty">
+                <KeyRound />
+                <b>Hali token qo‘shilmagan</b>
+                <span>
+                  Yuqoriga token kiriting. Provider va modelni Staffora
+                  avtomatik tanlaydi.
+                </span>
+              </div>
+            )}
+          </div>
+        </section>
+        <aside className="ai-v2-side">
+          <section className="card">
+            <h3>
+              <Bot /> Telegram
+            </h3>
+            {bot?.enabled && bot.username ? (
+              <div className="existing-bot">
+                <span>
+                  <Bot />
+                </span>
+                <div>
+                  <b>@{bot.username}</b>
+                  <small>{bot.status || "Ulangan"}</small>
+                </div>
+                <CheckCircle2 />
+              </div>
+            ) : (
+              <div className="existing-bot missing">
+                <span>
+                  <Bot />
+                </span>
+                <div>
+                  <b>Kompaniya boti ulanmagan</b>
+                  <small>
+                    Sozlamalar → Ro‘yxat boti orqali kompaniya botini ulang.
+                  </small>
+                </div>
+              </div>
+            )}
+            <p className="muted ai-bot-note">
+              <ShieldCheck /> Alohida AI bot tokeni kerak emas. Rahbar Telegram
+              hisobini Staffora bilan ulagan bo‘lsa, mavjud kompaniya boti AI
+              so‘rovlarini ham qabul qiladi.
+            </p>
+          </section>
+          <section className="card">
+            <h3>Foydalanish</h3>
+            <div className="ai-usage">
+              <div>
+                <small>Kirish tokenlari</small>
+                <strong>
+                  {usage.data?.totals.inputTokens.toLocaleString() || 0}
+                </strong>
+              </div>
+              <div>
+                <small>Javob tokenlari</small>
+                <strong>
+                  {usage.data?.totals.outputTokens.toLocaleString() || 0}
+                </strong>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </div>
+      <form className="card ai-behavior" onSubmit={(e) => void save(e)}>
+        <div>
+          <h3>Javob va limitlar</h3>
+          <p className="muted">AI xarajatini va tilini boshqaring.</p>
+        </div>
+        <label>
+          Javob tili
+          <select
+            value={form.responseLanguage}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                responseLanguage: e.target.value as Config["responseLanguage"],
+              })
+            }
+          >
+            <option value="uz">O‘zbekcha</option>
+            <option value="ru">Русский</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+        <label>
+          Kunlik token
+          <input
+            type="number"
+            min="1000"
+            placeholder="Cheklanmagan"
+            value={form.dailyTokenLimit || ""}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                dailyTokenLimit: e.target.value
+                  ? Number(e.target.value)
+                  : undefined,
+              })
+            }
+          />
+        </label>
+        <label>
+          Oylik token
+          <input
+            type="number"
+            min="1000"
+            placeholder="Cheklanmagan"
+            value={form.monthlyTokenLimit || ""}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                monthlyTokenLimit: e.target.value
+                  ? Number(e.target.value)
+                  : undefined,
+              })
+            }
+          />
+        </label>
+        <label className="switch-row field-switch">
+          <input
+            type="checkbox"
+            checked={form.voiceEnabled}
+            onChange={(e) =>
+              setForm({ ...form, voiceEnabled: e.target.checked })
+            }
+          />
+          <span>Ovozli kiritish</span>
+        </label>
+        <button className="btn btn-primary" disabled={busy === "save"}>
+          {busy === "save" ? "Saqlanmoqda…" : "Sozlamalarni saqlash"}
+        </button>
+      </form>
+    </div>
+  );
+}

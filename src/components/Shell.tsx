@@ -38,7 +38,6 @@ import {
   ChevronsUpDown,
   TriangleAlert,
   Check,
-  BriefcaseBusiness,
 } from "lucide-react";
 import type { Company, Notification } from "@/lib/types";
 import { Logo } from "./Logo";
@@ -115,7 +114,6 @@ const menu: NavItem[] = [
   },
   { group: "Boshqaruv", label: "E’lonlar", icon: Megaphone, tabs: [["/announcements", "E’lonlar"]] },
   { group: "Boshqaruv", label: "Murojaatlar", icon: MessagesSquare, tabs: [["/helpdesk", "Murojaatlar"]] },
-  { group: "Boshqaruv", label: "Corporate", icon: BriefcaseBusiness, tabs: [["/corporate", "Corporate Management"]] },
   {
     group: "Boshqaruv",
     label: "Hisobotlar",

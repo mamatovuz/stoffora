@@ -43,6 +43,7 @@ import {
   Webhook,
   X,
   Sparkles,
+  BriefcaseBusiness,
 } from "lucide-react";
 import { api } from "../../api";
 import { Logo } from "../../components/Logo";
@@ -69,6 +70,7 @@ const pages = {
   security: lazy(() => import("./Security")),
   system: lazy(() => import("./SystemPages")),
   ai: lazy(() => import("./AiControl")),
+  corporate: lazy(() => import("./CorporateAccounts")),
 };
 type PageModule = keyof typeof pages;
 
@@ -94,6 +96,7 @@ export const NAV: NavGroup[] = [
       { path: "users", label: "Foydalanuvchilar", icon: Users, perm: "users.read", module: "people", view: "users" },
       { path: "leaders", label: "Rahbarlar", icon: UserCog, perm: "users.read", module: "people", view: "leaders" },
       { path: "archived", label: "Arxiv", icon: Archive, perm: "companies.read", module: "companies", view: "archived" },
+      { path: "corporate", label: "Corporate hisoblar", icon: BriefcaseBusiness, perm: "users.read", module: "corporate", view: "accounts" },
     ],
   },
   {

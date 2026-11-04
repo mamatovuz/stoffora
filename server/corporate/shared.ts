@@ -51,29 +51,14 @@ export function corporateAudit(db: Database, req: CorporateRequest, input: { mod
   if (db.corporateAuditEntries.length > 20_000) db.corporateAuditEntries.length = 20_000;
 }
 
-/** Kompaniya egasi birinchi kirganda Founder va 40/40/20 taklif loyihasini yaratadi. */
+/** Alohida Corporate login sessiyasini tenant va korporativ rol bilan bog‘laydi. */
 export async function corporateContext(req: CorporateRequest, res: Response, next: NextFunction) {
   try {
     const tenant = req.session?.companyId;
     if (!tenant || req.session?.role === "SUPER_ADMIN") return res.status(403).json({ message: "Corporate portal kompaniya hisobiga bog‘langan." });
     let participant: CorporateParticipant | undefined;
     await updateDb((db) => {
-      participant = db.corporateParticipants.find((p) => p.companyId === tenant && p.userId === req.session!.userId && p.status === "ACTIVE");
-      if (!participant && req.session!.role === "COMPANY_OWNER") {
-        participant = { id: randomUUID(), companyId: tenant, userId: req.session!.userId, name: req.session!.name, email: req.session!.email, role: "FOUNDER", status: "ACTIVE", joinedAt: new Date().toISOString(), lastActiveAt: new Date().toISOString() };
-        db.corporateParticipants.push(participant);
-      }
-      if (!db.economicInterestVersions.some((v) => v.companyId === tenant)) {
-        const founderId = participant?.role === "FOUNDER" ? participant.id : undefined;
-        db.economicInterestVersions.push({
-          id: randomUUID(), companyId: tenant, version: 1, title: "Boshlang‘ich iqtisodiy manfaat taklifi", status: "DRAFT", createdAt: new Date().toISOString(), createdBy: req.session!.name,
-          allocations: [
-            { id: randomUUID(), participantId: founderId, subject: "Mamatov Ozodbek", kind: "PARTICIPANT", shareBps: 4000 },
-            { id: randomUUID(), subject: "Sobirjon Musayev", kind: "PARTICIPANT", shareBps: 4000 },
-            { id: randomUUID(), subject: "Staffora Development Reserve", kind: "RESERVE", shareBps: 2000 },
-          ],
-        });
-      }
+      participant = db.corporateParticipants.find((p) => p.companyId === tenant && (p.id === req.session!.userId || p.userId === req.session!.userId) && p.status === "ACTIVE");
       if (participant) participant.lastActiveAt = new Date().toISOString();
     });
     if (!participant) return res.status(403).json({ code: "NOT_CORPORATE_PARTICIPANT", message: "Siz Corporate portal ishtirokchisi emassiz." });

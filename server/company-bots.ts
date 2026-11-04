@@ -36,6 +36,7 @@ import {
 } from "./registration";
 import { resolveWebAppUrl } from "./telegram";
 import { referenceFromPhoto } from "./face-reference";
+import { processChat } from "./ai/routes";
 
 /*
  * Kompaniya boti: har bir kompaniya o‘z bot tokenini panel sozlamalarida kiritadi.
@@ -508,7 +509,23 @@ export function attachHandlers(bot: Bot, companyId: string) {
     if (ctx.message.text.startsWith("/")) return;
     const draft = await activeDraft(companyId, String(ctx.from.id));
     if (!draft) {
-      await ctx.reply("Boshlash uchun /start bosing.", { reply_markup: webAppKeyboard("📲 Staffora'ni ochish") });
+      const db = await readDb();
+      const user = db.users.find((row) => row.companyId === companyId && String(row.telegramId || "") === String(ctx.from.id) && !row.blockedAt);
+      const aiEnabled = db.aiConfigs.some((row) => row.companyId === companyId && row.enabled);
+      if (user && aiEnabled) {
+        try {
+          await ctx.replyWithChatAction("typing");
+          const existing = db.aiConversations.filter((row) => row.companyId === companyId && row.userId === user.id && row.channel === "TELEGRAM" && row.telegramChatId === String(ctx.chat.id)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+          const req = { session: { userId: user.id, companyId, name: user.name, email: user.email, role: user.role } } as AuthedRequest;
+          const result = await processChat(req, ctx.message.text, existing?.id, "TELEGRAM");
+          await updateDb((next) => { const conversation = next.aiConversations.find((row) => row.id === result.conversationId); if (conversation) conversation.telegramChatId = String(ctx.chat.id); });
+          await ctx.reply(result.message.text.slice(0, 4000));
+        } catch (error) {
+          await ctx.reply(`⚠️ Staffora AI: ${error instanceof Error ? error.message.slice(0, 240) : "so‘rov bajarilmadi"}`);
+        }
+        return;
+      }
+      await ctx.reply("Boshlash uchun /start bosing. Rahbarlar Staffora AI’dan foydalanish uchun Telegram hisobini panelda ulashi mumkin.", { reply_markup: webAppKeyboard("📲 Staffora'ni ochish") });
       return;
     }
     const db = await readDb();

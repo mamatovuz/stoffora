@@ -7,6 +7,19 @@ export interface AiConfig {
   model: string;
   apiKeyEnc?: string;
   apiKeyHint?: string;
+  credentials?: {
+    id: string;
+    provider: Exclude<AiProvider, "STAFFORA">;
+    model: string;
+    keyEnc: string;
+    keyHint: string;
+    label?: string;
+    active: boolean;
+    createdAt: string;
+    lastTestAt?: string;
+    lastTestOk?: boolean;
+    lastError?: string;
+  }[];
   responseLanguage: "uz" | "ru" | "en";
   voiceEnabled: boolean;
   dailyTokenLimit?: number;

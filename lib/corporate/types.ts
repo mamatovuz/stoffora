@@ -6,11 +6,19 @@ export interface CorporateParticipant {
   companyId: string;
   userId?: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   email?: string;
+  login?: string;
+  passwordHash?: string;
+  shareBps?: number;
   role: CorporateRole;
   status: CorporateStatus;
   joinedAt: string;
   lastActiveAt?: string;
+  termsAcceptedAt?: string;
+  termsVersion?: string;
+  lastLoginAt?: string;
 }
 
 export interface LegalOwnershipRecord {
