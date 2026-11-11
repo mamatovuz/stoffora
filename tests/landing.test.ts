@@ -1,20 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import type { Request, Response } from "express";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import express from "express";
 import path from "node:path";
-import { indexWithConfig, landingHostGuard, siteConfig } from "../server/landing";
+import { createLandingStaticMiddleware, indexWithConfig, landingRequestTarget, siteConfig } from "../server/landing";
 
-const call = (config: ReturnType<typeof siteConfig>, hostname: string, url: string) => {
-  let redirected = "";
-  let status = 0;
-  let passed = false;
-  const req = { hostname, path: url.split("?")[0], originalUrl: url } as Request;
-  const res = {
-    redirect: (_code: number, to: string) => void (redirected = to),
-    status: (code: number) => ((status = code), { json: () => undefined }),
-  } as unknown as Response;
-  landingHostGuard(config)(req, res, () => void (passed = true));
-  return { redirected, status, passed };
-};
+const target = (config: ReturnType<typeof siteConfig>, hostname: string, url: string) =>
+  landingRequestTarget(config, hostname, url.split("?")[0]);
 
 describe("landing va panel domenlari", () => {
   afterEach(() => {
@@ -24,26 +17,54 @@ describe("landing va panel domenlari", () => {
   it("LANDING_URL yo‘q — ajratish yo‘q", () => {
     const config = siteConfig("https://app.staffora.uz");
     expect(config.landingHosts).toEqual([]);
-    expect(call(config, "staffora.uz", "/login").passed).toBe(true);
+    expect(target(config, "staffora.uz", "/login")).toBe("APP");
   });
 
-  it("asosiy domen: ochiq API o‘tadi, qolgani (shu jumladan «/») app domeniga", () => {
+  it("asosiy domen landingni, app domeni panelni, API esa Express backendni tanlaydi", () => {
     process.env.LANDING_URL = "https://staffora.uz";
     const config = siteConfig("https://app.staffora.uz");
     expect(config.landingHosts).toEqual(["staffora.uz", "www.staffora.uz"]);
-    expect(call(config, "staffora.uz", "/").redirected).toBe("https://app.staffora.uz/");
-    expect(call(config, "www.staffora.uz", "/assets/index.js").redirected).toBe("https://app.staffora.uz/assets/index.js");
-    expect(call(config, "staffora.uz", "/api/public/lead").passed).toBe(true);
-    expect(call(config, "staffora.uz", "/login?x=1").redirected).toBe("https://app.staffora.uz/login?x=1");
-    expect(call(config, "staffora.uz", "/mini-app").redirected).toBe("https://app.staffora.uz/mini-app");
-    expect(call(config, "staffora.uz", "/api/auth/me").status).toBe(404);
-    // Panel domeni — hech narsa o‘zgarmaydi.
-    expect(call(config, "app.staffora.uz", "/login").passed).toBe(true);
+    expect(target(config, "staffora.uz", "/")).toBe("LANDING");
+    expect(target(config, "staffora.uz", "/features/")).toBe("LANDING");
+    expect(target(config, "staffora.uz", "/_next/static/app.js")).toBe("LANDING");
+    expect(target(config, "staffora.uz", "/api/public/lead")).toBe("API");
+    expect(target(config, "staffora.uz", "/api/public/support/tickets")).toBe("API");
+    expect(target(config, "staffora.uz", "/health")).toBe("API");
+    expect(target(config, "www.staffora.uz", "/features/")).toBe("CANONICAL_REDIRECT");
+    expect(target(config, "app.staffora.uz", "/login")).toBe("APP");
   });
 
   it("landing va panel bir xil domen bo‘lsa — ajratilmaydi", () => {
     process.env.LANDING_URL = "https://staffora.uz";
     expect(siteConfig("https://staffora.uz").landingHosts).toEqual([]);
+  });
+
+  it("real middleware landing HTML beradi, API va app hostini Expressga qoldiradi", async () => {
+    process.env.LANDING_URL = "https://staffora.uz";
+    const directory = mkdtempSync(path.join(tmpdir(), "staffora-landing-"));
+    writeFileSync(path.join(directory, "index.html"), "<h1>Staffora landing</h1>");
+    writeFileSync(path.join(directory, "404.html"), "<h1>404</h1>");
+    const app = express();
+    app.set("trust proxy", 1);
+    app.use(createLandingStaticMiddleware(siteConfig("https://app.staffora.uz"), directory));
+    app.get("/api/public/ping", (_req, res) => res.json({ api: true }));
+    app.get("*", (_req, res) => res.send("APP"));
+    const server = app.listen(0);
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const landing = await fetch(base, { headers: { "x-forwarded-host": "staffora.uz" } });
+      expect(await landing.text()).toContain("Staffora landing");
+      const api = await fetch(`${base}/api/public/ping`, { headers: { "x-forwarded-host": "staffora.uz" } });
+      expect(await api.json()).toEqual({ api: true });
+      const panel = await fetch(`${base}/login`, { headers: { "x-forwarded-host": "app.staffora.uz" } });
+      expect(await panel.text()).toBe("APP");
+      const www = await fetch(`${base}/features?from=www`, { headers: { "x-forwarded-host": "www.staffora.uz" }, redirect: "manual" });
+      expect(www.status).toBe(308);
+      expect(www.headers.get("location")).toBe("https://staffora.uz/features?from=www");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it("public route dastlabki HTML'idayoq to‘g‘ri SEO metadata beradi", () => {

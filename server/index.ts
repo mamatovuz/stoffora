@@ -109,7 +109,7 @@ import { createShiftRouter } from "./shifts";
 import { createHistoryRouter } from "./history";
 import { createEngageRouter } from "./engage";
 import { createBadgeRouter, createPublicBadgeRouter } from "./badge";
-import { createLeadAdminRouter, createPublicLeadRouter, indexWithConfig, landingHostGuard, siteConfig } from "./landing";
+import { createLandingStaticMiddleware, createLeadAdminRouter, createPublicLeadRouter, indexWithConfig, siteConfig } from "./landing";
 import { createInsightRouter } from "./insight";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
@@ -215,6 +215,10 @@ if (production) {
 
 app.set("trust proxy", 1);
 app.disable("x-powered-by");
+const site = siteConfig(publicAppUrl);
+// staffora.uz → statik Next landing; app.staffora.uz va Railway hosti → Vite panel.
+// /api/* va /health hostdan qat’i nazar shu Express backendda qoladi.
+app.use(createLandingStaticMiddleware(site, path.join(process.cwd(), "staffora-website", "out")));
 // Har bir so‘rovga ID (X-Request-Id) — audit va xatolar markazi uchun.
 app.use(requestContext());
 app.use(
@@ -243,10 +247,16 @@ app.use(
     crossOriginEmbedderPolicy: false,
   }),
 );
-const site = siteConfig(publicAppUrl);
-// Landing domeni (LANDING_URL) — faqat ochiq sahifa; panel manzillari app domeniga yo‘naltiriladi.
-app.use(landingHostGuard(site));
-app.use(cors({ origin: publicAppUrl, credentials: true }));
+const allowedWebOrigins = new Set([publicAppUrl, site.landing].filter(Boolean));
+app.use(
+  cors({
+    origin: (origin, done) =>
+      !origin || allowedWebOrigins.has(origin.replace(/\/+$/, ""))
+        ? done(null, true)
+        : done(null, false),
+    credentials: true,
+  }),
+);
 // Javoblarni siqish (JSON 5–10 barobar kichrayadi). Rasmlar allaqachon siqilgan.
 app.use(compression({ threshold: 1024 }));
 app.use(

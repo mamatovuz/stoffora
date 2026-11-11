@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { Router, type NextFunction, type Request, type Response } from "express";
+import express, { Router, type NextFunction, type Request, type Response } from "express";
 import { z } from "zod";
 import { readDb, updateDb } from "../lib/store";
 import type { Lead } from "../lib/types";
@@ -9,11 +10,11 @@ import { sendTelegramMessage } from "./telegram";
 /*
  * Ochiq sayt (landing) va panel domenini ajratish.
  *
- *   LANDING_URL=https://staffora.uz      → bu domen (va www.) panel domeniga yo‘naltiriladi;
+ *   LANDING_URL=https://staffora.uz      → bu domen Next.js landing exportini ko‘rsatadi;
  *   APP_URL=https://app.staffora.uz      → panel, Mini App, ID karta havolalari shu domenda.
  *
- * LANDING_URL berilmasa — hammasi bitta domenda. Berilsa — asosiy domenga kirgan har kim
- * panel domeniga yo‘naltiriladi (u yerda «/» → kirish sahifasi yoki /dashboard).
+ * LANDING_URL berilmasa — hammasi bitta domenda. Berilsa — host bo‘yicha landing va panel
+ * ajratiladi. /api va /health har ikkala domenda ham shu Express backendga tushadi.
  */
 
 const hostOf = (url?: string) => {
@@ -30,21 +31,69 @@ export function siteConfig(appOrigin: string) {
   // Panel bilan bir xil domen bo‘lsa — ajratish yo‘q.
   const enabled = Boolean(host) && host !== hostOf(appOrigin);
   const bare = host.replace(/^www\./, "");
+  let landing = "";
+  if (enabled) {
+    const parsed = new URL(landingUrl);
+    parsed.hostname = bare;
+    landing = parsed.origin;
+  }
   return {
     app: appOrigin,
-    landing: enabled ? landingUrl : "",
+    landing,
     landingHosts: enabled ? [bare, `www.${bare}`] : [],
   };
 }
 
-/** Landing sahifasi yo‘q: asosiy domen panel domeniga yo‘naltiriladi; faqat ochiq API qoladi. */
-export function landingHostGuard(config: ReturnType<typeof siteConfig>) {
+export type LandingRequestTarget = "APP" | "API" | "LANDING" | "CANONICAL_REDIRECT";
+
+/** Host va path bo‘yicha request qaysi frontend/backendga tegishli ekanini aniqlaydi. */
+export function landingRequestTarget(
+  config: ReturnType<typeof siteConfig>,
+  hostname: string,
+  pathname: string,
+): LandingRequestTarget {
+  const host = hostname.toLowerCase();
+  if (!config.landingHosts.length || !config.landingHosts.includes(host)) return "APP";
+  if (host === config.landingHosts[1]) return "CANONICAL_REDIRECT";
+  if (pathname === "/health" || pathname === "/api" || pathname.startsWith("/api/")) return "API";
+  return "LANDING";
+}
+
+/**
+ * Next.js `output: export` natijasini landing hostida beradi.
+ * Middleware body parser va panel static handleridan oldin ulanadi, shuning uchun landing
+ * assetlari Vite ilovasiga tushmaydi; /api va /health esa mavjud Express oqimida qoladi.
+ */
+export function createLandingStaticMiddleware(config: ReturnType<typeof siteConfig>, directory: string) {
+  const serve = express.static(directory, {
+    index: "index.html",
+    redirect: true,
+    setHeaders: (res, file) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+      res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+      res.setHeader(
+        "Cache-Control",
+        file.includes(`${path.sep}_next${path.sep}static${path.sep}`)
+          ? "public, max-age=31536000, immutable"
+          : file.endsWith(".html")
+            ? "no-cache"
+            : "public, max-age=3600",
+      );
+    },
+  });
   return (req: Request, res: Response, next: NextFunction) => {
-    if (!config.landingHosts.length || !config.landingHosts.includes((req.hostname || "").toLowerCase())) return next();
-    const p = req.path;
-    if (p.startsWith("/api/public/")) return next();
-    if (p.startsWith("/api/")) return res.status(404).json({ message: "API panel domenida." });
-    res.redirect(301, `${config.app}${req.originalUrl}`);
+    const target = landingRequestTarget(config, req.hostname || "", req.path);
+    if (target === "APP" || target === "API") return next();
+    if (target === "CANONICAL_REDIRECT")
+      return res.redirect(308, `${config.landing}${req.originalUrl}`);
+    if (!existsSync(path.join(directory, "index.html")))
+      return res.status(503).type("text/plain; charset=utf-8").send("Landing build topilmadi.");
+    serve(req, res, () => {
+      const notFound = path.join(directory, "404.html");
+      if (existsSync(notFound)) return res.status(404).sendFile(notFound);
+      res.status(404).type("text/plain; charset=utf-8").send("Sahifa topilmadi.");
+    });
   };
 }
 
