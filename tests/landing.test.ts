@@ -28,6 +28,7 @@ describe("landing va panel domenlari", () => {
     expect(target(config, "staffora.uz", "/features/")).toBe("LANDING");
     expect(target(config, "staffora.uz", "/_next/static/app.js")).toBe("LANDING");
     expect(target(config, "staffora.uz", "/api/public/lead")).toBe("API");
+    expect(target(config, "staffora.uz", "/api/public/plans")).toBe("API");
     expect(target(config, "staffora.uz", "/api/public/support/tickets")).toBe("API");
     expect(target(config, "staffora.uz", "/health")).toBe("API");
     expect(target(config, "www.staffora.uz", "/features/")).toBe("CANONICAL_REDIRECT");

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, BarChart3, BriefcaseBusiness, CalendarDays, Check, ChevronDown, Clock3, FileText, Headphones, Mail, MapPinned, MessageCircle, Phone, Play, Send, ShieldCheck, Sparkles, UsersRound, WalletCards } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useLanguage } from "./language-provider";
 import { Reveal } from "./motion";
@@ -11,6 +11,24 @@ import { Reveal } from "./motion";
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.staffora.uz";
 const featureIcons = [Clock3, UsersRound, MapPinned, BriefcaseBusiness, CalendarDays, FileText, BarChart3, WalletCards, ShieldCheck];
 const screenshots = ["dashboard", "attendance", "employees", "map", "calendar", "reports"];
+
+type PublicPlan = {
+  key: string;
+  name: string;
+  description: string;
+  price: number | null;
+  currency: string;
+  period: "MONTH" | "YEAR";
+  limits: { employees?: number | null; branches?: number | null; managers?: number | null };
+  modules: string[] | "all";
+  trialDays: number;
+};
+
+const planWords = {
+  uz: { free: "Bepul", month: "/ oy", year: "/ yil", employees: "xodim", branches: "filial", managers: "rahbar", unlimited: "Cheklanmagan", allModules: "Barcha modullar", modules: "ta modul", trial: "kunlik bepul sinov", fallback: "Biznesingiz uchun mos imkoniyatlar" },
+  ru: { free: "Бесплатно", month: "/ мес.", year: "/ год", employees: "сотрудников", branches: "филиалов", managers: "руководителей", unlimited: "Без ограничений", allModules: "Все модули", modules: "модулей", trial: "дней бесплатного периода", fallback: "Возможности для вашего бизнеса" },
+  en: { free: "Free", month: "/ month", year: "/ year", employees: "employees", branches: "branches", managers: "managers", unlimited: "Unlimited", allModules: "All modules", modules: "modules", trial: "day free trial", fallback: "Capabilities for your business" },
+} as const;
 
 function SectionHeading({ eyebrow, title, desc, center = false }: { eyebrow: string; title: string; desc?: string; center?: boolean }) {
   return <Reveal className={`section-heading ${center ? "center" : ""}`}><span className="eyebrow"><Sparkles size={14} />{eyebrow}</span><h2>{title}</h2>{desc && <p>{desc}</p>}</Reveal>;
@@ -37,6 +55,8 @@ export function Hero() {
       <motion.div className="container product-stage" initial={reduced ? false : { opacity: 0, y: 60, scale: .96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .9, delay: .28, ease: [0.22, 1, 0.36, 1] }}>
         <div className="product-shadow-card left" aria-hidden="true" />
         <div className="product-shadow-card right" aria-hidden="true" />
+        <div className="product-float product-float-top"><span><UsersRound size={16} /></span><div><small>Jamoa boshqaruvi</small><strong>Bir joyda, real vaqtda</strong></div></div>
+        <div className="product-float product-float-bottom"><span><ShieldCheck size={16} /></span><div><small>Xavfsiz nazorat</small><strong>GPS · Face ID · Audit</strong></div></div>
         <div className="product-window">
           <div className="browser-bar"><div><i /><i /><i /></div><span>app.staffora.uz/dashboard</span><ShieldCheck size={14} /></div>
           <Image src="/screenshots/dashboard.png" width={1440} height={900} priority alt="Staffora boshqaruv panelining haqiqiy ko‘rinishi" />
@@ -72,6 +92,7 @@ export function Showcase() {
         <div className="showcase-frame">
           <div className="showcase-copy"><span>0{active + 1}</span><h3>{t.showcase.tabs[active]}</h3><p>{t.showcase.details[active]}</p><a href={appUrl}>{t.hero.start}<ArrowRight size={16} /></a></div>
           <div className="showcase-image">
+            <div className="showcase-browser"><i /><i /><i /><span>app.staffora.uz</span></div>
             <AnimatePresence mode="wait"><motion.div key={active} initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: .3 }}><Image src={`/screenshots/${screenshots[active]}.png`} width={1440} height={900} alt={`Staffora — ${t.showcase.tabs[active]}`} /></motion.div></AnimatePresence>
           </div>
         </div>
@@ -86,8 +107,39 @@ export function HowItWorks() {
 }
 
 export function Pricing({ page = false }: { page?: boolean }) {
-  const { t } = useLanguage();
-  return <section id="pricing" className={`section pricing-section ${page ? "page-section" : ""}`}><div className="container"><SectionHeading eyebrow={t.pricing.eyebrow} title={t.pricing.title} desc={t.pricing.desc} center /><div className="pricing-grid">{t.pricing.plans.map((plan, i) => <Reveal key={plan.name} delay={i * .08}><article className={`pricing-card ${i === 1 ? "featured" : ""}`}>{i === 1 && <span className="popular">{t.pricing.popular}</span>}<div className="plan-top"><h3>{plan.name}</h3><p>{plan.note}</p><strong>{i === 0 ? "0 UZS" : t.pricing.custom}</strong></div><ul>{plan.features.map((feature) => <li key={feature}><Check size={16} />{feature}</li>)}</ul>{i === 2 ? <a className="button button-ghost" href="#contact">{t.pricing.contact}<ArrowRight size={16} /></a> : <a className="button button-primary" href={appUrl}>{t.pricing.start}<ArrowRight size={16} /></a>}</article></Reveal>)}</div></div></section>;
+  const { t, lang } = useLanguage();
+  const [plans, setPlans] = useState<PublicPlan[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/public/plans", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() as Promise<PublicPlan[]> : Promise.reject())
+      .then((rows) => { if (rows.length) setPlans(rows); })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+  const words = planWords[lang];
+  const fallbackPlans: PublicPlan[] = t.pricing.plans.map((plan, index) => ({ key: plan.name.toLowerCase(), name: plan.name, description: plan.note, price: index === 0 ? 0 : null, currency: "UZS", period: "MONTH", limits: {}, modules: index === 0 ? ["attendance", "workspace"] : "all", trialDays: 0 }));
+  const visiblePlans = plans.length ? plans : fallbackPlans;
+  const featuredIndex = Math.max(0, visiblePlans.findIndex((plan) => plan.key.toLowerCase() === "pro"));
+  const number = new Intl.NumberFormat(lang === "uz" ? "uz-UZ" : lang === "ru" ? "ru-RU" : "en-US", { maximumFractionDigits: 0 });
+  const price = (plan: PublicPlan) => {
+    if (plan.price === null) return <strong>{t.pricing.custom}</strong>;
+    if (plan.price === 0) return <strong>{words.free}</strong>;
+    return <strong>{number.format(plan.price)} <em>{plan.currency}</em><small>{plan.period === "YEAR" ? words.year : words.month}</small></strong>;
+  };
+  const features = (plan: PublicPlan, index: number) => {
+    const rows: string[] = [];
+    const limit = (value: number | null | undefined, label: string) => rows.push(value ? `${number.format(value)} ${label}` : `${words.unlimited} ${label}`);
+    if (Object.keys(plan.limits || {}).length) {
+      limit(plan.limits.employees, words.employees);
+      limit(plan.limits.branches, words.branches);
+      limit(plan.limits.managers, words.managers);
+      rows.push(plan.modules === "all" ? words.allModules : `${plan.modules.length} ${words.modules}`);
+      if (plan.trialDays > 0) rows.push(`${plan.trialDays} ${words.trial}`);
+    }
+    return rows.length ? rows : t.pricing.plans[Math.min(index, t.pricing.plans.length - 1)].features;
+  };
+  return <section id="pricing" className={`section pricing-section ${page ? "page-section" : ""}`}><div className="container"><SectionHeading eyebrow={t.pricing.eyebrow} title={t.pricing.title} desc={t.pricing.desc} center /><div className="pricing-grid">{visiblePlans.map((plan, i) => { const featured = i === featuredIndex; const contact = plan.price === null; return <Reveal key={plan.key} delay={i * .08}><article className={`pricing-card ${featured ? "featured" : ""}`}><div className="plan-badges"><span className="plan-status">ACTIVE</span>{featured && <span className="popular">{t.pricing.popular}</span>}</div><div className="plan-top"><h3>{plan.name}</h3><p>{plan.description || words.fallback}</p>{price(plan)}</div><ul>{features(plan, i).map((feature) => <li key={feature}><span><Check size={14} /></span>{feature}</li>)}</ul><a className={`button ${featured ? "button-primary" : "button-ghost"}`} href={contact ? "#contact" : appUrl}>{contact ? t.pricing.contact : t.pricing.start}<ArrowRight size={16} /></a></article></Reveal>; })}</div><p className="pricing-live"><span /> Super Admin sozlamalari bilan avtomatik yangilanadi</p></div></section>;
 }
 
 export function Statistics() {

@@ -6,6 +6,7 @@ import { z } from "zod";
 import { readDb, updateDb } from "../lib/store";
 import type { Lead } from "../lib/types";
 import { sendTelegramMessage } from "./telegram";
+import { ensurePlans } from "./platform/shared";
 
 /*
  * Ochiq sayt (landing) va panel domenini ajratish.
@@ -156,6 +157,38 @@ const leadSchema = z.object({
 
 export function createPublicLeadRouter() {
   const router = Router();
+  router.get(
+    "/public/plans",
+    route(async (_req, res) => {
+      let db = await readDb();
+      if (!db.subscriptionPlans.length) {
+        await updateDb((draft) => ensurePlans(draft));
+        db = await readDb();
+      }
+      const plans = db.subscriptionPlans
+        .filter((plan) => plan.status === "ACTIVE")
+        .sort((a, b) => {
+          if (a.key === "free") return -1;
+          if (b.key === "free") return 1;
+          if (a.price === null) return 1;
+          if (b.price === null) return -1;
+          return a.price - b.price;
+        })
+        .map((plan) => ({
+          key: plan.key,
+          name: plan.name,
+          description: plan.description || "",
+          price: plan.price,
+          currency: plan.currency,
+          period: plan.period,
+          limits: plan.limits,
+          modules: plan.modules,
+          trialDays: plan.trialDays,
+        }));
+      res.setHeader("Cache-Control", "public, max-age=30, stale-while-revalidate=120");
+      res.json(plans);
+    }),
+  );
   router.post(
     "/public/lead",
     route(async (req, res) => {

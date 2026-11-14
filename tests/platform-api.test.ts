@@ -48,6 +48,7 @@ beforeAll(async () => {
   const platform = await import("../server/platform");
   const comms = await import("../server/platform/routes-comms");
   const integrations = await import("../server/platform/integrations-api");
+  const landing = await import("../server/landing");
   const now = new Date().toISOString();
   const ownerPasswordHash = await bcrypt.hash("PlatformQA-2026!", 4);
   await store.updateDb((db: Database) => {
@@ -67,6 +68,7 @@ beforeAll(async () => {
 
   const app = express();
   app.use(express.json({ limit: "3mb" }));
+  app.use("/api", landing.createPublicLeadRouter());
   app.use("/api", integrations.createPublicApiRouter());
   app.use("/api", comms.createPublicSupportRouter());
   // Test sessiyasi (x-test-user) yoki haqiqiy requireAuth (ko‘rish tokeni Bearer orqali).
@@ -100,6 +102,15 @@ afterAll(() => {
 });
 
 describe("ommaviy Yordam markazi", () => {
+  it("landing uchun faol tariflarni maxfiy maydonlarsiz qaytaradi", async () => {
+    const res = await get("/api/public/plans");
+    expect(res.status).toBe(200);
+    expect(res.body.map((plan: any) => plan.key)).toEqual(["free", "pro", "enterprise"]);
+    expect(res.body[0]).toMatchObject({ name: "Free", currency: "UZS", limits: { employees: 10 } });
+    expect(res.body[0]).not.toHaveProperty("id");
+    expect(res.body[0]).not.toHaveProperty("createdAt");
+  });
+
   it("kontaktlarni akkauntsiz qaytaradi", async () => {
     const res = await get("/api/public/support/contacts");
     expect(res.status).toBe(200);
