@@ -334,6 +334,45 @@ describe("Staffora AI token vault", () => {
       ).status,
     ).toBe(200);
   });
+  it("chatdagi oylik buyrug‘ini bir tasdiqdan keyin bazaga yozib tekshiradi", async () => {
+    const chat = await post("/api/ai/chat", {
+      message: "ID 001 xodim oyligini 5 000 000 so‘m qilib qo‘y",
+    });
+    expect(chat.status).toBe(200);
+    expect(chat.body.pendingAction).toMatchObject({
+      name: "set_employee_salary",
+      status: "PENDING_CONFIRMATION",
+    });
+    expect((await store.readDb()).employees.find((x) => x.id === "e1")?.baseSalary).not.toBe(5_000_000);
+    const confirmed = await post(`/api/ai/actions/${chat.body.pendingAction.id}/confirm`, {
+      confirmationToken: chat.body.pendingAction.confirmationToken,
+    });
+    expect(confirmed.status).toBe(200);
+    expect(confirmed.body.result).toMatchObject({ verified: true, baseSalary: 5_000_000 });
+    expect((await store.readDb()).employees.find((x) => x.id === "e1")?.baseSalary).toBe(5_000_000);
+  });
+  it("chatdagi kelish vaqtini davomatga real kiritadi", async () => {
+    const chat = await post("/api/ai/chat", {
+      message: "ID 001 xodim bugun 8 00 da ishga keldi qilib qo‘y",
+    });
+    expect(chat.body.pendingAction.name).toBe("set_attendance");
+    const confirmed = await post(`/api/ai/actions/${chat.body.pendingAction.id}/confirm`, {
+      confirmationToken: chat.body.pendingAction.confirmationToken,
+    });
+    expect(confirmed.body.result).toMatchObject({ verified: true, employeeId: "e1", checkIn: "08:00" });
+    expect((await store.readDb()).attendance.some((x) => x.employeeId === "e1" && x.checkIn === "08:00")).toBe(true);
+  });
+  it("chatdan yangi ish grafigini yaratadi", async () => {
+    const chat = await post("/api/ai/chat", {
+      message: "“Yangi ofis” nomli grafik qo‘sh, 09:00–18:00",
+    });
+    expect(chat.body.pendingAction.name).toBe("create_schedule");
+    const confirmed = await post(`/api/ai/actions/${chat.body.pendingAction.id}/confirm`, {
+      confirmationToken: chat.body.pendingAction.confirmationToken,
+    });
+    expect(confirmed.body.result).toMatchObject({ verified: true, name: "Yangi ofis" });
+    expect((await store.readDb()).schedules.some((x) => x.name === "Yangi ofis")).toBe(true);
+  });
   it("Super Admin javobida maxfiy token yo‘q", async () => {
     const result = await get("/api/super-admin/ai/overview", "sa");
     expect(result.status).toBe(200);

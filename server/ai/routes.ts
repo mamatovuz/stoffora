@@ -15,6 +15,8 @@ import {
   actionCatalog,
   detectReadAction,
   executeAction,
+  looksLikeWriteRequest,
+  planDeterministicAction,
   validateAction,
   type ActionContext,
 } from "./actions";
@@ -239,7 +241,7 @@ export function createAiRouter() {
           label: z.string().trim().max(80).optional(),
         })
         .parse(req.body);
-      const detected = detectProvider(input.token);
+      const detected = await identifyProvider(input.token);
       const tenant = tenantOf(req);
       const row = await updateDb((db) => {
         let config = db.aiConfigs.find((x) => x.companyId === tenant);
@@ -481,6 +483,7 @@ export function createAiRouter() {
         .object({ confirmationToken: z.string().min(20) })
         .parse(req.body);
       const tenant = tenantOf(req);
+      let completedNow = false;
       const result = await updateDb((db) => {
         const action = db.aiActions.find(
           (x) =>
@@ -511,6 +514,7 @@ export function createAiRouter() {
         try {
           action.result = executeAction(action.name, action.payload, ctx);
           action.status = "SUCCEEDED";
+          completedNow = true;
           action.finishedAt = now();
           action.confirmationTokenHash = undefined;
           return action;
@@ -524,6 +528,13 @@ export function createAiRouter() {
           throw error;
         }
       });
+      if (completedNow && result.conversationId) {
+        const resultMessage = typeof result.result === "object" && result.result && "message" in result.result ? String((result.result as { message: unknown }).message) : "Amal bajarildi va bazada tekshirildi.";
+        await updateDb((db) => {
+          db.aiMessages.push({ id: id(), conversationId: result.conversationId!, companyId: tenant, userId: req.session!.userId, role: "ASSISTANT", text: resultMessage, createdAt: now() });
+          const conversation = db.aiConversations.find((item) => item.id === result.conversationId); if (conversation) conversation.updatedAt = now();
+        });
+      }
       res.json(publicAction(result));
     }),
   );
@@ -1050,6 +1061,26 @@ function actionContext(
     role: req.session!.role,
   };
 }
+
+async function stageAction(
+  req: AuthedRequest,
+  input: { name: string; payload: Record<string, unknown>; conversationId?: string; idempotencyKey?: string },
+) {
+  const tenant = tenantOf(req), live = await readDb();
+  const checked = validateAction(input.name, input.payload, actionContext(req, live));
+  if (checked.definition.level === "READ") return { action: null, result: executeAction(input.name, checked.payload, actionContext(req, live)) };
+  const token = randomBytes(32).toString("base64url"), idem = input.idempotencyKey || id();
+  const action = await updateDb((db) => {
+    if (input.conversationId) {
+      for (const previous of db.aiActions.filter((item) => item.companyId === tenant && item.userId === req.session!.userId && item.conversationId === input.conversationId && item.status === "PENDING_CONFIRMATION")) {
+        previous.status = "CANCELLED"; previous.finishedAt = now(); previous.confirmationTokenHash = undefined;
+      }
+    }
+    const item = { id: id(), companyId: tenant, userId: req.session!.userId, conversationId: input.conversationId, name: input.name, level: checked.definition.level, payload: checked.payload, summary: checked.summary, status: "PENDING_CONFIRMATION" as const, idempotencyKey: idem, confirmationTokenHash: sha(token), confirmationExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(), createdAt: now() };
+    db.aiActions.push(item); return item;
+  });
+  return { action: { ...publicAction(action), confirmationToken: token }, result: undefined };
+}
 async function aiConfig(req: AuthedRequest, voice = false) {
   const config = (await readDb()).aiConfigs.find(
     (x) => x.companyId === tenantOf(req),
@@ -1108,6 +1139,19 @@ function detectProvider(token: string): {
     ),
     { status: 422 },
   );
+}
+async function identifyProvider(token: string): Promise<ReturnType<typeof detectProvider>> {
+  try {
+    return detectProvider(token.trim());
+  } catch {
+    const candidate = { id: "token-detection", companyId: "token-detection", enabled: true, provider: "GEMINI" as const, model: providerDefaults.GEMINI[0], apiKeyEnc: encryptSecret(token.trim()), responseLanguage: "uz" as const, voiceEnabled: false, updatedAt: now(), updatedBy: "token-detection" };
+    try {
+      const result = await callProvider(candidate, [{ role: "user", content: "OK deb javob bering." }]);
+      return { provider: "GEMINI", model: result.model };
+    } catch {
+      throw Object.assign(new Error("Token formati avtomatik aniqlanmadi yoki token ishlamadi. Google AI Studio’dan olingan Gemini API keyni tekshirib qayta kiriting."), { status: 422 });
+    }
+  }
 }
 function migrateLegacyCredential(config: AiConfig): Credential[] {
   if (!config.apiKeyEnc || config.provider === "STAFFORA") return [];
@@ -1243,13 +1287,25 @@ async function processChat(
   };
   await updateDb((next) => next.aiMessages.push(userMessage));
   const detected = detectReadAction(message);
+  const planned = detected ? undefined : planDeterministicAction(message);
   let answer: string;
   let actionResult: unknown;
+  let pendingAction: Record<string, unknown> | null = null;
   let usage = { inputTokens: 0, outputTokens: 0 };
   if (detected) {
     const live = await readDb();
     actionResult = executeAction(detected, {}, actionContext(req, live));
     answer = formatActionAnswer(detected, actionResult);
+  } else if (planned) {
+    if (planned.missing?.length) {
+      answer = `Amalni tayyorlashim uchun ${planned.missing.join(" va ")}ni yozing. Bitta xabarda yuborsangiz, qayta-qayta tasdiq so‘ramayman.`;
+    } else {
+      const staged = await stageAction(req, { name: planned.name, payload: planned.payload, conversationId: conversation.id });
+      pendingAction = staged.action;
+      answer = `Amal tayyor: ${String(staged.action?.summary || "ma’lumot o‘zgartiriladi")}. Quyidagi tugma orqali bir marta tasdiqlang. Tasdiqdan keyin o‘zgarish bazaga yozilib, qayta tekshiriladi.`;
+    }
+  } else if (looksLikeWriteRequest(message)) {
+    answer = "Bu o‘zgartirishni xavfsiz bajara olishim uchun amal turi va kerakli ID/qiymatlarni aniqroq yozing. Masalan: “ID 001 xodim oyligini 5 000 000 so‘m qil”, “ID 001 bugun 08:00 da keldi” yoki “\"Ofis\" grafikini 09:00–18:00 qilib yarat”.";
   } else {
     const live = await readDb();
     const responseLanguage = {
@@ -1308,6 +1364,7 @@ async function processChat(
     conversationId: conversation.id,
     message: assistant,
     action: detected ? { name: detected, result: actionResult } : null,
+    pendingAction,
     usage,
   };
 }

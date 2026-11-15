@@ -284,7 +284,7 @@ export function AiSettingsPage() {
                 />
                 <button type="button" className="token-visibility" title={showToken ? "Tokenni yashirish" : "Tokenni ko‘rsatish"} onClick={() => setShowToken((value) => !value)}>{showToken ? <EyeOff /> : <Eye />}</button>
               </div>
-              {token && <small className={`token-detection ${detectedProvider ? "detected" : ""}`}>{detectedProvider ? `${detectedProvider} aniqlandi · saqlanganda avtomatik tekshiriladi` : "Token formati hali aniqlanmadi"}</small>}
+              {token && <small className={`token-detection ${detectedProvider ? "detected" : ""}`}>{detectedProvider ? `${detectedProvider} aniqlandi · saqlanganda avtomatik tekshiriladi` : "Prefiks noma’lum · saqlanganda Gemini orqali real tekshirib aniqlanadi"}</small>}
             </label>
             <label>
               Nom (ixtiyoriy)
