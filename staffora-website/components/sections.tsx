@@ -6,7 +6,7 @@ import { ArrowRight, BarChart3, BriefcaseBusiness, CalendarDays, Check, ChevronD
 import { FormEvent, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useLanguage } from "./language-provider";
-import { ParallaxLayer, Reveal, ScrollProgress, StaggerItem, StaggerReveal } from "./motion";
+import { CountUp, ParallaxLayer, Reveal, SlideIn, StaggerItem, StaggerReveal, TextReveal } from "./motion";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.staffora.uz";
 const featureIcons = [Clock3, UsersRound, MapPinned, BriefcaseBusiness, CalendarDays, FileText, BarChart3, WalletCards, ShieldCheck];
@@ -31,7 +31,7 @@ const planWords = {
 } as const;
 
 function SectionHeading({ eyebrow, title, desc, center = false }: { eyebrow: string; title: string; desc?: string; center?: boolean }) {
-  return <Reveal className={`section-heading ${center ? "center" : ""}`}><span className="eyebrow"><Sparkles size={14} />{eyebrow}</span><h2>{title}</h2>{desc && <p>{desc}</p>}</Reveal>;
+  return <div className={`section-heading ${center ? "center" : ""}`}><Reveal><span className="eyebrow"><Sparkles size={14} />{eyebrow}</span></Reveal><h2><TextReveal text={title} stagger={.025} /></h2>{desc && <Reveal delay={.12}><p>{desc}</p></Reveal>}</div>;
 }
 
 export function Hero() {
@@ -103,7 +103,7 @@ export function Showcase() {
 
 export function HowItWorks() {
   const { t } = useLanguage();
-  return <section className="section steps-section grid-bg"><div className="container"><SectionHeading eyebrow={t.steps.eyebrow} title={t.steps.title} center /><div className="steps-line">{t.steps.items.map((item, i) => <Reveal key={item.title} delay={i * .1}><article className="step-card"><span>0{i + 1}</span><h3>{item.title}</h3><p>{item.desc}</p></article></Reveal>)}</div></div></section>;
+  return <section className="section steps-section grid-bg"><div className="container"><SectionHeading eyebrow={t.steps.eyebrow} title={t.steps.title} center /><StaggerReveal className="steps-line" stagger={.12}>{t.steps.items.map((item, i) => <StaggerItem key={item.title}><article className="step-card"><span>0{i + 1}</span><h3>{item.title}</h3><p>{item.desc}</p></article></StaggerItem>)}</StaggerReveal></div></section>;
 }
 
 export function Pricing({ page = false }: { page?: boolean }) {
@@ -139,23 +139,24 @@ export function Pricing({ page = false }: { page?: boolean }) {
     }
     return rows.length ? rows : t.pricing.plans[Math.min(index, t.pricing.plans.length - 1)].features;
   };
-  return <section id="pricing" className={`section pricing-section ${page ? "page-section" : ""}`}><div className="container"><SectionHeading eyebrow={t.pricing.eyebrow} title={t.pricing.title} desc={t.pricing.desc} center /><div className="pricing-grid">{visiblePlans.map((plan, i) => { const featured = i === featuredIndex; const contact = plan.price === null; return <Reveal key={plan.key} delay={i * .08}><article className={`pricing-card ${featured ? "featured" : ""}`}><div className="plan-badges"><span className="plan-status">ACTIVE</span>{featured && <span className="popular">{t.pricing.popular}</span>}</div><div className="plan-top"><h3>{plan.name}</h3><p>{plan.description || words.fallback}</p>{price(plan)}</div><ul>{features(plan, i).map((feature) => <li key={feature}><span><Check size={14} /></span>{feature}</li>)}</ul><a className={`button ${featured ? "button-primary" : "button-ghost"}`} href={contact ? "#contact" : appUrl}>{contact ? t.pricing.contact : t.pricing.start}<ArrowRight size={16} /></a></article></Reveal>; })}</div><p className="pricing-live"><span /> Super Admin sozlamalari bilan avtomatik yangilanadi</p></div></section>;
+  return <section id="pricing" className={`section pricing-section ${page ? "page-section" : ""}`}><div className="container"><SectionHeading eyebrow={t.pricing.eyebrow} title={t.pricing.title} desc={t.pricing.desc} center /><StaggerReveal className="pricing-grid" stagger={.1}>{visiblePlans.map((plan, i) => { const featured = i === featuredIndex; const contact = plan.price === null; return <StaggerItem key={plan.key}><article className={`pricing-card ${featured ? "featured" : ""}`}><div className="plan-badges"><span className="plan-status">ACTIVE</span>{featured && <span className="popular">{t.pricing.popular}</span>}</div><div className="plan-top"><h3>{plan.name}</h3><p>{plan.description || words.fallback}</p>{price(plan)}</div><ul>{features(plan, i).map((feature) => <li key={feature}><span><Check size={14} /></span>{feature}</li>)}</ul><a className={`button ${featured ? "button-primary" : "button-ghost"}`} href={contact ? "#contact" : appUrl}>{contact ? t.pricing.contact : t.pricing.start}<ArrowRight size={16} /></a></article></StaggerItem>; })}</StaggerReveal><Reveal><p className="pricing-live"><span /> Super Admin sozlamalari bilan avtomatik yangilanadi</p></Reveal></div></section>;
 }
 
 export function Statistics() {
-  const { t } = useLanguage();
-  return <section className="section stats-section"><div className="container stats-shell"><SectionHeading eyebrow={t.stats.eyebrow} title={t.stats.title} /><div className="stats-grid">{t.stats.items.map((item, i) => <Reveal key={item.label} delay={i * .08}><article><strong>{item.value}</strong><p>{item.label}</p></article></Reveal>)}</div><small className="stats-note">* 2026-yil noyabr holatidagi tasdiqlangan platforma ko‘rsatkichlari.</small></div></section>;
+  const { t, lang } = useLanguage();
+  const locale = lang === "uz" ? "uz-UZ" : lang === "ru" ? "ru-RU" : "en-US";
+  return <section className="section stats-section"><Reveal className="container stats-shell"><SectionHeading eyebrow={t.stats.eyebrow} title={t.stats.title} /><StaggerReveal className="stats-grid" stagger={.12}>{t.stats.items.map((item) => { const number = Number(item.value.replace(/\D/g, "")); return <StaggerItem key={item.label}><article><strong><CountUp value={number} suffix={item.value.includes("+") ? "+" : ""} locale={locale} /></strong><p>{item.label}</p></article></StaggerItem>; })}</StaggerReveal><small className="stats-note">* 2026-yil noyabr holatidagi tasdiqlangan platforma ko‘rsatkichlari.</small></Reveal></section>;
 }
 
 export function About({ page = false }: { page?: boolean }) {
   const { t } = useLanguage();
-  return <section id="about" className={`section about-section ${page ? "page-section" : ""}`}><div className="container about-grid"><div><SectionHeading eyebrow={t.about.eyebrow} title={t.about.title} /><Reveal><p className="about-lead">{t.about.p1}</p><p>{t.about.p2}</p></Reveal></div><div className="value-stack">{t.about.values.map((value, i) => <Reveal key={value.title} delay={i * .08}><article><span>0{i + 1}</span><div><h3>{value.title}</h3><p>{value.desc}</p></div></article></Reveal>)}</div></div></section>;
+  return <section id="about" className={`section about-section ${page ? "page-section" : ""}`}><div className="container about-grid"><SlideIn direction="left"><SectionHeading eyebrow={t.about.eyebrow} title={t.about.title} /><p className="about-lead">{t.about.p1}</p><p>{t.about.p2}</p></SlideIn><StaggerReveal className="value-stack" stagger={.1}>{t.about.values.map((value, i) => <StaggerItem key={value.title}><article><span>0{i + 1}</span><div><h3>{value.title}</h3><p>{value.desc}</p></div></article></StaggerItem>)}</StaggerReveal></div></section>;
 }
 
 export function Faq() {
   const { t } = useLanguage();
   const [open, setOpen] = useState(0);
-  return <section className="section faq-section"><div className="container faq-grid"><SectionHeading eyebrow={t.faq.eyebrow} title={t.faq.title} /><div className="faq-list">{t.faq.items.map((item, i) => <article className={open === i ? "open" : ""} key={item.q}><button aria-expanded={open === i} onClick={() => setOpen(open === i ? -1 : i)}><span>{item.q}</span><ChevronDown size={19} /></button><div className="faq-answer"><p>{item.a}</p></div></article>)}</div></div></section>;
+  return <section className="section faq-section"><div className="container faq-grid"><SlideIn direction="left"><SectionHeading eyebrow={t.faq.eyebrow} title={t.faq.title} /></SlideIn><StaggerReveal className="faq-list" stagger={.07}>{t.faq.items.map((item, i) => <StaggerItem key={item.q}><article className={open === i ? "open" : ""}><button aria-expanded={open === i} onClick={() => setOpen(open === i ? -1 : i)}><span>{item.q}</span><ChevronDown size={19} /></button><div className="faq-answer"><p>{item.a}</p></div></article></StaggerItem>)}</StaggerReveal></div></section>;
 }
 
 export function Contact({ page = false }: { page?: boolean }) {
@@ -185,7 +186,7 @@ export function FinalCta() {
 }
 
 export function MarketingPage() {
-  return <main><ScrollProgress /><Hero /><Features /><Showcase /><HowItWorks /><Pricing /><Statistics /><About /><Faq /><Contact /><FinalCta /></main>;
+  return <main><Hero /><Features /><Showcase /><HowItWorks /><Pricing /><Statistics /><About /><Faq /><Contact /><FinalCta /></main>;
 }
 
 export function PageHero({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {

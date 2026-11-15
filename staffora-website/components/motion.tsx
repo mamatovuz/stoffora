@@ -217,12 +217,14 @@ export function CountUp({
   prefix = "",
   duration = 2,
   className = "",
+  locale,
 }: {
   value: number;
   suffix?: string;
   prefix?: string;
   duration?: number;
   className?: string;
+  locale?: string;
 }) {
   const reduced = useReducedMotion();
   const ref = useRef<HTMLSpanElement>(null);
@@ -254,7 +256,7 @@ export function CountUp({
   return (
     <span ref={ref} className={className}>
       {prefix}
-      {display.toLocaleString()}
+      {display.toLocaleString(locale)}
       {suffix}
     </span>
   );

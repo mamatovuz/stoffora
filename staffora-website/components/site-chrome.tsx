@@ -5,6 +5,7 @@ import { ArrowUpRight, Camera, Menu, Send, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { navHref, type Lang } from "@/lib/content";
 import { LanguageProvider, useLanguage } from "./language-provider";
+import { ScrollProgress } from "./motion";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.staffora.uz";
 
@@ -72,5 +73,5 @@ export function Footer() {
 }
 
 export function SiteShell({ children }: { children: React.ReactNode }) {
-  return <LanguageProvider><Navbar />{children}<Footer /></LanguageProvider>;
+  return <LanguageProvider><ScrollProgress /><Navbar />{children}<Footer /></LanguageProvider>;
 }
