@@ -6,7 +6,13 @@ export type ProviderResult = { text: string; inputTokens: number; outputTokens: 
 
 const timeoutFetch = async (url: string, init: RequestInit, timeoutMs = 25_000) => {
   const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try { return await fetch(url, { ...init, signal: controller.signal }); } finally { clearTimeout(timer); }
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (controller.signal.aborted)
+      throw Object.assign(new Error("AI provider javob berishga ulgurmagan. Qayta urinib ko‘ring yoki zaxira token qo‘shing."), { status: 504, code: "AI_PROVIDER_TIMEOUT" });
+    throw error;
+  } finally { clearTimeout(timer); }
 };
 
 const safeError = (body: unknown, status: number) => {
@@ -25,9 +31,31 @@ export async function callProvider(config: AiConfig, messages: ProviderMessage[]
   const key = config.provider === "STAFFORA" ? process.env.STAFFORA_AI_API_KEY : apiKey(config);
   if (!key) throw Object.assign(new Error("Staffora AI Plan server kaliti sozlanmagan."), { status: 503, code: "AI_PLAN_NOT_CONFIGURED" });
   if (config.provider === "OPENAI" || config.provider === "STAFFORA") return openAi(config.model, key, messages);
-  if (config.provider === "GROQ") return openAiCompatible(config.model, key, messages, "https://api.groq.com/openai/v1/chat/completions");
+  if (config.provider === "GROQ") return groq(config.model, key, messages);
   if (config.provider === "ANTHROPIC") return anthropic(config.model, key, messages);
   return gemini(config.model, key, messages);
+}
+
+const retiredGroqModels = new Set(["llama-3.1-8b-instant", "llama-3.3-70b-versatile"]);
+
+async function groq(model: string, key: string, messages: ProviderMessage[]) {
+  const preferred = retiredGroqModels.has(model) ? [] : [model];
+  const candidates = [...new Set([...preferred, ...providerDefaults.GROQ])];
+  let lastError: unknown;
+  for (const candidate of candidates) {
+    try {
+      return await openAiCompatible(candidate, key, messages, "https://api.groq.com/openai/v1/chat/completions");
+    } catch (error) {
+      lastError = error;
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      const modelUnavailable = message.includes("model") && (
+        message.includes("does not exist") || message.includes("not found") ||
+        message.includes("access") || message.includes("deprecat") || message.includes("retired")
+      );
+      if (!modelUnavailable) throw error;
+    }
+  }
+  throw lastError;
 }
 
 async function openAi(model: string, key: string, messages: ProviderMessage[]) {
@@ -62,6 +90,6 @@ export const providerDefaults: Record<AiProvider, string[]> = {
   OPENAI: ["gpt-5-mini", "gpt-5"],
   GEMINI: ["gemini-2.5-flash", "gemini-2.5-pro"],
   ANTHROPIC: ["claude-sonnet-4-5", "claude-haiku-4-5"],
-  GROQ: ["llama-3.3-70b-versatile", "openai/gpt-oss-20b"],
+  GROQ: ["openai/gpt-oss-20b", "openai/gpt-oss-120b"],
   STAFFORA: [process.env.STAFFORA_AI_MODEL || "gpt-5-mini"],
 };

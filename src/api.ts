@@ -68,16 +68,16 @@ const RETRY_DELAYS = [600, 1500];
 
 export async function api<T>(
   url: string,
-  options: RequestInit & { retry?: boolean } = {},
+  options: RequestInit & { retry?: boolean; timeoutMs?: number } = {},
 ): Promise<T> {
-  const { retry, ...init } = options;
+  const { retry, timeoutMs = REQUEST_TIMEOUT_MS, ...init } = options;
   // O‘qish so‘rovlari va aniq ruxsat berilganlar (masalan, kirish) qayta uriniladi;
   // ma’lumot o‘zgartiradigan so‘rovlar ikki marta bajarilib qolmasligi uchun — yo‘q.
   const retriable = retry ?? (!init.method || init.method === "GET");
   let response: Response | undefined;
   for (let attempt = 0; ; attempt += 1) {
     const controller = init.signal ? undefined : new AbortController();
-    const timer = controller ? window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS) : undefined;
+    const timer = controller ? window.setTimeout(() => controller.abort(), timeoutMs) : undefined;
     try {
       response = await fetch(`/api${url}`, {
         credentials: "include",
@@ -131,8 +131,8 @@ export async function api<T>(
   if (response.status === 204) return undefined as T;
   return response.json();
 }
-export const post = <T>(url: string, body: unknown = {}) =>
-  api<T>(url, { method: "POST", body: JSON.stringify(body) });
+export const post = <T>(url: string, body: unknown = {}, options: { timeoutMs?: number } = {}) =>
+  api<T>(url, { ...options, method: "POST", body: JSON.stringify(body) });
 export const put = <T>(url: string, body: unknown) =>
   api<T>(url, { method: "PUT", body: JSON.stringify(body) });
 export const patch = <T>(url: string, body: unknown = {}) =>

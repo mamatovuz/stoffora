@@ -150,6 +150,25 @@ export function createAiRouter() {
     }),
   );
   router.get(
+    "/ai/status",
+    aiRoute(async (req, res) => {
+      const db = await readDb();
+      const config = db.aiConfigs.find((x) => x.companyId === tenantOf(req));
+      const credentials = config ? availableCredentials(config) : [];
+      const healthy = credentials.filter((x) => x.lastTestOk !== false);
+      res.json({
+        enabled: Boolean(config?.enabled),
+        configured: credentials.length > 0,
+        ready: Boolean(config?.enabled && credentials.length),
+        canManage: can(req.session!.role, "settings.manage"),
+        credentialCount: credentials.length,
+        healthyCredentialCount: healthy.length,
+        providers: [...new Set(credentials.map((x) => x.provider))],
+        lastError: credentials.find((x) => x.lastTestOk === false)?.lastError,
+      });
+    }),
+  );
+  router.get(
     "/ai/settings",
     aiAdmin,
     aiRoute(async (req, res) => {
@@ -183,7 +202,11 @@ export function createAiRouter() {
           db.aiConfigs.push(item);
         }
         Object.assign(item, {
-          ...input,
+          enabled: input.enabled,
+          responseLanguage: input.responseLanguage,
+          voiceEnabled: input.voiceEnabled,
+          dailyTokenLimit: input.dailyTokenLimit,
+          monthlyTokenLimit: input.monthlyTokenLimit,
           updatedAt: now(),
           updatedBy: req.session!.name,
         });
@@ -226,7 +249,8 @@ export function createAiRouter() {
           };
           db.aiConfigs.push(config);
         }
-        config.credentials ||= migrateLegacyCredential(config);
+        if (!config.credentials?.length)
+          config.credentials = migrateLegacyCredential(config);
         const fingerprint = sha(input.token).slice(0, 24);
         if (config.credentials.some((x) => x.keyHint.includes(fingerprint)))
           throw Object.assign(new Error("Bu token allaqachon saqlangan."), {
@@ -245,6 +269,7 @@ export function createAiRouter() {
         config.credentials.push(credential);
         config.provider = detected.provider;
         config.model = detected.model;
+        config.enabled = true;
         config.updatedAt = now();
         config.updatedBy = req.session!.name;
         return config;
@@ -297,7 +322,7 @@ export function createAiRouter() {
           { role: "system", content: "Javobni faqat bitta so‘z bilan qaytar." },
           { role: "user", content: "Salom" },
         ]);
-        await markCredential(config.id, credential.id, true);
+        await markCredential(config.id, credential.id, true, undefined, result.model);
         res.json({
           ok: true,
           provider: credential.provider,
@@ -1094,7 +1119,9 @@ function availableCredentials(config: AiConfig) {
   const rows = config.credentials?.length
     ? config.credentials
     : migrateLegacyCredential(config);
-  return rows.filter((x) => x.active);
+  return rows
+    .filter((x) => x.active)
+    .sort((a, b) => Number(a.lastTestOk === false) - Number(b.lastTestOk === false));
 }
 function withCredential(config: AiConfig, credential: Credential): AiConfig {
   return {
@@ -1110,6 +1137,7 @@ async function markCredential(
   credentialId: string,
   ok: boolean,
   error?: string,
+  model?: string,
 ) {
   await updateDb((db) => {
     const credential = db.aiConfigs
@@ -1119,6 +1147,7 @@ async function markCredential(
       credential.lastTestAt = now();
       credential.lastTestOk = ok;
       credential.lastError = ok ? undefined : error?.slice(0, 240);
+      if (ok && model) credential.model = model;
     }
   });
 }
@@ -1139,7 +1168,7 @@ async function callWithFallback(
         withCredential(config, credential),
         messages,
       );
-      await markCredential(config.id, credential.id, true);
+      await markCredential(config.id, credential.id, true, undefined, result.model);
       return { ...result, provider: credential.provider };
     } catch (error) {
       last = error;

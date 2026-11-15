@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import {
+  Activity,
+  ArrowRight,
   Bot,
   CheckCircle2,
   KeyRound,
@@ -9,6 +11,7 @@ import {
   Sparkles,
   Trash2,
   TriangleAlert,
+  Zap,
 } from "lucide-react";
 import { del, errorText, post, put } from "../api";
 import { useApi } from "../hooks";
@@ -40,6 +43,15 @@ type BotState = {
   status?: string;
   telegramLinked?: boolean;
 };
+type AiStatus = {
+  enabled: boolean;
+  configured: boolean;
+  ready: boolean;
+  credentialCount: number;
+  healthyCredentialCount: number;
+  providers: string[];
+  lastError?: string;
+};
 const providerNames: Record<string, string> = {
   OPENAI: "OpenAI",
   GEMINI: "Google Gemini",
@@ -53,6 +65,7 @@ export function AiSettingsPage() {
     totals: { inputTokens: number; outputTokens: number };
   }>("/ai/usage");
   const company = useApi<BotState>("/ai/company-bot");
+  const status = useApi<AiStatus>("/ai/status");
   const [form, setForm] = useState({
     enabled: false,
     responseLanguage: "uz" as Config["responseLanguage"],
@@ -86,6 +99,7 @@ export function AiSettingsPage() {
         settings.reload(true),
         usage.reload(true),
         company.reload(true),
+        status.reload(true),
       ]);
     } catch (e) {
       setError(errorText(e));
@@ -106,7 +120,7 @@ export function AiSettingsPage() {
     await run(
       "token",
       () => post("/ai/settings/tokens", { token, label: label || undefined }),
-      "Token saqlandi, provider avtomatik aniqlandi.",
+      "Token saqlandi, provider avtomatik aniqlandi va Staffora AI faollashtirildi.",
     );
     setToken("");
     setLabel("");
@@ -150,6 +164,29 @@ export function AiSettingsPage() {
           </span>
         </label>
       </div>
+      <section className={`ai-readiness ${status.data?.ready ? "ready" : "setup"}`}>
+        <div className="ai-readiness-icon">
+          {status.data?.ready ? <Zap /> : <Activity />}
+        </div>
+        <div>
+          <small>AI HOLATI</small>
+          <b>{status.data?.ready ? "Ishlashga tayyor" : "Sozlashni yakunlang"}</b>
+          <span>
+            {status.data?.ready
+              ? `${status.data.healthyCredentialCount} ta ishlaydigan token · ${status.data.providers.map((p) => providerNames[p] || p).join(", ")}`
+              : status.data?.configured
+                ? "Token mavjud. AI’ni yoqing yoki xatolikni tekshiring."
+                : "Birinchi tokenni qo‘shing — qolganini Staffora avtomatik bajaradi."}
+          </span>
+        </div>
+        <div className="ai-flow-steps" aria-label="Staffora AI sozlash bosqichlari">
+          <span className={status.data?.configured ? "done" : "active"}><i>1</i>Token</span>
+          <ArrowRight />
+          <span className={status.data?.configured ? "done" : ""}><i>2</i>Aniqlash</span>
+          <ArrowRight />
+          <span className={status.data?.ready ? "done" : ""}><i>3</i>Ishga tushirish</span>
+        </div>
+      </section>
       <div className="ai-v2-grid">
         <section className="card ai-token-card">
           <div className="card-head">
@@ -210,6 +247,9 @@ export function AiSettingsPage() {
                       {item.keyHint} · {item.model}
                     </small>
                     <em>{index === 0 ? "Asosiy" : "Zaxira #" + (index + 1)}</em>
+                    {item.lastTestOk === false && item.lastError && (
+                      <small className="token-error" title={item.lastError}>{item.lastError}</small>
+                    )}
                   </div>
                   <span
                     className={`token-health ${item.lastTestOk === false ? "bad" : ""}`}
