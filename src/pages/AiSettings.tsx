@@ -4,7 +4,11 @@ import {
   ArrowRight,
   Bot,
   CheckCircle2,
+  Eye,
+  EyeOff,
+  Gauge,
   KeyRound,
+  Layers3,
   Plus,
   RefreshCw,
   ShieldCheck,
@@ -49,7 +53,10 @@ type AiStatus = {
   ready: boolean;
   credentialCount: number;
   healthyCredentialCount: number;
+  untestedCredentialCount: number;
   providers: string[];
+  currentModel?: string;
+  lastCheckedAt?: string;
   lastError?: string;
 };
 const providerNames: Record<string, string> = {
@@ -74,10 +81,17 @@ export function AiSettingsPage() {
     monthlyTokenLimit: undefined as number | undefined,
   });
   const [token, setToken] = useState("");
+  const [showToken, setShowToken] = useState(false);
   const [label, setLabel] = useState("");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const reloadAll = () => Promise.all([
+    settings.reload(true),
+    usage.reload(true),
+    company.reload(true),
+    status.reload(true),
+  ]);
   useEffect(() => {
     if (settings.data)
       setForm({
@@ -95,12 +109,7 @@ export function AiSettingsPage() {
     try {
       await fn();
       setMessage(ok);
-      await Promise.all([
-        settings.reload(true),
-        usage.reload(true),
-        company.reload(true),
-        status.reload(true),
-      ]);
+      await reloadAll();
     } catch (e) {
       setError(errorText(e));
     } finally {
@@ -117,14 +126,66 @@ export function AiSettingsPage() {
   }
   async function addToken(e: FormEvent) {
     e.preventDefault();
-    await run(
-      "token",
-      () => post("/ai/settings/tokens", { token, label: label || undefined }),
-      "Token saqlandi, provider avtomatik aniqlandi va Staffora AI faollashtirildi.",
-    );
-    setToken("");
-    setLabel("");
+    setBusy("token");
+    setError("");
+    setMessage("");
+    let tokenSaved = false;
+    try {
+      const created = await post<Config>("/ai/settings/tokens", { token, label: label || undefined });
+      tokenSaved = true;
+      const candidate = created.credentials.find((item) => !credentials.some((old) => old.id === item.id));
+      if (candidate) {
+        await post("/ai/providers/test", { credentialId: candidate.id }, { timeoutMs: 60_000 });
+        setMessage(`${providerNames[candidate.provider] || candidate.provider} tokeni tekshirildi va ishlashga tayyor.`);
+      } else {
+        setMessage("Token saqlandi va Staffora AI faollashtirildi.");
+      }
+      setToken("");
+      setLabel("");
+    } catch (reason) {
+      setError(tokenSaved ? `Token saqlandi, ammo real tekshiruvdan o‘tmadi: ${errorText(reason)}` : errorText(reason));
+    } finally {
+      await reloadAll();
+      setBusy("");
+    }
   }
+  async function toggleAi(enabled: boolean) {
+    const previous = form.enabled;
+    const next = { ...form, enabled };
+    setForm(next);
+    setBusy("toggle");
+    setError("");
+    try {
+      await put("/ai/settings", next);
+      setMessage(enabled ? "Staffora AI ishga tushirildi." : "Staffora AI vaqtincha o‘chirildi.");
+      await reloadAll();
+    } catch (reason) {
+      setForm((current) => ({ ...current, enabled: previous }));
+      setError(errorText(reason));
+    } finally {
+      setBusy("");
+    }
+  }
+  async function testAll() {
+    setBusy("test-all");
+    setError("");
+    setMessage("");
+    let passed = 0;
+    const failures: string[] = [];
+    for (const item of credentials) {
+      try {
+        await post("/ai/providers/test", { credentialId: item.id }, { timeoutMs: 60_000 });
+        passed += 1;
+      } catch (reason) {
+        failures.push(`${providerNames[item.provider] || item.provider}: ${errorText(reason)}`);
+      }
+    }
+    await reloadAll();
+    setBusy("");
+    if (passed) setMessage(`${passed} ta token muvaffaqiyatli tekshirildi.`);
+    if (failures.length) setError(failures.join(" · "));
+  }
+  const detectedProvider = token.startsWith("gsk_") ? "Groq" : token.startsWith("sk-ant-") ? "Anthropic Claude" : token.startsWith("AIza") ? "Google Gemini" : token.startsWith("sk-") ? "OpenAI" : "";
   const credentials = settings.data?.credentials || [];
   const bot = company.data;
   return (
@@ -152,7 +213,8 @@ export function AiSettingsPage() {
           <input
             type="checkbox"
             checked={form.enabled}
-            onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+            disabled={busy === "toggle"}
+            onChange={(e) => void toggleAi(e.target.checked)}
           />
           <span>
             <b>{form.enabled ? "AI yoqilgan" : "AI o‘chiq"}</b>
@@ -173,7 +235,7 @@ export function AiSettingsPage() {
           <b>{status.data?.ready ? "Ishlashga tayyor" : "Sozlashni yakunlang"}</b>
           <span>
             {status.data?.ready
-              ? `${status.data.healthyCredentialCount} ta ishlaydigan token · ${status.data.providers.map((p) => providerNames[p] || p).join(", ")}`
+              ? `${status.data.healthyCredentialCount ? `${status.data.healthyCredentialCount} ta tekshirilgan` : `${status.data.untestedCredentialCount} ta mavjud`} token · ${status.data.providers.map((p) => providerNames[p] || p).join(", ")}`
               : status.data?.configured
                 ? "Token mavjud. AI’ni yoqing yoki xatolikni tekshiring."
                 : "Birinchi tokenni qo‘shing — qolganini Staffora avtomatik bajaradi."}
@@ -187,6 +249,11 @@ export function AiSettingsPage() {
           <span className={status.data?.ready ? "done" : ""}><i>3</i>Ishga tushirish</span>
         </div>
       </section>
+      <div className="ai-health-grid">
+        <article><span><Layers3 /></span><div><small>PROVIDERLAR</small><strong>{status.data?.providers.length || 0}</strong><p>{status.data?.providers.map((p) => providerNames[p] || p).join(" · ") || "Token kutilmoqda"}</p></div></article>
+        <article><span><CheckCircle2 /></span><div><small>TEKSHIRILGAN TOKEN</small><strong>{status.data?.healthyCredentialCount || 0}/{status.data?.credentialCount || 0}</strong><p>{status.data?.untestedCredentialCount ? `${status.data.untestedCredentialCount} ta token tekshirilmagan` : "Holat yangilangan"}</p></div></article>
+        <article><span><Gauge /></span><div><small>FAOL MODEL</small><strong className="ai-model-name">{status.data?.currentModel || "—"}</strong><p>{status.data?.lastCheckedAt ? `Oxirgi test: ${new Date(status.data.lastCheckedAt).toLocaleString("uz-UZ")}` : "Birinchi testni bajaring"}</p></div></article>
+      </div>
       <div className="ai-v2-grid">
         <section className="card ai-token-card">
           <div className="card-head">
@@ -199,7 +266,7 @@ export function AiSettingsPage() {
                 qayta ko‘rsatilmaydi.
               </p>
             </div>
-            <span className="badge blue">{credentials.length} ta token</span>
+            <div className="ai-card-actions"><span className="badge blue">{credentials.length} ta token</span>{credentials.length > 0 && <button className="btn btn-sm" disabled={Boolean(busy)} onClick={() => void testAll()}><RefreshCw />{busy === "test-all" ? "Tekshirilmoqda…" : "Barchasini test qilish"}</button>}</div>
           </div>
           <form className="ai-token-form" onSubmit={(e) => void addToken(e)}>
             <label>
@@ -207,7 +274,7 @@ export function AiSettingsPage() {
               <div className="input-icon">
                 <KeyRound />
                 <input
-                  type="password"
+                  type={showToken ? "text" : "password"}
                   required
                   minLength={12}
                   autoComplete="new-password"
@@ -215,7 +282,9 @@ export function AiSettingsPage() {
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                 />
+                <button type="button" className="token-visibility" title={showToken ? "Tokenni yashirish" : "Tokenni ko‘rsatish"} onClick={() => setShowToken((value) => !value)}>{showToken ? <EyeOff /> : <Eye />}</button>
               </div>
+              {token && <small className={`token-detection ${detectedProvider ? "detected" : ""}`}>{detectedProvider ? `${detectedProvider} aniqlandi · saqlanganda avtomatik tekshiriladi` : "Token formati hali aniqlanmadi"}</small>}
             </label>
             <label>
               Nom (ixtiyoriy)

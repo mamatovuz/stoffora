@@ -6,7 +6,7 @@ import { ArrowRight, BarChart3, BriefcaseBusiness, CalendarDays, Check, ChevronD
 import { FormEvent, useEffect, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useLanguage } from "./language-provider";
-import { Reveal } from "./motion";
+import { ParallaxLayer, Reveal, ScrollProgress, StaggerItem, StaggerReveal } from "./motion";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.staffora.uz";
 const featureIcons = [Clock3, UsersRound, MapPinned, BriefcaseBusiness, CalendarDays, FileText, BarChart3, WalletCards, ShieldCheck];
@@ -52,7 +52,7 @@ export function Hero() {
           {t.hero.proof.map((item) => <span key={item}><Check size={14} />{item}</span>)}
         </motion.div>
       </div>
-      <motion.div className="container product-stage" initial={reduced ? false : { opacity: 0, y: 60, scale: .96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .9, delay: .28, ease: [0.22, 1, 0.36, 1] }}>
+      <ParallaxLayer className="hero-product-parallax" speed={.12}><motion.div className="container product-stage" initial={reduced ? false : { opacity: 0, y: 60, scale: .96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .9, delay: .28, ease: [0.22, 1, 0.36, 1] }}>
         <div className="product-shadow-card left" aria-hidden="true" />
         <div className="product-shadow-card right" aria-hidden="true" />
         <div className="product-float product-float-top"><span><UsersRound size={16} /></span><div><small>Jamoa boshqaruvi</small><strong>Bir joyda, real vaqtda</strong></div></div>
@@ -61,7 +61,7 @@ export function Hero() {
           <div className="browser-bar"><div><i /><i /><i /></div><span>app.staffora.uz/dashboard</span><ShieldCheck size={14} /></div>
           <Image src="/screenshots/dashboard.png" width={1440} height={900} priority alt="Staffora boshqaruv panelining haqiqiy ko‘rinishi" />
         </div>
-      </motion.div>
+      </motion.div></ParallaxLayer>
     </section>
   );
 }
@@ -72,9 +72,9 @@ export function Features({ condensed = false }: { condensed?: boolean }) {
     <section id="features" className="section features-section">
       <div className="container">
         <SectionHeading eyebrow={t.features.eyebrow} title={t.features.title} desc={t.features.desc} center />
-        <div className="feature-grid">
-          {t.features.items.map((item, i) => { const Icon = featureIcons[i]; return <Reveal key={item.title} delay={(i % 3) * .07}><article className={`feature-card ${i === 0 || i === 4 ? "feature-card-accent" : ""}`}><span className="feature-icon"><Icon size={21} /></span><span className="feature-no">0{i + 1}</span><h3>{item.title}</h3><p>{item.desc}</p></article></Reveal>; })}
-        </div>
+        <StaggerReveal className="feature-grid" stagger={.07}>
+          {t.features.items.map((item, i) => { const Icon = featureIcons[i]; return <StaggerItem key={item.title}><article className={`feature-card ${i === 0 || i === 4 ? "feature-card-accent" : ""}`}><span className="feature-icon"><Icon size={21} /></span><span className="feature-no">0{i + 1}</span><h3>{item.title}</h3><p>{item.desc}</p></article></StaggerItem>; })}
+        </StaggerReveal>
         {!condensed && <Reveal className="section-link"><Link href="/features">{t.common.learn}<ArrowRight size={16} /></Link></Reveal>}
       </div>
     </section>
@@ -88,14 +88,14 @@ export function Showcase() {
     <section className="section showcase-section">
       <div className="container">
         <SectionHeading eyebrow={t.showcase.eyebrow} title={t.showcase.title} desc={t.showcase.desc} />
-        <div className="showcase-tabs" role="tablist" aria-label={t.showcase.title}>{t.showcase.tabs.map((tab, i) => <button role="tab" aria-selected={active === i} className={active === i ? "active" : ""} onClick={() => setActive(i)} key={tab}>{tab}</button>)}</div>
-        <div className="showcase-frame">
+        <Reveal direction="up"><div className="showcase-tabs" role="tablist" aria-label={t.showcase.title}>{t.showcase.tabs.map((tab, i) => <button role="tab" aria-selected={active === i} className={active === i ? "active" : ""} onClick={() => setActive(i)} key={tab}>{tab}</button>)}</div></Reveal>
+        <Reveal className="showcase-frame" direction="up" delay={.08}>
           <div className="showcase-copy"><span>0{active + 1}</span><h3>{t.showcase.tabs[active]}</h3><p>{t.showcase.details[active]}</p><a href={appUrl}>{t.hero.start}<ArrowRight size={16} /></a></div>
           <div className="showcase-image">
             <div className="showcase-browser"><i /><i /><i /><span>app.staffora.uz</span></div>
             <AnimatePresence mode="wait"><motion.div key={active} initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: .3 }}><Image src={`/screenshots/${screenshots[active]}.png`} width={1440} height={900} alt={`Staffora — ${t.showcase.tabs[active]}`} /></motion.div></AnimatePresence>
           </div>
-        </div>
+        </Reveal>
       </div>
     </section>
   );
@@ -185,9 +185,9 @@ export function FinalCta() {
 }
 
 export function MarketingPage() {
-  return <main><Hero /><Features /><Showcase /><HowItWorks /><Pricing /><Statistics /><About /><Faq /><Contact /><FinalCta /></main>;
+  return <main><ScrollProgress /><Hero /><Features /><Showcase /><HowItWorks /><Pricing /><Statistics /><About /><Faq /><Contact /><FinalCta /></main>;
 }
 
 export function PageHero({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
-  return <section className="subpage-hero grid-bg"><div className="container"><span className="eyebrow"><Sparkles size={14} />{eyebrow}</span><h1>{title}</h1><p>{description}</p></div></section>;
+  return <section className="subpage-hero grid-bg"><div className="container"><motion.span className="eyebrow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><Sparkles size={14} />{eyebrow}</motion.span><motion.h1 initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .08, duration: .65 }}>{title}</motion.h1><motion.p initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .16, duration: .65 }}>{description}</motion.p></div></section>;
 }

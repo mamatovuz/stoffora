@@ -191,6 +191,23 @@ export function ParallaxLayer({
 }
 
 /* ------------------------------------------------------------------ */
+/*  ScrollProgress — subtle page-level reading progress               */
+/* ------------------------------------------------------------------ */
+
+export function ScrollProgress() {
+  const reduced = useReducedMotion();
+  const { scrollYProgress } = useScroll();
+  const scaleX = useSpring(scrollYProgress, {
+    stiffness: 180,
+    damping: 34,
+    mass: 0.25,
+  });
+
+  if (reduced) return null;
+  return <motion.div className="scroll-progress" style={{ scaleX }} aria-hidden="true" />;
+}
+
+/* ------------------------------------------------------------------ */
 /*  CountUp — animates a number counting when in view                  */
 /* ------------------------------------------------------------------ */
 

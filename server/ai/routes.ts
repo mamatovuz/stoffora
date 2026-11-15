@@ -155,15 +155,24 @@ export function createAiRouter() {
       const db = await readDb();
       const config = db.aiConfigs.find((x) => x.companyId === tenantOf(req));
       const credentials = config ? availableCredentials(config) : [];
-      const healthy = credentials.filter((x) => x.lastTestOk !== false);
+      const healthy = credentials.filter((x) => x.lastTestOk === true);
+      const available = credentials.filter((x) => x.lastTestOk !== false);
+      const lastCheckedAt = credentials
+        .map((x) => x.lastTestAt)
+        .filter(Boolean)
+        .sort()
+        .at(-1);
       res.json({
         enabled: Boolean(config?.enabled),
         configured: credentials.length > 0,
-        ready: Boolean(config?.enabled && credentials.length),
+        ready: Boolean(config?.enabled && available.length),
         canManage: can(req.session!.role, "settings.manage"),
         credentialCount: credentials.length,
         healthyCredentialCount: healthy.length,
+        untestedCredentialCount: credentials.filter((x) => x.lastTestOk === undefined).length,
         providers: [...new Set(credentials.map((x) => x.provider))],
+        currentModel: available[0]?.model,
+        lastCheckedAt,
         lastError: credentials.find((x) => x.lastTestOk === false)?.lastError,
       });
     }),
@@ -1243,6 +1252,11 @@ async function processChat(
     answer = formatActionAnswer(detected, actionResult);
   } else {
     const live = await readDb();
+    const responseLanguage = {
+      uz: "O‘zbek tilida",
+      ru: "rus tilida",
+      en: "English",
+    }[config.responseLanguage];
     const history = live.aiMessages
       .filter((m) => m.conversationId === conversation!.id)
       .slice(-12)
@@ -1255,7 +1269,7 @@ async function processChat(
       {
         role: "system",
         content:
-          "Siz Staffora AI — korxona boshqaruv yordamchisisiz. Faqat berilgan ma’lumotga tayaning, raqam to‘qimang. Foydalanuvchi ruxsatini hech qachon oshirmang. Parol, API key yoki maxfiy token so‘ramang. O‘zbek tilida qisqa va aniq javob bering. Real amal uchun action confirmation talab qilinishini ayting.",
+          `Siz Staffora AI — korxona boshqaruv yordamchisisiz. Javobni ${responseLanguage}, qisqa, tushunarli va amaliy shaklda bering. Faqat berilgan ma’lumotga tayaning, raqam yoki fakt to‘qimang. Foydalanuvchi ruxsatini hech qachon oshirmang. Parol, API key yoki maxfiy token so‘ramang. Ma’lumot yetarli bo‘lmasa bitta aniq savol bering. Ro‘yxat va raqamlarni o‘qilishi oson formatda yozing. Real o‘zgartirish amali uchun albatta tasdiqlash kerakligini ayting. Bugungi sana: ${now().slice(0, 10)}.`,
       },
       ...history,
     ]);
