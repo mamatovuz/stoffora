@@ -9,6 +9,7 @@ import type {
   PhotoJob,
 } from "./types";
 import { createSeed, createUser, purgeLegacyDemoData } from "./seed";
+import { CORPORATE_TENANT } from "./corporate/types";
 
 /*
  * Saqlash qatlami.
@@ -92,6 +93,9 @@ function normalizeDatabase(database: Database): Database {
   database.attendanceCorrections ||= [];
   database.rewardAwards ||= [];
   database.payrollWorkflows ||= [];
+  database.payRates ||= [];
+  database.pieceWorkEntries ||= [];
+  database.payrollPayments ||= [];
   database.holidays ||= [];
   database.leads ||= [];
   database.branchTransfers ||= [];
@@ -134,6 +138,30 @@ function normalizeDatabase(database: Database): Database {
   database.agreementWithdrawalRequests ||= [];
   database.corporateApprovals ||= [];
   database.corporateAuditEntries ||= [];
+  // Corporate — Staffora platformasining o‘z boshqaruvi: avval mijoz kompaniyasiga bog‘lab yaratilgan
+  // yozuvlar yagona platforma tenantiga o‘tkaziladi (hech narsa o‘chirilmaydi).
+  for (const rows of [
+    database.corporateParticipants,
+    database.legalOwnershipRecords,
+    database.economicInterestVersions,
+    database.corporateTransactions,
+    database.corporateLedgerEntries,
+    database.profitDistributions,
+    database.participantWalletEntries,
+    database.withdrawalRequests,
+    database.reserveExpenses,
+    database.corporateInvestments,
+    database.corporateAgreements,
+    database.agreementAcceptances,
+    database.agreementWithdrawalRequests,
+    database.corporateApprovals,
+    database.corporateAuditEntries,
+  ] as { companyId: string; legacyCompanyId?: string }[][])
+    for (const row of rows)
+      if (row.companyId !== CORPORATE_TENANT) {
+        row.legacyCompanyId ||= row.companyId;
+        row.companyId = CORPORATE_TENANT;
+      }
   database.aiConfigs ||= [];
   database.aiConversations ||= [];
   database.aiMessages ||= [];

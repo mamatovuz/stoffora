@@ -2,15 +2,32 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowRight, BarChart3, BriefcaseBusiness, CalendarDays, Check, ChevronDown, Clock3, FileText, Headphones, Mail, MapPinned, MessageCircle, Phone, Play, Send, ShieldCheck, Sparkles, UsersRound, WalletCards } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { ArrowRight, BarChart3, BriefcaseBusiness, CalendarDays, Check, ChevronDown, Clock3, FileText, Headphones, Mail, MapPinned, MessageCircle, Phone, Send, ShieldCheck, UsersRound, WalletCards } from "lucide-react";
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import { AnimatePresence, motion, useInView, useMotionValueEvent, useScroll } from "framer-motion";
+import { groupNumber } from "@/lib/format";
 import { useLanguage } from "./language-provider";
-import { CountUp, ParallaxLayer, Reveal, SlideIn, StaggerItem, StaggerReveal, TextReveal } from "./motion";
+import { CountUp, easeOut, Reveal, ScrollScale, SlideIn, StaggerItem, StaggerReveal, TextReveal, useReducedMotionSafe } from "./motion";
+import { SectionHeading } from "./section-heading";
+import { Hero, Ticker } from "./hero";
+import { ScrollStory } from "./story";
+import { AiHighlight, PayrollHighlight } from "./highlights";
+
+export { Hero } from "./hero";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.staffora.uz";
 const featureIcons = [Clock3, UsersRound, MapPinned, BriefcaseBusiness, CalendarDays, FileText, BarChart3, WalletCards, ShieldCheck];
-const screenshots = ["dashboard", "attendance", "employees", "map", "calendar", "reports"];
+const screenshots = [
+  { image: "dashboard", path: "dashboard" },
+  { image: "payroll", path: "finance/payroll" },
+  { image: "payroll-rates", path: "finance/payroll · stavkalar" },
+  { image: "ai", path: "dashboard · Staffora AI" },
+  { image: "attendance", path: "attendance" },
+  { image: "employees", path: "employees" },
+  { image: "calendar", path: "attendance/calendar" },
+  { image: "reports", path: "reports" },
+];
+const showcaseInterval = 6000;
 
 type PublicPlan = {
   key: string;
@@ -30,41 +47,17 @@ const planWords = {
   en: { free: "Free", month: "/ month", year: "/ year", employees: "employees", branches: "branches", managers: "managers", unlimited: "Unlimited", allModules: "All modules", modules: "modules", trial: "day free trial", fallback: "Capabilities for your business" },
 } as const;
 
-function SectionHeading({ eyebrow, title, desc, center = false }: { eyebrow: string; title: string; desc?: string; center?: boolean }) {
-  return <div className={`section-heading ${center ? "center" : ""}`}><Reveal><span className="eyebrow"><Sparkles size={14} />{eyebrow}</span></Reveal><h2><TextReveal text={title} stagger={.025} /></h2>{desc && <Reveal delay={.12}><p>{desc}</p></Reveal>}</div>;
+function useEnter(delay: number, y = 20) {
+  const reduced = useReducedMotionSafe();
+  return {
+    className: "motion-reveal",
+    initial: { opacity: 0, y },
+    animate: { opacity: 1, y: 0 },
+    transition: reduced ? { duration: 0 } : { duration: 0.7, delay, ease: easeOut },
+  };
 }
 
-export function Hero() {
-  const { t } = useLanguage();
-  const reduced = useReducedMotion();
-  return (
-    <section id="home" className="hero grid-bg">
-      <div className="hero-glow" />
-      <div className="container hero-copy">
-        <motion.span className="hero-badge" initial={reduced ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .5 }}><Sparkles size={14} />{t.hero.badge}</motion.span>
-        <motion.h1 initial={reduced ? false : { opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .08 }}>{t.hero.line1}<br /><span>{t.hero.accent}</span></motion.h1>
-        <motion.p initial={reduced ? false : { opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .7, delay: .16 }}>{t.hero.desc}</motion.p>
-        <motion.div className="hero-actions" initial={reduced ? false : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .65, delay: .24 }}>
-          <a className="button button-primary button-large" href={appUrl}>{t.hero.start}<ArrowRight size={17} /></a>
-          <a className="button button-ghost button-large" href="#features"><Play size={16} fill="currentColor" />{t.hero.explore}</a>
-        </motion.div>
-        <motion.div className="hero-proof" initial={reduced ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .7, delay: .35 }}>
-          {t.hero.proof.map((item) => <span key={item}><Check size={14} />{item}</span>)}
-        </motion.div>
-      </div>
-      <ParallaxLayer className="hero-product-parallax" speed={.12}><motion.div className="container product-stage" initial={reduced ? false : { opacity: 0, y: 60, scale: .96 }} animate={{ opacity: 1, y: 0, scale: 1 }} transition={{ duration: .9, delay: .28, ease: [0.22, 1, 0.36, 1] }}>
-        <div className="product-shadow-card left" aria-hidden="true" />
-        <div className="product-shadow-card right" aria-hidden="true" />
-        <div className="product-float product-float-top"><span><UsersRound size={16} /></span><div><small>Jamoa boshqaruvi</small><strong>Bir joyda, real vaqtda</strong></div></div>
-        <div className="product-float product-float-bottom"><span><ShieldCheck size={16} /></span><div><small>Xavfsiz nazorat</small><strong>GPS · Face ID · Audit</strong></div></div>
-        <div className="product-window">
-          <div className="browser-bar"><div><i /><i /><i /></div><span>app.staffora.uz/dashboard</span><ShieldCheck size={14} /></div>
-          <Image src="/screenshots/dashboard.png" width={1440} height={900} priority alt="Staffora boshqaruv panelining haqiqiy ko‘rinishi" />
-        </div>
-      </motion.div></ParallaxLayer>
-    </section>
-  );
-}
+const pad2 = (n: number) => String(n).padStart(2, "0");
 
 export function Features({ condensed = false }: { condensed?: boolean }) {
   const { t } = useLanguage();
@@ -72,8 +65,8 @@ export function Features({ condensed = false }: { condensed?: boolean }) {
     <section id="features" className="section features-section">
       <div className="container">
         <SectionHeading eyebrow={t.features.eyebrow} title={t.features.title} desc={t.features.desc} center />
-        <StaggerReveal className="feature-grid" stagger={.07}>
-          {t.features.items.map((item, i) => { const Icon = featureIcons[i]; return <StaggerItem key={item.title}><article className={`feature-card ${i === 0 || i === 4 ? "feature-card-accent" : ""}`}><span className="feature-icon"><Icon size={21} /></span><span className="feature-no">0{i + 1}</span><h3>{item.title}</h3><p>{item.desc}</p></article></StaggerItem>; })}
+        <StaggerReveal className="feature-grid" stagger={0.07}>
+          {t.features.items.map((item, i) => { const Icon = featureIcons[i]; return <StaggerItem key={item.title} variant="pop"><article className="feature-card"><span className="feature-icon"><Icon size={20} /></span><span className="feature-no">{pad2(i + 1)}</span><h3>{item.title}</h3><p>{item.desc}</p></article></StaggerItem>; })}
         </StaggerReveal>
         {!condensed && <Reveal className="section-link"><Link href="/features">{t.common.learn}<ArrowRight size={16} /></Link></Reveal>}
       </div>
@@ -83,19 +76,70 @@ export function Features({ condensed = false }: { condensed?: boolean }) {
 
 export function Showcase() {
   const { t } = useLanguage();
+  const reduced = useReducedMotionSafe();
   const [active, setActive] = useState(0);
+  const [auto, setAuto] = useState(true);
+  const [hover, setHover] = useState(false);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const inView = useInView(frameRef, { amount: 0.4 });
+  const count = t.showcase.tabs.length;
+  const shot = screenshots[active] || screenshots[0];
+  const running = auto && inView && !hover && !reduced;
+
+  // Ko‘rinib turganda bo‘limlar o‘zi almashadi; foydalanuvchi tanlasa to‘xtaydi
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setTimeout(() => setActive((value) => (value + 1) % count), showcaseInterval);
+    return () => window.clearTimeout(timer);
+  }, [running, active, count]);
+
+  const choose = (index: number) => { setAuto(false); setActive(index); };
+  const onKey = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+    event.preventDefault();
+    const next = (active + (event.key === "ArrowRight" ? 1 : -1) + count) % count;
+    choose(next);
+    tabRefs.current[next]?.focus();
+  };
   return (
     <section className="section showcase-section">
       <div className="container">
         <SectionHeading eyebrow={t.showcase.eyebrow} title={t.showcase.title} desc={t.showcase.desc} />
-        <Reveal direction="up"><div className="showcase-tabs" role="tablist" aria-label={t.showcase.title}>{t.showcase.tabs.map((tab, i) => <button role="tab" aria-selected={active === i} className={active === i ? "active" : ""} onClick={() => setActive(i)} key={tab}>{tab}</button>)}</div></Reveal>
-        <Reveal className="showcase-frame" direction="up" delay={.08}>
-          <div className="showcase-copy"><span>0{active + 1}</span><h3>{t.showcase.tabs[active]}</h3><p>{t.showcase.details[active]}</p><a href={appUrl}>{t.hero.start}<ArrowRight size={16} /></a></div>
-          <div className="showcase-image">
-            <div className="showcase-browser"><i /><i /><i /><span>app.staffora.uz</span></div>
-            <AnimatePresence mode="wait"><motion.div key={active} initial={{ opacity: 0, x: 18 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: .3 }}><Image src={`/screenshots/${screenshots[active]}.png`} width={1440} height={900} alt={`Staffora — ${t.showcase.tabs[active]}`} /></motion.div></AnimatePresence>
+        <Reveal>
+          <div className="showcase-tabs" role="tablist" aria-label={t.showcase.title} onKeyDown={onKey}>
+            {t.showcase.tabs.map((tab, i) => (
+              <button ref={(node) => { tabRefs.current[i] = node; }} role="tab" type="button" id={`showcase-tab-${i}`} aria-selected={active === i} aria-controls="showcase-panel" tabIndex={active === i ? 0 : -1} className={active === i ? "active" : ""} onClick={() => choose(i)} key={tab}>
+                {tab}
+                {active === i && running && <span key={`p-${active}`} className="tab-progress" aria-hidden="true" style={{ animationDuration: `${showcaseInterval}ms` }} />}
+              </button>
+            ))}
           </div>
         </Reveal>
+        <div ref={frameRef} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} onFocusCapture={() => setHover(true)} onBlurCapture={() => setHover(false)}>
+          <ScrollScale innerClassName="showcase-frame" from={0.96}>
+            <div className="showcase-copy" role="tabpanel" id="showcase-panel" aria-labelledby={`showcase-tab-${active}`}>
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div key={active} initial={{ opacity: 0, y: reduced ? 0 : 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reduced ? 0 : -8 }} transition={{ duration: reduced ? 0 : 0.3, ease: easeOut }}>
+                  <span>{pad2(active + 1)} / {pad2(count)}</span>
+                  <h3>{t.showcase.tabs[active]}</h3>
+                  <p>{t.showcase.details[active]}</p>
+                </motion.div>
+              </AnimatePresence>
+              <a href={appUrl}>{t.hero.start}<ArrowRight size={16} /></a>
+            </div>
+            <div className="showcase-image">
+              <div className="showcase-browser"><i /><i /><i /><span>app.staffora.uz/{shot.path}</span></div>
+              <div className="showcase-screen">
+                <AnimatePresence initial={false}>
+                  <motion.div key={shot.image} className="showcase-shot" initial={{ opacity: 0, x: reduced ? 0 : 28, scale: reduced ? 1 : 1.015 }} animate={{ opacity: 1, x: 0, scale: 1 }} exit={{ opacity: 0, x: reduced ? 0 : -16 }} transition={{ duration: reduced ? 0 : 0.45, ease: easeOut }}>
+                    <Image src={`/screenshots/${shot.image}.png`} width={1440} height={900} alt={`Staffora — ${t.showcase.tabs[active]}: ${t.showcase.details[active]}`} />
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </div>
+          </ScrollScale>
+        </div>
       </div>
     </section>
   );
@@ -103,7 +147,29 @@ export function Showcase() {
 
 export function HowItWorks() {
   const { t } = useLanguage();
-  return <section className="section steps-section grid-bg"><div className="container"><SectionHeading eyebrow={t.steps.eyebrow} title={t.steps.title} center /><StaggerReveal className="steps-line" stagger={.12}>{t.steps.items.map((item, i) => <StaggerItem key={item.title}><article className="step-card"><span>0{i + 1}</span><h3>{item.title}</h3><p>{item.desc}</p></article></StaggerItem>)}</StaggerReveal></div></section>;
+  const reduced = useReducedMotionSafe();
+  const lineRef = useRef<HTMLDivElement>(null);
+  const [reached, setReached] = useState(0);
+  const total = t.steps.items.length;
+  const { scrollYProgress } = useScroll({ target: lineRef, offset: ["start 85%", "end 55%"] });
+  useMotionValueEvent(scrollYProgress, "change", (value) => {
+    const next = value <= 0.01 ? 0 : Math.min(total, Math.floor(value * (total - 1) + 1.0001));
+    setReached((current) => (current === next ? current : next));
+  });
+  const shownReached = reduced ? total : reached;
+  return (
+    <section className="section steps-section grid-bg">
+      <div className="container">
+        <SectionHeading eyebrow={t.steps.eyebrow} title={t.steps.title} center />
+        <div className="steps-wrap" ref={lineRef}>
+          <div className="steps-progress" aria-hidden="true"><motion.span style={{ scaleX: reduced ? 1 : scrollYProgress }} /></div>
+          <StaggerReveal className="steps-line" stagger={0.12}>
+            {t.steps.items.map((item, i) => <StaggerItem key={item.title} variant="lift"><article className={`step-card ${i < shownReached ? "is-reached" : ""}`}><span>{pad2(i + 1)}</span><h3>{item.title}</h3><p>{item.desc}</p></article></StaggerItem>)}
+          </StaggerReveal>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export function Pricing({ page = false }: { page?: boolean }) {
@@ -121,7 +187,7 @@ export function Pricing({ page = false }: { page?: boolean }) {
   const fallbackPlans: PublicPlan[] = t.pricing.plans.map((plan, index) => ({ key: plan.name.toLowerCase(), name: plan.name, description: plan.note, price: index === 0 ? 0 : null, currency: "UZS", period: "MONTH", limits: {}, modules: index === 0 ? ["attendance", "workspace"] : "all", trialDays: 0 }));
   const visiblePlans = plans.length ? plans : fallbackPlans;
   const featuredIndex = Math.max(0, visiblePlans.findIndex((plan) => plan.key.toLowerCase() === "pro"));
-  const number = new Intl.NumberFormat(lang === "uz" ? "uz-UZ" : lang === "ru" ? "ru-RU" : "en-US", { maximumFractionDigits: 0 });
+  const number = { format: (value: number) => groupNumber(value, lang) };
   const price = (plan: PublicPlan) => {
     if (plan.price === null) return <strong>{t.pricing.custom}</strong>;
     if (plan.price === 0) return <strong>{words.free}</strong>;
@@ -139,24 +205,24 @@ export function Pricing({ page = false }: { page?: boolean }) {
     }
     return rows.length ? rows : t.pricing.plans[Math.min(index, t.pricing.plans.length - 1)].features;
   };
-  return <section id="pricing" className={`section pricing-section ${page ? "page-section" : ""}`}><div className="container"><SectionHeading eyebrow={t.pricing.eyebrow} title={t.pricing.title} desc={t.pricing.desc} center /><StaggerReveal className="pricing-grid" stagger={.1}>{visiblePlans.map((plan, i) => { const featured = i === featuredIndex; const contact = plan.price === null; return <StaggerItem key={plan.key}><article className={`pricing-card ${featured ? "featured" : ""}`}><div className="plan-badges"><span className="plan-status">ACTIVE</span>{featured && <span className="popular">{t.pricing.popular}</span>}</div><div className="plan-top"><h3>{plan.name}</h3><p>{plan.description || words.fallback}</p>{price(plan)}</div><ul>{features(plan, i).map((feature) => <li key={feature}><span><Check size={14} /></span>{feature}</li>)}</ul><a className={`button ${featured ? "button-primary" : "button-ghost"}`} href={contact ? "#contact" : appUrl}>{contact ? t.pricing.contact : t.pricing.start}<ArrowRight size={16} /></a></article></StaggerItem>; })}</StaggerReveal><Reveal><p className="pricing-live"><span /> Super Admin sozlamalari bilan avtomatik yangilanadi</p></Reveal></div></section>;
+  return <section id="pricing" className={`section pricing-section ${page ? "page-section" : ""}`}><div className="container"><SectionHeading eyebrow={t.pricing.eyebrow} title={t.pricing.title} desc={t.pricing.desc} center /><StaggerReveal className="pricing-grid" stagger={0.14}>{visiblePlans.map((plan, i) => { const featured = i === featuredIndex; const contact = plan.price === null; return <StaggerItem key={plan.key} variant="lift"><article className={`pricing-card ${featured ? "featured" : ""}`}><div className="plan-badges"><span className="plan-status">ACTIVE</span>{featured && <span className="popular">{t.pricing.popular}</span>}</div><div className="plan-top"><h3>{plan.name}</h3><p>{plan.description || words.fallback}</p>{price(plan)}</div><ul>{features(plan, i).map((feature) => <li key={feature}><span><Check size={13} /></span>{feature}</li>)}</ul><a className={`button ${featured ? "button-primary" : "button-ghost"}`} href={contact ? "#contact" : appUrl}>{contact ? t.pricing.contact : t.pricing.start}<ArrowRight size={16} /></a></article></StaggerItem>; })}</StaggerReveal><Reveal><p className="pricing-live"><span /> {t.pricing.live}</p></Reveal></div></section>;
 }
 
 export function Statistics() {
   const { t, lang } = useLanguage();
-  const locale = lang === "uz" ? "uz-UZ" : lang === "ru" ? "ru-RU" : "en-US";
-  return <section className="section stats-section"><Reveal className="container stats-shell"><SectionHeading eyebrow={t.stats.eyebrow} title={t.stats.title} /><StaggerReveal className="stats-grid" stagger={.12}>{t.stats.items.map((item) => { const number = Number(item.value.replace(/\D/g, "")); return <StaggerItem key={item.label}><article><strong><CountUp value={number} suffix={item.value.includes("+") ? "+" : ""} locale={locale} /></strong><p>{item.label}</p></article></StaggerItem>; })}</StaggerReveal><small className="stats-note">* 2026-yil noyabr holatidagi tasdiqlangan platforma ko‘rsatkichlari.</small></Reveal></section>;
+  const format = (value: number) => groupNumber(value, lang);
+  return <section className="section stats-section"><ScrollScale className="container" innerClassName="stats-shell" from={0.92}><SectionHeading eyebrow={t.stats.eyebrow} title={t.stats.title} /><StaggerReveal className="stats-grid" stagger={0.14}>{t.stats.items.map((item, i) => { const number = Number(item.value.replace(/\D/g, "")); return <StaggerItem key={item.label} variant="lift"><article><strong><CountUp value={number} suffix={item.value.includes("+") ? "+" : ""} format={format} delay={i * 0.15} /></strong><p>{item.label}</p></article></StaggerItem>; })}</StaggerReveal><Reveal delay={0.2}><small className="stats-note">{t.stats.note}</small></Reveal></ScrollScale></section>;
 }
 
 export function About({ page = false }: { page?: boolean }) {
   const { t } = useLanguage();
-  return <section id="about" className={`section about-section ${page ? "page-section" : ""}`}><div className="container about-grid"><SlideIn direction="left"><SectionHeading eyebrow={t.about.eyebrow} title={t.about.title} /><p className="about-lead">{t.about.p1}</p><p>{t.about.p2}</p></SlideIn><StaggerReveal className="value-stack" stagger={.1}>{t.about.values.map((value, i) => <StaggerItem key={value.title}><article><span>0{i + 1}</span><div><h3>{value.title}</h3><p>{value.desc}</p></div></article></StaggerItem>)}</StaggerReveal></div></section>;
+  return <section id="about" className={`section about-section ${page ? "page-section" : ""}`}><div className="container about-grid"><div><SectionHeading eyebrow={t.about.eyebrow} title={t.about.title} /><StaggerReveal stagger={0.1}><StaggerItem><p className="about-lead">{t.about.p1}</p></StaggerItem><StaggerItem><p>{t.about.p2}</p></StaggerItem></StaggerReveal></div><StaggerReveal className="value-stack" stagger={0.12}>{t.about.values.map((value, i) => <StaggerItem key={value.title} variant="right"><article><span>{pad2(i + 1)}</span><div><h3>{value.title}</h3><p>{value.desc}</p></div></article></StaggerItem>)}</StaggerReveal></div></section>;
 }
 
 export function Faq() {
   const { t } = useLanguage();
   const [open, setOpen] = useState(0);
-  return <section className="section faq-section"><div className="container faq-grid"><SlideIn direction="left"><SectionHeading eyebrow={t.faq.eyebrow} title={t.faq.title} /></SlideIn><StaggerReveal className="faq-list" stagger={.07}>{t.faq.items.map((item, i) => <StaggerItem key={item.q}><article className={open === i ? "open" : ""}><button aria-expanded={open === i} onClick={() => setOpen(open === i ? -1 : i)}><span>{item.q}</span><ChevronDown size={19} /></button><div className="faq-answer"><p>{item.a}</p></div></article></StaggerItem>)}</StaggerReveal></div></section>;
+  return <section className="section faq-section"><div className="container faq-grid"><SlideIn direction="left"><SectionHeading eyebrow={t.faq.eyebrow} title={t.faq.title} /></SlideIn><StaggerReveal className="faq-list" stagger={0.07}>{t.faq.items.map((item, i) => <StaggerItem key={item.q}><article className={open === i ? "open" : ""}><button type="button" id={`faq-q-${i}`} aria-expanded={open === i} aria-controls={`faq-a-${i}`} onClick={() => setOpen(open === i ? -1 : i)}><span>{item.q}</span><ChevronDown size={19} /></button><div className="faq-answer" id={`faq-a-${i}`} role="region" aria-labelledby={`faq-q-${i}`}><p>{item.a}</p></div></article></StaggerItem>)}</StaggerReveal></div></section>;
 }
 
 export function Contact({ page = false }: { page?: boolean }) {
@@ -164,31 +230,73 @@ export function Contact({ page = false }: { page?: boolean }) {
   const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const formElement = event.currentTarget;
     setStatus("sending");
-    const form = new FormData(event.currentTarget);
-    const payload = Object.fromEntries(form.entries());
+    const payload = Object.fromEntries(new FormData(formElement).entries());
     try {
       const response = await fetch("/api/public/lead", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (!response.ok) throw new Error("request failed");
-      event.currentTarget.reset();
+      formElement.reset();
       setStatus("success");
     } catch { setStatus("error"); }
   };
   const telegram = process.env.NEXT_PUBLIC_TELEGRAM_URL || "https://t.me/staffora_support";
   const email = process.env.NEXT_PUBLIC_SUPPORT_EMAIL || "support@staffora.uz";
   const phone = process.env.NEXT_PUBLIC_SUPPORT_PHONE || "";
-  return <section id="contact" className={`section contact-section ${page ? "page-section" : ""}`}><div className="container contact-shell"><div className="contact-copy"><SectionHeading eyebrow={t.contact.eyebrow} title={t.contact.title} desc={t.contact.desc} /><div className="contact-direct"><small>{t.contact.channels}</small><a href={telegram}><Send size={18} />Telegram</a><a href={`mailto:${email}`}><Mail size={18} />{email}</a>{phone && <a href={`tel:${phone.replace(/\s/g, "")}`}><Phone size={18} />{phone}</a>}<Link href="/support"><Headphones size={18} />Support center</Link></div></div><Reveal><form className="lead-form" onSubmit={submit}><div className="form-row"><label><span>{t.contact.name}</span><input name="name" minLength={2} maxLength={80} required /></label><label><span>{t.contact.phone}</span><input name="phone" inputMode="tel" minLength={9} maxLength={30} required /></label></div><label><span>{t.contact.company}</span><input name="company" minLength={2} maxLength={120} required /></label><label><span>{t.contact.message}</span><textarea name="message" maxLength={1000} rows={4} /></label><input name="website" tabIndex={-1} autoComplete="off" className="honey" aria-hidden="true" /><button className="button button-primary button-large" disabled={status === "sending"}>{status === "sending" ? t.contact.sending : t.contact.send}<MessageCircle size={17} /></button>{status === "success" && <p className="form-message success">{t.contact.success}</p>}{status === "error" && <p className="form-message error">{t.contact.error}</p>}</form></Reveal></div></section>;
+  return (
+    <section id="contact" className={`section contact-section ${page ? "page-section" : ""}`}>
+      <ScrollScale className="container" innerClassName="contact-shell" from={0.96}>
+        <div className="contact-copy">
+          <SectionHeading eyebrow={t.contact.eyebrow} title={t.contact.title} desc={t.contact.desc} />
+          <StaggerReveal className="contact-direct" stagger={0.08}>
+            <StaggerItem><small>{t.contact.channels}</small></StaggerItem>
+            <StaggerItem variant="left"><a href={telegram}><Send size={18} />Telegram</a></StaggerItem>
+            <StaggerItem variant="left"><a href={`mailto:${email}`}><Mail size={18} />{email}</a></StaggerItem>
+            {phone && <StaggerItem variant="left"><a href={`tel:${phone.replace(/\s/g, "")}`}><Phone size={18} />{phone}</a></StaggerItem>}
+            <StaggerItem variant="left"><Link href="/support"><Headphones size={18} />Support center</Link></StaggerItem>
+          </StaggerReveal>
+        </div>
+        <form className="lead-form" onSubmit={submit}>
+          <StaggerReveal className="lead-form-fields" stagger={0.08} delay={0.1}>
+            <StaggerItem className="form-row"><label><span>{t.contact.name}</span><input name="name" minLength={2} maxLength={80} required autoComplete="name" /></label><label><span>{t.contact.phone}</span><input name="phone" inputMode="tel" minLength={9} maxLength={30} required autoComplete="tel" /></label></StaggerItem>
+            <StaggerItem><label><span>{t.contact.company}</span><input name="company" minLength={2} maxLength={120} required autoComplete="organization" /></label></StaggerItem>
+            <StaggerItem><label><span>{t.contact.message}</span><textarea name="message" maxLength={1000} rows={4} /></label></StaggerItem>
+            <StaggerItem>
+              <input name="website" tabIndex={-1} autoComplete="off" className="honey" aria-hidden="true" />
+              <button className="button button-primary button-large" disabled={status === "sending"}>{status === "sending" ? t.contact.sending : t.contact.send}<MessageCircle size={17} /></button>
+            </StaggerItem>
+          </StaggerReveal>
+          {status === "success" && <p className="form-message success" role="status">{t.contact.success}</p>}
+          {status === "error" && <p className="form-message error" role="alert">{t.contact.error}</p>}
+        </form>
+      </ScrollScale>
+    </section>
+  );
 }
 
 export function FinalCta() {
   const { t } = useLanguage();
-  return <section className="final-cta-section"><Reveal className="container final-cta"><span className="eyebrow"><Sparkles size={14} />Staffora</span><h2>{t.contact.title}</h2><p>{t.contact.desc}</p><div><a className="button button-white button-large" href={appUrl}>{t.hero.start}<ArrowRight size={17} /></a><Link className="button button-glass button-large" href="/contact">{t.pricing.contact}</Link></div></Reveal></section>;
+  return (
+    <section className="final-cta-section">
+      <ScrollScale className="container" innerClassName="final-cta" from={0.9}>
+        <StaggerReveal className="final-cta-inner" stagger={0.1}>
+          <StaggerItem><span className="eyebrow">Staffora</span></StaggerItem>
+          <h2><TextReveal text={t.contact.title} stagger={0.035} /></h2>
+          <StaggerItem><p>{t.contact.desc}</p></StaggerItem>
+          <StaggerItem variant="pop"><div className="final-cta-actions"><a className="button button-white button-large" href={appUrl}>{t.hero.start}<ArrowRight size={17} /></a><Link className="button button-outline-light button-large" href="/contact">{t.pricing.contact}</Link></div></StaggerItem>
+        </StaggerReveal>
+      </ScrollScale>
+    </section>
+  );
 }
 
 export function MarketingPage() {
-  return <main><Hero /><Features /><Showcase /><HowItWorks /><Pricing /><Statistics /><About /><Faq /><Contact /><FinalCta /></main>;
+  return <main><Hero /><Ticker /><Features /><ScrollStory /><PayrollHighlight /><AiHighlight /><Showcase /><HowItWorks /><Pricing /><Statistics /><About /><Faq /><Contact /><FinalCta /></main>;
 }
 
 export function PageHero({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
-  return <section className="subpage-hero grid-bg"><div className="container"><motion.span className="eyebrow" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}><Sparkles size={14} />{eyebrow}</motion.span><motion.h1 initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .08, duration: .65 }}>{title}</motion.h1><motion.p initial={{ opacity: 0, y: 22 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: .16, duration: .65 }}>{description}</motion.p></div></section>;
+  const badge = useEnter(0, 12);
+  const heading = useEnter(0.08, 24);
+  const text = useEnter(0.16, 22);
+  return <section className="subpage-hero grid-bg"><div className="container"><motion.span {...badge} className="eyebrow motion-reveal">{eyebrow}</motion.span><motion.h1 {...heading}>{title}</motion.h1><motion.p {...text}>{description}</motion.p></div></section>;
 }

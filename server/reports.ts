@@ -4,6 +4,7 @@ import { dataIndexes, readDb } from "../lib/store";
 import { duration, dateParts, tashkentIsoDate } from "../lib/format";
 import type { Attendance, Database, Employee } from "../lib/types";
 import { attendanceKpi, calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
+import { calculateTypedPay, effectiveRate } from "../lib/pay-types";
 import { monthLabel } from "./payroll-routes";
 import { countedRecords, isPracticeDay } from "../lib/counting";
 import { dayPlan, workingDaysInMonth } from "../lib/schedule";
@@ -30,8 +31,11 @@ export const leftDuringMonth = (e: Employee, month: string) =>
  * qo‘lda to‘langan summa (SETTLEMENT) oy oxiridagi to‘lovdan ayriladi.
  */
 export function payrollRows(db: Database, tenant: string, month: string) {
+  const [y, m] = month.split("-").map(Number);
+  const monthEnd = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+  // Keyingi oylarda ishga kiradigan xodim bu oy qaydnomasiga kirmaydi.
   return db.employees
-    .filter((e) => e.companyId === tenant && (e.status === "ACTIVE" || leftDuringMonth(e, month)))
+    .filter((e) => e.companyId === tenant && (e.status === "ACTIVE" || leftDuringMonth(e, month)) && (!e.startDate || e.startDate <= monthEnd))
     .map((e) => employeePayrollRow(db, e, month));
 }
 
@@ -70,25 +74,53 @@ export function employeePayrollRow(db: Database, e: Employee, month: string, asI
   // Oy o‘rtasida bo‘shagan: oylik — oy boshidan (yoki ishga kirgan kundan) bo‘shagan kungacha
   // rejadagi ish kunlariga proporsional. Kunlik stavka to‘liq oydagidek qoladi.
   const monthWorkingDays = workingDaysInMonth(db, e, month);
-  let base = e.baseSalary;
+  // Ish haqi turi va stavka — oy oxirida amal qilgani (stavka tarixi; eski oylar o‘z stavkasida qoladi).
+  const pay = effectiveRate(db.payRates.filter((r) => r.companyId === tenant && r.employeeId === e.id), e, monthEnd);
+  const monthly = pay.payType === "MONTHLY" ? pay.rate : e.baseSalary;
+  let base = monthly;
   let workingDays = monthWorkingDays;
   let leaver: { leftOn: string; plannedDays: number; monthWorkingDays: number; paidAtDismissal: number } | undefined;
   if (leftOn) {
     const from = e.startDate > `${month}-01` ? e.startDate : `${month}-01`;
     const plannedDays = from <= leftOn ? datesBetween(from, leftOn).filter((d) => dayPlan(db, e, d).enabled).length : 0;
-    base = monthWorkingDays ? Math.round((e.baseSalary * Math.min(plannedDays, monthWorkingDays)) / monthWorkingDays) : 0;
+    base = monthWorkingDays ? Math.round((monthly * Math.min(plannedDays, monthWorkingDays)) / monthWorkingDays) : 0;
     workingDays = plannedDays;
     leaver = { leftOn, plannedDays, monthWorkingDays, paidAtDismissal: sum("SETTLEMENT") };
+  } else if (e.startDate > `${month}-01` && e.startDate <= monthEnd) {
+    // Oy o‘rtasida ishga kirgan: oylik — ishga kirgan kundan oy oxirigacha rejadagi ish kunlariga proporsional.
+    const plannedDays = datesBetween(e.startDate, monthEnd).filter((d) => dayPlan(db, e, d).enabled).length;
+    base = monthWorkingDays ? Math.round((monthly * Math.min(plannedDays, monthWorkingDays)) / monthWorkingDays) : 0;
+    workingDays = plannedDays;
   }
+  const pieces = db.pieceWorkEntries.filter((p) => p.companyId === tenant && p.employeeId === e.id && p.status === "APPROVED" && p.date.startsWith(month) && p.date <= lastDay);
   // Hisoblash boshlanish sanasigacha bo‘lgan (mashq) kunlar oylikka ta’sir qilmaydi.
-  const line = calculatePayroll(base, countedRecords(payable, company, e), settings, {
+  const counted = countedRecords(payable, company, e);
+  const extras = {
     absentDays: absent - compensatedDays,
     workingDays,
     bonus: sum("BONUS"),
     fine: sum("FINE"),
     // Bo‘shatishda qo‘lda to‘langan yakuniy hisob — avans kabi oy oxiridagi to‘lovdan ayriladi.
     advance: sum("ADVANCE") + sum("SETTLEMENT"),
-  });
+  };
+  const line =
+    pay.payType === "MONTHLY"
+      ? { ...calculatePayroll(base, counted, settings, extras), payType: pay.payType, rate: pay.rate, units: workingDays, openDays: [] as string[] }
+      : calculateTypedPay(
+          {
+            payType: pay.payType,
+            rate: pay.rate,
+            records: counted,
+            today,
+            workingDays,
+            pieceAmount: pieces.reduce((s, p) => s + p.amount, 0),
+            pieceQuantity: pieces.reduce((s, p) => s + p.quantity, 0),
+            bonus: extras.bonus,
+            fine: extras.fine,
+            advance: extras.advance,
+          },
+          settings,
+        );
   const kpi = attendanceKpi({ expectedDays, presentDays: line.days, lateDays: line.lateDays });
   const notes = [line.explanation];
   if (compensatedDays) notes.push(`${compensatedDays} kun kelmaslik dam olish kunida ishlab qoplandi.`);

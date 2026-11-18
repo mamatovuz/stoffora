@@ -4,11 +4,12 @@ import jwt from "jsonwebtoken";
 import { Router, type NextFunction, type Response } from "express";
 import { z } from "zod";
 import { readDb, updateDb } from "../../lib/store";
-import type {
-  CorporateParticipant,
-  CorporateRole,
+import {
+  CORPORATE_TENANT,
+  type CorporateParticipant,
+  type CorporateRole,
 } from "../../lib/corporate/types";
-import type { AuthedRequest, Session } from "../auth";
+import type { AuthedRequest } from "../auth";
 
 const secret =
   process.env.CORPORATE_SESSION_SECRET ||
@@ -21,7 +22,7 @@ export const CORPORATE_TERMS = {
   sections: [
     {
       title: "1. Portalning vazifasi",
-      text: "Corporate portal ichki boshqaruv, iqtisodiy manfaatlar, kelishuvlar va hisobotlarni yuritish vositasidir. Tizimdagi rol yoki foiz rasmiy yuridik egalikni o‘z-o‘zidan tasdiqlamaydi.",
+      text: "Corporate portal Staffora platformasining ichki boshqaruvi: platforma ko‘rsatkichlari, iqtisodiy manfaatlar, kelishuvlar va hisobotlarni yuritish vositasidir. Tizimdagi rol yoki foiz rasmiy yuridik egalikni o‘z-o‘zidan tasdiqlamaydi.",
     },
     {
       title: "2. Maxfiylik",
@@ -29,7 +30,7 @@ export const CORPORATE_TERMS = {
     },
     {
       title: "3. Elektron rozilik",
-      text: "Checkboxni belgilab kirish orqali foydalanuvchi ushbu versiyadagi shartlarni o‘qiganini va qabul qilganini tasdiqlaydi. Rozilik vaqti audit uchun saqlanadi.",
+      text: "Checkboxni belgilab kirish orqali foydalanuvchi ushbu versiyadagi shartlarni o‘qiganini va qabul qilganini tasdiqlaydi. Rozilik vaqti server vaqti bilan audit uchun saqlanadi.",
     },
     {
       title: "4. Qarorlar va hujjatlar",
@@ -48,6 +49,9 @@ type CorporateJwt = {
   companyId: string;
 };
 
+const activeParticipant = (rows: CorporateParticipant[], id: string) =>
+  rows.find((x) => x.id === id && x.companyId === CORPORATE_TENANT && x.status === "ACTIVE" && x.passwordHash);
+
 export function requireCorporateAuth(
   req: AuthedRequest,
   res: Response,
@@ -59,12 +63,10 @@ export function requireCorporateAuth(
       ? req.headers.authorization.slice(7)
       : undefined);
   if (!token)
-    return res
-      .status(401)
-      .json({
-        code: "CORPORATE_LOGIN_REQUIRED",
-        message: "Corporate portalga qayta kiring.",
-      });
+    return res.status(401).json({
+      code: "CORPORATE_LOGIN_REQUIRED",
+      message: "Corporate portalga qayta kiring.",
+    });
   try {
     const payload = jwt.verify(token, secret, {
       issuer: "staffora-corporate",
@@ -72,46 +74,98 @@ export function requireCorporateAuth(
     if (payload.kind !== "corporate") throw new Error("invalid");
     void readDb()
       .then((db) => {
-        const participant = db.corporateParticipants.find(
-          (x) =>
-            x.id === payload.participantId &&
-            x.companyId === payload.companyId &&
-            x.status === "ACTIVE" &&
-            x.passwordHash,
-        );
+        const participant = activeParticipant(db.corporateParticipants, payload.participantId);
         if (!participant)
-          return res
-            .status(401)
-            .json({
-              code: "CORPORATE_ACCOUNT_DISABLED",
-              message: "Corporate hisob faol emas.",
-            });
+          return res.status(401).json({
+            code: "CORPORATE_ACCOUNT_DISABLED",
+            message: "Corporate hisob faol emas.",
+          });
         req.session = {
           userId: participant.id,
-          companyId: participant.companyId,
+          companyId: CORPORATE_TENANT,
           name: participant.name,
-          email:
-            participant.email ||
-            participant.login ||
-            "corporate@staffora.local",
+          email: participant.email || participant.login || "corporate@staffora.local",
           role: "COMPANY_OWNER",
         };
         next();
       })
       .catch(next);
   } catch {
-    return res
-      .status(401)
-      .json({
-        code: "CORPORATE_SESSION_EXPIRED",
-        message: "Corporate sessiya tugagan. Qayta kiring.",
-      });
+    return res.status(401).json({
+      code: "CORPORATE_SESSION_EXPIRED",
+      message: "Corporate sessiya tugagan. Qayta kiring.",
+    });
   }
+}
+
+export function setCorporateCookie(res: Response, participant: Pick<CorporateParticipant, "id">) {
+  const token = jwt.sign(
+    { kind: "corporate", participantId: participant.id, companyId: CORPORATE_TENANT } satisfies CorporateJwt,
+    secret,
+    { expiresIn: "12h", issuer: "staffora-corporate" },
+  );
+  res.cookie(COOKIE, token, {
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+    maxAge: 12 * 3600_000,
+    path: "/",
+  });
+}
+
+export type CorporateSignIn =
+  | { kind: "NONE" }
+  | { kind: "TERMS_REQUIRED"; terms: typeof CORPORATE_TERMS }
+  | { kind: "OK"; participant: CorporateParticipant };
+
+/**
+ * Yagona kirish oqimining corporate qismi (/auth/login shu funksiyani chaqiradi):
+ * login (yoki email) + parol tekshiriladi; to‘g‘ri bo‘lsa va joriy shartlar qabul qilinmagan bo‘lsa —
+ * TERMS_REQUIRED (cookie berilmaydi, rozilik yozilmaydi). Rozilik faqat muvaffaqiyatli autentifikatsiyada,
+ * server vaqti bilan qayd etiladi. Noto‘g‘ri parolda hech narsa yozilmaydi va hisob borligi oshkor qilinmaydi.
+ */
+export async function corporateSignIn(input: { login: string; password: string; acceptedTerms?: boolean; termsVersion?: string }): Promise<CorporateSignIn> {
+  const key = input.login.trim().toLowerCase();
+  if (key.length < 3 || !input.password) return { kind: "NONE" };
+  const db = await readDb();
+  const participant = db.corporateParticipants.find(
+    (x) => x.companyId === CORPORATE_TENANT && x.status === "ACTIVE" && x.passwordHash && (x.login?.toLowerCase() === key || x.email?.toLowerCase() === key),
+  );
+  if (!participant || !(await bcrypt.compare(input.password, participant.passwordHash!))) return { kind: "NONE" };
+  const accepted = participant.termsVersion === CORPORATE_TERMS_VERSION && Boolean(participant.termsAcceptedAt);
+  const acceptsNow = input.acceptedTerms === true && input.termsVersion === CORPORATE_TERMS_VERSION;
+  if (!accepted && !acceptsNow) return { kind: "TERMS_REQUIRED", terms: CORPORATE_TERMS };
+  const row = await updateDb((next) => {
+    const item = next.corporateParticipants.find((x) => x.id === participant.id)!;
+    const at = new Date().toISOString();
+    if (!accepted) {
+      item.termsAcceptedAt = at;
+      item.termsVersion = CORPORATE_TERMS_VERSION;
+      next.corporateAuditEntries.unshift({
+        id: randomUUID(),
+        companyId: CORPORATE_TENANT,
+        participantId: item.id,
+        actorUserId: item.id,
+        actorName: item.name,
+        module: "auth",
+        action: "terms.accept",
+        entityType: "participant",
+        entityId: item.id,
+        summary: `Portal shartlari qabul qilindi (v${CORPORATE_TERMS_VERSION})`,
+        result: "SUCCESS",
+        createdAt: at,
+      });
+    }
+    item.lastLoginAt = at;
+    return item;
+  });
+  return { kind: "OK", participant: row };
 }
 
 export function createCorporatePublicRouter() {
   const router = Router();
   router.get("/corporate-auth/terms", (_req, res) => res.json(CORPORATE_TERMS));
+  // Eski mijozlar uchun moslik: asosiy kirish — /auth/login (yagona forma).
   router.post(
     "/corporate-auth/login",
     asyncRoute(async (req, res) => {
@@ -123,46 +177,12 @@ export function createCorporatePublicRouter() {
           termsVersion: z.literal(CORPORATE_TERMS_VERSION),
         })
         .parse(req.body);
-      const db = await readDb();
-      const participant = db.corporateParticipants.find(
-        (x) =>
-          x.login?.toLowerCase() === input.login.toLowerCase() &&
-          x.status === "ACTIVE" &&
-          x.passwordHash,
-      );
-      if (
-        !participant ||
-        !(await bcrypt.compare(input.password, participant.passwordHash!))
-      )
+      const result = await corporateSignIn(input);
+      if (result.kind !== "OK")
         throw Object.assign(new Error("Login yoki parol noto‘g‘ri."), {
           status: 401,
         });
-      await updateDb((next) => {
-        const row = next.corporateParticipants.find(
-          (x) => x.id === participant.id,
-        );
-        if (row) {
-          row.termsAcceptedAt = new Date().toISOString();
-          row.termsVersion = CORPORATE_TERMS_VERSION;
-          row.lastLoginAt = new Date().toISOString();
-        }
-      });
-      const token = jwt.sign(
-        {
-          kind: "corporate",
-          participantId: participant.id,
-          companyId: participant.companyId,
-        } satisfies CorporateJwt,
-        secret,
-        { expiresIn: "12h", issuer: "staffora-corporate" },
-      );
-      res.cookie(COOKIE, token, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: process.env.NODE_ENV === "production",
-        maxAge: 12 * 3600_000,
-        path: "/",
-      });
+      setCorporateCookie(res, result.participant);
       res.json({ ok: true, redirect: "/corporate-portal" });
     }),
   );
@@ -174,10 +194,9 @@ export function createCorporatePublicRouter() {
       const participant = db.corporateParticipants.find(
         (x) => x.id === req.session!.userId,
       )!;
-      const company = db.companies.find((x) => x.id === participant.companyId);
       res.json({
         participant: safeParticipant(participant),
-        company: company ? { id: company.id, name: company.name } : null,
+        company: { id: CORPORATE_TENANT, name: "Staffora" },
       });
     }),
   );
@@ -190,9 +209,9 @@ export function createCorporatePublicRouter() {
 
 const roles = ["FOUNDER", "CO_FOUNDER", "CEO", "INVESTOR"] as const;
 const accountSchema = z.object({
-  companyId: z.string().min(1),
   firstName: z.string().trim().min(2).max(60),
   lastName: z.string().trim().min(2).max(60),
+  email: z.union([z.string().trim().email().max(160), z.literal("")]).optional(),
   login: z
     .string()
     .trim()
@@ -215,19 +234,9 @@ export function createCorporateAdminRouter() {
     "/super-admin/corporate/accounts",
     asyncRoute(async (_req, res) => {
       const db = await readDb();
-      res.json({
-        companies: db.companies
-          .filter((x) => !x.archive)
-          .map((x) => ({ id: x.id, name: x.name })),
-        accounts: db.corporateParticipants
-          .filter((x) => x.login)
-          .map((x) => ({
-            ...safeParticipant(x),
-            companyName:
-              db.companies.find((c) => c.id === x.companyId)?.name ||
-              "Noma’lum",
-          })),
-      });
+      const accounts = db.corporateParticipants.filter((x) => x.companyId === CORPORATE_TENANT && x.login).map(safeParticipant);
+      const used = accounts.filter((x) => x.status === "ACTIVE").reduce((s, x) => s + (x.shareBps || 0), 0);
+      res.json({ accounts, allocatedBps: used, reserveBps: Math.max(0, 10000 - used) });
     }),
   );
   router.post(
@@ -236,37 +245,21 @@ export function createCorporateAdminRouter() {
       const input = accountSchema.parse(req.body);
       const passwordHash = await bcrypt.hash(input.password, 12);
       const row = await updateDb((db) => {
-        if (!db.companies.some((x) => x.id === input.companyId))
-          throw Object.assign(new Error("Kompaniya topilmadi."), {
-            status: 404,
-          });
-        if (
-          db.corporateParticipants.some(
-            (x) => x.login?.toLowerCase() === input.login.toLowerCase(),
-          )
-        )
+        const login = input.login.toLowerCase();
+        // Login panel foydalanuvchisi emaili bilan ham to‘qnashmasin — kirish formasi bitta.
+        if (db.corporateParticipants.some((x) => x.login?.toLowerCase() === login) || db.users.some((u) => u.email.toLowerCase() === login))
           throw Object.assign(new Error("Bu login band."), { status: 409 });
-        if (
-          input.role === "FOUNDER" &&
-          db.corporateParticipants.some(
-            (x) =>
-              x.companyId === input.companyId &&
-              x.role === "FOUNDER" &&
-              x.status === "ACTIVE",
-          )
-        )
-          throw Object.assign(
-            new Error("Bu kompaniyada Founder allaqachon mavjud."),
-            { status: 409 },
-          );
-        ensureShare(db.corporateParticipants, input.companyId, input.shareBps);
+        if (input.role === "FOUNDER" && db.corporateParticipants.some((x) => x.companyId === CORPORATE_TENANT && x.role === "FOUNDER" && x.status === "ACTIVE"))
+          throw Object.assign(new Error("Founder allaqachon mavjud."), { status: 409 });
+        ensureShare(db.corporateParticipants, input.shareBps);
         const item: CorporateParticipant = {
           id: randomUUID(),
-          companyId: input.companyId,
+          companyId: CORPORATE_TENANT,
           name: `${input.firstName} ${input.lastName}`,
           firstName: input.firstName,
           lastName: input.lastName,
-          login: input.login.toLowerCase(),
+          email: input.email || undefined,
+          login,
           passwordHash,
           shareBps: input.shareBps,
           role: input.role as CorporateRole,
@@ -274,7 +267,7 @@ export function createCorporateAdminRouter() {
           joinedAt: new Date().toISOString(),
         };
         db.corporateParticipants.push(item);
-        rebuildEconomic(db, input.companyId, req.session!.name);
+        rebuildEconomic(db, req.session!.name);
         return item;
       });
       res.status(201).json(safeParticipant(row));
@@ -284,49 +277,36 @@ export function createCorporateAdminRouter() {
     "/super-admin/corporate/accounts/:id",
     asyncRoute(async (req: AuthedRequest, res) => {
       const input = accountSchema
-        .omit({ companyId: true, password: true })
+        .omit({ password: true })
         .partial()
         .extend({
           password: z.string().min(8).max(200).optional(),
           status: z.enum(["ACTIVE", "DISABLED"]).optional(),
         })
         .parse(req.body);
-      const hash = input.password
-        ? await bcrypt.hash(input.password, 12)
-        : undefined;
+      const hash = input.password ? await bcrypt.hash(input.password, 12) : undefined;
       const row = await updateDb((db) => {
-        const item = db.corporateParticipants.find(
-          (x) => x.id === req.params.id && x.login,
-        );
+        const item = db.corporateParticipants.find((x) => x.id === req.params.id && x.login);
         if (!item)
           throw Object.assign(new Error("Corporate hisob topilmadi."), {
             status: 404,
           });
-        if (
-          input.login &&
-          db.corporateParticipants.some(
-            (x) =>
-              x.id !== item.id &&
-              x.login?.toLowerCase() === input.login!.toLowerCase(),
-          )
-        )
+        if (input.login && db.corporateParticipants.some((x) => x.id !== item.id && x.login?.toLowerCase() === input.login!.toLowerCase()))
           throw Object.assign(new Error("Bu login band."), { status: 409 });
-        if (input.shareBps !== undefined)
+        const nextStatus = input.status || item.status;
+        if (nextStatus === "ACTIVE")
           ensureShare(
             db.corporateParticipants.filter((x) => x.id !== item.id),
-            item.companyId,
-            input.shareBps,
+            input.shareBps ?? item.shareBps ?? 0,
           );
-        Object.assign(item, input, {
+        const { password: _password, ...fields } = input;
+        Object.assign(item, fields, {
           ...(hash ? { passwordHash: hash } : {}),
-          ...(input.firstName || input.lastName
-            ? {
-                name: `${input.firstName || item.firstName} ${input.lastName || item.lastName}`,
-              }
-            : {}),
+          ...(input.email !== undefined ? { email: input.email || undefined } : {}),
+          ...(input.firstName || input.lastName ? { name: `${input.firstName || item.firstName} ${input.lastName || item.lastName}` } : {}),
         });
         if (input.login) item.login = input.login.toLowerCase();
-        rebuildEconomic(db, item.companyId, req.session!.name);
+        rebuildEconomic(db, req.session!.name);
         return item;
       });
       res.json(safeParticipant(row));
@@ -335,49 +315,20 @@ export function createCorporateAdminRouter() {
   return router;
 }
 
-function ensureShare(
-  rows: CorporateParticipant[],
-  companyId: string,
-  incoming: number,
-) {
+function ensureShare(rows: CorporateParticipant[], incoming: number) {
   const total =
-    rows
-      .filter((x) => x.companyId === companyId && x.status === "ACTIVE")
-      .reduce((s, x) => s + (x.shareBps || 0), 0) + incoming;
+    rows.filter((x) => x.companyId === CORPORATE_TENANT && x.status === "ACTIVE").reduce((s, x) => s + (x.shareBps || 0), 0) + incoming;
   if (total > 10000)
-    throw Object.assign(
-      new Error(
-        `Ulushlar yig‘indisi 100% dan oshmasligi kerak. Hozir ${(total / 100).toFixed(2)}%.`,
-      ),
-      { status: 422 },
-    );
+    throw Object.assign(new Error(`Ulushlar yig‘indisi 100% dan oshmasligi kerak. Hozir ${(total / 100).toFixed(2)}%.`), { status: 422 });
 }
-function rebuildEconomic(
-  db: Awaited<ReturnType<typeof readDb>>,
-  companyId: string,
-  actor: string,
-) {
-  const people = db.corporateParticipants.filter(
-    (x) =>
-      x.companyId === companyId &&
-      x.status === "ACTIVE" &&
-      (x.shareBps || 0) > 0,
-  );
+function rebuildEconomic(db: Awaited<ReturnType<typeof readDb>>, actor: string) {
+  const people = db.corporateParticipants.filter((x) => x.companyId === CORPORATE_TENANT && x.status === "ACTIVE" && (x.shareBps || 0) > 0);
   const used = people.reduce((s, x) => s + (x.shareBps || 0), 0);
-  for (const old of db.economicInterestVersions.filter(
-    (x) => x.companyId === companyId && x.status === "DRAFT",
-  ))
-    old.status = "SUPERSEDED";
+  for (const old of db.economicInterestVersions.filter((x) => x.companyId === CORPORATE_TENANT && x.status === "DRAFT")) old.status = "SUPERSEDED";
   db.economicInterestVersions.push({
     id: randomUUID(),
-    companyId,
-    version:
-      Math.max(
-        0,
-        ...db.economicInterestVersions
-          .filter((x) => x.companyId === companyId)
-          .map((x) => x.version),
-      ) + 1,
+    companyId: CORPORATE_TENANT,
+    version: Math.max(0, ...db.economicInterestVersions.filter((x) => x.companyId === CORPORATE_TENANT).map((x) => x.version)) + 1,
     title: "Super Admin tomonidan belgilangan iqtisodiy manfaat",
     status: "DRAFT",
     allocations: [
@@ -408,8 +359,6 @@ function safeParticipant(row: CorporateParticipant) {
   return safe;
 }
 const asyncRoute =
-  (
-    handler: (req: AuthedRequest, res: Response) => Promise<unknown> | unknown,
-  ) =>
+  (handler: (req: AuthedRequest, res: Response) => Promise<unknown> | unknown) =>
   (req: AuthedRequest, res: Response, next: NextFunction) =>
     Promise.resolve(handler(req, res)).catch(next);

@@ -85,6 +85,7 @@ import { payrollRows, penaltyText, registerExcelReports } from "./reports";
 import { createIntegrationRouter, createIntegrationWebhookRouter } from "./integrations/routes";
 import { startIntegrationWorker } from "./integrations/worker";
 import { closedPeriod, createPayrollRouter } from "./payroll-routes";
+import { createPayRouter } from "./payroll-pay";
 import { createDocumentRouter } from "./documents";
 import { createAnalyticsRouter } from "./analytics";
 import { createSwapRouter } from "./swaps";
@@ -149,7 +150,8 @@ import { activeIntegration } from "./integrations/model";
 import { enqueueAnnouncementToBot, targetEmployees, targetLabel } from "./integrations/announce";
 import { createCorporateRouter } from "./corporate/routes";
 import { createAiRouter } from "./ai/routes";
-import { createCorporateAdminRouter, createCorporatePublicRouter, requireCorporateAuth } from "./corporate/auth";
+import { setAiRosterProvider } from "./ai/actions";
+import { corporateSignIn, createCorporateAdminRouter, createCorporatePublicRouter, requireCorporateAuth, setCorporateCookie } from "./corporate/auth";
 
 const fieldLabels: Record<string, string> = {
   firstName: "Ism",
@@ -551,16 +553,29 @@ app.post(
     message: { message: "Juda ko‘p urinish. Bir daqiqadan keyin qayta urinib ko‘ring." },
   }),
   asyncRoute(async (req, res) => {
+    // Yagona kirish: «email» maydoniga panel emaili yoki Corporate portal logini yoziladi.
     const input = z
-      .object({ email: z.string().trim().email(), password: z.string().min(1) })
+      .object({
+        email: z.string().trim().min(3, "Email yoki loginni kiriting.").max(160),
+        password: z.string().min(1),
+        acceptedTerms: z.boolean().optional(),
+        termsVersion: z.string().max(40).optional(),
+      })
       .parse(req.body);
     const db = await readDb();
     const user = db.users.find(
       (u) => u.email.toLowerCase() === input.email.toLowerCase(),
     );
     if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) {
+      // Ta’sischi / investor — xuddi shu forma orqali Corporate portalga kiradi (alohida login sahifasi yo‘q).
+      const corporate = await corporateSignIn({ login: input.email, password: input.password, acceptedTerms: input.acceptedTerms, termsVersion: input.termsVersion });
+      if (corporate.kind === "TERMS_REQUIRED") return res.json({ requiresTerms: true, terms: corporate.terms });
+      if (corporate.kind === "OK") {
+        setCorporateCookie(res, corporate.participant);
+        return res.json({ corporate: true, redirect: "/corporate-portal" });
+      }
       void recordSecurityEvent({ type: "LOGIN_FAILED", severity: user?.role === "SUPER_ADMIN" ? "HIGH" : "LOW", userId: user?.id, email: input.email, req });
-      return res.status(401).json({ message: "Email yoki parol noto‘g‘ri." });
+      return res.status(401).json({ message: "Login yoki parol noto‘g‘ri." });
     }
     if (user.blockedAt) {
       void recordSecurityEvent({ type: "LOGIN_BLOCKED", severity: "MEDIUM", userId: user.id, email: user.email, req });
@@ -856,6 +871,7 @@ app.use("/api", (req, res, next) => {
 });
 app.use("/api", createIntegrationRouter());
 app.use("/api", createCompanyBotRouter());
+app.use("/api", createPayRouter());
 app.use("/api", createPayrollRouter());
 app.use("/api", createDocumentRouter());
 app.use("/api", createAnalyticsRouter());
@@ -3755,6 +3771,26 @@ startHrWorker();
 startPushDispatcher();
 startWatchdog();
 setRosterProvider((db, tenant, date) => rosterStats(dayRoster(db, tenant, date)));
+// Staffora AI o‘qish amallari bosh sahifa bilan bir xil holatlarni ishlatadi.
+setAiRosterProvider((db, tenant, date) =>
+  dayRoster(db, tenant, date)
+    .filter((row) => row.employee.status === "ACTIVE")
+    .map((row) => ({
+      employeeId: row.employee.id,
+      name: `${row.employee.firstName} ${row.employee.lastName}`.trim(),
+      employeeNo: row.employee.employeeNo,
+      branchId: row.branchId,
+      branch: row.branch,
+      position: row.position,
+      state: row.state,
+      late: row.late,
+      lateMinutes: row.record?.lateMinutes || 0,
+      checkIn: row.record?.checkIn,
+      checkOut: row.record?.checkOut,
+      scheduledStart: row.scheduledStart,
+      workedMinutes: row.record?.workedMinutes || 0,
+    })),
+);
 startPlatform();
 void startCompanyBots();
 void updateDb((db) => {

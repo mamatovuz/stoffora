@@ -1,4 +1,5 @@
 import { PayrollCompare, PayrollWorkflowBar, BankExportButton } from "../components/PayrollWorkspace";
+import { PayRatesPanel, PayTypeBadge, PaymentsPanel, PayrollOverview, PieceWorkPanel, type PayType } from "../components/PayrollModule";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -65,6 +66,10 @@ type PayrollRow = {
   net: number;
   explanation: string;
   adjustments: Adjustment[];
+  payType?: PayType;
+  rate?: number;
+  units?: number;
+  openDays?: string[];
   kpi: { attendance: number; punctuality: number; score: number; grade: string };
 };
 type Payroll = {
@@ -95,9 +100,21 @@ type Payroll = {
       advance: number;
       net: number;
       explanation: string;
+      payType?: PayType;
+      rate?: number;
+      units?: number;
     }[];
   };
 };
+/** Ish haqi bo‘limi tablari. */
+type PayTab = "overview" | "calc" | "rates" | "piece" | "payments";
+const PAY_TABS: [PayTab, string][] = [
+  ["overview", "Umumiy ko‘rinish"],
+  ["calc", "Hisob-kitoblar"],
+  ["rates", "Stavkalar"],
+  ["piece", "Ishbay ishlar"],
+  ["payments", "To‘lovlar"],
+];
 
 const adjLabels = { ADVANCE: "Avans", BONUS: "Bonus", FINE: "Jarima" } as const;
 const when = (iso: string) => new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -113,6 +130,7 @@ export function PayrollPage() {
   const [reopenOpen, setReopenOpen] = useState(false);
   const [q, setQ] = useState("");
   const [advancesOpen, setAdvancesOpen] = useState(false);
+  const [tab, setTab] = useState<PayTab>(() => (new URLSearchParams(window.location.search).get("tab") as PayTab) || "overview");
   const { user } = useAuth();
   const canEditPayroll = Boolean(user && can(user.role, "payroll.edit"));
   const advanceRequests = useApi<AdvanceRow[]>(canEditPayroll ? "/payroll/advances?status=PENDING" : null);
@@ -129,6 +147,8 @@ export function PayrollPage() {
         name: `${r.employee.firstName} ${r.employee.lastName}`,
         sub: r.employee.employeeNo,
         base: r.base,
+        payType: r.payType,
+        units: r.units,
         days: r.days,
         expectedDays: r.expectedDays,
         absentDays: r.absentDays,
@@ -149,7 +169,7 @@ export function PayrollPage() {
   return (
     <div className="page">
       <PageHeader
-        title="Ish haqi va KPI"
+        title="Ish haqi"
         subtitle={`${monthYearUz(`${month}-15`)} · ${data?.rule || "davomat asosida hisob-kitob"}`}
         actions={
           <>
@@ -206,6 +226,19 @@ export function PayrollPage() {
         }
       />
       <PayrollWorkflowBar month={month} onChanged={() => void reload(true)} />
+      <nav className="pm-tabs" aria-label="Ish haqi bo‘limlari">
+        {PAY_TABS.map(([key, label]) => (
+          <button key={key} type="button" className={tab === key ? "active" : ""} aria-current={tab === key ? "page" : undefined} onClick={() => setTab(key)}>
+            {label}
+          </button>
+        ))}
+      </nav>
+      {tab === "overview" && <PayrollOverview month={month} onOpen={setTab} />}
+      {tab === "rates" && <PayRatesPanel canEdit={canEditPayroll} />}
+      {tab === "piece" && <PieceWorkPanel month={month} canEdit={canEditPayroll} canAdd={Boolean(user && (can(user.role, "payroll.edit") || can(user.role, "employees.edit")))} employees={rows.map((x) => ({ id: x.employee.id, name: `${x.employee.firstName} ${x.employee.lastName}` }))} />}
+      {tab === "payments" && <PaymentsPanel month={month} closed={Boolean(closed)} canEdit={canEditPayroll} lines={lines.map((l) => ({ employeeId: l.id, name: l.name, net: l.net, payType: l.payType }))} />}
+      {tab === "calc" && (
+      <>
       <div className="stat-grid">
         <StatCard label="Qo‘lga beriladi" value={money(total)} note={`${lines.length} xodim`} icon={Wallet} tone="green" />
         <StatCard label="Ushlanmalar" value={money(deductions)} note="kechikish · kelmaslik · jarima" icon={AlarmClock} tone="amber" />
@@ -257,8 +290,9 @@ export function PayrollPage() {
               <thead>
                 <tr>
                   <th>Xodim</th>
+                  <th>Turi</th>
                   <th>Davomat</th>
-                  <th className="num">Oylik</th>
+                  <th className="num">Asos</th>
                   <th className="num">Qo‘shimcha</th>
                   <th className="num">Ushlanma</th>
                   <th className="num">Avans</th>
@@ -280,6 +314,10 @@ export function PayrollPage() {
                       )}
                       <span className="pay-note">{x.explanation}</span>
                     </td>
+                    <td data-label="Turi">
+                      <PayTypeBadge type={x.payType} />
+                      {x.payType === "DAILY" || x.payType === "HOURLY" ? <small className="pm-unit">{` ${String(x.units ?? 0).replace(".", ",")} ${x.payType === "DAILY" ? "kun" : "soat"}`}</small> : null}
+                    </td>
                     <td data-label="Davomat">
                       <span className="stack">
                         <span>
@@ -296,8 +334,8 @@ export function PayrollPage() {
                         </small>
                       </span>
                     </td>
-                    <td data-label="Oylik" className="num">
-                      {x.base ? money(x.base) : (
+                    <td data-label="Asos" className="num">
+                      {x.base || (x.payType && x.payType !== "MONTHLY") ? money(x.base) : (
                         <button className="link" onClick={() => setSalaryOpen(true)} disabled={Boolean(closed)}>
                           Kiritilmagan
                         </button>
@@ -330,6 +368,8 @@ export function PayrollPage() {
         )}
       </section>
       {canEditPayroll && <div style={{ marginTop: 16 }}><PayrollCompare month={month} /></div>}
+      </>
+      )}
       {salaryOpen && (
         <SalaryModal
           employees={rows.map((x) => x.employee)}
@@ -380,7 +420,7 @@ export function PayrollPage() {
         />
       )}
       <p className="hint" style={{ marginTop: 12 }}>
-        Qo‘lga = oylik + qo‘shimcha ish + bonus − kechikish − kelmaslik − jarima − avans. Oy yopilgach raqamlar muzlatiladi va xodimlarga hisob varaqasi
+        Qo‘lga = asos (oylik / kunlik / soatbay / ishbay) + qo‘shimcha ish + bonus − kechikish − kelmaslik − jarima − avans. Oy yopilgach raqamlar muzlatiladi va xodimlarga hisob varaqasi
         yuboriladi.
       </p>
     </div>

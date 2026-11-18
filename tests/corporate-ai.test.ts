@@ -272,6 +272,38 @@ describe("Corporate portal", () => {
         .reduce((s: number, x: any) => s + x.amountMinor, 0);
     expect(sum("DEBIT")).toBe(sum("CREDIT"));
   });
+  it("yagona kirish: shartlarsiz sessiya yo‘q, noto‘g‘ri parolda rozilik yozilmaydi", async () => {
+    const { corporateSignIn, CORPORATE_TERMS_VERSION } = await import("../server/corporate/auth");
+    expect((await corporateSignIn({ login: "investor.ali", password: "wrong-password-1" })).kind).toBe("NONE");
+    expect((await corporateSignIn({ login: "investor.ali", password: "wrong-password-1", acceptedTerms: true, termsVersion: CORPORATE_TERMS_VERSION })).kind).toBe("NONE");
+    expect((await store.readDb()).corporateParticipants.find((x) => x.login === "investor.ali")?.termsAcceptedAt).toBeUndefined();
+    expect((await corporateSignIn({ login: "investor.ali", password: "InvestorPass-2026" })).kind).toBe("TERMS_REQUIRED");
+    const ok = await corporateSignIn({ login: "investor.ali", password: "InvestorPass-2026", acceptedTerms: true, termsVersion: CORPORATE_TERMS_VERSION });
+    expect(ok.kind).toBe("OK");
+    expect((await store.readDb()).corporateParticipants.find((x) => x.login === "investor.ali")?.termsVersion).toBe(CORPORATE_TERMS_VERSION);
+    // Keyingi kirishlarda qayta rozilik so‘ralmaydi; login katta-kichik harfga sezgir emas.
+    expect((await corporateSignIn({ login: "INVESTOR.ALI", password: "InvestorPass-2026" })).kind).toBe("OK");
+  });
+  it("corporate yozuvlari mijoz kompaniyasiga emas, platformaga bog‘langan; parol xeshi chiqmaydi", async () => {
+    const db = await store.readDb();
+    expect(db.corporateParticipants.length).toBeGreaterThan(0);
+    expect(db.corporateParticipants.every((x) => x.companyId === "staffora")).toBe(true);
+    for (const url of ["/api/corporate/me", "/api/corporate/participants", "/api/corporate/dashboard", "/api/super-admin/corporate/accounts"]) {
+      const res = await get(url, url.includes("super-admin") ? "sa" : "c1", corporateCookie);
+      expect(res.status).toBe(200);
+      expect(JSON.stringify(res.body)).not.toContain("passwordHash");
+    }
+  });
+  it("investor platforma statistikasini ko‘radi — faqat agregatlar, mijoz nomisiz", async () => {
+    const res = await get("/api/corporate/platform", "c1", corporateCookie);
+    expect(res.status).toBe(200);
+    expect(res.body.companies.total).toBe(1);
+    expect(res.body.employees.active).toBe(1);
+    expect(res.body.growth).toHaveLength(12);
+    expect(res.body.activity).toHaveLength(30);
+    expect(JSON.stringify(res.body)).not.toContain("Alfa");
+    expect((await get("/api/corporate/platform")).status).toBe(401);
+  });
 });
 
 describe("Staffora AI token vault", () => {

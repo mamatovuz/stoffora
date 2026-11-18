@@ -2,11 +2,12 @@ import { createHash, randomUUID } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { readDb, updateDb } from "../../lib/store";
-import type { CorporateRole, CorporateTransactionType } from "../../lib/corporate/types";
+import type { CorporateParticipant, CorporateRole, CorporateTransactionType } from "../../lib/corporate/types";
 import { accountBalance, ledgerBalanced, postLedger } from "./ledger";
 import { asyncCorporate, corporateAudit, corporateCan, corporateContext, corporatePermission, integerMinor, tenantOf, type CorporateRequest, CORPORATE_PERMISSIONS } from "./shared";
 import ExcelJS from "exceljs";
 import { simplePdf } from "./pdf";
+import { platformStats } from "./platform";
 
 const id = () => randomUUID();
 const now = () => new Date().toISOString();
@@ -23,7 +24,7 @@ export function createCorporateRouter() {
     tenantOf(req);
     const db = await readDb();
     const required = requiredAgreement(db, req);
-    res.json({ participant: req.corporate, permissions: CORPORATE_PERMISSIONS[req.corporate!.role], requiredAgreement: required });
+    res.json({ participant: publicParticipant(req.corporate!), permissions: CORPORATE_PERMISSIONS[req.corporate!.role], requiredAgreement: required });
   }));
 
   router.get("/corporate/dashboard", corporatePermission("dashboard.read"), asyncCorporate(async (req, res) => {
@@ -35,7 +36,7 @@ export function createCorporateRouter() {
     const wallet = walletSummary(db, tenant, participantId);
     res.json({
       participants: db.corporateParticipants.filter((x) => x.companyId === tenant && x.status !== "DISABLED").length,
-      founders: db.corporateParticipants.filter((x) => x.companyId === tenant && ["FOUNDER", "CO_FOUNDER"].includes(x.role)),
+      founders: db.corporateParticipants.filter((x) => x.companyId === tenant && ["FOUNDER", "CO_FOUNDER"].includes(x.role)).map((x) => ({ id: x.id, name: x.name, role: x.role })),
       investors: db.corporateParticipants.filter((x) => x.companyId === tenant && x.role === "INVESTOR" && x.status === "ACTIVE").length,
       economicInterest: latestEconomic(db, tenant),
       finance: { incomeMinor: income, expensesMinor: expenses, netMinor: income - expenses, cashMinor: accountBalance(db, tenant, "CASH"), balanced: ledgerBalanced(db, tenant).balanced },
@@ -47,10 +48,16 @@ export function createCorporateRouter() {
     });
   }));
 
+  // Investor / ta’sischi ko‘radigan Staffora platformasi ko‘rsatkichlari (faqat agregatlar).
+  router.get("/corporate/platform", corporatePermission("dashboard.read"), asyncCorporate(async (_req, res) => {
+    const db = await readDb();
+    res.json(platformStats(db, new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Tashkent" }).format(new Date())));
+  }));
+
   router.get("/corporate/roles", corporatePermission("participants.read"), asyncCorporate((_req, res) => res.json(roles.map((role) => ({ role, permissions: CORPORATE_PERMISSIONS[role] })))));
 
   router.get("/corporate/participants", corporatePermission("participants.read"), asyncCorporate(async (req, res) => {
-    const db = await readDb(); res.json(db.corporateParticipants.filter((p) => p.companyId === tenantOf(req)).map((p) => ({ ...p, permissions: CORPORATE_PERMISSIONS[p.role] })));
+    const db = await readDb(); res.json(db.corporateParticipants.filter((p) => p.companyId === tenantOf(req)).map((p) => ({ ...publicParticipant(p), permissions: CORPORATE_PERMISSIONS[p.role] })));
   }));
   router.post("/corporate/participants", corporatePermission("participants.manage"), asyncCorporate(async (req, res) => {
     const input = z.object({ name: z.string().trim().min(2).max(100), email: z.string().trim().email().optional(), role: z.enum(roles), userId: z.string().uuid().optional() }).parse(req.body);
@@ -61,14 +68,14 @@ export function createCorporateRouter() {
       const item = { id: id(), companyId: tenant, userId: linked?.id, name: input.name, email: input.email || linked?.email, role: input.role, status: linked ? "ACTIVE" as const : "INVITED" as const, joinedAt: now() };
       db.corporateParticipants.push(item); corporateAudit(db, req, { module: "participants", action: "participant.create", entityType: "participant", entityId: item.id, summary: `${item.name} — ${item.role}` }); return item;
     });
-    res.status(201).json(row);
+    res.status(201).json(publicParticipant(row));
   }));
   router.patch("/corporate/participants/:id", corporatePermission("participants.manage"), asyncCorporate(async (req, res) => {
     const input = z.object({ name: z.string().trim().min(2).max(100).optional(), role: z.enum(roles).optional(), status: z.enum(["ACTIVE", "INVITED", "DISABLED"]).optional() }).parse(req.body); const tenant = tenantOf(req);
-    const row = await updateDb((db) => { const item = db.corporateParticipants.find((p) => p.id === req.params.id && p.companyId === tenant); if (!item) throw notFound(); if (item.role === "FOUNDER" && (input.role && input.role !== "FOUNDER" || input.status === "DISABLED")) throw Object.assign(new Error("Founder rolini to‘g‘ridan-to‘g‘ri bekor qilib bo‘lmaydi; approval talab qilinadi."), { status: 409 }); Object.assign(item, input); corporateAudit(db, req, { module: "participants", action: "participant.update", entityType: "participant", entityId: item.id, summary: `${item.name} yangilandi` }); return item; }); res.json(row);
+    const row = await updateDb((db) => { const item = db.corporateParticipants.find((p) => p.id === req.params.id && p.companyId === tenant); if (!item) throw notFound(); if (item.role === "FOUNDER" && (input.role && input.role !== "FOUNDER" || input.status === "DISABLED")) throw Object.assign(new Error("Founder rolini to‘g‘ridan-to‘g‘ri bekor qilib bo‘lmaydi; approval talab qilinadi."), { status: 409 }); Object.assign(item, input); corporateAudit(db, req, { module: "participants", action: "participant.update", entityType: "participant", entityId: item.id, summary: `${item.name} yangilandi` }); return item; }); res.json(publicParticipant(row));
   }));
   router.post("/corporate/participants/:id/disable", corporatePermission("participants.manage"), asyncCorporate(async (req, res) => {
-    const tenant = tenantOf(req); const row = await updateDb((db) => { const item = db.corporateParticipants.find((p) => p.id === req.params.id && p.companyId === tenant); if (!item) throw notFound(); if (item.role === "FOUNDER") throw Object.assign(new Error("Founder bloklanmaydi."), { status: 409 }); item.status = "DISABLED"; corporateAudit(db, req, { module: "participants", action: "participant.disable", entityType: "participant", entityId: item.id, summary: `${item.name} bloklandi` }); return item; }); res.json(row);
+    const tenant = tenantOf(req); const row = await updateDb((db) => { const item = db.corporateParticipants.find((p) => p.id === req.params.id && p.companyId === tenant); if (!item) throw notFound(); if (item.role === "FOUNDER") throw Object.assign(new Error("Founder bloklanmaydi."), { status: 409 }); item.status = "DISABLED"; corporateAudit(db, req, { module: "participants", action: "participant.disable", entityType: "participant", entityId: item.id, summary: `${item.name} bloklandi` }); return item; }); res.json(publicParticipant(row));
   }));
 
   router.get("/corporate/ownership", asyncCorporate(async (req, res) => {
@@ -136,6 +143,12 @@ export function createCorporateRouter() {
   router.get("/corporate/reports.pdf", corporatePermission("reports.read"), asyncCorporate(async (req, res) => { const db = await readDb(); const tenant = tenantOf(req); const rows = db.corporateTransactions.filter((x) => x.companyId === tenant); const balanced = ledgerBalanced(db, tenant); const content = [`Generated: ${now()}`, `Generated by: ${req.session!.name}`, `Participants: ${db.corporateParticipants.filter((x) => x.companyId === tenant).length}`, `Transactions: ${rows.length}`, `Ledger balanced: ${balanced.balanced}`, `Reserve minor: ${reserveBalance(db, tenant)}`, "", ...rows.slice(-200).map((x) => `${x.occurredAt} | ${x.type} | ${x.category} | ${x.amountMinor} | ${x.status}`)].join("\n"); const pdf = simplePdf("Staffora Corporate Report", content); res.setHeader("Content-Type", "application/pdf"); res.setHeader("Content-Disposition", `inline; filename="staffora-corporate-${new Date().toISOString().slice(0, 10)}.pdf"`); res.send(pdf); }));
   router.get("/corporate/audit-logs", corporatePermission("audit.read"), asyncCorporate(async (req, res) => { const db = await readDb(); res.json(db.corporateAuditEntries.filter((x) => x.companyId === tenantOf(req)).slice(0, 1000)); }));
   return router;
+}
+
+/** Parol xeshi hech qachon javobga chiqmaydi. */
+function publicParticipant(row: CorporateParticipant) {
+  const { passwordHash: _hash, ...safe } = row;
+  return safe;
 }
 
 function latestEconomic(db: Awaited<ReturnType<typeof readDb>>, tenant: string) {

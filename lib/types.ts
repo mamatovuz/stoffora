@@ -178,6 +178,8 @@ export interface PayrollSettings {
   deductBreaks?: boolean;
   /** Qo‘shimcha ish: avval rahbar, keyin moliya tasdiqlaydi (moliya foydalanuvchisi bo‘lsa). */
   overtimeTwoStep?: boolean;
+  /** Qo‘shimcha ish stavkasi, foizda (100 — oddiy soatlik stavka; 150 — 1,5 baravar). Qonuniy tekshiruvsiz standart 100. */
+  overtimeRatePercent?: number;
 }
 export interface Branch {
   id: string;
@@ -730,6 +732,12 @@ export interface Database {
   attendanceCorrections: AttendanceCorrection[];
   rewardAwards: RewardAward[];
   payrollWorkflows: PayrollWorkflow[];
+  /** Ish haqi turi va stavka tarixi (kuchga kirish sanasi bilan; eski oylar o‘sha davrdagi stavkada qoladi). */
+  payRates: PayRate[];
+  /** Ishbay natijalar (rahbar tasdiqlaydi). */
+  pieceWorkEntries: PieceWorkEntry[];
+  /** Yopilgan oy bo‘yicha qayd etilgan to‘lovlar (qisman yoki to‘liq). */
+  payrollPayments: PayrollPayment[];
   holidays: Holiday[];
   /** Saytdan (landing) kelgan demo so‘rovlari. */
   leads: Lead[];
@@ -957,6 +965,66 @@ export interface PayslipLine {
   advance: number;
   net: number;
   explanation: string;
+  /** Ish haqi turi va stavka (yopilgan paytdagi). Eski yopilgan oylarda bo‘lmasligi mumkin — oylik deb hisoblanadi. */
+  payType?: PayType;
+  rate?: number;
+  /** To‘lov birligi soni: kun, soat yoki ishbay summasi asosidagi birliklar. */
+  units?: number;
+  /** Hisoblangan (avansdan oldin). */
+  gross?: number;
+}
+/** Ish haqi turi: oylik, kunlik (tasdiqlangan ish kuni), soatbay (haqiqiy ish vaqti) yoki ishbay (miqdor × narx). */
+export type PayType = "MONTHLY" | "DAILY" | "HOURLY" | "PIECE";
+export interface PayRate {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  payType: PayType;
+  /** Butun so‘mda: oylik / kunlik / soatlik stavka (ishbayda — ma’lumot uchun, narx har yozuvda). */
+  rate: number;
+  currency: "UZS";
+  /** YYYY-MM-DD — shu sanadan kuchga kiradi. */
+  effectiveFrom: string;
+  note?: string;
+  createdAt: string;
+  createdBy: string;
+}
+export interface PieceWorkEntry {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  /** YYYY-MM-DD */
+  date: string;
+  workType: string;
+  unit: string;
+  /** Miqdor (0,01 aniqlikda). */
+  quantity: number;
+  /** Birlik narxi, butun so‘m. */
+  unitPrice: number;
+  /** quantity × unitPrice, butun so‘mga yaxlitlangan. */
+  amount: number;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  note?: string;
+  createdAt: string;
+  createdBy: string;
+  decidedAt?: string;
+  decidedBy?: string;
+}
+export interface PayrollPayment {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  /** YYYY-MM — qaysi oyning ish haqi. */
+  month: string;
+  /** Butun so‘m. */
+  amount: number;
+  method: "CASH" | "CARD" | "BANK";
+  /** YYYY-MM-DD */
+  paidAt: string;
+  note?: string;
+  idempotencyKey: string;
+  createdAt: string;
+  createdBy: string;
 }
 /** Yopilgan oy — raqamlar o‘zgarmaydi. */
 /** Oyni yopish jarayoni: HR → Moliya → Direktor → To‘landi. */

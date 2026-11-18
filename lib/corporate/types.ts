@@ -1,3 +1,9 @@
+/**
+ * Corporate Management — Staffora platformasining o‘z ichki boshqaruvi (ta’sischilar, investorlar).
+ * Mijoz kompaniyalarga bog‘lanmaydi: barcha korporativ yozuvlar shu bitta tenant ostida.
+ */
+export const CORPORATE_TENANT = "staffora";
+
 export type CorporateRole = "FOUNDER" | "CO_FOUNDER" | "CEO" | "INVESTOR" | "FINANCE_MANAGER" | "CORPORATE_ADMIN" | "OBSERVER";
 export type CorporateStatus = "ACTIVE" | "INVITED" | "DISABLED";
 

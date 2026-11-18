@@ -71,6 +71,10 @@ export function freezeMonth(db: Database, tenant: string, month: string, actor: 
     advance: r.advance,
     net: r.net,
     explanation: r.explanation,
+    payType: r.payType,
+    rate: r.rate,
+    units: r.units,
+    gross: r.gross,
   }));
   const period: PayrollPeriod = { id: randomUUID(), companyId: tenant, month, closedAt: new Date().toISOString(), closedBy: actor, lines, total: lines.reduce((s, l) => s + l.net, 0) };
   db.payrollPeriods.push(period);
@@ -275,6 +279,7 @@ export function createPayrollWorkflowRouter() {
           case "reopen": {
             if (role !== "COMPANY_OWNER") throw httpError("Oyni qayta ochish — faqat direktor.", 403);
             if (!note || note.length < 3) throw httpError("Qayta ochish sababini yozing.", 422);
+            if (db.payrollPayments.some((p) => p.companyId === tenant && p.month === month)) throw httpError("Bu oy uchun to‘lovlar qayd etilgan — qayta ochib bo‘lmaydi. Tuzatishni keyingi oyda bonus yoki ushlanma sifatida kiriting.", 409);
             const period = closedPeriod(db, tenant, month);
             if (period) db.payrollPeriods = db.payrollPeriods.filter((p) => p.id !== period.id);
             return setStage(db, tenant, month, "CALCULATING", actor, `Qayta ochildi: ${note}`);

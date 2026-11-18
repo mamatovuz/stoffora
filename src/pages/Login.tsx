@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   Eye,
   EyeOff,
+  FileText,
   KeyRound,
   LoaderCircle,
   Lock,
@@ -20,6 +21,7 @@ import {
   Smartphone,
   User,
   UserCheck,
+  X,
 } from "lucide-react";
 import { Logo } from "../components/Logo";
 import { api, errorText, post } from "../api";
@@ -28,7 +30,8 @@ import { ErrorBox } from "../components/ui";
 
 type Step = "email" | "phone" | "code" | "done";
 type Via = "email" | "phone";
-type LoginResult = { redirect: string; requires2fa?: boolean; challengeId?: string; telegram?: string };
+type Terms = { version: string; title: string; sections: { title: string; text: string }[] };
+type LoginResult = { redirect: string; requires2fa?: boolean; challengeId?: string; telegram?: string; requiresTerms?: boolean; terms?: Terms; corporate?: boolean };
 type Key = "email" | "password" | "phone";
 
 const RESEND_AFTER = 60;
@@ -41,7 +44,8 @@ function formatPhone(value: string) {
   return "+998 " + [d.slice(0, 2), d.slice(2, 5), d.slice(5, 7), d.slice(7, 9)].filter(Boolean).join(" ");
 }
 const valid: Record<Key, (v: string) => boolean> = {
-  email: (v) => /^\S+@\S+\.\S+$/.test(v.trim()),
+  // Panel emaili yoki Corporate portal logini (masalan, founder.ozodbek).
+  email: (v) => /^\S{3,}$/.test(v.trim()),
   password: (v) => v.length > 0,
   phone: (v) => digits(v).length === 12 && digits(v).startsWith("998"),
 };
@@ -99,6 +103,10 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const [challenge, setChallenge] = useState<{ id: string; telegram: string } | null>(null);
   const [left, setLeft] = useState(0);
+  /** Ta’sischi/investor hisobi: parol to‘g‘ri, lekin portal shartlari hali qabul qilinmagan. */
+  const [terms, setTerms] = useState<Terms | null>(null);
+  const [accepted, setAccepted] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
   const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const phoneRef = useRef<HTMLInputElement>(null);
@@ -130,7 +138,7 @@ export function LoginPage() {
     return () => window.clearTimeout(timer);
   }, [step]);
 
-  if (user) return <Navigate to={user.role === "SUPER_ADMIN" ? "/super-admin" : window.location.hostname.toLowerCase().startsWith("corporate.") ? "/corporate" : homePage(user.role, user.modules)} replace />;
+  if (user) return <Navigate to={user.role === "SUPER_ADMIN" ? "/super-admin" : homePage(user.role, user.modules)} replace />;
   if (needsSetup) return <Navigate to="/setup" replace />;
 
   const inputs: Record<Key, React.RefObject<HTMLInputElement | null>> = { email: emailRef, password: passwordRef, phone: phoneRef };
@@ -138,23 +146,28 @@ export function LoginPage() {
   const need: Record<Step, Key[]> = { email: ["email", "password"], phone: ["phone"], code: [], done: [] };
   const ok = (key: Key) => valid[key](value[key]);
   const bad = (key: Key) => Boolean(tried[key]) && !ok(key);
-  const ready = step === "code" ? code.length === 6 : step === "done" || need[step].every(ok);
+  const ready = step === "code" ? code.length === 6 : step === "done" || (need[step].every(ok) && (step !== "email" || !terms || accepted));
 
   const switchTo = (next: Via) => {
     if (busy || next === step) return;
     setStep(next);
     setError("");
+    setTerms(null);
+    setAccepted(false);
   };
 
   const request = (mode: Via) =>
-    post<LoginResult>(mode === "phone" ? "/auth/telegram-code" : "/auth/login", mode === "phone" ? { phone } : { email: email.trim(), password });
+    post<LoginResult>(
+      mode === "phone" ? "/auth/telegram-code" : "/auth/login",
+      mode === "phone" ? { phone } : { email: email.trim(), password, ...(terms && accepted ? { acceptedTerms: true, termsVersion: terms.version } : {}) },
+    );
 
   async function finish(redirect: string) {
     setStep("done");
     await new Promise((resolve) => window.setTimeout(resolve, 650));
     await refresh();
     const from = (location.state as { from?: { pathname?: string } })?.from?.pathname;
-    navigate(from && from !== "/login" ? from : window.location.hostname.toLowerCase().startsWith("corporate.") ? "/corporate" : redirect, { replace: true });
+    navigate(from && from !== "/login" ? from : redirect, { replace: true });
   }
 
   async function next() {
@@ -178,6 +191,18 @@ export function LoginPage() {
       }
       const result = await request(current);
       setBusy(false);
+      if (result.requiresTerms && result.terms) {
+        // Parol to‘g‘ri — shartlarga rozilik kerak (rozilik faqat keyingi yuborishda serverda yoziladi).
+        setTerms(result.terms);
+        setAccepted(false);
+        return;
+      }
+      if (result.corporate) {
+        setStep("done");
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        navigate(result.redirect || "/corporate-portal", { replace: true });
+        return;
+      }
       if (result.requires2fa && result.challengeId) {
         setChallenge({ id: result.challengeId, telegram: result.telegram || "Telegram" });
         setVia(current);
@@ -291,7 +316,7 @@ export function LoginPage() {
                 <div className="lg-seg lg-rise" role="tablist" style={{ "--k": step === "phone" ? 1 : 0 } as CSSProperties}>
                   <i className="lg-sel" aria-hidden />
                   <button type="button" role="tab" aria-selected={step === "email"} className="lg-tab" onClick={() => switchTo("email")}>
-                    <KeyRound size={17} aria-hidden /> Email va parol
+                    <KeyRound size={17} aria-hidden /> Login va parol
                   </button>
                   <button type="button" role="tab" aria-selected={step === "phone"} className="lg-tab" onClick={() => switchTo("phone")}>
                     <Smartphone size={17} aria-hidden /> Telefon raqam
@@ -305,14 +330,19 @@ export function LoginPage() {
                       <input
                         ref={emailRef}
                         className="lg-input"
-                        type="email"
+                        type="text"
                         inputMode="email"
                         autoComplete="username"
+                        autoCapitalize="none"
                         spellCheck={false}
-                        placeholder="Email"
-                        aria-label="Email"
+                        placeholder="Email yoki login"
+                        aria-label="Email yoki login"
                         value={email}
-                        onChange={change("email", setEmail)}
+                        onChange={(e) => {
+                          change("email", setEmail)(e);
+                          setTerms(null);
+                          setAccepted(false);
+                        }}
                         onBlur={blur("email")}
                       />,
                       40,
@@ -342,6 +372,18 @@ export function LoginPage() {
                       >
                         {show ? <EyeOff size={18} /> : <Eye size={18} />}
                       </button>,
+                    )}
+                    {terms && (
+                      <label className={`lg-terms lg-rise${accepted ? " on" : ""}`} style={{ "--d": "40ms" } as CSSProperties}>
+                        <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} />
+                        <span>
+                          Corporate portalidan foydalanish{" "}
+                          <button type="button" className="lg-terms-link" onClick={() => setTermsOpen(true)}>
+                            shartlari
+                          </button>{" "}
+                          bilan tanishdim va roziman.
+                        </span>
+                      </label>
                     )}
                   </>
                 ) : (
@@ -468,13 +510,53 @@ export function LoginPage() {
             )}
           </AutoHeight>
         </form>
-        <Link className="corporate-login-link" to="/corporate-login">
-          <Building2 size={16} /> Founder, Investor yoki CEO sifatida kirish
-          <ArrowRight size={15} />
-        </Link>
         <p className="auth-foot">© {new Date().getFullYear()} Staffora</p>
       </div>
+      {termsOpen && terms && <TermsModal terms={terms} onClose={() => setTermsOpen(false)} onAccept={() => (setAccepted(true), setTermsOpen(false))} />}
     </main>
+  );
+}
+
+/** Corporate portal shartlari (ta’sischi/investor birinchi kirishida). */
+function TermsModal({ terms, onClose, onAccept }: { terms: Terms; onClose: () => void; onAccept: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="corp-terms-layer" role="dialog" aria-modal="true" aria-labelledby="corp-terms-title" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="corp-terms-modal">
+        <header>
+          <span>
+            <FileText />
+          </span>
+          <div>
+            <h2 id="corp-terms-title">{terms.title}</h2>
+            <small>Versiya: {terms.version}</small>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Yopish">
+            <X />
+          </button>
+        </header>
+        <div className="corp-terms-body">
+          {terms.sections.map((section) => (
+            <section key={section.title}>
+              <h3>{section.title}</h3>
+              <p>{section.text}</p>
+            </section>
+          ))}
+        </div>
+        <footer>
+          <button type="button" className="btn" onClick={onClose}>
+            Yopish
+          </button>
+          <button type="button" className="btn btn-primary" onClick={onAccept}>
+            O‘qidim va roziman
+          </button>
+        </footer>
+      </div>
+    </div>
   );
 }
 

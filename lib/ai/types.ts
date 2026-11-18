@@ -52,8 +52,15 @@ export interface AiMessage {
   role: "USER" | "ASSISTANT" | "SYSTEM";
   text: string;
   actionId?: string;
+  /** Real ma’lumotdan tuzilgan hisobot kartasi (web chatda jadval/statistika sifatida ko‘rsatiladi). */
+  card?: AiCard;
   createdAt: string;
 }
+
+/** AI javobidagi tuzilgan natija: ko‘rsatkichlar yoki jadval (raqamlar faqat bazadan). */
+export type AiCard =
+  | { kind: "stats"; title: string; subtitle?: string; items: { label: string; value: string; tone?: "green" | "amber" | "red" | "blue" | "gray" }[] }
+  | { kind: "table"; title: string; subtitle?: string; columns: string[]; rows: string[][]; more?: number };
 
 export type AiActionLevel = "READ" | "WRITE" | "SENSITIVE" | "FORBIDDEN";
 export interface AiActionExecution {

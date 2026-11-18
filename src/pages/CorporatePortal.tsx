@@ -1,308 +1,158 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
-import {
-  ArrowRight,
-  BriefcaseBusiness,
-  CheckCircle2,
-  Eye,
-  EyeOff,
-  FileText,
-  LogOut,
-  Scale,
-  ShieldCheck,
-  X,
-} from "lucide-react";
+import { BarChart3, CircleDollarSign, Download, FileCheck2, Landmark, LogOut, Scale, ShieldCheck, Users } from "lucide-react";
 import { api, errorText, post } from "../api";
 import { Logo } from "../components/Logo";
-import { CorporatePage } from "./Corporate";
+import { useApi } from "../hooks";
+import { CorporateWorkspace, roleName, type CorporateMe, type CorporateTab } from "./Corporate";
 
-type Terms = {
-  version: string;
-  title: string;
-  sections: { title: string; text: string }[];
-};
-type CorporateMe = {
-  participant: { id: string; name: string; role: string; shareBps?: number };
-  company: { id: string; name: string } | null;
-};
-const CorporateContext = createContext<CorporateMe | null>(null);
-export const useCorporate = () => useContext(CorporateContext);
+/*
+ * Corporate portal (corporate.staffora.uz yoki /corporate-portal) — Staffora ta’sischilari va investorlari.
+ * Kirish — asosiy /login orqali (bitta forma); sessiya alohida cookie, kompaniya paneli ruxsatlariga aralashmaydi.
+ */
+const TABS: { key: CorporateTab; label: string; icon: typeof Users; permission?: string }[] = [
+  { key: "overview", label: "Umumiy ko‘rinish", icon: BarChart3 },
+  { key: "finance", label: "Moliya", icon: CircleDollarSign, permission: "finance.read" },
+  { key: "ownership", label: "Ulushlar", icon: Scale },
+  { key: "approvals", label: "Tasdiqlashlar", icon: ShieldCheck },
+  { key: "agreements", label: "Kelishuvlar", icon: FileCheck2, permission: "agreements.read" },
+  { key: "participants", label: "Ishtirokchilar", icon: Users, permission: "participants.read" },
+];
 
-export function CorporateLoginPage() {
-  const [login, setLogin] = useState("");
-  const [password, setPassword] = useState("");
-  const [accepted, setAccepted] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [terms, setTerms] = useState<Terms>();
-  const [termsOpen, setTermsOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const navigate = useNavigate();
-  useEffect(() => {
-    void api<Terms>("/corporate-auth/terms")
-      .then(setTerms)
-      .catch((e) => setError(errorText(e)));
-  }, []);
-  const ready = login.trim().length >= 3 && password.length >= 6;
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!accepted || !terms) return;
-    setBusy(true);
-    setError("");
-    try {
-      await post("/corporate-auth/login", {
-        login,
-        password,
-        acceptedTerms: true,
-        termsVersion: terms.version,
-      });
-      navigate("/corporate-portal", { replace: true });
-    } catch (e) {
-      setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <main className="corp-auth">
-      <section className="corp-auth-brand">
-        <div className="corp-brand-inner">
-          <Logo />
-          <span className="corp-auth-badge">
-            <BriefcaseBusiness size={15} /> CORPORATE PORTAL
-          </span>
-          <h1>
-            Korporativ boshqaruvning <em>ishonchli markazi.</em>
-          </h1>
-          <p>
-            Founder, Co-Founder, CEO va Investorlar uchun moliya, ulush,
-            kelishuv va tasdiqlashlar yagona xavfsiz maydonda.
-          </p>
-          <div className="corp-auth-benefits">
-            <div>
-              <ShieldCheck />
-              <span>
-                <b>Rollar asosida himoya</b>
-                <small>
-                  Har bir foydalanuvchi faqat o‘z vakolatini ko‘radi.
-                </small>
-              </span>
-            </div>
-            <div>
-              <Scale />
-              <span>
-                <b>Huquqiy aniqlik</b>
-                <small>Tizim roli va yuridik egalik aniq ajratilgan.</small>
-              </span>
-            </div>
-            <div>
-              <CheckCircle2 />
-              <span>
-                <b>Audit va tasdiqlash</b>
-                <small>Muhim qarorlar kuzatiladi va qayd etiladi.</small>
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-      <section className="corp-auth-form">
-        <form onSubmit={(e) => void submit(e)}>
-          <div className="corp-mobile-logo">
-            <Logo />
-          </div>
-          <span className="eyebrow">XUSH KELIBSIZ</span>
-          <h2>Corporate hisobingizga kiring</h2>
-          <p className="muted">
-            Super Admin bergan login va paroldan foydalaning.
-          </p>
-          <label>
-            Login
-            <input
-              autoFocus
-              autoComplete="username"
-              value={login}
-              onChange={(e) => {
-                setLogin(e.target.value);
-                setError("");
-              }}
-              placeholder="masalan: founder.ozodbek"
-            />
-          </label>
-          <label>
-            Parol
-            <div className="password-field">
-              <input
-                type={showPassword ? "text" : "password"}
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => {
-                  setPassword(e.target.value);
-                  setError("");
-                }}
-                placeholder="Parolingiz"
-              />
-              <button
-                type="button"
-                aria-label={
-                  showPassword ? "Parolni yashirish" : "Parolni ko‘rsatish"
-                }
-                onClick={() => setShowPassword(!showPassword)}
-              >
-                {showPassword ? <EyeOff /> : <Eye />}
-              </button>
-            </div>
-          </label>
-          {ready && (
-            <label className="corp-terms-check">
-              <input
-                type="checkbox"
-                checked={accepted}
-                onChange={(e) => setAccepted(e.target.checked)}
-              />
-              <span>
-                Men foydalanish{" "}
-                <button type="button" onClick={() => setTermsOpen(true)}>
-                  shartlari
-                </button>
-                ni o‘qidim va roziman.
-              </span>
-            </label>
-          )}
-          {error && <div className="corp-auth-error">{error}</div>}
-          <button
-            className="corp-login-button"
-            disabled={!ready || !accepted || busy}
-          >
-            {busy ? (
-              "Tekshirilmoqda…"
-            ) : (
-              <>
-                Portalga kirish <ArrowRight />
-              </>
-            )}
-          </button>
-          <small className="corp-login-help">
-            Kirish ma’lumotlari yo‘qmi? Super Admin bilan bog‘laning.
-          </small>
-        </form>
-      </section>
-      {termsOpen && terms && (
-        <TermsModal terms={terms} onClose={() => setTermsOpen(false)} />
-      )}
-    </main>
-  );
-}
-
-function TermsModal({ terms, onClose }: { terms: Terms; onClose: () => void }) {
-  return (
-    <div
-      className="corp-terms-layer"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="corp-terms-title"
-    >
-      <div className="corp-terms-modal">
-        <header>
-          <span>
-            <FileText />
-          </span>
-          <div>
-            <h2 id="corp-terms-title">{terms.title}</h2>
-            <small>Versiya: {terms.version}</small>
-          </div>
-          <button onClick={onClose} aria-label="Yopish">
-            <X />
-          </button>
-        </header>
-        <div className="corp-terms-body">
-          {terms.sections.map((s) => (
-            <section key={s.title}>
-              <h3>{s.title}</h3>
-              <p>{s.text}</p>
-            </section>
-          ))}
-        </div>
-        <footer>
-          <button className="btn btn-primary" onClick={onClose}>
-            O‘qidim
-          </button>
-        </footer>
-      </div>
-    </div>
-  );
-}
+type Session = { participant: { id: string; name: string; role: string } };
 
 export function CorporatePortalApp() {
-  const [me, setMe] = useState<CorporateMe | null>();
+  const [session, setSession] = useState<Session | null>();
   const location = useLocation();
+  const navigate = useNavigate();
   useEffect(() => {
-    void api<CorporateMe>("/corporate-auth/me")
-      .then(setMe)
-      .catch(() => setMe(null));
+    document.title = "Corporate · Staffora";
+    void api<Session>("/corporate-auth/me")
+      .then(setSession)
+      .catch(() => setSession(null));
   }, []);
-  if (me === undefined)
+  const me = useApi<CorporateMe>(session ? "/corporate/me" : null);
+  const tab = (new URLSearchParams(location.search).get("tab") as CorporateTab) || "overview";
+
+  if (session === undefined)
     return (
       <div className="corp-portal-loader">
         <span />
         Corporate portal yuklanmoqda…
       </div>
     );
-  if (me === null)
-    return (
-      <Navigate
-        to="/corporate-login"
-        replace
-        state={{ from: location.pathname }}
-      />
-    );
+  if (session === null) return <Navigate to="/login" replace state={{ from: { pathname: location.pathname } }} />;
+  const can = (permission?: string) => !permission || Boolean(me.data && (me.data.permissions.includes("*") || me.data.permissions.includes(permission)));
+  const tabs = TABS.filter((t) => can(t.permission));
+  const name = session.participant.name;
+  const first = name.split(/\s+/)[0];
+  const open = (key: CorporateTab) => navigate(key === "overview" ? "/corporate-portal" : `/corporate-portal?tab=${key}`);
+  const current = tabs.some((t) => t.key === tab) ? tab : "overview";
+
   return (
-    <CorporateContext.Provider value={me}>
-      <div className="corp-portal-shell">
-        <header className="corp-portal-header">
-          <Logo />
-          <div className="corp-portal-company">
-            <small>Kompaniya</small>
-            <b>{me.company?.name || "Staffora"}</b>
-          </div>
-          <span className="corp-role-pill">
-            {me.participant.role.replace("_", " ")}
+    <div className="cp-shell">
+      <header className="tn-bar cp-bar">
+        <div className="tn-inner">
+          <span className="tn-brand cp-brand">
+            <Logo />
+            <em>Corporate</em>
           </span>
-          <div className="corp-portal-user">
-            <span>
-              {me.participant.name
-                .split(/\s+/)
-                .map((x) => x[0])
-                .slice(0, 2)
-                .join("")}
+          <nav className="tn-nav cp-nav" aria-label="Corporate bo‘limlari">
+            {tabs.map(({ key, label, icon: Icon }) => (
+              <button key={key} type="button" className={`tn-link ${current === key ? "active" : ""}`} aria-current={current === key ? "page" : undefined} onClick={() => open(key)}>
+                <Icon size={16} strokeWidth={1.9} aria-hidden />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="tn-actions">
+            <span className="cp-user">
+              <span className="avatar sm">
+                {name
+                  .split(/\s+/)
+                  .map((w) => w[0])
+                  .slice(0, 2)
+                  .join("")
+                  .toUpperCase()}
+              </span>
+              <span className="cp-user-text">
+                <b>{name}</b>
+                <small>{roleName[session.participant.role] || session.participant.role}</small>
+              </span>
             </span>
-            <div>
-              <b>{me.participant.name}</b>
-              <small>
-                {me.participant.shareBps !== undefined
-                  ? `${(me.participant.shareBps / 100).toFixed(2)}% economic interest`
-                  : "Korporativ ishtirokchi"}
-              </small>
-            </div>
+            <button
+              type="button"
+              className="tn-icon"
+              aria-label="Chiqish"
+              title="Chiqish"
+              onClick={async () => {
+                await post("/corporate-auth/logout", {}).catch(() => undefined);
+                window.location.href = "/login";
+              }}
+            >
+              <LogOut size={17} />
+            </button>
           </div>
-          <button
-            className="corp-logout"
-            onClick={async () => {
-              await post("/corporate-auth/logout", {}).catch(() => undefined);
-              window.location.href = "/corporate-login";
-            }}
-          >
-            <LogOut /> Chiqish
-          </button>
-        </header>
-        <CorporatePage />
+        </div>
+      </header>
+      <main className="tn-main" id="main-content">
+        <div className="page tp-page cp-page">
+          <header className="tp-head">
+            <div>
+              <h1>{current === "overview" ? `Xush kelibsiz, ${first}` : tabs.find((t) => t.key === current)?.label || "Corporate"}</h1>
+              <p>{current === "overview" ? "Staffora platformasi ko‘rsatkichlari va sizning iqtisodiy manfaatingiz" : "Staffora Corporate Management"}</p>
+            </div>
+            {can("reports.read") && (
+              <div className="tp-head-actions">
+                <a className="btn" href="/api/corporate/reports.xlsx">
+                  <Download size={15} /> Excel
+                </a>
+                <a className="btn" href="/api/corporate/reports.pdf" target="_blank" rel="noreferrer">
+                  <Download size={15} /> PDF
+                </a>
+              </div>
+            )}
+          </header>
+          {me.error && <div className="notice error">{me.error}</div>}
+          {me.data?.requiredAgreement && <AgreementGate item={me.data.requiredAgreement} onDone={() => void me.reload(true)} />}
+          {me.data ? <CorporateWorkspace me={me.data} tab={current} /> : !me.error && <span className="tp-card db-sk-card" style={{ display: "block", height: 320 }} />}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function AgreementGate({ item, onDone }: { item: NonNullable<CorporateMe["requiredAgreement"]>; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function accept() {
+    setBusy(true);
+    setError("");
+    try {
+      await post("/corporate/agreements/accept", { agreementId: item.agreementId, versionId: item.versionId });
+      onDone();
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="agreement-gate">
+      <Landmark />
+      <div>
+        <b>Kelishuvni qabul qilish talab qilinadi</b>
+        <span>
+          {item.title} · v{item.version}. Rozilikdan keyin 48 soat ichida qaytarib olish so‘rovi yuborish mumkin.
+        </span>
+        {error && <small>{error}</small>}
       </div>
-    </CorporateContext.Provider>
+      <a className="btn" href={`/api/corporate/agreements/${item.agreementId}/pdf?versionId=${item.versionId}`} target="_blank" rel="noreferrer">
+        O‘qish
+      </a>
+      <button className="btn btn-primary" disabled={busy} onClick={() => void accept()}>
+        {busy ? "Saqlanmoqda…" : "Qabul qilaman"}
+      </button>
+    </div>
   );
 }

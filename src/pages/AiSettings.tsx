@@ -1,504 +1,384 @@
-import { useEffect, useState, type FormEvent } from "react";
-import {
-  Activity,
-  ArrowRight,
-  Bot,
-  CheckCircle2,
-  Eye,
-  EyeOff,
-  Gauge,
-  KeyRound,
-  Layers3,
-  Plus,
-  RefreshCw,
-  ShieldCheck,
-  Sparkles,
-  Trash2,
-  TriangleAlert,
-  Zap,
-} from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Bot, Check, CheckCircle2, ExternalLink, Eye, EyeOff, KeyRound, Lock, Mic, RefreshCw, ShieldCheck, Trash2, TriangleAlert } from "lucide-react";
 import { del, errorText, post, put } from "../api";
 import { useApi } from "../hooks";
-import { PageHeader } from "../components/ui";
+import { Confirm, useToast } from "../components/ui";
+import mark from "../assets/staffora-mark.svg";
 
-type Credential = {
-  id: string;
-  provider: string;
-  model: string;
-  keyHint: string;
-  label?: string;
-  active: boolean;
-  createdAt: string;
-  lastTestAt?: string;
-  lastTestOk?: boolean;
-  lastError?: string;
-};
-type Config = {
-  enabled: boolean;
-  responseLanguage: "uz" | "ru" | "en";
-  voiceEnabled: boolean;
-  credentials: Credential[];
-  dailyTokenLimit?: number;
-  monthlyTokenLimit?: number;
-};
-type BotState = {
-  enabled: boolean;
-  username?: string;
-  status?: string;
-  telegramLinked?: boolean;
-};
-type AiStatus = {
-  enabled: boolean;
-  configured: boolean;
-  ready: boolean;
-  credentialCount: number;
-  healthyCredentialCount: number;
-  untestedCredentialCount: number;
-  providers: string[];
-  currentModel?: string;
-  lastCheckedAt?: string;
-  lastError?: string;
-};
-const providerNames: Record<string, string> = {
-  OPENAI: "OpenAI",
-  GEMINI: "Google Gemini",
-  ANTHROPIC: "Anthropic Claude",
-  GROQ: "Groq",
-};
+/*
+ * Staffora AI sozlamalari: 1) provayder va API kalit → 2) avtomatik real tekshiruv → 3) yoqish.
+ * Kalit serverda shifrlanadi va hech qachon qaytarilmaydi (faqat oxirgi belgilar). Bir nechta kalit
+ * bo‘lsa — birinchisi ishlamasa keyingisi avtomatik ishlatiladi.
+ */
+type Credential = { id: string; provider: string; model: string; keyHint: string; label?: string; active: boolean; createdAt: string; lastTestAt?: string; lastTestOk?: boolean; lastError?: string };
+type Config = { enabled: boolean; responseLanguage: "uz" | "ru" | "en"; voiceEnabled: boolean; credentials: Credential[]; dailyTokenLimit?: number; monthlyTokenLimit?: number };
+type BotState = { enabled: boolean; username?: string; status?: string; telegramLinked?: boolean };
+type AiStatus = { enabled: boolean; configured: boolean; ready: boolean; credentialCount: number; healthyCredentialCount: number; untestedCredentialCount: number; providers: string[]; currentModel?: string; lastCheckedAt?: string; lastError?: string };
+type Usage = { totals: { inputTokens: number; outputTokens: number } };
+
+const PROVIDERS = [
+  { key: "OPENAI", name: "OpenAI", prefix: "sk-", url: "https://platform.openai.com/api-keys", note: "GPT modellari · ovoz" },
+  { key: "GEMINI", name: "Google Gemini", prefix: "AIza", url: "https://aistudio.google.com/app/apikey", note: "Bepul kvota mavjud" },
+  { key: "ANTHROPIC", name: "Anthropic Claude", prefix: "sk-ant-", url: "https://console.anthropic.com/settings/keys", note: "Aniq tahlil" },
+  { key: "GROQ", name: "Groq", prefix: "gsk_", url: "https://console.groq.com/keys", note: "Juda tez · ovoz" },
+] as const;
+const nameOf = (key: string) => PROVIDERS.find((p) => p.key === key)?.name || key;
+const detect = (token: string) => (token.startsWith("gsk_") ? "GROQ" : token.startsWith("sk-ant-") ? "ANTHROPIC" : token.startsWith("AIza") ? "GEMINI" : token.startsWith("sk-") ? "OPENAI" : "");
+const when = (iso?: string) => (iso ? new Date(iso).toLocaleString("ru-RU", { timeZone: "Asia/Tashkent", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "");
+const num = (n = 0) => n.toLocaleString("ru-RU").replace(/\s/g, " ");
 
 export function AiSettingsPage() {
+  const toast = useToast();
   const settings = useApi<Config | null>("/ai/settings");
-  const usage = useApi<{
-    totals: { inputTokens: number; outputTokens: number };
-  }>("/ai/usage");
+  const usage = useApi<Usage>("/ai/usage");
   const company = useApi<BotState>("/ai/company-bot");
   const status = useApi<AiStatus>("/ai/status");
-  const [form, setForm] = useState({
-    enabled: false,
-    responseLanguage: "uz" as Config["responseLanguage"],
-    voiceEnabled: false,
-    dailyTokenLimit: undefined as number | undefined,
-    monthlyTokenLimit: undefined as number | undefined,
-  });
+  const [form, setForm] = useState({ responseLanguage: "uz" as Config["responseLanguage"], voiceEnabled: false, dailyTokenLimit: undefined as number | undefined, monthlyTokenLimit: undefined as number | undefined });
+  const [enabled, setEnabled] = useState(false);
   const [token, setToken] = useState("");
-  const [showToken, setShowToken] = useState(false);
+  const [show, setShow] = useState(false);
   const [label, setLabel] = useState("");
+  const [picked, setPicked] = useState<string>("GEMINI");
   const [busy, setBusy] = useState("");
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const reloadAll = () => Promise.all([
-    settings.reload(true),
-    usage.reload(true),
-    company.reload(true),
-    status.reload(true),
-  ]);
+  const [removing, setRemoving] = useState<Credential | null>(null);
+  const credentials = useMemo(() => settings.data?.credentials || [], [settings.data]);
+  const detected = detect(token.trim());
+  const provider = PROVIDERS.find((p) => p.key === (detected || picked)) || PROVIDERS[1];
+  const s = status.data;
+
   useEffect(() => {
-    if (settings.data)
-      setForm({
-        enabled: settings.data.enabled,
-        responseLanguage: settings.data.responseLanguage,
-        voiceEnabled: settings.data.voiceEnabled,
-        dailyTokenLimit: settings.data.dailyTokenLimit,
-        monthlyTokenLimit: settings.data.monthlyTokenLimit,
-      });
+    if (!settings.data) return;
+    setEnabled(settings.data.enabled);
+    setForm({ responseLanguage: settings.data.responseLanguage, voiceEnabled: settings.data.voiceEnabled, dailyTokenLimit: settings.data.dailyTokenLimit, monthlyTokenLimit: settings.data.monthlyTokenLimit });
   }, [settings.data]);
-  async function run(key: string, fn: () => Promise<unknown>, ok: string) {
-    setBusy(key);
+  useEffect(() => {
+    if (detected) setPicked(detected);
+  }, [detected]);
+  const reloadAll = () => Promise.all([settings.reload(true), usage.reload(true), company.reload(true), status.reload(true)]);
+
+  async function addToken(e: FormEvent) {
+    e.preventDefault();
+    setBusy("token");
     setError("");
-    setMessage("");
+    let saved = false;
     try {
-      await fn();
-      setMessage(ok);
+      const created = await post<Config>("/ai/settings/tokens", { token: token.trim(), label: label.trim() || undefined });
+      saved = true;
+      const fresh = created.credentials.find((item) => !credentials.some((old) => old.id === item.id));
+      if (fresh) await post("/ai/providers/test", { credentialId: fresh.id }, { timeoutMs: 60_000 });
+      toast(`${fresh ? nameOf(fresh.provider) : "API"} kaliti tekshirildi — Staffora AI tayyor`);
+      setToken("");
+      setLabel("");
+      setShow(false);
+    } catch (reason) {
+      setError(saved ? `Kalit saqlandi, lekin tekshiruvdan o‘tmadi: ${errorText(reason)}` : errorText(reason));
+    } finally {
       await reloadAll();
-    } catch (e) {
-      setError(errorText(e));
+      setBusy("");
+    }
+  }
+  async function testOne(item: Credential) {
+    setBusy(item.id);
+    setError("");
+    try {
+      await post("/ai/providers/test", { credentialId: item.id }, { timeoutMs: 60_000 });
+      toast(`${nameOf(item.provider)} kaliti ishlayapti`);
+    } catch (reason) {
+      setError(`${nameOf(item.provider)}: ${errorText(reason)}`);
+    } finally {
+      await reloadAll();
+      setBusy("");
+    }
+  }
+  async function toggle(next: boolean) {
+    setBusy("toggle");
+    setError("");
+    setEnabled(next);
+    try {
+      await put("/ai/settings", { ...form, enabled: next });
+      toast(next ? "Staffora AI yoqildi" : "Staffora AI vaqtincha o‘chirildi");
+      await reloadAll();
+    } catch (reason) {
+      setEnabled(!next);
+      setError(errorText(reason));
     } finally {
       setBusy("");
     }
   }
   async function save(e: FormEvent) {
     e.preventDefault();
-    await run(
-      "save",
-      () => put("/ai/settings", form),
-      "Staffora AI sozlamalari saqlandi.",
-    );
-  }
-  async function addToken(e: FormEvent) {
-    e.preventDefault();
-    setBusy("token");
-    setError("");
-    setMessage("");
-    let tokenSaved = false;
-    try {
-      const created = await post<Config>("/ai/settings/tokens", { token, label: label || undefined });
-      tokenSaved = true;
-      const candidate = created.credentials.find((item) => !credentials.some((old) => old.id === item.id));
-      if (candidate) {
-        await post("/ai/providers/test", { credentialId: candidate.id }, { timeoutMs: 60_000 });
-        setMessage(`${providerNames[candidate.provider] || candidate.provider} tokeni tekshirildi va ishlashga tayyor.`);
-      } else {
-        setMessage("Token saqlandi va Staffora AI faollashtirildi.");
-      }
-      setToken("");
-      setLabel("");
-    } catch (reason) {
-      setError(tokenSaved ? `Token saqlandi, ammo real tekshiruvdan o‘tmadi: ${errorText(reason)}` : errorText(reason));
-    } finally {
-      await reloadAll();
-      setBusy("");
-    }
-  }
-  async function toggleAi(enabled: boolean) {
-    const previous = form.enabled;
-    const next = { ...form, enabled };
-    setForm(next);
-    setBusy("toggle");
+    setBusy("save");
     setError("");
     try {
-      await put("/ai/settings", next);
-      setMessage(enabled ? "Staffora AI ishga tushirildi." : "Staffora AI vaqtincha o‘chirildi.");
+      await put("/ai/settings", { ...form, enabled });
+      toast("Sozlamalar saqlandi");
       await reloadAll();
     } catch (reason) {
-      setForm((current) => ({ ...current, enabled: previous }));
       setError(errorText(reason));
     } finally {
       setBusy("");
     }
   }
-  async function testAll() {
-    setBusy("test-all");
-    setError("");
-    setMessage("");
-    let passed = 0;
-    const failures: string[] = [];
-    for (const item of credentials) {
-      try {
-        await post("/ai/providers/test", { credentialId: item.id }, { timeoutMs: 60_000 });
-        passed += 1;
-      } catch (reason) {
-        failures.push(`${providerNames[item.provider] || item.provider}: ${errorText(reason)}`);
-      }
-    }
-    await reloadAll();
-    setBusy("");
-    if (passed) setMessage(`${passed} ta token muvaffaqiyatli tekshirildi.`);
-    if (failures.length) setError(failures.join(" · "));
-  }
-  const detectedProvider = token.startsWith("gsk_") ? "Groq" : token.startsWith("sk-ant-") ? "Anthropic Claude" : token.startsWith("AIza") ? "Google Gemini" : token.startsWith("sk-") ? "OpenAI" : "";
-  const credentials = settings.data?.credentials || [];
-  const bot = company.data;
+
+  const hasKey = credentials.length > 0;
+  const tested = credentials.some((c) => c.lastTestOk);
+  const voiceProvider = credentials.some((c) => c.provider === "OPENAI" || c.provider === "GROQ");
+  const used = (usage.data?.totals.inputTokens || 0) + (usage.data?.totals.outputTokens || 0);
+  const steps: [string, string, "done" | "now" | ""][] = [
+    ["API kalit qo‘shing", hasKey ? `${credentials.length} ta kalit saqlangan` : "Pastdagi formada", hasKey ? "done" : "now"],
+    ["Avtomatik tekshiruv", tested ? "Kalit ishlayapti" : hasKey ? "Kalitni tekshiring" : "Qo‘shilganda o‘zi bajariladi", tested ? "done" : hasKey ? "now" : ""],
+    ["AI’ni yoqing", enabled ? "Yoqilgan" : "Yuqoridagi tugma bilan", enabled ? "done" : hasKey ? "now" : ""],
+  ];
+
   return (
-    <div className="page ai-settings-page ai-settings-v2">
-      <PageHeader
-        title="Staffora AI"
-        subtitle="Tokenni kiriting — provider avtomatik aniqlanadi va ishlaydigan zaxira tokenlar navbat bilan qo‘llanadi"
-      />
-      {message && <div className="notice success">{message}</div>}
-      {error && <div className="notice error">{error}</div>}
-      <div className="ai-v2-hero">
-        <div>
-          <span>
-            <Sparkles />
-          </span>
+    <div className="page tp-page as-page">
+      <header className="tp-head">
+        <div className="as-title">
+          <img src={mark} alt="" />
           <div>
-            <h2>Bir AI, barcha Staffora jarayonlari</h2>
-            <p>
-              Veb-panel va kompaniyangizning mavjud Telegram boti bitta xavfsiz
-              AI orchestratoridan foydalanadi.
-            </p>
+            <h1>Staffora AI</h1>
+            <p>Korxonangiz uchun aqlli yordamchi — veb-panel va Telegram botda bir xil ishlaydi</p>
           </div>
         </div>
-        <label className="ai-master-switch">
-          <input
-            type="checkbox"
-            checked={form.enabled}
-            disabled={busy === "toggle"}
-            onChange={(e) => void toggleAi(e.target.checked)}
-          />
+        <label className={`as-switch ${enabled ? "on" : ""}`} title={!hasKey ? "Avval API kalit qo‘shing" : undefined}>
+          <input type="checkbox" role="switch" checked={enabled} disabled={!hasKey || busy === "toggle"} onChange={(e) => void toggle(e.target.checked)} />
+          <i aria-hidden />
           <span>
-            <b>{form.enabled ? "AI yoqilgan" : "AI o‘chiq"}</b>
-            <small>
-              {form.enabled
-                ? "Foydalanuvchilar yordamchidan foydalana oladi"
-                : "Tokenlar saqlanadi, lekin so‘rovlar bajarilmaydi"}
-            </small>
+            <b>{enabled ? "Yoqilgan" : "O‘chiq"}</b>
+            <small>{enabled ? "Rahbarlar AI’dan foydalana oladi" : hasKey ? "Yoqish uchun bosing" : "Avval kalit qo‘shing"}</small>
           </span>
         </label>
-      </div>
-      <section className={`ai-readiness ${status.data?.ready ? "ready" : "setup"}`}>
-        <div className="ai-readiness-icon">
-          {status.data?.ready ? <Zap /> : <Activity />}
-        </div>
-        <div>
-          <small>AI HOLATI</small>
-          <b>{status.data?.ready ? "Ishlashga tayyor" : "Sozlashni yakunlang"}</b>
+      </header>
+
+      <section className={`as-status ${s?.ready ? "ready" : ""}`} aria-label="Sozlash bosqichlari">
+        {steps.map(([title, note, state], i) => (
+          <div key={title} className={`as-step ${state}`}>
+            <span>{state === "done" ? <Check size={14} /> : i + 1}</span>
+            <div>
+              <b>{title}</b>
+              <small>{note}</small>
+            </div>
+          </div>
+        ))}
+        <div className="as-state">
+          <i className={s?.ready ? "on" : "off"} />
           <span>
-            {status.data?.ready
-              ? `${status.data.healthyCredentialCount ? `${status.data.healthyCredentialCount} ta tekshirilgan` : `${status.data.untestedCredentialCount} ta mavjud`} token · ${status.data.providers.map((p) => providerNames[p] || p).join(", ")}`
-              : status.data?.configured
-                ? "Token mavjud. AI’ni yoqing yoki xatolikni tekshiring."
-                : "Birinchi tokenni qo‘shing — qolganini Staffora avtomatik bajaradi."}
+            <b>{s?.ready ? "Ishlashga tayyor" : "Hali tayyor emas"}</b>
+            <small>{s?.ready ? `${s.providers.map(nameOf).join(", ")}${s.currentModel ? ` · ${s.currentModel}` : ""}` : s?.lastError || "Bosqichlarni yakunlang"}</small>
           </span>
         </div>
-        <div className="ai-flow-steps" aria-label="Staffora AI sozlash bosqichlari">
-          <span className={status.data?.configured ? "done" : "active"}><i>1</i>Token</span>
-          <ArrowRight />
-          <span className={status.data?.configured ? "done" : ""}><i>2</i>Aniqlash</span>
-          <ArrowRight />
-          <span className={status.data?.ready ? "done" : ""}><i>3</i>Ishga tushirish</span>
-        </div>
       </section>
-      <div className="ai-health-grid">
-        <article><span><Layers3 /></span><div><small>PROVIDERLAR</small><strong>{status.data?.providers.length || 0}</strong><p>{status.data?.providers.map((p) => providerNames[p] || p).join(" · ") || "Token kutilmoqda"}</p></div></article>
-        <article><span><CheckCircle2 /></span><div><small>TEKSHIRILGAN TOKEN</small><strong>{status.data?.healthyCredentialCount || 0}/{status.data?.credentialCount || 0}</strong><p>{status.data?.untestedCredentialCount ? `${status.data.untestedCredentialCount} ta token tekshirilmagan` : "Holat yangilangan"}</p></div></article>
-        <article><span><Gauge /></span><div><small>FAOL MODEL</small><strong className="ai-model-name">{status.data?.currentModel || "—"}</strong><p>{status.data?.lastCheckedAt ? `Oxirgi test: ${new Date(status.data.lastCheckedAt).toLocaleString("uz-UZ")}` : "Birinchi testni bajaring"}</p></div></article>
-      </div>
-      <div className="ai-v2-grid">
-        <section className="card ai-token-card">
-          <div className="card-head">
-            <div>
-              <h3>
-                <KeyRound /> API tokenlar
-              </h3>
-              <p className="muted">
-                OpenAI, Gemini, Anthropic yoki Groq tokeni. Token shifrlanadi va
-                qayta ko‘rsatilmaydi.
-              </p>
+
+      {error && (
+        <div className="as-error" role="alert">
+          <TriangleAlert size={16} />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="as-grid">
+        <section className="tp-card">
+          <div className="tp-card-head">
+            <div className="tp-title">
+              <h2>API kalitlar</h2>
+              <span className="tp-muted">bir nechtasi bo‘lsa — zaxira sifatida navbat bilan ishlatiladi</span>
             </div>
-            <div className="ai-card-actions"><span className="badge blue">{credentials.length} ta token</span>{credentials.length > 0 && <button className="btn btn-sm" disabled={Boolean(busy)} onClick={() => void testAll()}><RefreshCw />{busy === "test-all" ? "Tekshirilmoqda…" : "Barchasini test qilish"}</button>}</div>
           </div>
-          <form className="ai-token-form" onSubmit={(e) => void addToken(e)}>
-            <label>
-              Yangi API token
-              <div className="input-icon">
-                <KeyRound />
+          <div className="as-providers" role="radiogroup" aria-label="Provayder">
+            {PROVIDERS.map((p) => (
+              <button key={p.key} type="button" role="radio" aria-checked={provider.key === p.key} className={`as-provider ${provider.key === p.key ? "on" : ""}`} onClick={() => setPicked(p.key)}>
+                <span className={`as-logo ${p.key.toLowerCase()}`}>{p.name[0]}</span>
+                <span>
+                  <b>{p.name}</b>
+                  <small>{p.note}</small>
+                </span>
+                {credentials.some((c) => c.provider === p.key) && <CheckCircle2 size={15} className="as-has" aria-label="Kalit bor" />}
+              </button>
+            ))}
+          </div>
+          <form className="as-form" onSubmit={(e) => void addToken(e)}>
+            <div className="as-guide">
+              <b>{provider.name} kalitini olish</b>
+              <ol>
+                <li>
+                  <a href={provider.url} target="_blank" rel="noreferrer">
+                    {provider.url.replace("https://", "")} <ExternalLink size={12} />
+                  </a>{" "}
+                  sahifasini oching va tizimga kiring.
+                </li>
+                <li>«Create API key» tugmasini bosing va kalitni nusxalang.</li>
+                <li>
+                  Kalitni pastga joylang — u <code>{provider.prefix}…</code> bilan boshlanadi.
+                </li>
+              </ol>
+            </div>
+            <label className="as-field">
+              <span>API kalit</span>
+              <div className={`as-input ${detected ? "ok" : ""}`}>
+                <KeyRound size={16} aria-hidden />
                 <input
-                  type={showToken ? "text" : "password"}
+                  type={show ? "text" : "password"}
                   required
                   minLength={12}
-                  autoComplete="new-password"
-                  placeholder="Tokenni shu yerga kiriting"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={`${provider.prefix}••••••••••••••••`}
                   value={token}
                   onChange={(e) => setToken(e.target.value)}
                 />
-                <button type="button" className="token-visibility" title={showToken ? "Tokenni yashirish" : "Tokenni ko‘rsatish"} onClick={() => setShowToken((value) => !value)}>{showToken ? <EyeOff /> : <Eye />}</button>
+                <button type="button" className="as-eye" aria-label={show ? "Kalitni yashirish" : "Kalitni ko‘rsatish"} onClick={() => setShow(!show)}>
+                  {show ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
               </div>
-              {token && <small className={`token-detection ${detectedProvider ? "detected" : ""}`}>{detectedProvider ? `${detectedProvider} aniqlandi · saqlanganda avtomatik tekshiriladi` : "Prefiks noma’lum · saqlanganda Gemini orqali real tekshirib aniqlanadi"}</small>}
+              {token && <small className={detected ? "as-detected" : "as-unknown"}>{detected ? `✓ ${nameOf(detected)} kaliti aniqlandi` : "Prefiks tanish emas — saqlashda real so‘rov bilan aniqlanadi"}</small>}
             </label>
-            <label>
-              Nom (ixtiyoriy)
-              <input
-                placeholder="Masalan: asosiy yoki zaxira"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-              />
+            <label className="as-field">
+              <span>Nomi (ixtiyoriy)</span>
+              <input className="input" maxLength={80} placeholder="Masalan: asosiy kalit" value={label} onChange={(e) => setLabel(e.target.value)} />
             </label>
-            <button className="btn btn-primary" disabled={busy === "token"}>
-              <Plus /> {busy === "token" ? "Aniqlanmoqda…" : "Token qo‘shish"}
-            </button>
+            <div className="as-form-foot">
+              <span className="as-secure">
+                <Lock size={13} /> Kalit shifrlangan holda saqlanadi va qayta ko‘rsatilmaydi
+              </span>
+              <button className="btn btn-primary" disabled={busy === "token" || token.trim().length < 12}>
+                {busy === "token" ? <RefreshCw size={15} className="spin" /> : <ShieldCheck size={15} />}
+                {busy === "token" ? "Tekshirilmoqda…" : "Qo‘shish va tekshirish"}
+              </button>
+            </div>
           </form>
-          <div className="ai-token-list">
-            {credentials.length ? (
-              credentials.map((item, index) => (
-                <article key={item.id}>
-                  <span
-                    className={`provider-logo ${item.provider.toLowerCase()}`}
-                  >
-                    {item.provider[0]}
-                  </span>
-                  <div>
+          {credentials.length > 0 && (
+            <ul className="as-keys">
+              {credentials.map((item, index) => (
+                <li key={item.id}>
+                  <span className={`as-logo ${item.provider.toLowerCase()}`}>{nameOf(item.provider)[0]}</span>
+                  <span className="as-key-text">
                     <b>
-                      {item.label ||
-                        `${providerNames[item.provider] || item.provider} token`}
+                      {item.label || nameOf(item.provider)}
+                      <em>{index === 0 ? "Asosiy" : `Zaxira ${index}`}</em>
                     </b>
                     <small>
-                      {item.keyHint} · {item.model}
+                      {item.keyHint.split(" · ")[0]} · {item.model}
+                      {item.lastTestAt ? ` · tekshirildi ${when(item.lastTestAt)}` : ""}
                     </small>
-                    <em>{index === 0 ? "Asosiy" : "Zaxira #" + (index + 1)}</em>
-                    {item.lastTestOk === false && item.lastError && (
-                      <small className="token-error" title={item.lastError}>{item.lastError}</small>
-                    )}
-                  </div>
-                  <span
-                    className={`token-health ${item.lastTestOk === false ? "bad" : ""}`}
-                  >
-                    {item.lastTestOk === false ? (
-                      <>
-                        <TriangleAlert /> Xato
-                      </>
-                    ) : item.lastTestOk ? (
-                      <>
-                        <CheckCircle2 /> Ishlaydi
-                      </>
-                    ) : (
-                      "Tekshirilmagan"
-                    )}
+                    {item.lastTestOk === false && item.lastError && <small className="as-key-error">{item.lastError}</small>}
                   </span>
-                  <button
-                    className="btn btn-sm"
-                    disabled={busy === item.id}
-                    onClick={() =>
-                      void run(
-                        item.id,
-                        () =>
-                          post("/ai/providers/test", { credentialId: item.id }),
-                        `${providerNames[item.provider]} token ishlayapti.`,
-                      )
-                    }
-                  >
-                    <RefreshCw /> Test
+                  <span className={`tp-badge ${item.lastTestOk ? "green" : item.lastTestOk === false ? "red" : "gray"}`}>{item.lastTestOk ? "Ishlaydi" : item.lastTestOk === false ? "Xato" : "Tekshirilmagan"}</span>
+                  <button type="button" className="btn btn-sm" disabled={busy === item.id} onClick={() => void testOne(item)}>
+                    <RefreshCw size={14} className={busy === item.id ? "spin" : ""} /> Tekshirish
                   </button>
-                  <button
-                    className="icon-btn danger"
-                    title="Tokenni o‘chirish"
-                    onClick={() =>
-                      void run(
-                        `delete-${item.id}`,
-                        () => del(`/ai/settings/tokens/${item.id}`),
-                        "Token o‘chirildi.",
-                      )
-                    }
-                  >
-                    <Trash2 />
+                  <button type="button" className="as-del" aria-label="Kalitni o‘chirish" title="O‘chirish" onClick={() => setRemoving(item)}>
+                    <Trash2 size={15} />
                   </button>
-                </article>
-              ))
-            ) : (
-              <div className="ai-token-empty">
-                <KeyRound />
-                <b>Hali token qo‘shilmagan</b>
-                <span>
-                  Yuqoriga token kiriting. Provider va modelni Staffora
-                  avtomatik tanlaydi.
-                </span>
-              </div>
-            )}
-          </div>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
-        <aside className="ai-v2-side">
-          <section className="card">
-            <h3>
-              <Bot /> Telegram
-            </h3>
-            {bot?.enabled && bot.username ? (
-              <div className="existing-bot">
-                <span>
-                  <Bot />
-                </span>
-                <div>
-                  <b>@{bot.username}</b>
-                  <small>{bot.status || "Ulangan"}</small>
-                </div>
-                <CheckCircle2 />
-              </div>
-            ) : (
-              <div className="existing-bot missing">
-                <span>
-                  <Bot />
-                </span>
-                <div>
-                  <b>Kompaniya boti ulanmagan</b>
-                  <small>
-                    Sozlamalar → Ro‘yxat boti orqali kompaniya botini ulang.
-                  </small>
-                </div>
-              </div>
-            )}
-            <p className="muted ai-bot-note">
-              <ShieldCheck /> Alohida AI bot tokeni kerak emas. Rahbar Telegram
-              hisobini Staffora bilan ulagan bo‘lsa, mavjud kompaniya boti AI
-              so‘rovlarini ham qabul qiladi.
-            </p>
-          </section>
-          <section className="card">
-            <h3>Foydalanish</h3>
-            <div className="ai-usage">
-              <div>
-                <small>Kirish tokenlari</small>
-                <strong>
-                  {usage.data?.totals.inputTokens.toLocaleString() || 0}
-                </strong>
-              </div>
-              <div>
-                <small>Javob tokenlari</small>
-                <strong>
-                  {usage.data?.totals.outputTokens.toLocaleString() || 0}
-                </strong>
+
+        <aside className="as-side">
+          <form className="tp-card" onSubmit={(e) => void save(e)}>
+            <div className="tp-card-head">
+              <div className="tp-title">
+                <h2>Javob sozlamalari</h2>
               </div>
             </div>
+            <div className="as-prefs-body">
+              <label className="as-field">
+                <span>Javob tili</span>
+                <select className="input" value={form.responseLanguage} onChange={(e) => setForm({ ...form, responseLanguage: e.target.value as Config["responseLanguage"] })}>
+                  <option value="uz">O‘zbekcha</option>
+                  <option value="ru">Русский</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
+              <label className={`as-check ${!voiceProvider ? "muted" : ""}`}>
+                <input type="checkbox" checked={form.voiceEnabled} onChange={(e) => setForm({ ...form, voiceEnabled: e.target.checked })} />
+                <span>
+                  <b>
+                    <Mic size={14} /> Ovozli buyruqlar
+                  </b>
+                  <small>{voiceProvider ? "Mikrofon va Telegram ovozli xabarlari" : "OpenAI yoki Groq kaliti kerak"}</small>
+                </span>
+              </label>
+              <div className="as-limits">
+                <label className="as-field">
+                  <span>Kunlik limit (token)</span>
+                  <input className="input" type="number" min="1000" step="1000" placeholder="Cheklanmagan" value={form.dailyTokenLimit || ""} onChange={(e) => setForm({ ...form, dailyTokenLimit: e.target.value ? Number(e.target.value) : undefined })} />
+                </label>
+                <label className="as-field">
+                  <span>Oylik limit (token)</span>
+                  <input className="input" type="number" min="1000" step="1000" placeholder="Cheklanmagan" value={form.monthlyTokenLimit || ""} onChange={(e) => setForm({ ...form, monthlyTokenLimit: e.target.value ? Number(e.target.value) : undefined })} />
+                </label>
+              </div>
+              <button className="btn btn-primary" disabled={busy === "save"}>
+                {busy === "save" ? "Saqlanmoqda…" : "Saqlash"}
+              </button>
+            </div>
+          </form>
+          <section className="tp-card">
+            <div className="tp-card-head">
+              <div className="tp-title">
+                <h2>Foydalanish</h2>
+                <span className="tp-muted">jami token</span>
+              </div>
+            </div>
+            <div className="as-usage">
+              <div>
+                <small>Savollar (kirish)</small>
+                <strong>{num(usage.data?.totals.inputTokens)}</strong>
+              </div>
+              <div>
+                <small>Javoblar (chiqish)</small>
+                <strong>{num(usage.data?.totals.outputTokens)}</strong>
+              </div>
+              {form.monthlyTokenLimit ? (
+                <div className="wide">
+                  <small>Oylik limitdan</small>
+                  <span className="tp-meter">
+                    <i className={used / form.monthlyTokenLimit > 0.9 ? "red" : "blue"} style={{ width: `${Math.min(100, (used / form.monthlyTokenLimit) * 100)}%` }} />
+                  </span>
+                </div>
+              ) : null}
+            </div>
+            <p className="as-note">Tayyor savollar (davomat, kechikkanlar, filiallar, haftalik hisobot) bazadan javob oladi — provayderga yuborilmaydi va token sarflamaydi.</p>
+          </section>
+          <section className="tp-card">
+            <div className="tp-card-head">
+              <div className="tp-title">
+                <h2>Telegram</h2>
+              </div>
+            </div>
+            <div className={`as-bot ${company.data?.enabled ? "on" : ""}`}>
+              <span>
+                <Bot size={17} />
+              </span>
+              <div>
+                <b>{company.data?.enabled && company.data.username ? `@${company.data.username}` : "Kompaniya boti ulanmagan"}</b>
+                <small>
+                  {company.data?.enabled ? (company.data.telegramLinked ? "Sizning Telegram’ingiz ulangan" : "Telegram hisobingizni profilda ulang") : "Sozlamalar → Ro‘yxat boti bo‘limida ulang"}
+                </small>
+              </div>
+            </div>
+            <p className="as-note">Alohida AI bot kerak emas: kompaniya boti rahbarlarning savollariga ham Staffora AI orqali javob beradi.</p>
           </section>
         </aside>
       </div>
-      <form className="card ai-behavior" onSubmit={(e) => void save(e)}>
-        <div>
-          <h3>Javob va limitlar</h3>
-          <p className="muted">AI xarajatini va tilini boshqaring.</p>
-        </div>
-        <label>
-          Javob tili
-          <select
-            value={form.responseLanguage}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                responseLanguage: e.target.value as Config["responseLanguage"],
-              })
-            }
-          >
-            <option value="uz">O‘zbekcha</option>
-            <option value="ru">Русский</option>
-            <option value="en">English</option>
-          </select>
-        </label>
-        <label>
-          Kunlik token
-          <input
-            type="number"
-            min="1000"
-            placeholder="Cheklanmagan"
-            value={form.dailyTokenLimit || ""}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                dailyTokenLimit: e.target.value
-                  ? Number(e.target.value)
-                  : undefined,
-              })
-            }
-          />
-        </label>
-        <label>
-          Oylik token
-          <input
-            type="number"
-            min="1000"
-            placeholder="Cheklanmagan"
-            value={form.monthlyTokenLimit || ""}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                monthlyTokenLimit: e.target.value
-                  ? Number(e.target.value)
-                  : undefined,
-              })
-            }
-          />
-        </label>
-        <label className="switch-row field-switch">
-          <input
-            type="checkbox"
-            checked={form.voiceEnabled}
-            onChange={(e) =>
-              setForm({ ...form, voiceEnabled: e.target.checked })
-            }
-          />
-          <span>Ovozli kiritish</span>
-        </label>
-        <button className="btn btn-primary" disabled={busy === "save"}>
-          {busy === "save" ? "Saqlanmoqda…" : "Sozlamalarni saqlash"}
-        </button>
-      </form>
+
+      {removing && (
+        <Confirm
+          title="Kalit o‘chirilsinmi?"
+          text={`${removing.label || nameOf(removing.provider)} (${removing.keyHint.split(" · ")[0]}) o‘chiriladi. ${credentials.length === 1 ? "Bu yagona kalit — Staffora AI o‘chib qoladi." : "Qolgan kalitlar ishlashda davom etadi."}`}
+          confirmLabel="O‘chirish"
+          danger
+          onConfirm={async () => {
+            await del(`/ai/settings/tokens/${removing.id}`);
+            toast("Kalit o‘chirildi");
+            await reloadAll();
+          }}
+          onClose={() => setRemoving(null)}
+        />
+      )}
     </div>
   );
 }

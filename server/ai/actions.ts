@@ -25,13 +25,90 @@ function employeeByRef(ctx: ActionContext, reference: string) {
 }
 
 const verified = (message: string, data: Record<string, unknown>) => ({ verified: true, message, ...data });
+const addDaysIso = (date: string, days: number) => new Date(Date.parse(`${date}T12:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+
+/*
+ * O‘qish amallari bosh sahifa bilan bir xil hisobni ishlatadi (dayRoster: grafik, ta’til, dam olish,
+ * smenasi boshlanmaganlar) — AI va dashboard raqamlari doim mos. Provayder server/index.ts da ulanadi;
+ * ulanmagan bo‘lsa (masalan, testda) — soddalashtirilgan hisob.
+ */
+export type AiRosterRow = {
+  employeeId: string;
+  name: string;
+  employeeNo: string;
+  branchId?: string;
+  branch?: string;
+  position?: string;
+  state: string;
+  late: boolean;
+  lateMinutes: number;
+  checkIn?: string;
+  checkOut?: string;
+  scheduledStart?: string;
+  workedMinutes: number;
+};
+let rosterProvider: ((db: Database, companyId: string, date: string) => AiRosterRow[]) | undefined;
+export function setAiRosterProvider(fn: typeof rosterProvider) {
+  rosterProvider = fn;
+}
+function rosterOf(c: ActionContext, date: string): AiRosterRow[] {
+  if (rosterProvider) return rosterProvider(c.db, c.companyId, date);
+  const branches = new Map(c.db.branches.filter((b) => b.companyId === c.companyId).map((b) => [b.id, b.name]));
+  const records = new Map(c.db.attendance.filter((a) => a.companyId === c.companyId && a.date === date).map((a) => [a.employeeId, a]));
+  return c.db.employees
+    .filter((e) => e.companyId === c.companyId && e.status === "ACTIVE")
+    .map((e) => {
+      const a = records.get(e.id);
+      return { employeeId: e.id, name: fullName(e), employeeNo: e.employeeNo, branchId: e.branchId, branch: branches.get(e.branchId), state: a?.checkIn ? (a.checkOut ? "LEFT" : "IN") : "ABSENT", late: (a?.lateMinutes || 0) > 0 || a?.status === "LATE", lateMinutes: a?.lateMinutes || 0, checkIn: a?.checkIn, checkOut: a?.checkOut, workedMinutes: a?.workedMinutes || 0 };
+    });
+}
+function summaryOf(rows: AiRosterRow[], date: string) {
+  const count = (...states: string[]) => rows.filter((r) => states.includes(r.state)).length;
+  const present = count("IN", "LEFT");
+  const absent = count("ABSENT");
+  return {
+    date,
+    total: rows.length,
+    present,
+    inNow: count("IN"),
+    left: count("LEFT"),
+    late: rows.filter((r) => r.late && (r.state === "IN" || r.state === "LEFT")).length,
+    absent,
+    leave: count("ON_LEAVE"),
+    dayOff: count("DAY_OFF"),
+    notYet: count("NOT_YET", "UPCOMING", "PRACTICE"),
+    rate: present + absent ? Math.round((present / (present + absent)) * 1000) / 10 : null,
+  };
+}
+function branchStatsOf(c: ActionContext, rows: AiRosterRow[]) {
+  const names = new Map(c.db.branches.filter((b) => b.companyId === c.companyId).map((b) => [b.id, b.name]));
+  const map = new Map<string, AiRosterRow[]>();
+  for (const r of rows) map.set(r.branchId || "", [...(map.get(r.branchId || "") || []), r]);
+  return [...map.entries()]
+    .map(([branchId, list]) => {
+      const s = summaryOf(list, "");
+      return { id: branchId, name: names.get(branchId) || list[0]?.branch || "Filialsiz", employees: list.length, present: s.present, inNow: s.inNow, late: s.late, absent: s.absent, rate: s.rate ?? 0 };
+    })
+    .sort((a, b) => b.employees - a.employees);
+}
 
 export const ACTIONS: Record<string, Definition> = {
-  get_attendance_summary: { level: "READ", permission: "attendance.view", schema: z.object({ date: z.string().date().optional() }), summary: (p) => `${p.date || today()} davomat xulosasi`, execute: (p, c) => { const date = p.date || today(); const employees = c.db.employees.filter((e) => e.companyId === c.companyId && e.status === "ACTIVE"); const rows = c.db.attendance.filter((a) => a.companyId === c.companyId && a.date === date); const present = new Set(rows.filter((a) => a.checkIn).map((a) => a.employeeId)); const late = rows.filter((a) => a.status === "LATE").length; return { date, total: employees.length, present: present.size, absent: Math.max(0, employees.length - present.size), late }; } },
-  get_absent_employees: { level: "READ", permission: "attendance.view", schema: z.object({ date: z.string().date().optional(), branchId: z.string().uuid().optional() }), summary: (p) => `${p.date || today()} kelmagan xodimlar`, execute: (p, c) => { const date = p.date || today(); const checked = new Set(c.db.attendance.filter((a) => a.companyId === c.companyId && a.date === date && a.checkIn).map((a) => a.employeeId)); return c.db.employees.filter((e) => e.companyId === c.companyId && e.status === "ACTIVE" && (!p.branchId || e.branchId === p.branchId) && !checked.has(e.id)).map((e) => ({ id: e.id, name: fullName(e), branchId: e.branchId })); } },
-  get_late_employees: { level: "READ", permission: "attendance.view", schema: z.object({ date: z.string().date().optional(), branchId: z.string().uuid().optional() }), summary: (p) => `${p.date || today()} kechikkan xodimlar`, execute: (p, c) => { const date = p.date || today(); return c.db.attendance.filter((a) => a.companyId === c.companyId && a.date === date && a.status === "LATE").filter((a) => !p.branchId || c.db.employees.find((e) => e.id === a.employeeId)?.branchId === p.branchId).map((a) => ({ ...a, employee: c.db.employees.find((e) => e.id === a.employeeId) ? fullName(c.db.employees.find((e) => e.id === a.employeeId)!) : a.employeeId })); } },
-  get_branch_statistics: { level: "READ", permission: "attendance.view", schema: z.object({ date: z.string().date().optional() }), summary: (p) => `${p.date || today()} filial statistikasi`, execute: (p, c) => { const date = p.date || today(); return c.db.branches.filter((b) => b.companyId === c.companyId).map((b) => { const employees = c.db.employees.filter((e) => e.companyId === c.companyId && e.branchId === b.id && e.status === "ACTIVE"); const attended = new Set(c.db.attendance.filter((a) => a.companyId === c.companyId && a.date === date && a.checkIn && employees.some((e) => e.id === a.employeeId)).map((a) => a.employeeId)); return { id: b.id, name: b.name, employees: employees.length, present: attended.size, rate: employees.length ? Math.round(attended.size / employees.length * 1000) / 10 : 0 }; }); } },
-  get_work_schedule: { level: "READ", permission: "org.view", schema: z.object({ branchId: z.string().uuid().optional(), employeeId: z.string().uuid().optional() }), summary: () => "Ish grafigi", execute: (p, c) => { const branch = p.branchId ? c.db.branches.find((b) => b.id === p.branchId && b.companyId === c.companyId) : p.employeeId ? c.db.branches.find((b) => b.id === c.db.employees.find((e) => e.id === p.employeeId && e.companyId === c.companyId)?.branchId) : undefined; return branch ? { branch, schedule: c.db.schedules.find((s) => s.id === branch.scheduleId) } : c.db.schedules.filter((s) => s.companyId === c.companyId); } },
+  get_attendance_summary: { level: "READ", permission: "attendance.view", schema: z.object({ date: z.string().date().optional() }), summary: (p) => `${p.date || today()} davomat xulosasi`, execute: (p, c) => summaryOf(rosterOf(c, p.date || today()), p.date || today()) },
+  get_absent_employees: { level: "READ", permission: "attendance.view", schema: z.object({ date: z.string().date().optional(), branchId: z.string().uuid().optional() }), summary: (p) => `${p.date || today()} kelmagan xodimlar`, execute: (p, c) => rosterOf(c, p.date || today()).filter((r) => r.state === "ABSENT" && (!p.branchId || r.branchId === p.branchId)).map((r) => ({ id: r.employeeId, name: r.name, employeeNo: r.employeeNo, branchId: r.branchId, branch: r.branch, position: r.position, scheduledStart: r.scheduledStart })) },
+  get_late_employees: { level: "READ", permission: "attendance.view", schema: z.object({ date: z.string().date().optional(), branchId: z.string().uuid().optional() }), summary: (p) => `${p.date || today()} kechikkan xodimlar`, execute: (p, c) => rosterOf(c, p.date || today()).filter((r) => r.late && (!p.branchId || r.branchId === p.branchId)).sort((a, b) => b.lateMinutes - a.lateMinutes).map((r) => ({ id: r.employeeId, name: r.name, employee: r.name, employeeNo: r.employeeNo, branch: r.branch, checkIn: r.checkIn, scheduledStart: r.scheduledStart, lateMinutes: r.lateMinutes })) },
+  get_branch_statistics: { level: "READ", permission: "attendance.view", schema: z.object({ date: z.string().date().optional() }), summary: (p) => `${p.date || today()} filial statistikasi`, execute: (p, c) => branchStatsOf(c, rosterOf(c, p.date || today())) },
+  get_weekly_summary: {
+    level: "READ",
+    permission: "attendance.view",
+    schema: z.object({ to: z.string().date().optional(), days: z.coerce.number().int().min(2).max(31).default(7) }),
+    summary: (p) => `So‘nggi ${p.days || 7} kunlik davomat hisoboti`,
+    execute: (p, c) => {
+      const to = p.to || today();
+      const days = Array.from({ length: p.days }, (_, i) => addDaysIso(to, i - p.days + 1)).map((date) => summaryOf(rosterOf(c, date), date));
+      const came = days.reduce((s, d) => s + d.present, 0), absent = days.reduce((s, d) => s + d.absent, 0);
+      return { from: days[0]?.date, to, days, totals: { present: came, late: days.reduce((s, d) => s + d.late, 0), absent, rate: came + absent ? Math.round((came / (came + absent)) * 1000) / 10 : null } };
+    },
+  },
   set_employee_salary: {
     level: "SENSITIVE",
     permission: ["employees.edit", "payroll.edit"],
@@ -105,12 +182,13 @@ export function executeAction(name: string, payload: unknown, ctx: ActionContext
 
 export function detectReadAction(message: string) {
   const text = message.toLocaleLowerCase("uz");
-  if (looksLikeWriteRequest(text)) return undefined;
-  if (/kelmagan|yo['‘’]?q xodim/.test(text)) return "get_absent_employees";
+  if (looksLikeWriteRequest(text) && !/hisobot/.test(text)) return undefined;
+  if (/kelmagan|yo['‘’]?q xodim|ishga kelmadi/.test(text)) return "get_absent_employees";
   if (/kechik/.test(text)) return "get_late_employees";
-  if (/filial.*stat|stat.*filial/.test(text)) return "get_branch_statistics";
+  if (/hafta|haftalik|o['‘’]?tgan (hafta|7)|hisobot/.test(text)) return "get_weekly_summary";
+  if (/filial/.test(text)) return "get_branch_statistics";
   if (/grafik|ish vaqti/.test(text) && !/o['‘’]?zgartir|qil/.test(text)) return "get_work_schedule";
-  if (/davomat|ishga keldi|bugun nechta/.test(text)) return "get_attendance_summary";
+  if (/davomat|ishga keldi|bugun nechta|nechta xodim|xodimlar soni/.test(text)) return "get_attendance_summary";
   return undefined;
 }
 export function looksLikeWriteRequest(message: string) {

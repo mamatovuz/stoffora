@@ -6,6 +6,7 @@ import { AuthProvider } from "./auth";
 import { ToastProvider } from "./components/ui";
 import App from "./App";
 import "./styles.css";
+import "./design.css";
 import { startTableLabels } from "./tableLabels";
 
 startTableLabels();

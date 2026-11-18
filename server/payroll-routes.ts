@@ -136,6 +136,7 @@ export function createPayrollRouter() {
       await updateDb((db) => {
         const period = closedPeriod(db, tenant, month);
         if (!period) throw httpError("Bu oy yopilmagan.", 404);
+        if (db.payrollPayments.some((p) => p.companyId === tenant && p.month === month)) throw httpError("Bu oy uchun to‘lovlar qayd etilgan — qayta ochib bo‘lmaydi. Tuzatishni keyingi oyda bonus yoki ushlanma sifatida kiriting.", 409);
         // To‘langan oy — faqat direktor qayta ochadi (Jarayon orqali, sabab bilan).
         if (db.payrollWorkflows.some((w) => w.companyId === tenant && w.month === month && w.stage === "PAID") && req.session!.role !== "COMPANY_OWNER")
           throw httpError("To‘langan oyni faqat direktor qayta ochadi.", 403);

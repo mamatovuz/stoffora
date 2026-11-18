@@ -92,7 +92,6 @@ const PrivacyPage = lazy(() => import("./pages/public/PrivacyPage").then((m) => 
 const TermsPage = lazy(() => import("./pages/public/TermsPage").then((m) => ({ default: m.TermsPage })));
 const SupportCenterPage = lazy(() => import("./pages/public/SupportCenterPage").then((m) => ({ default: m.SupportCenterPage })));
 const AiSettingsPage = lazy(() => import("./pages/AiSettings").then((m) => ({ default: m.AiSettingsPage })));
-const CorporateLoginPage = lazy(() => import("./pages/CorporatePortal").then((m) => ({ default: m.CorporateLoginPage })));
 const CorporatePortalApp = lazy(() => import("./pages/CorporatePortal").then((m) => ({ default: m.CorporatePortalApp })));
 const AnalyticsPage = lazy(() =>
   import("./pages/Analytics").then((m) => ({ default: m.AnalyticsPage })),
@@ -135,7 +134,8 @@ export default function App() {
         <Route path="/privacy" element={<PrivacyPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/support" element={<SupportCenterPage />} />
-        <Route path="/corporate-login" element={<CorporateLoginPage />} />
+        {/* Corporate portalga ham asosiy /login orqali kiriladi (yagona kirish). */}
+        <Route path="/corporate-login" element={<Navigate to="/login" replace />} />
         <Route path="/corporate-portal/*" element={<CorporatePortalApp />} />
         <Route path="/" element={<HomeRedirect />} />
         <Route

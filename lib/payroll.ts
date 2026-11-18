@@ -41,6 +41,7 @@ export function normalizePayrollSettings(
     absenceCompensation: merged.absenceCompensation !== false,
     deductBreaks: Boolean(merged.deductBreaks),
     overtimeTwoStep: Boolean(merged.overtimeTwoStep),
+    overtimeRatePercent: int(merged.overtimeRatePercent ?? 100, 100, 400, 100),
   };
 }
 
