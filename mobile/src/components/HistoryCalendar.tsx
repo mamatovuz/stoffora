@@ -98,11 +98,11 @@ export function HistoryCalendar({
     <>
       <Card style={{ gap: 12 }}>
         <View style={st.nav}>
-          <Pressable onPress={() => go(-1)} hitSlop={10} style={[st.navBtn, { backgroundColor: c.tint }]}>
+          <Pressable onPress={() => go(-1)} hitSlop={10} style={({ pressed }) => [st.navBtn, pressed && { backgroundColor: c.tint }]}>
             <Icon name="chevron-back" size={18} color={c.ink} />
           </Pressable>
           <Text style={{ color: c.ink, fontSize: 18, fontWeight: "600" }}>{monthUz(month)}</Text>
-          <Pressable onPress={() => go(1)} disabled={month >= today.slice(0, 7)} hitSlop={10} style={[st.navBtn, { backgroundColor: c.tint, opacity: month >= today.slice(0, 7) ? 0.35 : 1 }]}>
+          <Pressable onPress={() => go(1)} disabled={month >= today.slice(0, 7)} hitSlop={10} style={({ pressed }) => [st.navBtn, pressed && { backgroundColor: c.tint }, { opacity: month >= today.slice(0, 7) ? 0.3 : 1 }]}>
             <Icon name="chevron-forward" size={18} color={c.ink} />
           </Pressable>
         </View>
@@ -122,22 +122,26 @@ export function HistoryCalendar({
               <View key={`b${i}`} style={st.cell} />
             ))}
             {data.days.map((d) => {
+              // Minimal: kun raqami oddiy, holati — ostidagi kichik nuqta (rangli bloklar o‘rniga).
               const picked = d.date === selected;
-              const solid = ["ontime", "working", "late", "absent", "leave", "restwork"].includes(d.tone);
-              const bg = picked ? c.accent : colors[d.tone];
-              const fg = picked || solid ? "#fff" : d.tone === "off" ? c.accent : c.ink;
+              const marked = ["ontime", "working", "late", "absent", "leave", "restwork"].includes(d.tone);
+              const quiet = d.tone === "future" || d.tone === "off" || d.tone === "none";
+              const fg = picked ? "#fff" : quiet ? c.muted : c.ink;
               return (
                 <Pressable
                   key={d.date}
                   style={st.cell}
+                  accessibilityLabel={`${Number(d.date.slice(8))}`}
+                  accessibilityState={{ selected: picked }}
                   onPress={() => {
                     haptic.select();
                     setSelected(d.date);
                   }}
                 >
-                  <View style={[st.day, { backgroundColor: bg }, d.date === today && !picked && { borderWidth: 1.5, borderColor: c.accent }]}>
-                    <Text style={{ color: fg, fontWeight: "700", fontSize: 14.5, fontVariant: ["tabular-nums"] }}>{d.date.slice(8)}</Text>
+                  <View style={[st.day, picked && { backgroundColor: c.accent }, d.date === today && !picked && { borderWidth: 1.5, borderColor: c.accent }]}>
+                    <Text style={{ color: fg, fontWeight: picked || d.date === today ? "700" : "500", fontSize: 15, fontVariant: ["tabular-nums"] }}>{Number(d.date.slice(8))}</Text>
                   </View>
+                  <View style={[st.dayDot, { backgroundColor: marked ? colors[d.tone] : "transparent" }]} />
                 </Pressable>
               );
             })}
@@ -150,7 +154,7 @@ export function HistoryCalendar({
               ["Kechikdi", colors.late],
               ["Kelmadi", colors.absent],
               ["Ta’til", colors.leave],
-              ["Dam", `${c.accent}55`],
+              ["Dam", c.line],
             ] as const
           ).map(([label, color]) => (
             <View key={label} style={st.legendItem}>
@@ -400,8 +404,9 @@ const st = StyleSheet.create({
   row: { flexDirection: "row" },
   week: { width: `${100 / 7}%`, textAlign: "center", fontSize: 12.5, fontWeight: "600" },
   grid: { flexDirection: "row", flexWrap: "wrap" },
-  cell: { width: `${100 / 7}%`, aspectRatio: 1, padding: 3 },
-  day: { flex: 1, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  cell: { width: `${100 / 7}%`, height: 50, alignItems: "center", justifyContent: "center", gap: 3 },
+  day: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  dayDot: { width: 5, height: 5, borderRadius: 3 },
   legend: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   dot: { width: 8, height: 8, borderRadius: 4 },

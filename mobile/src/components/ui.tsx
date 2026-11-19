@@ -124,7 +124,9 @@ export function Row({
   sub?: string;
 }) {
   const { c } = useTheme();
-  const tint = danger ? c.danger : iconColor || c.accent;
+  // Minimal: ro‘yxatdagi barcha ikonkalar bitta rangda (rang-barang kvadratlar chalg‘itardi).
+  // iconColor qabul qilinadi (eski chaqiruvlar buzilmasin), lekin faqat "danger" ajratiladi.
+  const tint = danger || iconColor === c.danger ? c.danger : c.accent;
   return (
     <Pressable
       disabled={!onPress}
@@ -136,8 +138,8 @@ export function Row({
       android_ripple={{ color: c.tint }}
     >
       {icon ? (
-        <View style={[s.rowIcon, ios ? { backgroundColor: tint } : { backgroundColor: "transparent" }]}>
-          <Icon name={icon} size={ios ? 17 : 22} color={ios ? "#fff" : tint} />
+        <View style={s.rowIcon}>
+          <Icon name={icon} size={21} color={tint} />
         </View>
       ) : null}
       <View style={[s.rowBody, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }]}>
@@ -295,33 +297,47 @@ export function Sheet({ visible, title, subtitle, onClose, children }: { visible
 }
 
 /** Segmentlangan tanlov (iOS UISegmentedControl ko‘rinishi). */
-export function Segmented<T extends string>({ value, options, onChange }: { value: T; options: [T, string, number?][]; onChange: (value: T) => void }) {
-  const { c } = useTheme();
+/**
+ * Bo‘lim tanlagich. Asosiy ko‘rinish — kulrang yo‘lak ichida oq tanlangan bo‘lak (iOS segmented
+ * control, ikkala platformada bir xil). 4 tagacha variant — teng kenglikda, ko‘prog‘i — suriladi.
+ * `quiet` — ichki (ikkinchi darajali) tablar: fonsiz yozuv, tanlangani ostida ko‘k chiziq —
+ * ikki qator bir xil «tabletka» ko‘rinmasin.
+ */
+export function Segmented<T extends string>({ value, options, onChange, quiet }: { value: T; options: [T, string, number?][]; onChange: (value: T) => void; quiet?: boolean }) {
+  const { c, dark } = useTheme();
+  const fit = options.length <= 4;
+  const items = options.map(([key, label, count]) => {
+    const on = key === value;
+    return (
+      <Pressable
+        key={key}
+        accessibilityRole="tab"
+        accessibilityState={{ selected: on }}
+        onPress={() => {
+          if (on) return;
+          haptic.select();
+          onChange(key);
+        }}
+        style={({ pressed }) => [
+          quiet ? s.segQuiet : s.segItem,
+          fit && { flex: 1 },
+          !quiet && on && { backgroundColor: dark ? "#3A3A3C" : c.card, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+          quiet && { borderBottomColor: on ? c.accent : "transparent" },
+          pressed && !on && { opacity: 0.55 },
+        ]}
+      >
+        <Text style={{ color: on ? (quiet ? c.accent : c.ink) : c.muted, fontWeight: on ? "600" : "500", fontSize: 14, textAlign: "center" }} numberOfLines={1}>
+          {label}
+          {count ? ` · ${count}` : ""}
+        </Text>
+      </Pressable>
+    );
+  });
+  const track = quiet ? [s.segQuietTrack, { borderBottomColor: c.line }] : [s.seg, { backgroundColor: dark ? "rgba(118,118,128,0.24)" : "rgba(118,118,128,0.12)" }];
+  if (fit) return <View style={[track, { flexDirection: "row" }]}>{items}</View>;
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[s.seg, { backgroundColor: ios ? "rgba(118,118,128,0.12)" : "transparent" }]}>
-      {options.map(([key, label, count]) => {
-        const on = key === value;
-        return (
-          <Pressable
-            key={key}
-            onPress={() => {
-              haptic.select();
-              onChange(key);
-            }}
-            style={[
-              s.segItem,
-              ios
-                ? on && { backgroundColor: c.card, ...elevation, shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } }
-                : { borderRadius: 99, borderWidth: 1, borderColor: on ? c.accent : c.line, backgroundColor: on ? `${c.accent}18` : c.card },
-            ]}
-          >
-            <Text style={{ color: on ? (ios ? c.ink : c.accent) : c.muted, fontWeight: on ? "600" : "500", fontSize: 13.5 }}>
-              {label}
-              {count ? ` · ${count}` : ""}
-            </Text>
-          </Pressable>
-        );
-      })}
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={track}>
+      {items}
     </ScrollView>
   );
 }
@@ -348,8 +364,10 @@ export const s = StyleSheet.create({
   grabber: { alignSelf: "center", width: 36, height: 5, borderRadius: 3, marginBottom: 10 },
   sheetHead: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 14 },
   sheetClose: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  seg: { flexDirection: "row", gap: ios ? 0 : 8, padding: ios ? 2 : 0, borderRadius: 9 },
-  segItem: { paddingHorizontal: 14, paddingVertical: ios ? 7 : 8, borderRadius: 7 },
+  seg: { flexDirection: "row", padding: 3, borderRadius: 11 },
+  segItem: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  segQuietTrack: { flexDirection: "row", borderBottomWidth: StyleSheet.hairlineWidth },
+  segQuiet: { paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 2, marginBottom: -StyleSheet.hairlineWidth, alignItems: "center" },
 });
 
 /**

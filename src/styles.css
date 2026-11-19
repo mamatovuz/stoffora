@@ -9474,23 +9474,27 @@ html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
 .hc-nav b { font-size: 17px; font-weight: 600; }
 .hc-nav button { width: 42px; height: 38px; border: 0; border-radius: 12px; background: var(--m-tint); color: var(--m-ink); display: grid; place-items: center; }
 .hc-nav button:disabled { opacity: 0.35; }
-.hc-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.hc-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px 0; }
 .hc-week span { text-align: center; font-size: 12px; font-weight: 600; color: var(--m-muted); }
 .hc-week span.sun { color: var(--m-accent); }
-.hc-day { aspect-ratio: 1; border: 0; border-radius: 12px; font: inherit; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; background: var(--m-tint); color: var(--m-ink); padding: 0; }
-.hc-day.ontime, .hc-day.working { background: #5ba24a; color: #fff; }
-.hc-day.late { background: #e8a03a; color: #fff; }
-.hc-day.absent { background: #e5484d; color: #fff; }
-.hc-day.leave { background: #8b5cf6; color: #fff; }
-.hc-day.restwork { background: var(--m-accent); color: #fff; }
-.hc-day.off { background: color-mix(in srgb, var(--m-accent) 18%, transparent); color: var(--m-accent); }
-.hc-day.today { box-shadow: inset 0 0 0 2px var(--m-accent); }
-.hc-day.picked { background: var(--m-accent); color: var(--m-accent-ink); box-shadow: 0 4px 12px color-mix(in srgb, var(--m-accent) 35%, transparent); }
+/* Minimal kalendar: oddiy raqam, holati — ostidagi kichik nuqta (rangli bloklar o‘rniga);
+   tanlangan kun — ko‘k doira, bugun — ko‘k halqa. */
+.hc-day { position: relative; justify-self: center; width: 40px; height: 40px; margin-bottom: 8px; border: 0; border-radius: 50%; font: inherit; font-size: 15px; font-weight: 500; font-variant-numeric: tabular-nums; background: transparent; color: var(--m-ink); padding: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; transition: background-color 0.15s ease, color 0.15s ease; }
+.hc-day::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 5px; height: 5px; border-radius: 50%; background: transparent; transform: translateX(-50%); }
+.hc-day.ontime::after, .hc-day.working::after { background: #5ba24a; }
+.hc-day.late::after { background: #e8a03a; }
+.hc-day.absent::after { background: #e5484d; }
+.hc-day.leave::after { background: #8b5cf6; }
+.hc-day.restwork::after { background: var(--m-accent); }
+.hc-day.off, .hc-day.future, .hc-day.none { color: var(--m-muted); }
+.hc-day:active { background: var(--m-tint); }
+.hc-day.today { box-shadow: inset 0 0 0 1.5px var(--m-accent); font-weight: 700; }
+.hc-day.picked { background: var(--m-accent); color: var(--m-accent-ink); font-weight: 700; box-shadow: none; }
 .hc-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--m-muted); }
 .hc-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .hc-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .hc-dot.ontime { background: #5ba24a; } .hc-dot.late { background: #e8a03a; } .hc-dot.absent { background: #e5484d; } .hc-dot.leave { background: #8b5cf6; }
-.hc-dot.off { background: color-mix(in srgb, var(--m-accent) 35%, transparent); }
+.hc-dot.off { background: var(--m-line); }
 .hc-date { margin: 4px 4px 0; font-size: 13px; font-weight: 600; color: var(--m-muted); }
 .hc-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .hc-big { display: grid; gap: 2px; min-width: 0; }
@@ -9673,7 +9677,11 @@ html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
 /* Avtomatlashtirish */
 
 /* Rahbar rejimi — «Boshqaruv» (saytdagi panel ishlari Mini App’da) */
-.mg-subseg { margin-top: 8px; }
+/* Ichki tablar (Ro‘yxat / Xarita): fonsiz yozuv, tanlangani ostida ko‘k chiziq — asosiy tablar
+   bilan bir xil «tabletka» ikki qator bo‘lib ko‘rinmasin. */
+.mini-seg.mg-subseg { display: flex; gap: 4px; margin-top: 4px; padding: 0; border-radius: 0; background: none; border-bottom: 0.5px solid var(--m-line); }
+.mini-seg.mg-subseg button { flex: none; margin-bottom: -0.5px; padding: 10px 12px; border-radius: 0; border-bottom: 2px solid transparent; font-weight: 550; }
+.mini-seg.mg-subseg button.on { background: none; box-shadow: none; color: var(--m-accent); border-bottom-color: var(--m-accent); font-weight: 650; }
 .adm-back { display: flex; align-items: baseline; gap: 10px; width: 100%; margin: 10px 0 2px; padding: 4px 2px; border: 0; background: none; color: var(--m-accent); font: inherit; font-size: 14px; font-weight: 600; text-align: left; cursor: pointer; }
 .adm-back b { color: var(--m-ink); font-size: 17px; }
 .adm-item { width: 100%; border: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
@@ -9764,102 +9772,82 @@ html[data-mini-theme="dark"] .mini .mh-hero { background: var(--m-card); }
    Telegram’ning o‘z ro‘yxatlariga o‘xshash: tekis kartalar, yozuvli qatorlar,
    pastda oddiy menyu. Rang faqat ma’no uchun (ok / kechikish / xato).
    ===================================================================== */
-/* Pastki menyu (Nav Menu): tanlangan bo‘lim yozuvi bilan to‘q «tabletka», qolganlari — ikonka. */
+/* Pastki menyu: ekran eni bo‘ylab qotirilgan panel — har bir bo‘limda ikonka va yozuv,
+   tanlangani ko‘k rangda. Avvalgi suzuvchi to‘q «tabletka» kontentni yopardi va nomlar faqat
+   tanlanganda ko‘rinardi — endi hammasi doim o‘qiladi. */
 .mini-nav {
-  --nm-h: 48px;
-  --nm-gap: 4px;
-  --nm-pad: 6px;
-  --nm-spring: cubic-bezier(0.3, 1.3, 0.5, 1);
   position: fixed;
   z-index: 50;
   left: 0;
   right: 0;
-  bottom: calc(12px + var(--m-safe-bottom, env(safe-area-inset-bottom)));
-  display: flex;
-  gap: var(--nm-gap);
-  width: fit-content;
-  max-width: calc(100% - 24px);
+  bottom: 0;
+  display: grid;
+  grid-template-columns: repeat(var(--nm-n, 4), minmax(0, 1fr));
+  max-width: 560px;
   margin: 0 auto;
-  padding: var(--nm-pad);
-  border: 0.5px solid var(--m-line);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--m-card) 88%, transparent);
+  padding: 6px 4px max(8px, var(--m-safe-bottom, env(safe-area-inset-bottom)));
+  border-top: 0.5px solid var(--m-line);
+  background: color-mix(in srgb, var(--m-card) 92%, transparent);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   backdrop-filter: blur(20px) saturate(180%);
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.06);
-}
-@supports (transition-timing-function: linear(0, 1)) {
-  .mini-nav {
-    --nm-spring: linear(0, 0.054, 0.18, 0.336, 0.494, 0.638, 0.759, 0.855, 0.926, 0.976, 1.008, 1.026, 1.034, 1.036, 1.033, 1.028, 1.023, 1.017, 1.012, 1.008, 1.005, 1.002, 1.001, 1, 1);
-  }
 }
 .nm-key {
+  position: relative;
   display: flex;
-  flex: none;
+  flex-direction: column;
   align-items: center;
-  height: var(--nm-h);
-  min-width: var(--nm-h);
-  padding: 0 calc((var(--nm-h) - 22px) / 2);
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 48px;
+  padding: 2px 2px 0;
   border: 0;
-  border-radius: 999px;
   background: transparent;
-  color: var(--m-ink);
+  color: var(--m-muted, #8e8e93);
   font: inherit;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background-color 0.2s ease, color 0.22s ease, transform 0.12s ease;
+  transition: color 0.18s ease, opacity 0.12s ease;
 }
-.nm-key > svg { flex: none; }
-.nm-key.on {
-  background: var(--m-ink);
-  color: var(--m-card);
+.nm-key.on { color: var(--m-accent); }
+.nm-key:active { opacity: 0.55; }
+.nm-key:focus-visible { outline: 2px solid var(--m-accent); outline-offset: -2px; border-radius: 10px; }
+.nm-icon { position: relative; display: grid; place-items: center; }
+.nm-key.on .nm-icon { animation: nm-pop 0.36s cubic-bezier(0.3, 1.4, 0.5, 1); }
+@keyframes nm-pop {
+  from { transform: scale(0.84); }
+  to { transform: scale(1); }
 }
-.nm-key:active { transform: scale(0.94); }
-.nm-key.on:active { transform: none; }
-.nm-key:focus-visible { outline: 2px solid var(--m-accent); outline-offset: 2px; }
-@media (hover: hover) {
-  .nm-key:not(.on):hover { background: var(--m-tint); }
+.nm-badge {
+  position: absolute;
+  top: -5px;
+  left: calc(100% - 9px);
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 2px solid var(--m-card);
+  border-radius: 99px;
+  background: var(--m-danger, #e5484d);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
 }
-.nm-label {
-  display: block;
-  width: 0;
-  overflow: hidden;
-  transition: width 0.48s var(--nm-spring);
-}
-.nm-key.on .nm-label { width: auto; }
-/* Yozuv ekranga sig‘masa, uch nuqta bilan qisqaradi (5 ta bo‘lim + tor ekran). */
 .nm-text {
-  display: block;
-  width: max-content;
-  max-width: max(48px, calc(min(100vw, 560px) - 26px - 2 * var(--nm-pad) - var(--nm-n, 4) * var(--nm-h) - (var(--nm-n, 4) - 1) * var(--nm-gap) - 12px));
-  padding: 0 4px 0 8px;
+  max-width: 100%;
   overflow: hidden;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.2;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.15;
   white-space: nowrap;
   text-overflow: ellipsis;
-  opacity: 0;
-  filter: blur(3px);
-  transform: translateX(-6px);
-  transition: opacity 0.14s ease, filter 0.14s ease, transform 0.2s ease;
 }
-.nm-key.on .nm-text {
-  opacity: 1;
-  filter: none;
-  transform: none;
-  transition: opacity 0.26s ease 0.06s, filter 0.3s ease 0.04s, transform 0.48s var(--nm-spring) 0.02s;
-}
-@media (max-width: 400px) {
-  .mini-nav { --nm-h: 46px; --nm-gap: 2px; }
-  .mini-nav.many { --nm-h: 42px; }
-  .nm-text { font-size: 14.5px; }
-}
+.nm-key.on .nm-text { font-weight: 650; }
 @media (prefers-reduced-motion: reduce) {
-  .nm-key, .nm-label, .nm-text, .nm-key.on .nm-text { transition: none; }
+  .nm-key.on .nm-icon { animation: none; }
 }
-.mini-app { padding-bottom: calc(92px + var(--m-safe-bottom, env(safe-area-inset-bottom))); }
+.mini-app { padding-bottom: calc(76px + var(--m-safe-bottom, env(safe-area-inset-bottom))); }
 
 .mh-status i,
 .mh-hero.on .mh-status i,

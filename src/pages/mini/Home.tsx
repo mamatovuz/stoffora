@@ -37,13 +37,13 @@ import { getCached, setCached } from "../miniCache";
 import { NotifItem } from "./Notifications";
 import { clockDuration, miniModuleOn, Sheet, useClock, type Action, type HomeData, type Toast } from "./shared";
 import { haptic, shareText, useHomeScreen } from "./tg";
-import { forwardMinutes, shiftMinutes } from "@/lib/shift-time";
+import { elapsedMinutes, forwardMinutes, shiftMinutes } from "@/lib/shift-time";
 
 type Stats = { streak: { current: number; best: number; badge: { emoji: string; label: string } | null } };
 
-/** Kelgandan beri (kechki smenada yarim tundan o‘tsa ham). */
+/** Kelgandan beri (kechki smenada yarim tundan o‘tsa ham; erta kelganda — 0, «23:38» emas). */
 function minutesSince(checkIn: string) {
-  return forwardMinutes(checkIn, tashkentClock());
+  return elapsedMinutes(checkIn, tashkentClock());
 }
 
 /** Bugungi reja: serverdan (shaxsiy dam kuni, ko‘chirish hisobga olingan), bo‘lmasa haftalik grafik. */
@@ -369,7 +369,7 @@ function MenuRow({ icon, tone, title, hint, onClick }: { icon: React.ReactNode; 
 export function ShiftProgress({ start, end, now }: { start: string; end: string; now: Date }) {
   // Kechki smena (14:00 → 00:00) ham: tugash ertasi kunda bo‘lishi mumkin.
   const total = Math.max(1, forwardMinutes(start, end));
-  const done = Math.min(total, forwardMinutes(start, tashkentClock(now)));
+  const done = Math.min(total, elapsedMinutes(start, tashkentClock(now)));
   const left = total - done;
   const percent = Math.round((done / total) * 100);
   const R = 26;

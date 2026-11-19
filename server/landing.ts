@@ -98,6 +98,53 @@ export function createLandingStaticMiddleware(config: ReturnType<typeof siteConf
   };
 }
 
+/*
+ * Panel domeni (app.staffora.uz) uchun robots.txt va sitemap.xml.
+ * Landing hosti o‘zining (Next export) fayllarini oladi — bu router faqat panel hostida ishlaydi.
+ * Kirish talab qiladigan sahifalar indekslanmaydi; ochiq sahifalar (kirish, maxfiylik,
+ * shartlar, yordam) va ularni chizish uchun kerak bo‘lgan statik fayllar ochiq.
+ */
+const PANEL_PUBLIC_PATHS = ["/login", "/privacy", "/terms", "/support"] as const;
+
+export function panelRobotsTxt(config: ReturnType<typeof siteConfig>) {
+  const app = config.app.replace(/\/+$/, "");
+  const lines = [
+    "User-agent: *",
+    ...PANEL_PUBLIC_PATHS.map((p) => `Allow: ${p}$`),
+    "Allow: /assets/",
+    "Allow: /favicon.svg",
+    "Allow: /theme-init.js",
+    "Disallow: /",
+    "",
+    `Sitemap: ${app}/sitemap.xml`,
+  ];
+  if (config.landing) lines.push(`Sitemap: ${config.landing}/sitemap.xml`);
+  return `${lines.join("\n")}\n`;
+}
+
+export function panelSitemapXml(config: ReturnType<typeof siteConfig>, now = new Date()) {
+  const app = config.app.replace(/\/+$/, "");
+  const day = now.toISOString().slice(0, 10);
+  const urls = PANEL_PUBLIC_PATHS.map(
+    (p) => `  <url><loc>${htmlAttr(`${app}${p}`)}</loc><lastmod>${day}</lastmod><changefreq>monthly</changefreq><priority>${p === "/login" ? "0.6" : "0.4"}</priority></url>`,
+  );
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join("\n")}\n</urlset>\n`;
+}
+
+export function createPanelSeoRouter(config: ReturnType<typeof siteConfig>) {
+  const router = Router();
+  const robots = panelRobotsTxt(config);
+  router.get("/robots.txt", (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.type("text/plain; charset=utf-8").send(robots);
+  });
+  router.get("/sitemap.xml", (_req, res) => {
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    res.type("application/xml; charset=utf-8").send(panelSitemapXml(config));
+  });
+  return router;
+}
+
 const publicPageMeta: Record<string, { title: string; description: string }> = {
   "/privacy": {
     title: "Maxfiylik siyosati — Staffora",

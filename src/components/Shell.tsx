@@ -140,7 +140,7 @@ const initials = (name = "") =>
     .join("")
     .toUpperCase() || "ST";
 
-type Open = null | "account" | "system" | "lang" | "mobile" | `nav:${string}`;
+type Open = null | "account" | "system" | "lang" | `nav:${string}`;
 
 export function Shell() {
   const { user, refresh } = useAuth();
@@ -153,6 +153,8 @@ export function Shell() {
     return startTranslator(document.body, lang, { report: true });
   }, [lang]);
   const [open, setOpen] = useState<Open>(null);
+  // Mobil yon menyu (drawer) alohida holat: ichidagi bo‘lim ochilganda drawer yopilib qolmasin.
+  const [drawer, setDrawer] = useState(false);
   const { theme, pref: themePref, choose: chooseTheme, toggle: toggleTheme } = useTheme();
   const [scrolled, setScrolled] = useState(false);
   const { data: company } = useApi<Company>("/company");
@@ -221,8 +223,24 @@ export function Shell() {
 
   useEffect(() => {
     setOpen(null);
+    setDrawer(false);
     document.title = `${pageTitle} · Staffora`;
   }, [location.pathname, pageTitle]);
+  // Drawer ochiq paytda orqa sahifa aylanmaydi; ekran kengaysa drawer yopiladi.
+  useEffect(() => {
+    if (!drawer) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.body.classList.add("tn-drawer-open");
+    const wide = window.matchMedia("(min-width: 1081px)");
+    const onWide = () => wide.matches && setDrawer(false);
+    wide.addEventListener("change", onWide);
+    return () => {
+      document.body.style.overflow = previous;
+      document.body.classList.remove("tn-drawer-open");
+      wide.removeEventListener("change", onWide);
+    };
+  }, [drawer]);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 4);
     const keys = (event: KeyboardEvent) => {
@@ -230,7 +248,10 @@ export function Shell() {
         event.preventDefault();
         setPalette(true);
       }
-      if (event.key === "Escape") setOpen(null);
+      if (event.key === "Escape") {
+        setOpen(null);
+        setDrawer(false);
+      }
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("keydown", keys);
@@ -303,14 +324,27 @@ export function Shell() {
       />
       <header className={`tn-bar ${scrolled ? "scrolled" : ""}`}>
         <div className="tn-inner">
-          <button type="button" className="tn-icon tn-burger" data-pop aria-label={open === "mobile" ? "Menyuni yopish" : "Menyuni ochish"} aria-expanded={open === "mobile"} onClick={() => toggle("mobile")}>
-            {open === "mobile" ? <X size={20} /> : <Menu size={20} />}
+          <button
+            type="button"
+            className="tn-icon tn-burger"
+            data-pop
+            aria-label={drawer ? "Menyuni yopish" : "Menyuni ochish"}
+            aria-expanded={drawer}
+            aria-controls="tn-nav"
+            onClick={() => {
+              const next = !drawer;
+              setDrawer(next);
+              // Ochilganda joriy bo‘lim yoyilgan holda ko‘rinadi.
+              setOpen(next && current && current.tabs.length > 1 ? `nav:${current.label}` : null);
+            }}
+          >
+            {drawer ? <X size={20} /> : <Menu size={20} />}
           </button>
           <Link to={home} className="tn-brand" aria-label="Staffora — bosh sahifa">
             <Logo />
           </Link>
 
-          <nav className={`tn-nav ${open === "mobile" ? "open" : ""}`} aria-label="Asosiy navigatsiya" data-pop>
+          <nav id="tn-nav" className={`tn-nav ${drawer ? "open" : ""}`} aria-label="Asosiy navigatsiya" data-pop>
             {visibleMenu.map((item) => {
               const active = current?.label === item.label;
               const total = (item.count || []).reduce((sum, key) => sum + (counts[key] || 0), 0);
@@ -359,6 +393,36 @@ export function Shell() {
                 </div>
               </div>
             )}
+            {/* Telefonda yuqori panelda yashiringan qidiruv va til — drawer pastida. */}
+            <div className="tn-mobile-only tn-drawer-foot" data-no-translate>
+              <button
+                type="button"
+                className="tn-drawer-search"
+                onClick={() => {
+                  setDrawer(false);
+                  setPalette(true);
+                }}
+              >
+                <Search size={16} /> Qidiruv
+              </button>
+              <div className="tn-drawer-lang" role="radiogroup" aria-label="Interfeys tili">
+                {(["uz", "ru"] as Lang[]).map((value) => (
+                  <button
+                    key={value}
+                    type="button"
+                    role="radio"
+                    aria-checked={lang === value}
+                    className={lang === value ? "on" : ""}
+                    onClick={() => {
+                      rememberLang(value);
+                      setLang(value);
+                    }}
+                  >
+                    {value.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </div>
           </nav>
 
           <div className="tn-actions">
@@ -506,7 +570,17 @@ export function Shell() {
           pages={[...visibleMenu.flatMap((item) => item.tabs), ...visibleSystem].map(([path]) => [path, pageNames[path]] as [string, string])}
         />
       </header>
-      {open === "mobile" && <button className="tn-backdrop" aria-label="Menyuni yopish" onClick={() => setOpen(null)} />}
+      {drawer && (
+        <button
+          type="button"
+          className="tn-backdrop"
+          aria-label="Menyuni yopish"
+          onClick={() => {
+            setDrawer(false);
+            setOpen(null);
+          }}
+        />
+      )}
 
       {preview && (
         <div className={`app-banner preview ${preview.mode === "SUPPORT" ? "support" : ""}`} role="status">

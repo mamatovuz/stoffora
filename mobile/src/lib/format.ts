@@ -40,8 +40,17 @@ export const duration = (minutes?: number) => {
 };
 /** `from` dan `to` gacha oldinga (yarim tundan o‘tsa ham: 23:30 → 00:30 = 60). */
 export const forwardMinutes = (from: string, to: string) => (toMinutes(to) - toMinutes(from) + 1440) % 1440;
+/**
+ * Kirishdan beri o‘tgan ish vaqti. Kechki smenada (22:00 → 02:00) yarim tundan keyin ham to‘g‘ri.
+ * Erta kelganda kirish smena boshiga yaxlitlanadi (07:38 → 08:00): hozir undan oldin bo‘lsa — 0,
+ * aks holda «23:38 ishlangan» va «100% · ish vaqti tugadi» chiqardi.
+ */
+export const elapsedMinutes = (from: string, to: string) => {
+  const minutes = forwardMinutes(from, to);
+  return minutes > 18 * 60 ? 0 : minutes;
+};
 /** Kelgandan beri — kechki smenada (14:00 → 00:00) yarim tundan keyin ham to‘g‘ri. */
-export const minutesSince = (hhmm: string, now = new Date()) => forwardMinutes(hhmm, tashkentClock(now));
+export const minutesSince = (hhmm: string, now = new Date()) => elapsedMinutes(hhmm, tashkentClock(now));
 export const som = (value: number) => `${Math.round(value).toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m`;
 export const timeAgo = (iso: string) => {
   const minutes = Math.round((Date.now() - Date.parse(iso)) / 60_000);

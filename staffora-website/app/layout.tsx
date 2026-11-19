@@ -40,6 +40,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="uz" className={geist.variable}>
       <body>
+        {/* JS o‘chiq bo‘lsa (yoki skript yuklanmasa) animatsiya kutayotgan bloklar yashirin qolmasin. */}
+        <noscript>
+          <style>{".motion-reveal{opacity:1!important;transform:none!important}"}</style>
+        </noscript>
         {children}
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData).replace(/</g, "\\u003c") }} />
       </body>

@@ -164,3 +164,93 @@ describe("ish haqi moduli API", () => {
     expect(db.payrollPeriods.find((p) => p.month === MONTH)?.lines.find((l) => l.employeeId === "daily")).toMatchObject({ payType: "DAILY", rate: 150_000, net: 300_000 });
   });
 });
+
+describe("oy ichida ishlangan haqni berish (kunlik / soatbay)", () => {
+  const OPEN = "2026-10";
+  const earned = async () => (await call("GET", `/api/payroll/earned?month=${OPEN}`)).body;
+  const row = (body: any, id: string) => body.rows.find((r: any) => r.employeeId === id);
+  const pay = (over: Record<string, unknown> = {}) => ({ employeeId: "daily", month: OPEN, amount: 200_000, method: "CASH", paidAt: `${OPEN}-08`, idempotencyKey: "earned-daily-0001", ...over });
+
+  beforeAll(async () => {
+    panel = { role: "COMPANY_OWNER" };
+    await store.updateDb((db: Database) => {
+      for (const [id, salary] of [["hourly", 0], ["monthly", 3_000_000]] as const)
+        db.employees.push({ id, companyId: "c1", firstName: id, lastName: "Test", status: "ACTIVE", branchId: "b1", scheduleId: "s1", baseSalary: salary, startDate: "2026-01-01", employeeNo: id } as unknown as Database["employees"][number]);
+      const mark = (employeeId: string, day: string, worked: number, out: string) =>
+        db.attendance.push({ id: `${employeeId}-${day}`, companyId: "c1", employeeId, branchId: "b1", date: `${OPEN}-${day}`, scheduledStart: "09:00", scheduledEnd: "18:00", checkIn: "09:00", checkOut: out, lateMinutes: 0, earlyLeaveMinutes: 0, workedMinutes: worked, overtimeMinutes: 0, status: "CHECKED_OUT", verification: [], updatedAt: "" } as unknown as Database["attendance"][number]);
+      for (const day of ["05", "06", "07"]) mark("daily", day, 480, "18:00");
+      mark("hourly", "05", 300, "14:00");
+    });
+    expect((await call("POST", "/api/payroll/rates", { employeeId: "hourly", payType: "HOURLY", rate: 20_000, effectiveFrom: `${OPEN}-01` })).status).toBe(201);
+  });
+
+  it("shu kungacha ishlangani: kunlik 3 kun × 150 000, soatbay 5 soat × 20 000; oylik ro‘yxatda yo‘q", async () => {
+    const body = await earned();
+    expect(body.closed).toBe(false);
+    expect(row(body, "daily")).toMatchObject({ payType: "DAILY", units: 3, unit: "kun", earned: 450_000, paid: 0, available: 450_000 });
+    expect(row(body, "hourly")).toMatchObject({ payType: "HOURLY", units: 5, unit: "soat", earned: 100_000, available: 100_000 });
+    expect(row(body, "monthly")).toBeUndefined();
+  });
+
+  it("to‘lov: ruxsat, takror so‘rov, qoldiqdan oshmaydi, oylik va kelajak rad etiladi", async () => {
+    panel = { role: "BRANCH_MANAGER" };
+    expect((await call("POST", "/api/payroll/earned/pay", pay())).status).toBe(403);
+    panel = { role: "COMPANY_OWNER" };
+    const first = await call("POST", "/api/payroll/earned/pay", pay());
+    expect(first.status).toBe(201);
+    expect(first.body).toMatchObject({ type: "WAGE", amount: 200_000, status: "APPROVED", method: "CASH" });
+    // Xuddi shu kalit — yangi yozuv emas; boshqa summa bilan — rad.
+    const again = await call("POST", "/api/payroll/earned/pay", pay());
+    expect(again.status).toBe(200);
+    expect(again.body.id).toBe(first.body.id);
+    expect((await call("POST", "/api/payroll/earned/pay", pay({ amount: 10_000 }))).status).toBe(409);
+    // 450 000 − 200 000 = 250 000 qoldi.
+    expect((await call("POST", "/api/payroll/earned/pay", pay({ amount: 250_001, idempotencyKey: "earned-daily-0002" }))).status).toBe(422);
+    expect((await call("POST", "/api/payroll/earned/pay", pay({ employeeId: "monthly", amount: 1_000, idempotencyKey: "earned-monthly-01" }))).status).toBe(409);
+    expect((await call("POST", "/api/payroll/earned/pay", pay({ paidAt: "2099-01-01", idempotencyKey: "earned-daily-0003" }))).status).toBe(422);
+    expect((await call("POST", "/api/payroll/earned/pay", pay({ month: "2099-01", idempotencyKey: "earned-daily-0004" }))).status).toBe(422);
+    const body = await earned();
+    expect(row(body, "daily")).toMatchObject({ paid: 200_000, available: 250_000, lastPaidAt: `${OPEN}-08` });
+    expect(body.history).toHaveLength(1);
+    expect(body.totals).toMatchObject({ paid: 200_000, available: 350_000 });
+  });
+
+  it("bekor qilish: sabab shart, yozuv o‘chmaydi, summa qaytadi, ikkinchi marta bo‘lmaydi", async () => {
+    const id = (await earned()).history[0].id;
+    expect((await call("POST", `/api/payroll/earned/${id}/cancel`, { reason: "x" })).status).toBe(400);
+    const cancelled = await call("POST", `/api/payroll/earned/${id}/cancel`, { reason: "Summa xato" });
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.status).toBe("REJECTED");
+    expect((await call("POST", `/api/payroll/earned/${id}/cancel`, { reason: "Yana bir bor" })).status).toBe(409);
+    const body = await earned();
+    expect(row(body, "daily")).toMatchObject({ paid: 0, available: 450_000 });
+    expect(body.history).toHaveLength(0);
+    const db = await store.readDb();
+    expect(db.payrollAdjustments.find((a) => a.id === id)).toMatchObject({ type: "WAGE", status: "REJECTED" });
+  });
+
+  it("oy yopilganda berilgan summa qo‘lga beriladigandan ayriladi va yopilgan oyga to‘lov yo‘q", async () => {
+    expect((await call("POST", "/api/payroll/earned/pay", pay({ amount: 150_000, idempotencyKey: "earned-daily-0005" }))).status).toBe(201);
+    const overview = await call("GET", `/api/payroll/overview?month=${OPEN}`);
+    expect(overview.body.totals).toMatchObject({ wagePaid: 150_000, advances: 0 });
+    for (const [role, action] of [
+      ["HR_ADMIN", "hr_check"],
+      ["FINANCE", "finance_check"],
+      ["COMPANY_OWNER", "approve"],
+    ]) {
+      panel = { role };
+      expect((await call("POST", `/api/payroll/${OPEN}/workflow`, { action })).status).toBe(200);
+    }
+    panel = { role: "COMPANY_OWNER" };
+    const db = await store.readDb();
+    const line = db.payrollPeriods.find((p) => p.month === OPEN)?.lines.find((l) => l.employeeId === "daily");
+    // 450 000 ishlangan − 150 000 oy ichida berilgan = 300 000 oy oxirida.
+    expect(line).toMatchObject({ payType: "DAILY", net: 300_000 });
+    expect((await call("POST", "/api/payroll/earned/pay", pay({ amount: 1_000, idempotencyKey: "earned-daily-0006" }))).status).toBe(409);
+    const body = await earned();
+    expect(body.closed).toBe(true);
+    expect(row(body, "daily").available).toBe(0);
+    const cancelId = body.history[0].id;
+    expect((await call("POST", `/api/payroll/earned/${cancelId}/cancel`, { reason: "Kech qoldi" })).status).toBe(409);
+  });
+});

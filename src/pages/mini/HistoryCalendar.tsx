@@ -151,7 +151,7 @@ export function HistoryCalendar({ fetcher, base }: { fetcher: Fetcher; base: str
                   setSelected(d.date);
                 }}
               >
-                {d.date.slice(8)}
+                {Number(d.date.slice(8))}
               </button>
             ))}
           </div>

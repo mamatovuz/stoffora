@@ -1,12 +1,13 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Animated, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "@/components/T";
 import { useTheme } from "@/lib/theme";
 import { Icon, haptic } from "./ui";
 
 /*
- * iOS uslubidagi PIN klaviaturasi: yuqorida nuqtalar, ostida 3×4 yumaloq tugmalar.
- * Xato bo‘lsa nuqtalar chayqaladi (shake).
+ * Minimal PIN klaviaturasi: yuqorida sarlavha va yumshoq nuqtalar, pastda fonsiz katta raqamlar
+ * (bosilganda yengil doira). Xato bo‘lsa nuqtalar qizaradi va chayqaladi (shake).
+ * `spread` — sarlavha tepada, klaviatura pastda (to‘liq ekranli qulf uchun).
  */
 export function PinPad({
   length = 4,
@@ -18,6 +19,7 @@ export function PinPad({
   shake,
   disabled,
   left,
+  spread,
 }: {
   length?: number;
   value: string;
@@ -28,11 +30,12 @@ export function PinPad({
   /** Har o‘zgarganda chayqaladi (xato paytida oshiring). */
   shake?: number;
   disabled?: boolean;
-  /** Pastki chap tugma (masalan, Face ID). */
+  /** Pastki chap tugma (masalan, Face ID yoki «Chiqish»). */
   left?: ReactNode;
+  spread?: boolean;
 }) {
-  const { c } = useTheme();
-  const x = useRef(new Animated.Value(0)).current;
+  const { c, dark } = useTheme();
+  const [x] = useState(() => new Animated.Value(0));
   useEffect(() => {
     if (!shake) return;
     haptic.error();
@@ -49,18 +52,21 @@ export function PinPad({
     haptic.select();
     onChange(value.slice(0, -1));
   };
+  const empty = dark ? "#3A3A3C" : "#E5E5EA";
   const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9"];
   return (
-    <View style={st.wrap}>
-      <View style={{ alignItems: "center", gap: 6 }}>
-        <Text style={[st.title, { color: c.ink }]}>{title}</Text>
-        <Text style={[st.sub, { color: error ? c.danger : c.muted }]}>{error || subtitle || " "}</Text>
+    <View style={[st.wrap, spread && st.spread]}>
+      <View style={{ alignItems: "center", gap: 22 }}>
+        <View style={{ alignItems: "center", gap: 6 }}>
+          <Text style={[st.title, { color: c.ink }]}>{title}</Text>
+          <Text style={[st.sub, { color: error ? c.danger : c.muted }]}>{error || subtitle || " "}</Text>
+        </View>
+        <Animated.View style={[st.dots, { transform: [{ translateX: x }] }]} accessibilityLabel={`${value.length} / ${length}`}>
+          {Array.from({ length }, (_, i) => (
+            <View key={i} style={[st.dot, { backgroundColor: i < value.length ? (error ? c.danger : c.ink) : error ? `${c.danger}40` : empty }]} />
+          ))}
+        </Animated.View>
       </View>
-      <Animated.View style={[st.dots, { transform: [{ translateX: x }] }]}>
-        {Array.from({ length }, (_, i) => (
-          <View key={i} style={[st.dot, { borderColor: error ? c.danger : c.ink }, i < value.length && { backgroundColor: error ? c.danger : c.ink }]} />
-        ))}
-      </Animated.View>
       <View style={st.grid}>
         {keys.map((k) => (
           <Key key={k} label={k} onPress={() => press(k)} disabled={disabled} />
@@ -69,7 +75,7 @@ export function PinPad({
         <Key label="0" onPress={() => press("0")} disabled={disabled} />
         <View style={st.cell}>
           {value ? (
-            <Pressable onPress={back} hitSlop={10} style={st.icon} accessibilityLabel="O‘chirish">
+            <Pressable onPress={back} hitSlop={10} style={({ pressed }) => [st.icon, pressed && { opacity: 0.5 }]} accessibilityLabel="O‘chirish">
               <Icon name="backspace-outline" size={26} color={c.ink} />
             </Pressable>
           ) : null}
@@ -80,29 +86,32 @@ export function PinPad({
 }
 
 function Key({ label, onPress, disabled }: { label: string; onPress: () => void; disabled?: boolean }) {
-  const { c, dark } = useTheme();
+  const { c } = useTheme();
   return (
     <View style={st.cell}>
       <Pressable
         onPress={onPress}
         disabled={disabled}
-        style={({ pressed }) => [st.key, { backgroundColor: pressed ? (dark ? "#3A3A3C" : "#D1D1D6") : dark ? "#1C1C1E" : "#E5E5EA" }, disabled && { opacity: 0.4 }]}
+        style={({ pressed }) => [st.key, pressed && { backgroundColor: c.tint, transform: [{ scale: 0.94 }] }, disabled && { opacity: 0.35 }]}
+        accessibilityRole="keyboardkey"
         accessibilityLabel={label}
       >
-        <Text style={{ color: c.ink, fontSize: 30, fontWeight: "400" }}>{label}</Text>
+        <Text style={[st.digit, { color: c.ink }]}>{label}</Text>
       </Pressable>
     </View>
   );
 }
 
 const st = StyleSheet.create({
-  wrap: { alignItems: "center", gap: 28 },
-  title: { fontSize: 21, fontWeight: "600" },
+  wrap: { alignItems: "center", gap: 40 },
+  spread: { flex: 1, justifyContent: "space-between" },
+  title: { fontSize: 26, fontWeight: "700", letterSpacing: -0.4 },
   sub: { fontSize: 14, textAlign: "center", paddingHorizontal: 24 },
-  dots: { flexDirection: "row", gap: 22 },
-  dot: { width: 14, height: 14, borderRadius: 7, borderWidth: 1.5 },
-  grid: { width: 290, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 16 },
-  cell: { width: 80, height: 80, alignItems: "center", justifyContent: "center" },
-  key: { width: 78, height: 78, borderRadius: 39, alignItems: "center", justifyContent: "center" },
+  dots: { flexDirection: "row", gap: 18 },
+  dot: { width: 13, height: 13, borderRadius: 7 },
+  grid: { width: 300, flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 8 },
+  cell: { width: 88, height: 76, alignItems: "center", justifyContent: "center" },
+  key: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center" },
+  digit: { fontSize: 32, fontWeight: "600", fontVariant: ["tabular-nums"] },
   icon: { width: 60, height: 60, alignItems: "center", justifyContent: "center" },
 });

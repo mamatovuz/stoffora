@@ -97,6 +97,9 @@ export function createPayrollRouter() {
       await updateDb((db) => {
         const row = db.payrollAdjustments.find((a) => a.id === req.params.id && a.companyId === tenant);
         if (!row) throw httpError("Yozuv topilmadi.", 404);
+        // Berilgan pul yozuvlari o‘chirilmaydi — faqat sabab bilan bekor qilinadi (iz auditda qoladi).
+        if (row.type === "WAGE") throw httpError("Ishlangan haq to‘lovi o‘chirilmaydi — «Kunlik to‘lov» bo‘limida sabab bilan bekor qiling.", 409);
+        if (row.type === "SETTLEMENT") throw httpError("Yakuniy hisob to‘lovi bu yerdan o‘chirilmaydi.", 409);
         assertOpen(db, tenant, row.month);
         db.payrollAdjustments = db.payrollAdjustments.filter((a) => a.id !== row.id);
         db.auditLogs.unshift(audit(tenant, req.session!.name, "Avans/bonus/jarima o‘chirildi", "employee", row.employeeId, row));

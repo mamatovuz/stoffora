@@ -6,7 +6,7 @@ import { motion, useInView } from "framer-motion";
 import { ArrowRight, Banknote, CalendarDays, Check, Clock3, Coins, Database, History, KeyRound, Mic, Package, RotateCcw, Send, ShieldCheck, Sun, X, type LucideIcon } from "lucide-react";
 import { groupNumber } from "@/lib/format";
 import { useLanguage } from "./language-provider";
-import { CountUp, easeOut, Reveal, ScrollScale, SlideIn, StaggerItem, StaggerReveal, useReducedMotionSafe } from "./motion";
+import { CountUp, easeOut, Reveal, ScrollScale, SlideIn, StaggerItem, StaggerReveal, useReducedMotionSafe, useScrollReveal } from "./motion";
 import { SectionHeading } from "./section-heading";
 
 const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.staffora.uz";
@@ -32,7 +32,6 @@ const slip = { accrued: 3_300_000, bonus: 300_000, advance: 1_000_000, penalty: 
 
 export function PayrollHighlight() {
   const { t, lang } = useLanguage();
-  const reduced = useReducedMotionSafe();
   const p = t.payroll;
   const fmt = (value: number) => groupNumber(value, lang);
   const paidShare = slip.paid / slip.total;
@@ -90,7 +89,7 @@ export function PayrollHighlight() {
               <div className="payslip-pay">
                 <div className="payslip-pay-head"><span className="pay-tag tone-amber">{p.slip.partial} · {Math.round(paidShare * 100)}%</span></div>
                 <div className="payslip-bar" aria-hidden="true">
-                  <motion.i initial={{ scaleX: 0 }} whileInView={{ scaleX: paidShare }} animate={reduced ? { scaleX: paidShare } : undefined} viewport={{ once: true, margin: "-60px" }} transition={reduced ? { duration: 0 } : { duration: 1.2, delay: 0.4, ease: easeOut }} />
+                  <PaidBar share={paidShare} />
                 </div>
                 <div className="payslip-pay-foot"><span>{p.slip.paid}: <b>{fmt(slip.paid)}</b></span><span>{p.slip.remaining}: <b>{fmt(slip.total - slip.paid)}</b></span></div>
               </div>
@@ -112,6 +111,12 @@ const providers = ["OpenAI", "Gemini", "Claude", "Groq"];
 // 1 savol · 2 yozmoqda · 3 javob · 4 buyruq · 5 yozmoqda · 6 tasdiqlash kartasi
 const stageDelays = [250, 850, 1900, 3100, 3700, 4700];
 const lastStage = stageDelays.length;
+
+/** To‘langan ulush chizig‘i — umumiy scroll-reveal orqali (tez scrollda ham to‘ladi). */
+function PaidBar({ share }: { share: number }) {
+  const { ref, shown, reduced } = useScrollReveal<HTMLElement>();
+  return <motion.i ref={ref} initial={{ scaleX: 0 }} animate={{ scaleX: shown ? share : 0 }} transition={reduced ? { duration: 0 } : { duration: 1.2, delay: 0.4, ease: easeOut }} />;
+}
 
 function AiMark({ size = 28 }: { size?: number }) {
   return <Image className="ai-mark" src="/favicon.svg" width={size} height={size} alt="" aria-hidden="true" />;

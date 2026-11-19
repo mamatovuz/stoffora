@@ -7,7 +7,7 @@ import Svg, { Circle } from "react-native-svg";
 import { Badge, Button, Card, ErrorBox, GroupTitle, Hint, Icon, Loading, Screen, Sheet, haptic, type IconName } from "@/components/ui";
 import { mediaUri } from "@/lib/config";
 import { errorText, post } from "@/lib/api";
-import { clockDuration, dateLongUz, duration, forwardMinutes, minutesSince, som, tashkentClock, timeAgo } from "@/lib/format";
+import { clockDuration, dateLongUz, duration, elapsedMinutes, forwardMinutes, minutesSince, som, tashkentClock, timeAgo } from "@/lib/format";
 import { elevation, ios, radius, useTheme } from "@/lib/theme";
 import type { HomeData, Notification, Salary, Stats } from "@/lib/types";
 import { invalidate, useData } from "@/lib/useData";
@@ -148,14 +148,14 @@ export default function Home() {
         <Text style={{ color: c.muted, fontSize: 14, marginBottom: 16 }}>{day?.enabled ? `Ish vaqti ${day.start} – ${day.end}` : "Bugun dam olish kuni"}</Text>
 
         <View style={st.times}>
-          <View style={[st.timeCell, { backgroundColor: c.tint }]}>
+          <View style={st.timeCell}>
             <Text style={[st.timeLabel, { color: c.muted }]}>Keldi</Text>
             <Text style={[st.timeValue, { color: inTime ? c.ink : c.muted }]}>{inTime || "--:--"}</Text>
             <Text style={{ color: a?.checkIn ? (a.lateMinutes ? c.warn : c.success) : pendingIn ? c.accent : c.muted, fontSize: 12, fontWeight: "600" }}>
               {a?.checkIn ? (a.lateMinutes ? `${duration(a.lateMinutes)} kech` : "vaqtida") : pendingIn ? "telefonda saqlangan" : "hali yo‘q"}
             </Text>
           </View>
-          <View style={[st.timeCell, { backgroundColor: c.tint }]}>
+          <View style={[st.timeCell, { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: c.line, paddingLeft: 16 }]}>
             <Text style={[st.timeLabel, { color: c.muted }]}>{finished ? "Ketdi" : "Ishlangan"}</Text>
             <Text style={[st.timeValue, { color: finished || working ? c.ink : c.muted }]}>
               {finished ? a?.checkOut : working && inTime ? clockDuration(minutesSince(inTime, now)) : "--:--"}
@@ -395,7 +395,7 @@ function ShiftProgress({ start, end, now }: { start: string; end: string; now: D
   const { c } = useTheme();
   // Kechki smena (14:00 → 00:00) ham: tugash ertasi kunda bo‘lishi mumkin.
   const total = Math.max(1, forwardMinutes(start, end));
-  const done = Math.min(total, forwardMinutes(start, tashkentClock(now)));
+  const done = Math.min(total, elapsedMinutes(start, tashkentClock(now)));
   const left = total - done;
   const percent = Math.round((done / total) * 100);
   const R = 24;
@@ -473,8 +473,8 @@ const st = StyleSheet.create({
   statusDot: { width: 7, height: 7, borderRadius: 4 },
   clock: { fontSize: 56, fontWeight: "700", letterSpacing: -2, marginTop: 16, fontVariant: ["tabular-nums"] },
   meta: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, maxWidth: "50%" },
-  times: { flexDirection: "row", gap: 10, marginBottom: 16 },
-  timeCell: { flex: 1, paddingVertical: 12, paddingHorizontal: 14, gap: 2, borderRadius: 14 },
+  times: { flexDirection: "row", gap: 16, marginBottom: 18 },
+  timeCell: { flex: 1, paddingVertical: 2, gap: 2 },
   timeLabel: { fontSize: 12, fontWeight: "500" },
   timeValue: { fontSize: 24, fontWeight: "700", letterSpacing: -0.5, fontVariant: ["tabular-nums"] },
   done: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 54, borderRadius: radius.button },
@@ -483,7 +483,7 @@ const st = StyleSheet.create({
   stats: { flexDirection: "row", paddingVertical: 12, paddingHorizontal: 4 },
   quick: { flexDirection: "row", flexWrap: "wrap", paddingVertical: 8, paddingHorizontal: 4 },
   tile: { width: "25%", alignItems: "center", gap: 7, paddingVertical: 10 },
-  tileIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center" },
+  tileIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   bar: { height: 6, borderRadius: 3, overflow: "hidden" },
   notifHead: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8 },
   unread: { width: 8, height: 8, borderRadius: 4, marginTop: 6 },

@@ -146,7 +146,15 @@ export function DashboardPage() {
       {error && <ErrorBox message={error} />}
 
       <section className="tp-stats" aria-label="Bugungi holat">
-        <StatTile tone="blue" icon={Users} label="Barchasi" value={s.total} note={`${num(s.total - s.dayOff - s.leave)} nafari bugun rejada`} to={allowed("/employees") ? "/employees" : undefined} />
+        <StatTile
+          tone="blue"
+          icon={Users}
+          label="Barchasi"
+          value={s.total}
+          note={`${num(s.total - s.dayOff - s.leave)} nafari bugun rejada`}
+          to={allowed("/employees") ? "/employees" : undefined}
+          share={s.total ? (s.total - s.dayOff - s.leave) / s.total : 0}
+        />
         <StatTile
           tone="green"
           icon={UserCheck}
@@ -154,12 +162,22 @@ export function DashboardPage() {
           value={onTime}
           note={rate === null ? "Davomat hali yo‘q" : `Davomat ${pct(rate)} · hozir ${num(s.inNow)} kishi`}
           to={isToday ? "/attendance?state=IN" : undefined}
+          share={s.total ? onTime / s.total : 0}
         />
-        <StatTile tone="amber" icon={AlarmClock} label="Kech" value={s.late} note={s.present ? `Kelganlarning ${pct((s.late / s.present) * 100)}` : "Kechikish yo‘q"} to={isToday ? "/attendance?state=LATE" : undefined} />
+        <StatTile
+          tone="amber"
+          icon={AlarmClock}
+          label="Kech"
+          value={s.late}
+          note={s.present ? `Kelganlarning ${pct((s.late / s.present) * 100)}` : "Kechikish yo‘q"}
+          to={isToday ? "/attendance?state=LATE" : undefined}
+          share={s.present ? s.late / s.present : 0}
+        />
         <StatTile
           tone="red"
           icon={UserX}
           label="Ishda emas"
+          share={s.total ? away / s.total : 0}
           value={away}
           note={[s.absent && `kelmagan ${s.absent}`, s.leave && `ta’til ${s.leave}`, s.dayOff && `dam ${s.dayOff}`, s.notYet && `kutilmoqda ${s.notYet}`].filter(Boolean).join(" · ") || "Hamma joyida"}
           to={isToday ? "/attendance?state=ABSENT" : undefined}
@@ -259,7 +277,8 @@ function BranchFilter({ value, options, onChange }: { value: string; options: [s
 }
 
 /* ------------------------------------------------------------ statistika --- */
-function StatTile({ tone, icon: Icon, label, value, note, to }: { tone: Tone; icon: LucideIcon; label: string; value: number; note: string; to?: string }) {
+function StatTile({ tone, icon: Icon, label, value, note, to, share }: { tone: Tone; icon: LucideIcon; label: string; value: number; note: string; to?: string; share?: number }) {
+  const width = share === undefined || !Number.isFinite(share) ? null : Math.max(0, Math.min(1, share)) * 100;
   const body = (
     <>
       <span className="tp-stat-icon" aria-hidden>
@@ -270,6 +289,12 @@ function StatTile({ tone, icon: Icon, label, value, note, to }: { tone: Tone; ic
         <strong>{num(value)}</strong>
         <em>{note}</em>
       </span>
+      {/* Umumiy xodimlar ichidagi ulush — bir qarashda solishtirish uchun. */}
+      {width !== null && (
+        <span className="tp-stat-bar" aria-hidden>
+          <i style={{ width: `${width}%` }} />
+        </span>
+      )}
     </>
   );
   return to ? (
@@ -382,7 +407,7 @@ function RequestsCard({ items, leaves, loading, more, onChanged }: { items: Inbo
         </div>
       ) : (
         <div className="table-wrap tp-table-wrap">
-          <table className="tp-table">
+          <table className="tp-table tp-cards tp-req">
             <thead>
               <tr>
                 <th>Kim tomonidan</th>
@@ -400,28 +425,28 @@ function RequestsCard({ items, leaves, loading, more, onChanged }: { items: Inbo
                 const item = r.item;
                 return (
                   <tr key={r.id}>
-                    <td>
+                    <td className="c-person">
                       <span className="tp-person">
                         <Avatar first={first} last={rest.join(" ")} photo={r.photo} size="sm" />
                         <b>{r.name}</b>
                       </span>
                     </td>
-                    <td>
+                    <td className="c-type">
                       <span className="tp-type">
                         <ClipboardList size={13} aria-hidden /> {r.type}
                       </span>
                     </td>
-                    <td className="tp-muted nowrap">{dateUz(r.date)}</td>
-                    <td className="tp-reason" title={r.reason}>
+                    <td className="c-date tp-muted nowrap">{dateUz(r.date)}</td>
+                    <td className="c-reason tp-reason" title={r.reason}>
                       {r.reason || "—"}
                     </td>
-                    <td>
+                    <td className="c-status">
                       <span className={`tp-badge ${tone}`}>
                         {label}
                         {r.urgent ? " · shoshilinch" : ""}
                       </span>
                     </td>
-                    <td className="right">
+                    <td className="c-actions right">
                       {item ? (
                         <span className="tp-row-actions">
                           <button type="button" className="tp-act ok" disabled={busy === item.id} title="Tasdiqlash" aria-label={`${r.name}: tasdiqlash`} onClick={() => void decide(item, true)}>
@@ -660,7 +685,7 @@ function AttendanceTable({ roster, isToday }: { roster: RosterRow[]; isToday: bo
       ) : (
         <>
           <div className="table-wrap tp-table-wrap">
-            <table className="tp-table tp-att">
+            <table className="tp-table tp-att tp-cards">
               <thead>
                 <tr>
                   {head("name", "Xodim")}
@@ -680,7 +705,7 @@ function AttendanceTable({ roster, isToday }: { roster: RosterRow[]; isToday: bo
                   const open = `/employees/${row.employee.id}`;
                   return (
                     <tr key={row.employee.id} className="clickable" onClick={() => navigate(open)}>
-                      <td>
+                      <td className="c-person">
                         <span className="tp-person">
                           <Avatar first={row.employee.firstName} last={row.employee.lastName} photo={row.employee.photoDataUrl} size="sm" />
                           <span>
@@ -691,7 +716,7 @@ function AttendanceTable({ roster, isToday }: { roster: RosterRow[]; isToday: bo
                           </span>
                         </span>
                       </td>
-                      <td>
+                      <td className="c-in" data-label="Kirish">
                         <span className="tp-time">
                           <b className={rec?.checkIn ? (row.late ? "t-amber" : "t-green") : "t-none"}>{rec?.checkIn || "—"}</b>
                           {row.late && rec?.lateMinutes ? (
@@ -701,19 +726,23 @@ function AttendanceTable({ roster, isToday }: { roster: RosterRow[]; isToday: bo
                           ) : null}
                         </span>
                       </td>
-                      <td>
+                      <td className="c-out" data-label="Chiqish">
                         <span className="tp-time">
                           <b className={rec?.checkOut ? "" : "t-none"}>{rec?.checkOut || "—"}</b>
                           {rec?.earlyLeaveMinutes ? <small className="tp-tag red">−{duration(rec.earlyLeaveMinutes)}</small> : null}
                         </span>
                       </td>
-                      <td>{rec?.overtimeMinutes ? <span className="tp-tag green">+{duration(rec.overtimeMinutes)}</span> : <span className="tp-muted">—</span>}</td>
-                      <td className="nowrap">{rec?.workedMinutes ? <b>{hm(rec.workedMinutes)}</b> : <span className="tp-muted">—</span>}</td>
-                      <td className="tp-muted">{row.branch || "—"}</td>
-                      <td>
+                      <td className="c-over" data-label="Qo‘shimcha">
+                        {rec?.overtimeMinutes ? <span className="tp-tag green">+{duration(rec.overtimeMinutes)}</span> : <span className="tp-muted">—</span>}
+                      </td>
+                      <td className="c-worked nowrap" data-label="Jami">
+                        {rec?.workedMinutes ? <b>{hm(rec.workedMinutes)}</b> : <span className="tp-muted">—</span>}
+                      </td>
+                      <td className="c-branch tp-muted">{row.branch || "—"}</td>
+                      <td className="c-state">
                         <span className={`tp-badge ${tone} ${live ? "live" : ""}`}>{label}</span>
                       </td>
-                      <td className="tp-chev">
+                      <td className="c-chev tp-chev">
                         <ChevronRight size={16} aria-hidden />
                       </td>
                     </tr>
@@ -798,7 +827,7 @@ function BranchStats({ roster, more }: { roster: RosterRow[]; more: string | nul
         <Empty icon={Building2} title="Filial ma’lumoti yo‘q" text="Xodimlar filialga biriktirilgach, har bir filialning davomati shu yerda ko‘rinadi." />
       ) : (
         <div className="table-wrap tp-table-wrap">
-          <table className="tp-table">
+          <table className="tp-table tp-cards tp-branches">
             <thead>
               <tr>
                 <th>Filial</th>
@@ -813,7 +842,7 @@ function BranchStats({ roster, more }: { roster: RosterRow[]; more: string | nul
                 const tone = rateTone(b.rate);
                 return (
                   <tr key={b.key}>
-                    <td>
+                    <td className="c-name">
                       <span className="tp-branch">
                         <span className="tp-branch-icon">
                           <Building2 size={13} aria-hidden />
@@ -821,10 +850,16 @@ function BranchStats({ roster, more }: { roster: RosterRow[]; more: string | nul
                         <b>{b.name}</b>
                       </span>
                     </td>
-                    <td className="num">{num(b.total)}</td>
-                    <td className="num">{num(b.working)}</td>
-                    <td className={`num ${b.late ? "t-amber" : "tp-muted"}`}>{num(b.late)}</td>
-                    <td>
+                    <td className="c-total num" data-label="Xodimlar">
+                      {num(b.total)}
+                    </td>
+                    <td className="c-working num" data-label="Hozir ishda">
+                      {num(b.working)}
+                    </td>
+                    <td className={`c-late num ${b.late ? "t-amber" : "tp-muted"}`} data-label="Kechikkan">
+                      {num(b.late)}
+                    </td>
+                    <td className="c-rate">
                       <span className="tp-rate">
                         <span className="tp-meter">
                           <i className={tone} style={{ width: `${b.rate ?? 0}%` }} />

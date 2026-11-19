@@ -330,6 +330,7 @@ export default function Manager() {
       />
       {(view === "today" || view === "map" || view === "grid") && canAttendanceView ? (
         <Segmented<MView>
+          quiet
           value={view}
           onChange={setView}
           options={[

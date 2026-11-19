@@ -25,6 +25,17 @@ export function forwardMinutes(from: string, to: string) {
   return (clockMinutes(to) - clockMinutes(from) + DAY_MINUTES) % DAY_MINUTES;
 }
 
+/**
+ * Kirishdan beri o‘tgan ish vaqti (daqiqa). Kechki smenada yarim tundan keyin ham to‘g‘ri
+ * (22:00 → 02:00 = 240). Erta kelgan xodimning kirishi smena boshiga yaxlitlanadi (07:38 da kelsa
+ * — 08:00); hozirgi vaqt kirishdan oldin bo‘lsa, forwardMinutes 23 soat 38 daqiqa qaytarardi —
+ * bunday holatda hali 0. 18 soatdan uzun uzluksiz ish bo‘lmaydi deb hisoblanadi.
+ */
+export function elapsedMinutes(from: string, to: string) {
+  const minutes = forwardMinutes(from, to);
+  return minutes > 18 * 60 ? 0 : minutes;
+}
+
 /** Smena davomiyligi: 09:00→18:00 = 540, 14:00→00:00 = 600, 22:00→06:00 = 480. */
 export function shiftMinutes(start: string, end: string) {
   return forwardMinutes(start, end);

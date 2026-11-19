@@ -32,6 +32,8 @@ type Overview = {
     partial: number;
     remaining: number;
     advances: number;
+    /** Oy ichida kunlik/soatbay xodimlarga berilgan ishlangan haq. */
+    wagePaid?: number;
     bonuses: number;
     deductions: number;
     paidPeople: number;
@@ -51,7 +53,7 @@ export function PayTypeBadge({ type }: { type?: PayType }) {
 }
 
 /* ------------------------------------------------------ umumiy ko‘rinish --- */
-export function PayrollOverview({ month, onOpen }: { month: string; onOpen: (tab: "calc" | "piece" | "payments") => void }) {
+export function PayrollOverview({ month, onOpen }: { month: string; onOpen: (tab: "calc" | "piece" | "earned" | "payments") => void }) {
   const { data, error } = useApi<Overview>(`/payroll/overview?month=${month}`);
   if (error) return <div className="notice error">{error}</div>;
   if (!data)
@@ -66,6 +68,8 @@ export function PayrollOverview({ month, onOpen }: { month: string; onOpen: (tab
   const maxType = Math.max(1, ...data.byPayType.map((x) => x.net));
   const maxBranch = Math.max(1, ...data.byBranch.map((x) => x.net));
   const paidPct = t.net ? Math.round((t.paid / t.net) * 100) : 0;
+  // Oylikdan boshqa turdagi xodimlar — ularga oy ichida ishlangan haq berilishi mumkin.
+  const typedPeople = data.byPayType.filter((x) => x.payType !== "MONTHLY").reduce((s, x) => s + x.employees, 0);
   return (
     <div className="pm-stack">
       <section className="tp-stats" aria-label="Ish haqi ko‘rsatkichlari">
@@ -82,7 +86,18 @@ export function PayrollOverview({ month, onOpen }: { month: string; onOpen: (tab
               <CalendarClock size={16} />
               <span>
                 <b>{data.label}: {data.stageLabel}</b>
-                <small>Raqamlar jonli davomatdan hisoblanmoqda. To‘lov qayd etish uchun oy tasdiqlanib yopilishi kerak.</small>
+                <small>Raqamlar jonli davomatdan hisoblanmoqda. Oylik to‘lovi oy tasdiqlanib yopilgach qayd etiladi.</small>
+              </span>
+            </button>
+          )}
+          {!data.closed && typedPeople > 0 && (
+            <button type="button" className="pm-alert info" onClick={() => onOpen("earned")}>
+              <HandCoins size={16} />
+              <span>
+                <b>
+                  {typedPeople} kunlik / soatbay xodim{t.wagePaid ? ` · oy ichida ${money(t.wagePaid)} berilgan` : ""}
+                </b>
+                <small>Ishlab bo‘lgan haqini oy yopilishini kutmasdan istalgan kuni berish mumkin — «Kunlik to‘lov».</small>
               </span>
             </button>
           )}
@@ -613,6 +628,317 @@ function PieceModal({ employees, month, onClose, onSaved }: { employees: { id: s
 
 /* ---------------------------------------------------------- to‘lovlar --- */
 type PaymentRow = { id: string; employeeId: string; name: string; month: string; amount: number; method: string; paidAt: string; note?: string; createdBy: string };
+/* -------------------------------------------- oy ichida ishlangan haq --- */
+/*
+ * Kunlik, soatbay va ishbay xodimlarga oy yopilishini kutmasdan shu kungacha ishlab bo‘lingan haqi
+ * beriladi. Summa serverda davomatdan qayta hisoblanadi; berilgani oy yopilganda qo‘lga
+ * beriladigan summadan ayriladi (ikki marta to‘lanmaydi).
+ */
+type EarnedRow = {
+  employeeId: string;
+  name: string;
+  employeeNo?: string;
+  photoDataUrl?: string;
+  payType: PayType;
+  rate: number;
+  units: number;
+  unit: string;
+  earned: number;
+  advance: number;
+  paid: number;
+  available: number;
+  openDays: string[];
+  lastPaidAt: string | null;
+};
+type EarnedPayout = { id: string; employeeId: string; name: string; amount: number; method?: string; paidAt?: string; upTo?: string; note?: string; createdBy: string; createdAt: string };
+type EarnedData = {
+  month: string;
+  label: string;
+  closed: boolean;
+  upTo: string;
+  rows: EarnedRow[];
+  totals: { employees: number; earned: number; paid: number; available: number };
+  history: EarnedPayout[];
+};
+const unitsText = (row: Pick<EarnedRow, "units" | "unit">) => `${String(row.units).replace(".", ",")} ${row.unit}`;
+
+export function EarnedPayPanel({ month, canEdit }: { month: string; canEdit: boolean }) {
+  const { data, error, loading, reload } = useApi<EarnedData>(`/payroll/earned?month=${month}`);
+  const [payFor, setPayFor] = useState<EarnedRow | null>(null);
+  const [cancelFor, setCancelFor] = useState<EarnedPayout | null>(null);
+  const [query, setQuery] = useState("");
+  const rows = (data?.rows || []).filter((r) => r.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const upTo = data ? dmy(data.upTo) : "";
+  return (
+    <div className="pm-stack pm-earned">
+      <section className="tp-stats" aria-label="Ishlangan haq">
+        <Tile tone="blue" icon={CalendarClock} label="Ishlangan" value={money(data?.totals.earned || 0)} note={data ? `${upTo} gacha · ${data.totals.employees} xodim` : "—"} />
+        <Tile tone="green" icon={HandCoins} label="Berildi" value={money(data?.totals.paid || 0)} note="oy davomida" />
+        <Tile tone="amber" icon={Banknote} label="Berish mumkin" value={money(data?.totals.available || 0)} note={data?.closed ? "oy yopilgan" : "hozir"} />
+      </section>
+
+      <section className="tp-card">
+        <div className="tp-card-head">
+          <div className="tp-title">
+            <h2>Kunlik va soatbay to‘lov</h2>
+            <span className="tp-muted">{data ? `${data.label} · ${upTo} gacha ishlangani` : "yuklanmoqda…"}</span>
+          </div>
+          <label className="tp-search pm-search">
+            <Search size={14} aria-hidden />
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Xodim qidirish" aria-label="Xodim qidirish" />
+          </label>
+        </div>
+        {data?.closed && <div className="notice pm-pad">Oy yopilgan — qolgan summa «To‘lovlar» bo‘limida beriladi.</div>}
+        {error ? (
+          <div className="notice error pm-pad">{error}</div>
+        ) : loading && !data ? (
+          <div className="tp-sk-rows">
+            {[0, 1, 2].map((i) => (
+              <span key={i} className="db-sk db-sk-row" />
+            ))}
+          </div>
+        ) : !(data?.rows || []).length ? (
+          <Empty icon={CalendarClock} title="Kunlik yoki soatbay xodim yo‘q" text="«Stavkalar» bo‘limida xodimga kunlik, soatbay yoki ishbay stavka bering — shu yerda har kuni ishlab bo‘lgani ko‘rinadi." />
+        ) : (
+          <div className="table-wrap tp-table-wrap">
+            <table className="tp-table tp-cards pm-earned-table">
+              <thead>
+                <tr>
+                  <th>Xodim</th>
+                  <th>Stavka</th>
+                  <th className="num">Ishlagan</th>
+                  <th className="num">Hisoblangan</th>
+                  <th className="num">Berilgan</th>
+                  <th className="num">Berish mumkin</th>
+                  <th className="right">Amal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.employeeId}>
+                    <td className="c-person">
+                      <span className="tp-person">
+                        <Avatar first={r.name.split(" ")[0]} last={r.name.split(" ").slice(1).join(" ")} photo={r.photoDataUrl} size="sm" />
+                        <span>
+                          <b>{r.name}</b>
+                          <small>
+                            {r.lastPaidAt ? `oxirgi to‘lov ${dmy(r.lastPaidAt)}` : "bu oy hali berilmagan"}
+                            {r.openDays.length > 0 && <em className="pm-earned-warn"> · {r.openDays.length} kun chiqishsiz</em>}
+                          </small>
+                        </span>
+                      </span>
+                    </td>
+                    <td className="c-rate" data-label="Stavka">
+                      <PayTypeBadge type={r.payType} /> <span className="tp-muted nowrap">{r.payType === "PIECE" ? "yozuvlar bo‘yicha" : `${money(r.rate)} ${PAY_TYPE[r.payType].unit}`}</span>
+                    </td>
+                    <td className="c-units num" data-label="Ishlagan">
+                      {unitsText(r)}
+                    </td>
+                    <td className="c-earned num" data-label="Hisoblangan">
+                      {money(r.earned)}
+                      {r.advance > 0 && <small className="pm-earned-sub">avans −{money(r.advance)}</small>}
+                    </td>
+                    <td className="c-paid num t-green" data-label="Berilgan">
+                      {r.paid ? money(r.paid) : "—"}
+                    </td>
+                    <td className="c-available num" data-label="Berish mumkin">
+                      <b>{r.available ? money(r.available) : "—"}</b>
+                    </td>
+                    <td className="c-actions right">
+                      {canEdit && r.available > 0 ? (
+                        <button type="button" className="btn btn-sm btn-primary" onClick={() => setPayFor(r)}>
+                          <Banknote size={14} /> To‘lash
+                        </button>
+                      ) : (
+                        <span className="tp-muted">{r.available > 0 ? "—" : r.earned ? "to‘langan" : "—"}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="tp-card">
+        <div className="tp-card-head">
+          <div className="tp-title">
+            <h2>Berilgan to‘lovlar</h2>
+            <span className="tp-muted">{(data?.history || []).length} ta yozuv</span>
+          </div>
+        </div>
+        {!(data?.history || []).length ? (
+          <Empty icon={History} title="Bu oy to‘lov berilmagan" text="Har bir to‘lov summa, sana, usul va kim berganini saqlaydi; oy yopilganda qo‘lga beriladigan summadan ayriladi." />
+        ) : (
+          <ul className="pm-earned-history">
+            {data!.history.map((p) => (
+              <li key={p.id}>
+                <span className="pm-earned-history-main">
+                  <b>{p.name}</b>
+                  <small>
+                    {p.paidAt ? dmy(p.paidAt) : dmy(p.createdAt)} · {METHOD[p.method || ""] || "—"} · {p.note || "—"}
+                  </small>
+                </span>
+                <b className="t-green nowrap">{money(p.amount)}</b>
+                {canEdit && !data!.closed && (
+                  <button type="button" className="icon-btn" aria-label={`${p.name}: to‘lovni bekor qilish`} title="Bekor qilish" onClick={() => setCancelFor(p)}>
+                    <X size={15} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {payFor && (
+        <EarnedPayModal
+          row={payFor}
+          month={month}
+          upTo={upTo}
+          onClose={() => setPayFor(null)}
+          onSaved={() => {
+            setPayFor(null);
+            void reload(true);
+          }}
+        />
+      )}
+      {cancelFor && (
+        <EarnedCancelModal
+          payout={cancelFor}
+          onClose={() => setCancelFor(null)}
+          onSaved={() => {
+            setCancelFor(null);
+            void reload(true);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EarnedPayModal({ row, month, upTo, onClose, onSaved }: { row: EarnedRow; month: string; upTo: string; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [form, setForm] = useState({ amount: String(row.available), method: "CASH", paidAt: tashkentIsoDate(), note: "" });
+  // Bitta modal — bitta kalit: ikki marta bosilsa ham server bitta to‘lov yozadi.
+  const [key] = useState(() => crypto.randomUUID());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const amount = Math.round(Number(form.amount) || 0);
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await post("/payroll/earned/pay", { employeeId: row.employeeId, month, amount, method: form.method, paidAt: form.paidAt, note: form.note || undefined, idempotencyKey: key });
+      toast(amount < row.available ? "Qisman to‘lov berildi" : "Ishlangan haq berildi");
+      onSaved();
+    } catch (reason) {
+      setError(errorText(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal title="Ishlangan haqni berish" subtitle={`${row.name} · ${unitsText(row)} · ${upTo} gacha`} onClose={onClose}>
+      <form onSubmit={(e) => void submit(e)}>
+        <dl className="pm-earned-calc">
+          <div>
+            <dt>Hisoblangan</dt>
+            <dd>{money(row.earned)}</dd>
+          </div>
+          {row.advance > 0 && (
+            <div>
+              <dt>Avans</dt>
+              <dd>−{money(row.advance)}</dd>
+            </div>
+          )}
+          {row.paid > 0 && (
+            <div>
+              <dt>Oldin berilgan</dt>
+              <dd>−{money(row.paid)}</dd>
+            </div>
+          )}
+          <div className="total">
+            <dt>Berish mumkin</dt>
+            <dd>{money(row.available)}</dd>
+          </div>
+        </dl>
+        <div className="form-grid">
+          <Field label="Summa (so‘m)" hint={amount && amount < row.available ? "Qisman — qolgani keyin yoki oy oxirida" : "To‘liq"}>
+            <input className="input" required type="number" min="1" max={row.available} step="1" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+          </Field>
+          <Field label="To‘lov usuli">
+            <select className="input" value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}>
+              {Object.entries(METHOD).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="To‘lov sanasi">
+            <input className="input" required type="date" max={tashkentIsoDate()} value={form.paidAt} onChange={(e) => setForm({ ...form, paidAt: e.target.value })} />
+          </Field>
+          <Field label="Izoh (ixtiyoriy)">
+            <input className="input" maxLength={300} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Masalan: hafta uchun" />
+          </Field>
+        </div>
+        <div className="notice">Bu summa oy yopilganda qo‘lga beriladigan summadan avtomatik ayriladi. Tizim bankdan pul o‘tkazmaydi — to‘lov berilganini qayd etadi.</div>
+        {error && <div className="notice error">{error}</div>}
+        <div className="form-actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Bekor qilish
+          </button>
+          <button className="btn btn-primary" disabled={busy || amount <= 0 || amount > row.available}>
+            {busy ? "Saqlanmoqda…" : `${money(amount)} berish`}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function EarnedCancelModal({ payout, onClose, onSaved }: { payout: EarnedPayout; onClose: () => void; onSaved: () => void }) {
+  const toast = useToast();
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await post(`/payroll/earned/${payout.id}/cancel`, { reason: reason.trim() });
+      toast("To‘lov bekor qilindi");
+      onSaved();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Modal title="To‘lovni bekor qilish" subtitle={`${payout.name} · ${money(payout.amount)}`} onClose={onClose}>
+      <form onSubmit={(e) => void submit(e)}>
+        <Field label="Sabab" hint="Yozuv o‘chirilmaydi — bekor qilingan deb belgilanadi va auditda qoladi.">
+          <input className="input" required minLength={3} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Masalan: summa xato kiritildi" autoFocus />
+        </Field>
+        {error && <div className="notice error">{error}</div>}
+        <div className="form-actions">
+          <button type="button" className="btn" onClick={onClose}>
+            Yopish
+          </button>
+          <button className="btn btn-danger" disabled={busy || reason.trim().length < 3}>
+            {busy ? "Saqlanmoqda…" : "Bekor qilish"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 type Line = { employeeId: string; name: string; net: number; payType?: PayType };
 
 export function PaymentsPanel({ month, lines, closed, canEdit }: { month: string; lines: Line[]; closed: boolean; canEdit: boolean }) {

@@ -1,5 +1,5 @@
 import { PayrollCompare, PayrollWorkflowBar, BankExportButton } from "../components/PayrollWorkspace";
-import { PayRatesPanel, PayTypeBadge, PaymentsPanel, PayrollOverview, PieceWorkPanel, type PayType } from "../components/PayrollModule";
+import { EarnedPayPanel, PayRatesPanel, PayTypeBadge, PaymentsPanel, PayrollOverview, PieceWorkPanel, type PayType } from "../components/PayrollModule";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -44,7 +44,7 @@ import { duration, money, monthYearUz, tashkentIsoDate } from "@/lib/format";
 import type { Employee } from "@/lib/types";
 import type { Meta } from "../types";
 
-type Adjustment = { id: string; employeeId: string; month: string; type: "ADVANCE" | "BONUS" | "FINE"; amount: number; note?: string; createdBy: string; createdAt: string };
+type Adjustment = { id: string; employeeId: string; month: string; type: "ADVANCE" | "BONUS" | "FINE" | "WAGE" | "SETTLEMENT"; amount: number; note?: string; createdBy: string; createdAt: string };
 type PayrollRow = {
   employee: Employee;
   days: number;
@@ -107,16 +107,20 @@ type Payroll = {
   };
 };
 /** Ish haqi bo‘limi tablari. */
-type PayTab = "overview" | "calc" | "rates" | "piece" | "payments";
+type PayTab = "overview" | "calc" | "rates" | "piece" | "earned" | "payments";
 const PAY_TABS: [PayTab, string][] = [
   ["overview", "Umumiy ko‘rinish"],
   ["calc", "Hisob-kitoblar"],
   ["rates", "Stavkalar"],
   ["piece", "Ishbay ishlar"],
+  // Kunlik / soatbay / ishbay xodimlarga oy ichida ishlangan haqini berish.
+  ["earned", "Kunlik to‘lov"],
   ["payments", "To‘lovlar"],
 ];
 
 const adjLabels = { ADVANCE: "Avans", BONUS: "Bonus", FINE: "Jarima" } as const;
+/** Ro‘yxatda ko‘rinadigan, lekin bu formadan qo‘shilmaydigan turlar. */
+const adjExtraLabels: Record<string, string> = { WAGE: "Ishlangan haq", SETTLEMENT: "Yakuniy hisob" };
 const when = (iso: string) => new Date(iso).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 export function PayrollPage() {
@@ -236,6 +240,7 @@ export function PayrollPage() {
       {tab === "overview" && <PayrollOverview month={month} onOpen={setTab} />}
       {tab === "rates" && <PayRatesPanel canEdit={canEditPayroll} />}
       {tab === "piece" && <PieceWorkPanel month={month} canEdit={canEditPayroll} canAdd={Boolean(user && (can(user.role, "payroll.edit") || can(user.role, "employees.edit")))} employees={rows.map((x) => ({ id: x.employee.id, name: `${x.employee.firstName} ${x.employee.lastName}` }))} />}
+      {tab === "earned" && <EarnedPayPanel month={month} canEdit={canEditPayroll} />}
       {tab === "payments" && <PaymentsPanel month={month} closed={Boolean(closed)} canEdit={canEditPayroll} lines={lines.map((l) => ({ employeeId: l.id, name: l.name, net: l.net, payType: l.payType }))} />}
       {tab === "calc" && (
       <>
@@ -429,7 +434,7 @@ export function PayrollPage() {
 
 function AdjustModal({ row, month, onClose, onChanged }: { row: PayrollRow; month: string; onClose: () => void; onChanged: () => void }) {
   const toast = useToast();
-  const [type, setType] = useState<Adjustment["type"]>("ADVANCE");
+  const [type, setType] = useState<keyof typeof adjLabels>("ADVANCE");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -438,7 +443,7 @@ function AdjustModal({ row, month, onClose, onChanged }: { row: PayrollRow; mont
   return (
     <Modal title="Avans, bonus, jarima" subtitle={`${row.employee.firstName} ${row.employee.lastName} · ${monthYearUz(`${month}-15`)}`} onClose={onClose} size="narrow">
       <div className="adj-types">
-        {(Object.keys(adjLabels) as Adjustment["type"][]).map((key) => (
+        {(Object.keys(adjLabels) as (keyof typeof adjLabels)[]).map((key) => (
           <button key={key} className={`adj-type ${key.toLowerCase()} ${type === key ? "on" : ""}`} onClick={() => setType(key)}>
             {key === "BONUS" ? "+" : "−"} {adjLabels[key]}
           </button>
@@ -480,10 +485,11 @@ function AdjustModal({ row, month, onClose, onChanged }: { row: PayrollRow; mont
         <div className="adj-list">
           {items.map((a) => (
             <div key={a.id}>
-              <span className={`badge ${a.type === "BONUS" ? "green" : a.type === "FINE" ? "red" : "blue"}`}>{adjLabels[a.type]}</span>
+              <span className={`badge ${a.type === "BONUS" ? "green" : a.type === "FINE" ? "red" : a.type === "WAGE" ? "teal" : "blue"}`}>{(adjLabels as Record<string, string>)[a.type] || adjExtraLabels[a.type] || a.type}</span>
               <b>{money(a.amount)}</b>
               <small>{a.note || "—"}</small>
-              <button
+              {/* Berilgan pul (oy ichidagi to‘lov, yakuniy hisob) bu yerdan o‘chirilmaydi. */}
+              {a.type !== "WAGE" && a.type !== "SETTLEMENT" && <button
                 className="icon-btn"
                 aria-label="O‘chirish"
                 onClick={async () => {
@@ -497,7 +503,7 @@ function AdjustModal({ row, month, onClose, onChanged }: { row: PayrollRow; mont
                 }}
               >
                 <Trash2 size={14} />
-              </button>
+              </button>}
             </div>
           ))}
         </div>

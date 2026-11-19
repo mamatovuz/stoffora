@@ -103,20 +103,22 @@ export function PinFlow({
       />
     );
 
+  const unlocking = step === "current" && mode === "unlock";
   const title =
     step === "current"
-      ? mode === "unlock"
-        ? "PIN-kodni kiriting"
+      ? unlocking
+        ? greeting()
         : "Joriy PIN-kod"
       : step === "new"
         ? afterReset || mode === "set"
           ? "Yangi PIN-kod o‘ylang"
           : "Yangi PIN-kod"
         : "PIN-kodni takrorlang";
-  const subtitle = step === "current" ? (blocked ? `${MAX_PIN_ATTEMPTS} marta noto‘g‘ri kiritildi` : undefined) : step === "new" ? "4 ta raqam" : undefined;
+  const subtitle =
+    step === "current" ? (blocked ? `${MAX_PIN_ATTEMPTS} marta noto‘g‘ri kiritildi` : unlocking ? "PIN-kodni kiriting" : undefined) : step === "new" ? "4 ta raqam" : undefined;
 
   return (
-    <View style={[st.root, { backgroundColor: c.bg, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]}>
+    <View style={[st.root, { backgroundColor: c.card, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
       <View style={st.top}>
         {onCancel ? (
           <Pressable onPress={onCancel} hitSlop={12}>
@@ -126,11 +128,10 @@ export function PinFlow({
           <View />
         )}
       </View>
-      <View style={{ alignItems: "center", gap: 18, marginTop: 24 }}>
-        <View style={[st.lock, { backgroundColor: `${c.accent}14` }]}>
-          <Icon name="lock-closed" size={24} color={c.accent} />
-        </View>
+      {/* Sarlavha va nuqtalar — tepada, raqamlar — bosh barmoq yetadigan pastda. */}
+      <View style={{ flex: 1, alignItems: "center", paddingTop: 36, paddingBottom: 8 }}>
         <PinPad
+          spread
           value={value}
           onChange={(v) => void onChange(v)}
           title={title}
@@ -140,14 +141,13 @@ export function PinFlow({
           disabled={busy || (step === "current" && blocked)}
           left={
             biometric && step === "current" && !blocked ? (
-              <Pressable onPress={biometric.run} hitSlop={10} accessibilityLabel={biometric.label} style={st.bio}>
-                <Icon name={ios ? "scan-outline" : "finger-print"} size={30} color={c.accent} />
+              <Pressable onPress={biometric.run} hitSlop={10} accessibilityLabel={biometric.label} style={({ pressed }) => [st.bio, pressed && { opacity: 0.5 }]}>
+                <Icon name={ios ? "scan-outline" : "finger-print"} size={30} color={c.ink} />
               </Pressable>
             ) : null
           }
         />
       </View>
-      <View style={{ flex: 1 }} />
       {step === "current" ? (
         <Pressable
           onPress={() => {
@@ -155,13 +155,22 @@ export function PinFlow({
             setStep("reset");
           }}
           hitSlop={10}
-          style={{ alignSelf: "center", padding: 8 }}
+          style={({ pressed }) => [{ alignSelf: "center", padding: 10 }, pressed && { opacity: 0.5 }]}
         >
-          <Text style={{ color: c.accent, fontSize: 15, fontWeight: "500" }}>PIN-kodni unutdingizmi?</Text>
+          <Text style={{ color: c.muted, fontSize: 14, fontWeight: "500" }}>PIN-kodni unutdingizmi?</Text>
         </Pressable>
       ) : null}
     </View>
   );
+}
+
+/** Ochish ekranidagi salom — kun vaqtiga qarab. */
+function greeting(now = new Date()) {
+  const h = now.getHours();
+  if (h >= 5 && h < 11) return "Xayrli tong";
+  if (h >= 11 && h < 17) return "Xayrli kun";
+  if (h >= 17 && h < 22) return "Xayrli kech";
+  return "Xayrli tun";
 }
 
 /** Tiklash: kod so‘rash → 5 xonali kodni kiritish. */

@@ -9,7 +9,7 @@ import type { Database, PayType } from "../lib/types";
 import type { AuthedRequest } from "./auth";
 import { closedPeriod, monthLabel } from "./payroll-routes";
 import { STAGE_LABELS, assertMonthOpen, workflowOf } from "./payroll-workflow";
-import { payrollRows } from "./reports";
+import { employeePayrollRow, payrollRows } from "./reports";
 
 /*
  * Ish haqi moduli: xodim stavkalari (tur + tarix), ishbay natijalar, to‘lovlar (qisman/to‘liq) va
@@ -37,6 +37,19 @@ const money = z.coerce.number().int("Butun so‘m kiriting.").min(0).max(100_000
 const som = (value: number) => `${Math.round(value).toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m`;
 const nameOf = (e?: { firstName: string; lastName: string }) => (e ? `${e.firstName} ${e.lastName}`.trim() : "—");
 export const PAY_METHOD_LABEL = { CASH: "Naqd", CARD: "Karta", BANK: "Bank o‘tkazmasi" } as const;
+
+/** Oy ichida kunlik/soatbay/ishbay xodimlarga ishlangan haqi uchun berilgan (bekor qilinmagan) to‘lovlar. */
+export function wagePayouts(db: Pick<Database, "payrollAdjustments">, tenant: string, month: string, employeeId?: string) {
+  return db.payrollAdjustments.filter(
+    (a) => a.companyId === tenant && a.month === month && a.type === "WAGE" && (!a.status || a.status === "APPROVED") && (!employeeId || a.employeeId === employeeId),
+  );
+}
+
+const monthEndOf = (month: string) => {
+  const [y, m] = month.split("-").map(Number);
+  return `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
+};
+const UNIT_LABEL: Record<Exclude<PayType, "MONTHLY">, string> = { DAILY: "kun", HOURLY: "soat", PIECE: "birlik" };
 
 /** Oy bo‘yicha xodimga to‘langan summa (qayd etilgan to‘lovlar yig‘indisi). */
 export function paidFor(db: Pick<Database, "payrollPayments">, tenant: string, month: string, employeeId: string) {
@@ -103,6 +116,7 @@ export function payrollOverview(db: Database, tenant: string, month: string) {
     byBranch.set(branch, b);
   }
   const net = lines.reduce((s, l) => s + l.net, 0);
+  const wagePaid = wagePayouts(db, tenant, month).reduce((s, a) => s + a.amount, 0);
   const workflow = workflowOf(db, tenant, month);
   return {
     month,
@@ -117,7 +131,9 @@ export function payrollOverview(db: Database, tenant: string, month: string) {
       paid,
       partial,
       remaining: Math.max(0, net - paid),
-      advances: lines.reduce((s, l) => s + l.advance, 0),
+      // line.advance ichida oy davomida berilgan ishlangan haq (WAGE) ham bor — avanslardan ajratamiz.
+      advances: Math.max(0, lines.reduce((s, l) => s + l.advance, 0) - wagePaid),
+      wagePaid,
       bonuses: lines.reduce((s, l) => s + l.bonus, 0),
       deductions: lines.reduce((s, l) => s + l.deductions, 0),
       paidPeople,
@@ -281,6 +297,151 @@ export function createPayRouter() {
         item.decidedAt = new Date().toISOString();
         item.decidedBy = req.session!.name;
         db.auditLogs.unshift(audit(tenant, req.session!.name, `Ishbay ${approve ? "tasdiqlandi" : "rad etildi"}: ${item.workType} ${som(item.amount)}`, "employee", item.employeeId));
+        return item;
+      });
+      res.json(row);
+    }),
+  );
+
+  /* ------------------------------------- oy ichida ishlangan haqni to‘lash --- */
+  /*
+   * Kunlik, soatbay va ishbay xodimlarga oy yopilishini kutmasdan — har kuni, hafta oxirida yoki
+   * istalgan payt — shu kungacha ishlab bo‘lingan haqi beriladi. Summa serverda davomatdan
+   * qayta hisoblanadi (employeePayrollRow): tasdiqlangan kunlar/soatlar/ishbay − avans − oldingi
+   * to‘lovlar. Berilgan to‘lov WAGE yozuvi bo‘lib, oy yopilganda qo‘lga beriladigan summadan
+   * ayriladi — xodimga ikki marta to‘lanmaydi. Oylik xodimga oy ichida avans orqali beriladi.
+   */
+  router.get(
+    "/payroll/earned",
+    permit("payroll.view", "payroll.edit"),
+    route(async (req, res) => {
+      const tenant = tenantOf(req);
+      const today = tashkentIsoDate();
+      const month = monthSchema.parse(String(req.query.month || today.slice(0, 7)));
+      const db = await readDb();
+      const closed = Boolean(closedPeriod(db, tenant, month));
+      const upTo = monthEndOf(month) < today ? monthEndOf(month) : today;
+      const payouts = wagePayouts(db, tenant, month);
+      const lastPaid = new Map<string, string>();
+      for (const p of payouts) if (p.paidAt && (lastPaid.get(p.employeeId) || "") < p.paidAt) lastPaid.set(p.employeeId, p.paidAt);
+      const rows =
+        month > today.slice(0, 7)
+          ? []
+          : payrollRows(db, tenant, month)
+              .filter((r) => r.payType !== "MONTHLY" && r.employee.status === "ACTIVE")
+              .map((r) => ({
+                employeeId: r.employee.id,
+                name: nameOf(r.employee),
+                employeeNo: r.employee.employeeNo,
+                photoDataUrl: r.employee.photoDataUrl,
+                payType: r.payType,
+                rate: r.rate,
+                units: r.units,
+                unit: UNIT_LABEL[r.payType as Exclude<PayType, "MONTHLY">],
+                earned: r.gross,
+                advance: Math.max(0, r.advance - r.wagePaid),
+                paid: r.wagePaid,
+                available: closed ? 0 : r.net,
+                openDays: r.openDays,
+                lastPaidAt: lastPaid.get(r.employee.id) || null,
+              }))
+              .sort((a, b) => b.available - a.available || a.name.localeCompare(b.name, "uz"));
+      const employees = new Map(db.employees.filter((e) => e.companyId === tenant).map((e) => [e.id, e]));
+      res.json({
+        month,
+        label: monthLabel(month),
+        closed,
+        upTo,
+        rows,
+        totals: {
+          employees: rows.length,
+          earned: rows.reduce((s, r) => s + r.earned, 0),
+          paid: rows.reduce((s, r) => s + r.paid, 0),
+          available: rows.reduce((s, r) => s + r.available, 0),
+        },
+        history: payouts
+          .slice()
+          .sort((a, b) => (b.paidAt || b.createdAt).localeCompare(a.paidAt || a.createdAt) || b.createdAt.localeCompare(a.createdAt))
+          .map((p) => ({ id: p.id, employeeId: p.employeeId, name: nameOf(employees.get(p.employeeId)), amount: p.amount, method: p.method, paidAt: p.paidAt, upTo: p.upTo, note: p.note, createdBy: p.createdBy, createdAt: p.createdAt })),
+      });
+    }),
+  );
+  router.post(
+    "/payroll/earned/pay",
+    permit("payroll.edit"),
+    route(async (req, res) => {
+      const tenant = tenantOf(req);
+      const today = tashkentIsoDate();
+      const input = z
+        .object({
+          employeeId: z.string().min(1),
+          month: monthSchema,
+          amount: money.refine((v) => v > 0, "Summa 0 dan katta bo‘lsin."),
+          method: z.enum(["CASH", "CARD", "BANK"]),
+          paidAt: dateSchema,
+          note: z.string().trim().max(300).optional(),
+          idempotencyKey: z.string().trim().min(8).max(120),
+        })
+        .parse(req.body);
+      if (input.month > today.slice(0, 7)) throw httpError("Kelgusi oy uchun ishlangan haq bo‘lmaydi.", 422);
+      if (input.paidAt > today) throw httpError("To‘lov sanasi kelajakda bo‘lmasin.", 422);
+      const result = await updateDb((db) => {
+        const duplicate = db.payrollAdjustments.find((a) => a.companyId === tenant && a.type === "WAGE" && a.idempotencyKey === input.idempotencyKey);
+        if (duplicate) {
+          if (duplicate.employeeId !== input.employeeId || duplicate.month !== input.month || duplicate.amount !== input.amount) throw httpError("Bu so‘rov kaliti boshqa to‘lov uchun ishlatilgan.", 409);
+          return { row: duplicate, created: false };
+        }
+        if (closedPeriod(db, tenant, input.month)) throw httpError(`${monthLabel(input.month)} yopilgan — qoldiq «To‘lovlar» bo‘limida to‘lanadi.`, 409);
+        const employee = db.employees.find((e) => e.id === input.employeeId && e.companyId === tenant && e.status === "ACTIVE");
+        if (!employee) throw httpError("Xodim topilmadi.", 404);
+        // Summa shu so‘rov ichida, eng yangi davomat bilan qayta hisoblanadi — brauzerdagi raqamga ishonilmaydi.
+        const line = employeePayrollRow(db, employee, input.month);
+        if (line.payType === "MONTHLY") throw httpError("Oylik xodimga oy ichida pul «Avans» orqali beriladi.", 409);
+        if (line.net <= 0) throw httpError("Shu kungacha ishlangan haq to‘liq berilgan.", 409);
+        if (input.amount > line.net) throw httpError(`Summa ishlangan haqdan oshib ketdi. Berish mumkin: ${som(line.net)}.`, 422);
+        const upTo = monthEndOf(input.month) < today ? monthEndOf(input.month) : today;
+        const unit = UNIT_LABEL[line.payType as Exclude<PayType, "MONTHLY">];
+        const row = {
+          id: randomUUID(),
+          companyId: tenant,
+          employeeId: employee.id,
+          month: input.month,
+          type: "WAGE" as const,
+          amount: input.amount,
+          status: "APPROVED" as const,
+          method: input.method,
+          paidAt: input.paidAt,
+          upTo,
+          idempotencyKey: input.idempotencyKey,
+          note: input.note || `${PAY_TYPE_LABEL[line.payType]}: ${String(line.units).replace(".", ",")} ${unit} — ${upTo.split("-").reverse().join(".")} gacha`,
+          createdBy: req.session!.name,
+          createdAt: new Date().toISOString(),
+        };
+        db.payrollAdjustments.push(row);
+        db.auditLogs.unshift(
+          audit(tenant, req.session!.name, `Ishlangan haq to‘landi (${monthLabel(input.month)}): ${nameOf(employee)} — ${som(row.amount)}, ${PAY_METHOD_LABEL[row.method]}${row.amount < line.net ? " (qisman)" : ""}`, "payroll", employee.id, undefined, row),
+        );
+        return { row, created: true };
+      });
+      res.status(result.created ? 201 : 200).json(result.row);
+    }),
+  );
+  router.post(
+    "/payroll/earned/:id/cancel",
+    permit("payroll.edit"),
+    route(async (req, res) => {
+      const tenant = tenantOf(req);
+      const { reason } = z.object({ reason: z.string().trim().min(3, "Bekor qilish sababini yozing.").max(300) }).parse(req.body);
+      const row = await updateDb((db) => {
+        const item = db.payrollAdjustments.find((a) => a.id === req.params.id && a.companyId === tenant && a.type === "WAGE");
+        if (!item) throw httpError("To‘lov topilmadi.", 404);
+        if (closedPeriod(db, tenant, item.month)) throw httpError(`${monthLabel(item.month)} yopilgan — to‘lovni bekor qilish uchun oyni qayta oching.`, 409);
+        if (item.status === "REJECTED") throw httpError("Bu to‘lov allaqachon bekor qilingan.", 409);
+        // O‘chirilmaydi: REJECTED holatda qoladi (hisobga kirmaydi), izi auditda saqlanadi.
+        item.status = "REJECTED";
+        item.note = `${item.note ? `${item.note} · ` : ""}Bekor qilindi: ${reason}`;
+        const employee = db.employees.find((e) => e.id === item.employeeId);
+        db.auditLogs.unshift(audit(tenant, req.session!.name, `Ishlangan haq to‘lovi bekor qilindi: ${nameOf(employee)} — ${som(item.amount)} (${reason})`, "payroll", item.employeeId));
         return item;
       });
       res.json(row);

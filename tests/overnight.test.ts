@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { calculateAttendance } from "../lib/attendance";
 import { breakMinutes } from "../lib/mini";
 import { minutesSinceCheckIn, shiftDateAt } from "../lib/schedule";
-import { clockOnShiftDay, isOvernight, shiftMinutes } from "../lib/shift-time";
+import { clockOnShiftDay, elapsedMinutes, isOvernight, shiftMinutes } from "../lib/shift-time";
 import type { Database } from "../lib/types";
 
 /* Kechasi tugaydigan smenalar: tugash < boshlanish => tugash ertasi kuni. */
@@ -14,6 +14,16 @@ const CASES = [
   { start: "22:00", end: "06:00", minutes: 480, overnight: true },
   { start: "23:30", end: "00:30", minutes: 60, overnight: true },
 ];
+
+describe("kirishdan beri o‘tgan vaqt (bosh sahifa «Ishlangan»)", () => {
+  it("erta kelgan: kirish 08:00 ga yaxlitlangan, hozir 07:38 — 0, 23:38 emas", () => {
+    expect(elapsedMinutes("08:00", "07:38")).toBe(0);
+  });
+  it("oddiy kun va kechki smena yarim tundan keyin", () => {
+    expect(elapsedMinutes("08:00", "10:30")).toBe(150);
+    expect(elapsedMinutes("22:00", "02:00")).toBe(240);
+  });
+});
 
 describe("smena davomiyligi", () => {
   for (const c of CASES)

@@ -78,9 +78,19 @@ body {
   z-index: 60;
   top: 0;
   border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface) 94%, transparent);
-  backdrop-filter: saturate(1.4) blur(10px);
   transition: box-shadow 0.2s var(--spring);
+}
+/* Blur alohida qatlamda: backdrop-filter elementning o‘zida bo‘lsa, ichidagi position:fixed
+   bolalar (mobil drawer, qidiruv oynasi) header balandligiga qamalib qoladi. */
+.tn-bar::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  backdrop-filter: saturate(1.4) blur(10px);
+  pointer-events: none;
 }
 .tn-bar.scrolled {
   box-shadow: 0 6px 18px -12px rgba(23, 32, 51, 0.35);
@@ -462,14 +472,24 @@ body {
     gap: 2px;
     width: min(320px, 86vw);
     overflow-y: auto;
-    padding: 12px;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 12px 12px calc(16px + env(safe-area-inset-bottom));
     border-right: 1px solid var(--line);
     background: var(--surface);
     box-shadow: var(--shadow-pop);
   }
   .tn-nav.open {
     display: flex;
-    animation: tn-slide 0.22s var(--spring);
+    animation: tn-slide 0.24s var(--spring);
+  }
+  .tn-backdrop {
+    animation: fade 0.18s ease;
+    touch-action: none;
+  }
+  .tn-drawer-open .staffora-ai-fab,
+  .tn-drawer-open .staffora-ai-panel {
+    display: none;
   }
   .tn-link,
   .tn-link span {
@@ -477,7 +497,14 @@ body {
   }
   .tn-link {
     width: 100%;
-    height: 42px;
+    height: 44px;
+    padding: 0 12px;
+    font-size: 14px;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tn-drop a {
+    min-height: 40px;
+    font-size: 13.5px;
   }
   .tn-caret {
     margin-left: auto;
@@ -508,6 +535,51 @@ body {
   .tn-system,
   .tn-help {
     display: none;
+  }
+  .tn-drawer-foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: auto;
+    padding-top: 14px;
+    border-top: 1px solid var(--line-2);
+  }
+  .tn-drawer-search {
+    display: inline-flex;
+    flex: 1;
+    align-items: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+    color: var(--muted);
+    font-size: 13.5px;
+    cursor: pointer;
+  }
+  .tn-drawer-lang {
+    display: inline-flex;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--surface-2);
+  }
+  .tn-drawer-lang button {
+    height: 32px;
+    min-width: 38px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .tn-drawer-lang button.on {
+    background: var(--surface);
+    color: var(--brand);
+    box-shadow: var(--shadow-card);
   }
 }
 @media (max-width: 640px) {
@@ -638,40 +710,47 @@ body {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
+/* Oq karta + rangli belgi + pastda ulush chizig‘i: rang faqat ma’no beradigan joyda. */
 .tp-stat {
+  --tone: var(--muted);
+  --tone-bg: var(--surface-2);
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
   min-width: 0;
-  padding: 16px 18px;
-  border: 1px solid transparent;
+  overflow: hidden;
+  padding: 16px 18px 18px;
+  border: 1px solid var(--line);
   border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
   color: var(--ink);
-  transition: transform 0.2s var(--spring), box-shadow 0.2s var(--spring);
+  transition: transform 0.2s var(--spring), box-shadow 0.2s var(--spring), border-color 0.2s;
 }
 a.tp-stat:hover {
+  border-color: color-mix(in srgb, var(--tone) 40%, var(--line));
   transform: translateY(-1px);
-  box-shadow: 0 8px 20px -14px rgba(23, 32, 51, 0.4);
+  box-shadow: 0 10px 24px -16px rgba(23, 32, 51, 0.45);
+}
+a.tp-stat:active {
+  transform: scale(0.985);
 }
 .tp-stat.blue {
-  background: var(--brand-50);
-  border-color: var(--brand-100);
+  --tone: var(--brand);
+  --tone-bg: var(--brand-50);
 }
 .tp-stat.green {
-  background: var(--green-bg);
-  border-color: var(--green-line);
+  --tone: var(--green);
+  --tone-bg: var(--green-bg);
 }
 .tp-stat.amber {
-  background: var(--amber-bg);
-  border-color: var(--amber-line);
+  --tone: var(--amber-solid);
+  --tone-bg: var(--amber-bg);
 }
 .tp-stat.red {
-  background: var(--red-bg);
-  border-color: var(--red-line);
-}
-.tp-stat.gray {
-  background: var(--surface);
-  border-color: var(--line);
+  --tone: var(--red-solid);
+  --tone-bg: var(--red-bg);
 }
 .tp-stat-icon {
   display: grid;
@@ -680,20 +759,25 @@ a.tp-stat:hover {
   width: 42px;
   height: 42px;
   border-radius: var(--r-md);
-  background: var(--surface);
-  box-shadow: var(--shadow-card);
+  background: var(--tone-bg);
+  color: var(--tone);
 }
-.tp-stat.blue .tp-stat-icon {
-  color: var(--brand);
+.tp-stat-bar {
+  position: absolute;
+  right: 18px;
+  bottom: 10px;
+  left: 18px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--line-2);
 }
-.tp-stat.green .tp-stat-icon {
-  color: var(--green);
-}
-.tp-stat.amber .tp-stat-icon {
-  color: var(--amber-solid);
-}
-.tp-stat.red .tp-stat-icon {
-  color: var(--red-solid);
+.tp-stat-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tone);
+  transition: width 0.6s var(--spring);
 }
 .tp-stat-text {
   display: grid;
@@ -1407,11 +1491,37 @@ a.tp-stat:hover {
   .tp-worktime-body {
     grid-template-columns: 1fr;
   }
+  /* Telefon: sana — to‘liq qator, filtr + hisobot — yonma-yon, asosiy tugma — pastda to‘liq. */
   .tp-head-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
   }
-  .tp-head-actions .btn-primary {
-    margin-left: auto;
+  .tp-head-actions > .tp-date {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+  .tp-head-actions > .tp-date .db-date-btn {
+    flex: 1;
+    justify-content: center;
+  }
+  .tp-head-actions > .btn,
+  .tp-head-actions > .tp-filter-btn {
+    justify-content: center;
+    min-width: 0;
+  }
+  .tp-head-actions > .tp-filter-btn select {
+    min-width: 0;
+    max-width: 100%;
+    text-overflow: ellipsis;
+  }
+  .tp-head-actions > .btn-primary {
+    grid-column: 1 / -1;
+    min-height: 42px;
+  }
+  .tp-head-actions > :only-child,
+  .tp-head-actions > .btn:last-child:nth-child(even) {
+    grid-column: 1 / -1;
   }
   .tp-search {
     max-width: none;
@@ -1432,7 +1542,11 @@ a.tp-stat:hover {
     flex-direction: column;
     align-items: flex-start;
     gap: 10px;
-    padding: 14px;
+    padding: 14px 14px 20px;
+  }
+  .tp-stat-bar {
+    right: 14px;
+    left: 14px;
   }
   .tp-stat-text strong {
     font-size: 22px;
@@ -1442,6 +1556,140 @@ a.tp-stat:hover {
   }
   .tp-reason {
     max-width: 180px;
+  }
+}
+
+/* --------------------------------------------- telefon: jadval → kartalar --- */
+@media (max-width: 640px) {
+  .tp-table-wrap:has(.tp-cards) {
+    overflow: visible;
+  }
+  .tp-table.tp-cards,
+  .tp-table.tp-cards tbody,
+  .tp-table.tp-cards tr,
+  .tp-table.tp-cards td {
+    display: block;
+    width: auto;
+    min-width: 0;
+  }
+  .tp-table.tp-cards thead {
+    display: none;
+  }
+  .tp-table.tp-cards tbody tr {
+    display: grid;
+    gap: 8px 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--line-2);
+  }
+  .tp-table.tp-cards tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .tp-table.tp-cards td {
+    padding: 0;
+    border: 0;
+    text-align: left;
+  }
+  .tp-table.tp-cards td[data-label]::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 2px;
+    color: var(--faint);
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  /* Davomat: ism + holat, ostida kirish / chiqish / jami */
+  .tp-att.tp-cards tbody tr {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: start;
+  }
+  .tp-att.tp-cards .c-person {
+    grid-column: 1 / 3;
+    min-width: 0;
+  }
+  .tp-att.tp-cards .c-state {
+    grid-column: 3;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .tp-att.tp-cards .c-over,
+  .tp-att.tp-cards .c-branch,
+  .tp-att.tp-cards .c-chev {
+    display: none;
+  }
+  .tp-att.tp-cards .tp-time {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  /* Arizalar: ism + amallar, ostida tur · sana, sabab, holat */
+  .tp-req.tp-cards tbody tr {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .tp-req.tp-cards .c-person {
+    min-width: 0;
+  }
+  .tp-req.tp-cards .c-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .tp-req.tp-cards .c-date {
+    grid-column: 2;
+    grid-row: 2;
+    justify-self: end;
+  }
+  .tp-req.tp-cards .c-reason {
+    grid-column: 1 / -1;
+    max-width: none;
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    color: var(--ink-2);
+    font-size: 13px;
+    white-space: normal;
+  }
+  .tp-req.tp-cards .c-status {
+    grid-column: 1 / -1;
+  }
+  .tp-req.tp-cards .tp-act {
+    width: 38px;
+    height: 38px;
+  }
+
+  /* Filiallar: nom, uchta raqam, davomat chizig‘i */
+  .tp-branches.tp-cards tbody tr {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .tp-branches.tp-cards .c-name,
+  .tp-branches.tp-cards .c-rate {
+    grid-column: 1 / -1;
+  }
+  .tp-branches.tp-cards td.num {
+    font-size: 15px;
+    font-weight: 650;
+  }
+
+  .tp-filters {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .tp-filters > .tp-search {
+    grid-column: 1 / -1;
+  }
+  .tp-filters > .tp-select select {
+    width: 100%;
+    min-width: 0;
+  }
+  .tp-pager {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1513,11 +1761,12 @@ a.tp-stat:hover {
   height: 200px;
 }
 .tp-stat.teal {
-  background: var(--teal-bg);
-  border-color: color-mix(in srgb, var(--teal-solid) 28%, transparent);
+  --tone: var(--teal-solid);
+  --tone-bg: var(--teal-bg);
 }
-.tp-stat.teal .tp-stat-icon {
-  color: var(--teal-solid);
+.tp-stat.violet {
+  --tone: var(--violet, #7c3aed);
+  --tone-bg: var(--violet-bg, rgba(124, 58, 237, 0.1));
 }
 .cp-trend {
   display: inline-flex;
@@ -3382,5 +3631,117 @@ a.tp-stat:hover {
   .sai-msg,
   .sai-fab.busy .sai-fab-ring {
     animation: none;
+  }
+}
+
+/* ------------------------------------------ kunlik to‘lov (pm-earned) --- */
+.pm-earned-warn {
+  color: var(--amber);
+  font-style: normal;
+  font-weight: 600;
+}
+.pm-earned-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.pm-earned-table .c-rate {
+  white-space: nowrap;
+}
+.pm-earned-table .c-available b {
+  font-size: 14px;
+}
+.pm-earned-history {
+  display: grid;
+  margin: 0;
+  padding: 0 16px 8px;
+  list-style: none;
+  border-top: 1px solid var(--line);
+}
+.pm-earned-history li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+.pm-earned-history li:last-child {
+  border-bottom: 0;
+}
+.pm-earned-history-main {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.pm-earned-history-main small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pm-earned-calc {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-variant-numeric: tabular-nums;
+}
+.pm-earned-calc div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.pm-earned-calc dt {
+  color: var(--muted);
+}
+.pm-earned-calc dd {
+  margin: 0;
+  font-weight: 600;
+}
+.pm-earned-calc .total {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+  font-size: 14px;
+}
+.pm-earned-calc .total dd {
+  color: var(--green);
+  font-weight: 700;
+}
+.pm-earned .tp-stats {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 760px) {
+  .pm-earned .tp-stats {
+    grid-template-columns: 1fr;
+  }
+}
+/* Telefon: har bir xodim — karta (ism + tugma, ostida raqamlar). */
+@media (max-width: 640px) {
+  .pm-earned-table.tp-cards tbody tr {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+  .pm-earned-table.tp-cards .c-person,
+  .pm-earned-table.tp-cards .c-rate {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+  .pm-earned-table.tp-cards td.num {
+    text-align: left;
+  }
+  .pm-earned-table.tp-cards .c-actions {
+    grid-column: 1 / -1;
+  }
+  .pm-earned-table.tp-cards .c-actions .btn {
+    width: 100%;
+    justify-content: center;
+    min-height: 40px;
   }
 }

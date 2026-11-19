@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import express from "express";
 import path from "node:path";
-import { createLandingStaticMiddleware, indexWithConfig, landingRequestTarget, siteConfig } from "../server/landing";
+import { createLandingStaticMiddleware, createPanelSeoRouter, indexWithConfig, landingRequestTarget, panelRobotsTxt, panelSitemapXml, siteConfig } from "../server/landing";
 
 const target = (config: ReturnType<typeof siteConfig>, hostname: string, url: string) =>
   landingRequestTarget(config, hostname, url.split("?")[0]);
@@ -66,6 +66,48 @@ describe("landing va panel domenlari", () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       rmSync(directory, { recursive: true, force: true });
     }
+  });
+
+  it("panel hosti o‘z robots.txt/sitemap.xml’ini, landing hosti esa Next faylini oladi", async () => {
+    process.env.LANDING_URL = "https://staffora.uz";
+    const config = siteConfig("https://app.staffora.uz");
+    const directory = mkdtempSync(path.join(tmpdir(), "staffora-landing-"));
+    writeFileSync(path.join(directory, "index.html"), "<h1>Staffora landing</h1>");
+    writeFileSync(path.join(directory, "robots.txt"), "User-Agent: *\nAllow: /\n");
+    const app = express();
+    app.set("trust proxy", 1);
+    app.use(createLandingStaticMiddleware(config, directory));
+    app.use(createPanelSeoRouter(config));
+    const server = app.listen(0);
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      const landingRobots = await fetch(`${base}/robots.txt`, { headers: { "x-forwarded-host": "staffora.uz" } });
+      expect(await landingRobots.text()).toBe("User-Agent: *\nAllow: /\n");
+
+      const robots = await fetch(`${base}/robots.txt`, { headers: { "x-forwarded-host": "app.staffora.uz" } });
+      expect(robots.headers.get("content-type")).toContain("text/plain");
+      const text = await robots.text();
+      expect(text).toContain("Allow: /login$");
+      expect(text).toContain("Disallow: /\n");
+      expect(text).toContain("Sitemap: https://app.staffora.uz/sitemap.xml");
+      expect(text).toContain("Sitemap: https://staffora.uz/sitemap.xml");
+
+      const sitemap = await fetch(`${base}/sitemap.xml`, { headers: { "x-forwarded-host": "app.staffora.uz" } });
+      expect(sitemap.headers.get("content-type")).toContain("application/xml");
+      const xml = await sitemap.text();
+      expect(xml).toContain("<loc>https://app.staffora.uz/login</loc>");
+      expect(xml).toContain("<loc>https://app.staffora.uz/privacy</loc>");
+      expect(xml).not.toContain("/dashboard");
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("LANDING_URL yo‘q bo‘lsa robots faqat panel sitemap’ini ko‘rsatadi", () => {
+    const text = panelRobotsTxt(siteConfig("https://app.staffora.uz"));
+    expect(text.match(/Sitemap:/g)).toHaveLength(1);
+    expect(panelSitemapXml(siteConfig("https://app.staffora.uz"), new Date("2026-11-19T10:00:00Z"))).toContain("<lastmod>2026-11-19</lastmod>");
   });
 
   it("public route dastlabki HTML'idayoq to‘g‘ri SEO metadata beradi", () => {

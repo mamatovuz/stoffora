@@ -110,7 +110,7 @@ import { createShiftRouter } from "./shifts";
 import { createHistoryRouter } from "./history";
 import { createEngageRouter } from "./engage";
 import { createBadgeRouter, createPublicBadgeRouter } from "./badge";
-import { createLandingStaticMiddleware, createLeadAdminRouter, createPublicLeadRouter, indexWithConfig, siteConfig } from "./landing";
+import { createLandingStaticMiddleware, createLeadAdminRouter, createPanelSeoRouter, createPublicLeadRouter, indexWithConfig, siteConfig } from "./landing";
 import { createInsightRouter } from "./insight";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
@@ -221,6 +221,8 @@ const site = siteConfig(publicAppUrl);
 // staffora.uz → statik Next landing; app.staffora.uz va Railway hosti → Vite panel.
 // /api/* va /health hostdan qat’i nazar shu Express backendda qoladi.
 app.use(createLandingStaticMiddleware(site, path.join(process.cwd(), "staffora-website", "out")));
+// Panel hosti uchun robots.txt / sitemap.xml (landing hosti yuqorida o‘z fayllarini oladi).
+app.use(createPanelSeoRouter(site));
 // Har bir so‘rovga ID (X-Request-Id) — audit va xatolar markazi uchun.
 app.use(requestContext());
 app.use(

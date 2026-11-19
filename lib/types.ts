@@ -896,10 +896,19 @@ export interface PayrollAdjustment {
   employeeId: string;
   /** YYYY-MM */
   month: string;
-  /** SETTLEMENT — ishdan bo‘shatishda qo‘lda to‘langan yakuniy hisob (oy oxiridagi to‘lovdan ayriladi). */
-  type: "ADVANCE" | "BONUS" | "FINE" | "SETTLEMENT";
+  /**
+   * SETTLEMENT — ishdan bo‘shatishda qo‘lda to‘langan yakuniy hisob (oy oxiridagi to‘lovdan ayriladi).
+   * WAGE — kunlik/soatbay/ishbay xodimga oy davomida ishlab bo‘lingan haqi uchun berilgan to‘lov
+   * (oy yopilganda qo‘lga beriladigan summadan ayriladi — ikki marta to‘lanmaydi).
+   */
+  type: "ADVANCE" | "BONUS" | "FINE" | "SETTLEMENT" | "WAGE";
   amount: number;
   note?: string;
+  /** WAGE: to‘lov usuli, sanasi, qaysi kungacha ishlangani uchun va takroriy so‘rovdan himoya kaliti. */
+  method?: "CASH" | "CARD" | "BANK";
+  paidAt?: string;
+  upTo?: string;
+  idempotencyKey?: string;
   createdBy: string;
   createdAt: string;
   /**

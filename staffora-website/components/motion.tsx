@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   motion,
-  useInView,
   useScroll,
   useTransform,
   useSpring,
+  type TargetAndTransition,
   type Variants,
 } from "framer-motion";
 
@@ -34,7 +34,98 @@ export function useReducedMotionSafe() {
   );
 }
 
-const shown = { opacity: 1, x: 0, y: 0 };
+/* ------------------------------------------------------------------ */
+/*  Scroll reveal engine                                               */
+/*                                                                     */
+/*  IntersectionObserver (whileInView) tez scroll yoki telefon         */
+/*  inersiyasida elementni "sakrab o‘tib" ketadi: element ekran ostidan */
+/*  to‘g‘ridan-to‘g‘ri ekran ustiga o‘tsa, kesishuv hodisasi umuman     */
+/*  chiqmaydi va blok abadiy ko‘rinmay qoladi. Shu sabab bitta umumiy  */
+/*  scroll tinglovchi: elementning tepasi ekranning 90% chizig‘idan     */
+/*  o‘tganda (yoki allaqachon o‘tib ketgan bo‘lsa) u ochiladi.         */
+/*  Bir kadrda birga ochilganlar (masalan, bitta qatordagi kartalar)   */
+/*  navbat bilan, telefonda esa har biri o‘z navbatida alohida chiqadi. */
+/* ------------------------------------------------------------------ */
+
+type RevealEntry = { el: Element; group: object | null; stagger: number; delay: number; reveal: (delay: number) => void };
+
+const pending = new Set<RevealEntry>();
+let frame = 0;
+let listening = false;
+const REVEAL_LINE = 0.9;
+const MAX_STAGGER_STEPS = 6;
+
+function flushReveals() {
+  frame = 0;
+  if (!pending.size) return;
+  const line = window.innerHeight * REVEAL_LINE;
+  const ready: { entry: RevealEntry; passed: boolean }[] = [];
+  for (const entry of pending) {
+    if (!entry.el.isConnected) {
+      pending.delete(entry);
+      continue;
+    }
+    const box = entry.el.getBoundingClientRect();
+    // display:none (masalan, faqat mobil yoki faqat desktop bloki) — ko‘ringanida tekshiriladi.
+    if (!box.width && !box.height) continue;
+    if (box.top < line) ready.push({ entry, passed: box.bottom <= 0 });
+  }
+  if (!ready.length) return;
+  ready.sort((a, b) => (a.entry.el.compareDocumentPosition(b.entry.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+  const order = new Map<object, number>();
+  for (const { entry, passed } of ready) {
+    pending.delete(entry);
+    const key = entry.group || entry;
+    const index = order.get(key) || 0;
+    order.set(key, index + 1);
+    // Ekran ustida qolib ketganlar kutmasdan ochiladi — foydalanuvchi qaytib chiqsa, bo‘sh joy ko‘rmaydi.
+    entry.reveal(passed ? 0 : entry.delay + Math.min(index, MAX_STAGGER_STEPS) * entry.stagger);
+  }
+}
+
+function scheduleReveals() {
+  if (!frame) frame = window.requestAnimationFrame(flushReveals);
+}
+
+function registerReveal(entry: RevealEntry) {
+  pending.add(entry);
+  if (!listening) {
+    listening = true;
+    window.addEventListener("scroll", scheduleReveals, { passive: true });
+    window.addEventListener("resize", scheduleReveals);
+    window.addEventListener("load", scheduleReveals);
+  }
+  scheduleReveals();
+  return () => {
+    pending.delete(entry);
+  };
+}
+
+type RevealGroupValue = { key: object; stagger: number; delay: number };
+const RevealGroup = createContext<RevealGroupValue | null>(null);
+
+/** Element ko‘rinish chizig‘idan o‘tganini bildiradi (bir marta). `delay` — ochilish kechikishi (soniya). */
+export function useScrollReveal<T extends Element>(delay = 0) {
+  const ref = useRef<T>(null);
+  const group = useContext(RevealGroup);
+  const reduced = useReducedMotionSafe();
+  const [state, setState] = useState({ shown: false, delay: 0 });
+  const shown = state.shown;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || shown) return;
+    return registerReveal({
+      el,
+      group: group?.key ?? null,
+      stagger: group?.stagger ?? 0,
+      delay: (group?.delay ?? 0) + delay,
+      reveal: (at) => setState({ shown: true, delay: at }),
+    });
+  }, [group, delay, shown]);
+  return { ref, shown: reduced || shown, delay: reduced ? 0 : state.delay, reduced };
+}
+
+const visible = { opacity: 1, x: 0, y: 0 };
 
 /* ------------------------------------------------------------------ */
 /*  Reveal                                                              */
@@ -45,24 +136,22 @@ export function Reveal({
   className = "",
   delay = 0,
   direction = "up",
-  once = true,
 }: {
   children: React.ReactNode;
   className?: string;
   delay?: number;
   direction?: "up" | "down" | "left" | "right" | "none";
-  once?: boolean;
 }) {
-  const reduced = useReducedMotionSafe();
+  const { ref, shown, delay: at, reduced } = useScrollReveal<HTMLDivElement>(delay);
   const offset = { up: { y: 28 }, down: { y: -28 }, left: { x: 40 }, right: { x: -40 }, none: {} }[direction];
+  const hidden = { opacity: 0, ...offset };
   return (
     <motion.div
+      ref={ref}
       className={`motion-reveal ${className}`}
-      initial={{ opacity: 0, ...offset }}
-      whileInView={shown}
-      animate={reduced ? shown : undefined}
-      viewport={{ once, margin: "-60px" }}
-      transition={reduced ? { duration: 0 } : { duration: 0.7, delay, ease: easeOut }}
+      initial={hidden}
+      animate={shown ? visible : hidden}
+      transition={reduced ? { duration: 0 } : { duration: 0.7, delay: at, ease: easeOut }}
     >
       {children}
     </motion.div>
@@ -86,24 +175,22 @@ export function SlideIn({
   direction = "up",
   delay = 0,
   duration = 0.7,
-  once = true,
 }: {
   children: React.ReactNode;
   className?: string;
   direction: "left" | "right" | "up" | "down";
   delay?: number;
   duration?: number;
-  once?: boolean;
 }) {
-  const reduced = useReducedMotionSafe();
+  const { ref, shown, delay: at, reduced } = useScrollReveal<HTMLDivElement>(delay);
+  const hidden = { opacity: 0, ...slideOffsets[direction] };
   return (
     <motion.div
+      ref={ref}
       className={`motion-reveal ${className}`}
-      initial={{ opacity: 0, ...slideOffsets[direction] }}
-      whileInView={shown}
-      animate={reduced ? shown : undefined}
-      viewport={{ once, margin: "-50px" }}
-      transition={reduced ? { duration: 0 } : { duration, delay, ease: easeOut }}
+      initial={hidden}
+      animate={shown ? visible : hidden}
+      transition={reduced ? { duration: 0 } : { duration, delay: at, ease: easeOut }}
     >
       {children}
     </motion.div>
@@ -112,6 +199,9 @@ export function SlideIn({
 
 /* ------------------------------------------------------------------ */
 /*  StaggerReveal + StaggerItem                                         */
+/*  Har bir StaggerItem o‘zi kuzatiladi: desktopda bitta qatordagilar  */
+/*  navbat bilan, telefonda (bitta ustun) har biri scroll bilan        */
+/*  alohida ochiladi.                                                   */
 /* ------------------------------------------------------------------ */
 
 export function StaggerReveal({
@@ -119,46 +209,35 @@ export function StaggerReveal({
   className = "",
   stagger = 0.08,
   delay = 0,
-  once = true,
 }: {
   children: React.ReactNode;
   className?: string;
   stagger?: number;
   delay?: number;
-  once?: boolean;
 }) {
-  const reduced = useReducedMotionSafe();
-  const container: Variants = {
-    hidden: {},
-    visible: { transition: { staggerChildren: reduced ? 0 : stagger, delayChildren: reduced ? 0 : delay } },
-  };
+  const key = useRef({}).current;
+  // Skill qoidasi: navbat oralig‘i 0.05–0.10 s — sekinroq bo‘lsa "sudraladi".
+  const value = useMemo(() => ({ key, stagger: Math.min(0.1, Math.max(0.05, stagger)), delay }), [key, stagger, delay]);
   return (
-    <motion.div
-      className={className}
-      variants={container}
-      initial="hidden"
-      whileInView="visible"
-      animate={reduced ? "visible" : undefined}
-      viewport={{ once, margin: "-50px" }}
-    >
-      {children}
-    </motion.div>
+    <RevealGroup.Provider value={value}>
+      <div className={className}>{children}</div>
+    </RevealGroup.Provider>
   );
 }
 
-export const staggerItem: Variants = {
-  hidden: { opacity: 0, y: 24 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.55, ease: easeOut } },
-};
+const enter = (hidden: TargetAndTransition, duration: number): Variants => ({
+  hidden,
+  visible: (delay: number = 0) => ({ opacity: 1, x: 0, y: 0, scale: 1, transition: { duration, delay, ease: easeOut } }),
+});
 
 // Kirish uslublari: rise — oddiy, pop — kattalashib, lift — balandroqdan, right/left — yondan
-const itemVariants: Record<"rise" | "pop" | "lift" | "right" | "left", Variants> = {
-  rise: staggerItem,
-  pop: { hidden: { opacity: 0, y: 30, scale: 0.95 }, visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.6, ease: easeOut } } },
-  lift: { hidden: { opacity: 0, y: 56, scale: 0.97 }, visible: { opacity: 1, y: 0, scale: 1, transition: { duration: 0.75, ease: easeOut } } },
-  right: { hidden: { opacity: 0, x: 44 }, visible: { opacity: 1, x: 0, transition: { duration: 0.6, ease: easeOut } } },
-  left: { hidden: { opacity: 0, x: -44 }, visible: { opacity: 1, x: 0, transition: { duration: 0.6, ease: easeOut } } },
-};
+const itemVariants = {
+  rise: enter({ opacity: 0, y: 24 }, 0.55),
+  pop: enter({ opacity: 0, y: 30, scale: 0.95 }, 0.6),
+  lift: enter({ opacity: 0, y: 56, scale: 0.97 }, 0.75),
+  right: enter({ opacity: 0, x: 44 }, 0.6),
+  left: enter({ opacity: 0, x: -44 }, 0.6),
+} satisfies Record<string, Variants>;
 
 const staggerItemReduced: Variants = {
   hidden: { opacity: 0, x: 0, y: 0, scale: 1 },
@@ -166,9 +245,16 @@ const staggerItemReduced: Variants = {
 };
 
 export function StaggerItem({ children, className = "", variant = "rise" }: { children: React.ReactNode; className?: string; variant?: keyof typeof itemVariants }) {
-  const reduced = useReducedMotionSafe();
+  const { ref, shown, delay, reduced } = useScrollReveal<HTMLDivElement>();
   return (
-    <motion.div className={`motion-reveal ${className}`} variants={reduced ? staggerItemReduced : itemVariants[variant]}>
+    <motion.div
+      ref={ref}
+      className={`motion-reveal ${className}`}
+      variants={reduced ? staggerItemReduced : itemVariants[variant]}
+      initial="hidden"
+      animate={shown ? "visible" : "hidden"}
+      custom={delay}
+    >
       {children}
     </motion.div>
   );
@@ -263,30 +349,29 @@ export function CountUp({
   format?: (value: number) => string;
   delay?: number;
 }) {
-  const reduced = useReducedMotionSafe();
-  const ref = useRef<HTMLSpanElement>(null);
-  const isInView = useInView(ref, { once: true, margin: "-80px" });
+  const { ref, shown, reduced } = useScrollReveal<HTMLSpanElement>();
   const [display, setDisplay] = useState(0);
 
   useEffect(() => {
-    if (!isInView || reduced) return;
+    if (!shown || reduced) return;
     const startTime = performance.now() + delay * 1000;
     const durationMs = duration * 1000;
-    let frame = 0;
+    let raf = 0;
     function tick(now: number) {
       const progress = Math.max(0, Math.min((now - startTime) / durationMs, 1));
       const eased = 1 - Math.pow(1 - progress, 3);
       setDisplay(Math.round(value * eased));
-      if (progress < 1) frame = requestAnimationFrame(tick);
+      if (progress < 1) raf = requestAnimationFrame(tick);
     }
-    frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
-  }, [isInView, value, duration, delay, reduced]);
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [shown, value, duration, delay, reduced]);
 
+  const current = reduced ? value : display;
   return (
     <span ref={ref} className={className}>
       {prefix}
-      {format ? format(reduced ? value : display) : (reduced ? value : display).toLocaleString(locale)}
+      {format ? format(current) : current.toLocaleString(locale)}
       {suffix}
     </span>
   );
@@ -309,31 +394,28 @@ export function TextReveal({
   stagger?: number;
   delay?: number;
 }) {
-  const reduced = useReducedMotionSafe();
+  const { ref, shown, delay: at, reduced } = useScrollReveal<HTMLSpanElement>(delay);
   const pieces = mode === "word" ? text.split(" ") : text.split("");
-  const separator = mode === "word" ? " " : "";
+  const separator = mode === "word" ? " " : "";
   const container: Variants = {
     hidden: {},
-    visible: { transition: { staggerChildren: reduced ? 0 : stagger, delayChildren: reduced ? 0 : delay } },
+    visible: { transition: { staggerChildren: reduced ? 0 : stagger, delayChildren: reduced ? 0 : at } },
   };
   const child: Variants = {
     hidden: { opacity: 0, y: reduced ? 0 : 16 },
     visible: { opacity: 1, y: 0, transition: reduced ? { duration: 0 } : { duration: 0.4, ease: easeOut } },
   };
   return (
-    <motion.span
-      className={`text-reveal ${className}`}
-      variants={container}
-      initial="hidden"
-      whileInView="visible"
-      animate={reduced ? "visible" : undefined}
-      viewport={{ once: true, margin: "-40px" }}
-    >
+    <motion.span ref={ref} className={`text-reveal ${className}`} variants={container} initial="hidden" animate={shown ? "visible" : "hidden"}>
+      {/* Bo‘shliq so‘z ichida emas, so‘zlar orasida: inline-block oxiridagi probel yo‘qoladi
+          va telefonda qatorga sig‘gan so‘zlar qo‘shilib ketardi ("Biznesboshqaruvini"). */}
       {pieces.map((piece, i) => (
-        <motion.span key={`${piece}-${i}`} className="motion-reveal" variants={child}>
-          {piece}
-          {i < pieces.length - 1 ? separator : ""}
-        </motion.span>
+        <Fragment key={`${piece}-${i}`}>
+          <motion.span className="motion-reveal" variants={child}>
+            {piece}
+          </motion.span>
+          {i < pieces.length - 1 ? separator : null}
+        </Fragment>
       ))}
     </motion.span>
   );

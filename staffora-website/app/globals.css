@@ -48,7 +48,8 @@ p { text-wrap: pretty; }
 .container { width: min(1180px, calc(100% - 48px)); max-width: 100%; margin-inline: auto; }
 .section { padding: 112px 0; }
 .grid-bg { background-image: linear-gradient(rgba(23,32,51,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(23,32,51,.045) 1px, transparent 1px); background-size: 64px 64px; }
-.text-reveal { display: inline-flex; flex-wrap: wrap; }
+/* Inline konteyner: so‘zlar orasidagi probel matn tuguni bo‘lib qoladi va qator tabiiy bo‘linadi. */
+.text-reveal { display: inline; }
 .text-reveal > span { display: inline-block; }
 
 /* ── Brend ── */
@@ -150,7 +151,6 @@ p { text-wrap: pretty; }
 /* ── Bo‘lim sarlavhalari ── */
 .section-heading { max-width: 720px; margin-bottom: 56px; }
 .section-heading.center { margin-inline: auto; text-align: center; }
-.section-heading.center .text-reveal { justify-content: center; }
 .section-heading h2 { margin: 16px 0 14px; font-size: clamp(32px, 3.7vw, 48px); line-height: 1.1; letter-spacing: -.035em; font-weight: 700; color: var(--ink); }
 .section-heading h2 > span { line-height: inherit; }
 .section-heading p { max-width: 640px; margin: 0; color: var(--muted); font-size: 17px; line-height: 1.7; }
@@ -460,7 +460,6 @@ p { text-wrap: pretty; }
 .final-cta { position: relative; overflow: hidden; padding: 72px 36px; border-radius: var(--r-lg); text-align: center; color: #fff; background: var(--blue); }
 .final-cta::before { content: ""; position: absolute; inset: 0; background-image: linear-gradient(rgba(255,255,255,.07) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.07) 1px, transparent 1px); background-size: 48px 48px; -webkit-mask-image: radial-gradient(ellipse 60% 80% at 50% 0%, #000, transparent 80%); mask-image: radial-gradient(ellipse 60% 80% at 50% 0%, #000, transparent 80%); pointer-events: none; }
 .final-cta-inner { position: relative; z-index: 1; }
-.final-cta .text-reveal { justify-content: center; }
 .final-cta .eyebrow { color: #fff; }
 .final-cta h2 { max-width: 760px; margin: 16px auto; font-size: clamp(34px,4.4vw,54px); line-height: 1.08; letter-spacing: -.035em; font-weight: 700; }
 .final-cta p { max-width: 600px; margin: 0 auto; color: rgba(255,255,255,.86); line-height: 1.65; }

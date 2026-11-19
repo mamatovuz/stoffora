@@ -100,9 +100,11 @@ export function employeePayrollRow(db: Database, e: Employee, month: string, asI
     workingDays,
     bonus: sum("BONUS"),
     fine: sum("FINE"),
-    // Bo‘shatishda qo‘lda to‘langan yakuniy hisob — avans kabi oy oxiridagi to‘lovdan ayriladi.
-    advance: sum("ADVANCE") + sum("SETTLEMENT"),
+    // Bo‘shatishda qo‘lda to‘langan yakuniy hisob va oy ichida ishlangan haq uchun berilgan
+    // to‘lovlar (WAGE) — avans kabi oy oxiridagi to‘lovdan ayriladi.
+    advance: sum("ADVANCE") + sum("SETTLEMENT") + sum("WAGE"),
   };
+  const wagePaid = sum("WAGE");
   const line =
     pay.payType === "MONTHLY"
       ? { ...calculatePayroll(base, counted, settings, extras), payType: pay.payType, rate: pay.rate, units: workingDays, openDays: [] as string[] }
@@ -124,6 +126,7 @@ export function employeePayrollRow(db: Database, e: Employee, month: string, asI
   const kpi = attendanceKpi({ expectedDays, presentDays: line.days, lateDays: line.lateDays });
   const notes = [line.explanation];
   if (compensatedDays) notes.push(`${compensatedDays} kun kelmaslik dam olish kunida ishlab qoplandi.`);
+  if (wagePaid) notes.push(`Oy davomida ishlangan haq uchun ${wagePaid.toLocaleString("ru-RU")} so‘m berilgan — qoldig‘i oy oxirida.`);
   if (leaver) {
     notes.unshift(
       `Ishdan bo‘shagan: ${leaver.leftOn.split("-").reverse().join(".")} — oylik ${leaver.plannedDays} / ${leaver.monthWorkingDays} ish kuniga proporsional.`,
@@ -140,6 +143,7 @@ export function employeePayrollRow(db: Database, e: Employee, month: string, asI
     compensatedDates: restWorked.slice(0, compensatedDays).map((r) => r.date),
     expectedDays,
     adjustments: own,
+    wagePaid,
     kpi,
     leaver,
   };
