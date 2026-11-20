@@ -55,6 +55,8 @@ const pinCodes = new Map<string, { hash: string; expiresAt: number; attempts: nu
 export const MINI_CODE_TTL_MS = 15 * 60_000;
 export const HR_CODE_TTL_MS = 72 * 3_600_000;
 const MAX_CODE_ATTEMPTS = 5;
+/** Jonlilik (bosh burish): burilgan kadr to‘g‘ri kadrlardan kamida shuncha yaw farq qilishi kerak. */
+export const TURN_MIN_YAW = 0.1;
 
 const deviceSchema = z.object({
   publicKey: z.string().min(80).max(120),
@@ -571,24 +573,48 @@ ${out.name}, PIN-kodni tiklash kodi:
     faceLimit,
     route(async (req, res) => {
       const auth = employeeSessionOf(req);
-      const { photos } = z.object({ photos: z.array(z.string().min(100).max(300_000)).min(2).max(3) }).parse(req.body);
-      const faces = await Promise.all(photos.map((p) => describeFace(p)));
-      if (faces.some((f) => !f)) throw httpError("Kadrlarda yuz aniq ko‘rinmadi. Kameraga to‘g‘ri qarang.", 422, "NO_FACE");
-      const descriptors = faces.map((f) => f!.descriptor);
-      const spread = Math.max(...descriptors.slice(1).map((d) => Math.sqrt(d.reduce((s, v, i) => s + (v - descriptors[0][i]) ** 2, 0))));
+      const { photos, liveness } = z
+        .object({
+          photos: z.array(z.string().min(100).max(300_000)).min(2).max(3),
+          /**
+           * «turn» — kadrlardan biri bosh biroz burilgan holatda. Tekis rasm (qog‘oz yoki ekran) burilganda
+           * burunning ko‘zlarga nisbatan joyi (yaw) deyarli o‘zgarmaydi, haqiqiy yuzda esa aniq o‘zgaradi.
+           * Maydonsiz so‘rov — eski ilova versiyalari (avvalgi tekshiruv).
+           */
+          liveness: z.enum(["turn"]).optional(),
+        })
+        .parse(req.body);
+      const found = await Promise.all(photos.map((p) => describeFace(p)));
+      if (found.some((f) => !f)) throw httpError("Kadrlarda yuz aniq ko‘rinmadi. Kameraga to‘g‘ri qarang.", 422, "NO_FACE");
+      const faces = found.map((f) => f!);
+      // Burilgan kadr — o‘rtacha yo‘nalishdan eng uzoq; qolganlari (to‘g‘ri qaragan) shaxsni tasdiqlaydi.
+      let turned: (typeof faces)[number] | undefined;
+      let frontal = faces;
+      if (liveness === "turn") {
+        const byTurn = [...faces].sort((a, b) => Math.abs(b.yaw - faces[0].yaw) - Math.abs(a.yaw - faces[0].yaw));
+        turned = byTurn[0] === faces[0] ? faces[faces.length - 1] : byTurn[0];
+        frontal = faces.filter((f) => f !== turned);
+        const baseYaw = frontal.reduce((s, f) => s + f.yaw, 0) / frontal.length;
+        if (Math.abs(turned.yaw - baseYaw) < TURN_MIN_YAW) throw httpError("Jonli yuz aniqlanmadi — boshingizni biroz yon tomonga buring.", 422, "NOT_LIVE");
+      }
+      const descriptors = frontal.map((f) => f.descriptor);
+      const all = faces.map((f) => f.descriptor);
+      const spread = Math.max(...all.slice(1).map((d) => Math.sqrt(d.reduce((s, v, i) => s + (v - all[0][i]) ** 2, 0))));
       if (spread < 0.002) throw httpError("Jonli yuz aniqlanmadi. Qayta urinib ko‘ring.", 422, "NOT_LIVE");
       const result = await updateDb((db) => {
         const employee = db.employees.find((e) => e.id === auth.employeeId && e.companyId === auth.companyId);
         const profile = db.faceProfiles.find((p) => p.employeeId === auth.employeeId && p.companyId === auth.companyId);
         if (!employee || !profile) throw httpError("Face ID hali sozlanmagan.", 428, "FACE_NOT_ENROLLED");
-        if (descriptors.some((d) => isReplayedDescriptor(profile.lastDescriptor, d))) throw httpError("Takroriy so‘rov aniqlandi.", 409, "REPLAY");
+        if (all.some((d) => isReplayedDescriptor(profile.lastDescriptor, d))) throw httpError("Takroriy so‘rov aniqlandi.", 409, "REPLAY");
         // Bir nechta kadr + 1:N (boshqa xodimlar profillari) — begona yuz «sen» deb qabul qilinmaydi.
         const others = db.faceProfiles.filter((p) => p.companyId === auth.companyId && p.employeeId !== auth.employeeId);
         const identity = verifyIdentity(profile, descriptors, others);
-        const matched = identity.matched;
+        // Burilgan kadr ham shu odamniki (burilishda aniqlik pastroq — biroz yumshoq chegara).
+        const sameTurned = !turned || matchFace(profile, turned.descriptor, faceMatchThreshold() + 0.1).matched;
+        const matched = identity.matched && sameTurned;
         if (identity.reason === "LOOKALIKE") lookalikeAlert(db, auth.companyId, employee, identity.lookalikeEmployeeId, "mobil ilova");
         db.auditLogs.unshift(
-          audit(auth.companyId, nameOf(employee), matched ? "Face ID tasdiqlandi (mobil ilova)" : `Face ID rad etildi (mobil ilova: ${identity.reason})`, "employee", employee.id, undefined, {
+          audit(auth.companyId, nameOf(employee), matched ? "Face ID tasdiqlandi (mobil ilova)" : `Face ID rad etildi (mobil ilova: ${sameTurned ? identity.reason : "TURN_MISMATCH"})`, "employee", employee.id, undefined, {
             matched,
             distance: Number(identity.distance.toFixed(4)),
             reason: identity.reason,

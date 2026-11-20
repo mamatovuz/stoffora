@@ -25,7 +25,27 @@ export type FaceProbe = {
   enrolled?: boolean;
 };
 export const probeFace = (photo: string) => post<FaceProbe>("/mobile/face/check", { photo }, 12_000);
-export const verifyFaces = (photos: string[]) => post<{ proof: string; percent: number; score: number }>("/mobile/face/verify", { photos }, 20_000);
+/** `liveness: "turn"` — oxirgi kadrda bosh biroz burilgan (server tekis rasmni shu bilan ajratadi). */
+export const verifyFaces = (photos: string[], liveness?: "turn") =>
+  post<{ proof: string; percent: number; score: number }>("/mobile/face/verify", liveness ? { photos, liveness } : { photos }, 20_000);
+
+/**
+ * Kichik 4:3 kadr o‘lchami (masalan 640x480). Avval har kadr kameraning to‘liq o‘lchamida (12+ MP)
+ * olinib, keyin kichraytirilardi — bu Android’da har kadrga 0,5–1 soniya qo‘shardi.
+ */
+export function smallPictureSize(sizes: string[]) {
+  const parsed = sizes
+    .map((size) => {
+      const m = /^(\d+)x(\d+)$/.exec(size);
+      return m ? { size, w: Math.max(Number(m[1]), Number(m[2])), h: Math.min(Number(m[1]), Number(m[2])) } : null;
+    })
+    .filter((p): p is { size: string; w: number; h: number } => Boolean(p && p.h));
+  const fit = parsed.filter((p) => Math.abs(p.w / p.h - 4 / 3) < 0.02 && p.w >= 640 && p.w <= 1280).sort((a, b) => a.w - b.w);
+  return fit[0]?.size;
+}
+
+/** Jonlilik: to‘g‘ri kadrlarga nisbatan bosh shuncha burilishi kerak (server chegarasi — 0.1). */
+export const TURN_YAW = 0.15;
 export const enrollFaces = (photos: string[]) => post<{ ok: true; proof: string }>("/mobile/face/enroll", { photos }, 30_000);
 
 /**

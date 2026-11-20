@@ -1,7 +1,7 @@
 import { router } from "expo-router";
 import { go } from "@/lib/nav";
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { AppState, Image, Pressable, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "@/components/T";
 import Svg, { Circle } from "react-native-svg";
 import { Badge, Button, Card, ErrorBox, GroupTitle, Hint, Icon, Loading, Screen, Sheet, haptic, type IconName } from "@/components/ui";
@@ -17,12 +17,30 @@ import { OfflineBanner } from "@/components/OfflineBanner";
 import { pendingToday, rememberBranches, useOfflineMarks } from "@/lib/offlineMarks";
 import { updateTodayWidget } from "@/widgets/sync";
 
-function useClock(ms = 1000) {
+/**
+ * Daqiqa chegarasida yangilanadigan soat. Ekranda faqat soat:daqiqa bor — avval butun bosh sahifa
+ * har soniyada qayta chizilardi (sekin telefonlarda aylantirish qotardi). Ilova fondan qaytganda darhol yangilanadi.
+ */
+function useMinuteClock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), ms);
-    return () => clearInterval(id);
-  }, [ms]);
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const current = new Date();
+      setNow((prev) => (Math.floor(prev.getTime() / 60_000) === Math.floor(current.getTime() / 60_000) ? prev : current));
+      timer = setTimeout(tick, 60_000 - (current.getTime() % 60_000) + 50);
+    };
+    timer = setTimeout(tick, 60_000 - (Date.now() % 60_000) + 50);
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      clearTimeout(timer);
+      tick();
+    });
+    return () => {
+      clearTimeout(timer);
+      sub.remove();
+    };
+  }, []);
   return now;
 }
 
@@ -31,7 +49,7 @@ export default function Home() {
   const { data, error, loading, refreshing, reload } = useData<HomeData>("/mini/home");
   const stats = useData<Stats>("/mini/stats", { maxAgeMs: 5 * 60_000 });
   const salary = useData<Salary>("/mini/salary", { maxAgeMs: 60_000 });
-  const now = useClock();
+  const now = useMinuteClock();
   const [lateOpen, setLateOpen] = useState(false);
   // Internetsiz saqlangan belgilar o‘zgarsa — holat yangilanadi.
   useOfflineMarks();
@@ -79,7 +97,6 @@ export default function Home() {
           : !day?.enabled
             ? { text: day?.overridden ? "Dam olish (ko‘chirilgan)" : "Dam olish kuni", color: c.violet }
             : { text: "Hali kelmagansiz", color: c.muted };
-  const qr = (data.branch?.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE";
   const canNotifyLate = !a?.checkIn && !data.todayLeave && Boolean(day?.enabled) && !missingSetup;
   const streak = stats.data?.streak.current || 0;
 
@@ -133,9 +150,10 @@ export default function Home() {
       {/* ------------------------------------------------------ hero --- */}
       <Card style={{ padding: 18 }}>
         <View style={st.statusRow}>
-          <View style={[st.statusChip, { backgroundColor: `${status.color}17` }]}>
+          {/* Holat — rangli nuqta va yozuv (rangli «tabletka» fonsiz). */}
+          <View style={st.statusChip}>
             <View style={[st.statusDot, { backgroundColor: status.color }]} />
-            <Text style={{ color: status.color === c.muted ? c.ink : status.color, fontWeight: "600", fontSize: 13 }}>{status.text}</Text>
+            <Text style={{ color: c.ink, fontWeight: "600", fontSize: 13 }}>{status.text}</Text>
           </View>
           <View style={st.meta}>
             <Icon name="location" size={13} color={c.muted} />
@@ -204,15 +222,11 @@ export default function Home() {
             onPress={() => start(working ? "CHECK_OUT" : "CHECK_IN")}
           />
         )}
-        <View style={st.note}>
-          <Icon name="shield-checkmark" size={12} color={c.muted} />
-          <Text style={{ color: c.muted, fontSize: 11.5 }}>Face ID · GPS{qr ? " · QR" : ""} · ishonchli telefon</Text>
-        </View>
       </Card>
 
       {!day?.enabled && !a?.checkIn && !data.todayLeave && !missingSetup ? (
         <Hint tone="rest" icon="calendar">
-          Bugun dam olish kuningiz — kelmasangiz jarima yo‘q. Ishga kelsangiz, shu oydagi sababsiz kelmagan kun qoplanadi (bo‘lmasa qo‘shimcha ish hisoblanadi).
+          Kelmasangiz jarima yo‘q. Kelsangiz — sababsiz qolgan kun qoplanadi yoki qo‘shimcha ish hisoblanadi.
         </Hint>
       ) : null}
 
@@ -223,8 +237,8 @@ export default function Home() {
           </Hint>
         ) : (
           <Card onPress={() => setLateOpen(true)} style={st.lateCard}>
-            <View style={[st.tileIcon, { backgroundColor: `${c.warn}1C` }]}>
-              <Icon name="hourglass-outline" size={19} color={c.warn} />
+            <View style={[st.tileIcon, { backgroundColor: c.tint }]}>
+              <Icon name="hourglass-outline" size={19} color={c.muted} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ color: c.ink, fontWeight: "600", fontSize: 15 }}>Kechikyapsizmi?</Text>
@@ -338,8 +352,8 @@ function SalaryCard({ data }: { data: Salary }) {
   return (
     <Card onPress={() => go("/salary")} style={{ gap: 12 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-        <View style={[st.tileIcon, { backgroundColor: `${c.success}1C` }]}>
-          <Icon name="wallet" size={19} color={c.success} />
+        <View style={[st.tileIcon, { backgroundColor: `${c.accent}12` }]}>
+          <Icon name="wallet-outline" size={19} color={c.accent} />
         </View>
         <View style={{ flex: 1 }}>
           <Text style={{ color: c.muted, fontSize: 12.5 }}>{data.closed ? `${data.label} — yopilgan` : `${data.label} · taxminan qo‘lga`}</Text>
@@ -467,7 +481,7 @@ const st = StyleSheet.create({
   avatar: { width: 46, height: 46, borderRadius: 23 },
   bell: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center" },
   dot: { position: "absolute", top: 2, right: 0, minWidth: 18, height: 18, borderRadius: 9, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderWidth: 2 },
-  statusChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 99 },
+  statusChip: { flexDirection: "row", alignItems: "center", gap: 7, flexShrink: 1 },
   dotText: { color: "#fff", fontSize: 10.5, fontWeight: "700" },
   statusRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
@@ -478,7 +492,6 @@ const st = StyleSheet.create({
   timeLabel: { fontSize: 12, fontWeight: "500" },
   timeValue: { fontSize: 24, fontWeight: "700", letterSpacing: -0.5, fontVariant: ["tabular-nums"] },
   done: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 54, borderRadius: radius.button },
-  note: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 10 },
   lateCard: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14 },
   stats: { flexDirection: "row", paddingVertical: 12, paddingHorizontal: 4 },
   quick: { flexDirection: "row", flexWrap: "wrap", paddingVertical: 8, paddingHorizontal: 4 },

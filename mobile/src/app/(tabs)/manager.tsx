@@ -1,6 +1,6 @@
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { mediaUri } from "@/lib/config";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Image, Pressable, StyleSheet, Switch, View } from "react-native";
 import { Text, TextInput } from "@/components/T";
 import { BranchMap } from "@/components/BranchMap";
@@ -257,11 +257,17 @@ export default function Manager() {
       flagged: rows.filter((r) => r.record?.flags?.length).length,
     };
   }, [rows]);
-  const visible = rows.filter(
-    (r) =>
-      (filter === "ALL" ||
-        (filter === "IN" ? r.state === "IN" || r.state === "LEFT" : filter === "LATE" ? r.late : filter === "FLAGGED" ? Boolean(r.record?.flags?.length) : r.state === filter)) &&
-      (!query.trim() || name(r.employee).toLowerCase().includes(query.trim().toLowerCase())),
+  // Qidiruv maydoni har harfda darhol javob beradi; uzun ro‘yxat esa bir oz keyin (fon rejimida) suziladi.
+  const search = useDeferredValue(query).trim().toLowerCase();
+  const visible = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          (filter === "ALL" ||
+            (filter === "IN" ? r.state === "IN" || r.state === "LEFT" : filter === "LATE" ? r.late : filter === "FLAGGED" ? Boolean(r.record?.flags?.length) : r.state === filter)) &&
+          (!search || name(r.employee).toLowerCase().includes(search)),
+      ),
+    [rows, filter, search],
   );
   const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
   // Ish boshlangan, lekin hali kelmaganlar (eslatma uchun).
@@ -681,7 +687,8 @@ export default function Manager() {
   );
 }
 
-function RosterLine({ row, last }: { row: RosterRow; last: boolean }) {
+/** Xodim qatori — o‘zgarmagan qatorlar qidiruv/yangilanishda qayta chizilmaydi. */
+const RosterLine = memo(function RosterLine({ row, last }: { row: RosterRow; last: boolean }) {
   const { c } = useTheme();
   const r = row;
   const state: Record<RosterRow["state"], [string, "ok" | "warn" | "bad" | "muted" | "info" | "rest"]> = {
@@ -726,7 +733,7 @@ function RosterLine({ row, last }: { row: RosterRow; last: boolean }) {
       <Icon name="chevron-forward" size={16} color={c.muted} />
     </Pressable>
   );
-}
+});
 
 /** Tezkor amal: ikonka va qisqa yozuv, teng kenglikda. */
 function Quick({ icon, label, onPress }: { icon: "megaphone-outline" | "hammer-outline" | "scan-outline"; label: string; onPress: () => void }) {

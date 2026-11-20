@@ -198,7 +198,6 @@ export function Button({
         s.button,
         { backgroundColor: bg, height: big ? 56 : 50, borderRadius: radius.button },
         tone === "ghost" && { borderWidth: StyleSheet.hairlineWidth, borderColor: c.line, backgroundColor: c.card },
-        big && (tone === "primary" || tone === "success") && !disabled && { shadowColor: bg, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 6 },
         (disabled || busy) && { opacity: 0.55 },
         pressed && { transform: [{ scale: 0.98 }], opacity: 0.85 },
         style,
@@ -213,8 +212,9 @@ export function Button({
 export function Hint({ icon = "information-circle", tone = "info", children, onPress }: { icon?: IconName; tone?: "info" | "warn" | "ok" | "rest" | "bad"; children: ReactNode; onPress?: () => void }) {
   const { c } = useTheme();
   const color = tone === "warn" ? c.warn : tone === "ok" ? c.success : tone === "rest" ? c.violet : tone === "bad" ? c.danger : c.accent;
+  // Minimal: rangli fon emas — oq karta, ma’no faqat ikonka rangida.
   return (
-    <Pressable disabled={!onPress} onPress={onPress} style={[s.hint, { backgroundColor: `${color}16` }]}>
+    <Pressable disabled={!onPress} onPress={onPress} style={[s.hint, { backgroundColor: c.card }]}>
       <Icon name={icon} size={18} color={color} />
       <Text style={{ flex: 1, color: c.ink, fontSize: 13.5, lineHeight: 19 }}>{children}</Text>
       {onPress ? <Icon name="chevron-forward" size={16} color={c.muted} /> : null}
@@ -225,9 +225,13 @@ export function Hint({ icon = "information-circle", tone = "info", children, onP
 export function Badge({ text, tone = "info" }: { text: string; tone?: "info" | "ok" | "warn" | "bad" | "muted" | "rest" }) {
   const { c } = useTheme();
   const color = tone === "ok" ? c.success : tone === "warn" ? c.warn : tone === "bad" ? c.danger : tone === "muted" ? c.muted : tone === "rest" ? c.violet : c.accent;
+  // Holat — kichik rangli nuqta va yozuv (rangli «tabletka» o‘rniga).
   return (
-    <View style={[s.badge, { backgroundColor: `${color}1C` }]}>
-      <Text style={{ color, fontSize: 12, fontWeight: "600" }}>{text}</Text>
+    <View style={s.badge}>
+      <View style={[s.badgeDot, { backgroundColor: color }]} />
+      <Text style={{ color: tone === "muted" ? c.muted : c.ink, fontSize: 12.5, fontWeight: "500" }} numberOfLines={1}>
+        {text}
+      </Text>
     </View>
   );
 }
@@ -357,7 +361,8 @@ export const s = StyleSheet.create({
   button: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 18 },
   buttonText: { fontSize: 16.5, fontWeight: "600" },
   hint: { flexDirection: "row", gap: 10, padding: 13, borderRadius: radius.card, alignItems: "flex-start" },
-  badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 99, alignSelf: "flex-start" },
+  badge: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 2, alignSelf: "flex-start", flexShrink: 1 },
+  badgeDot: { width: 7, height: 7, borderRadius: 4 },
   empty: { alignItems: "center", gap: 10, paddingVertical: 40, paddingHorizontal: 24 },
   emptyIcon: { width: 60, height: 60, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   sheet: { position: "absolute", left: 0, right: 0, bottom: 0, borderTopLeftRadius: ios ? 14 : 24, borderTopRightRadius: ios ? 14 : 24, paddingHorizontal: 16, paddingTop: 8 },

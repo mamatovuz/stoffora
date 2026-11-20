@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { Attendance, Branch, Company, Department, Employee, LeaveRequest, Notification, Position, Schedule } from "@/lib/types";
 import { useMainButton, useSecondaryButton } from "./tg";
@@ -64,6 +64,35 @@ export function useClock(intervalMs = 1000) {
     const timer = window.setInterval(() => setNow(new Date()), intervalMs);
     return () => window.clearInterval(timer);
   }, [intervalMs]);
+  return now;
+}
+
+/**
+ * Daqiqa chegarasida yangilanadigan soat (09:41:00 → 09:42:00). Bosh sahifada faqat soat:daqiqa
+ * ko‘rsatiladi — har soniyada butun sahifani qayta chizish sekin telefonlarda qotishga sabab bo‘lardi.
+ * Telegram fondan qaytganda (taymerlar to‘xtatilgan bo‘lishi mumkin) darhol yangilanadi.
+ */
+export function useMinuteClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    let timer = 0;
+    const tick = () => {
+      const current = new Date();
+      setNow((prev) => (Math.floor(prev.getTime() / 60_000) === Math.floor(current.getTime() / 60_000) ? prev : current));
+      timer = window.setTimeout(tick, 60_000 - (current.getTime() % 60_000) + 50);
+    };
+    timer = window.setTimeout(tick, 60_000 - (Date.now() % 60_000) + 50);
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      window.clearTimeout(timer);
+      tick();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
   return now;
 }
 
@@ -249,13 +278,35 @@ export function EmptyArt({ kind }: { kind: "chat" | "idea" | "doc" | "calendar" 
  * Pastga tortib yangilash: sahifa eng tepada bo‘lganda barmoq bilan pastga tortilsa
  * (≥ 70px) `onRefresh` chaqiriladi. Telegram vertikal yopishi o‘chirilgan — xavfsiz.
  */
+/**
+ * Pastga tortib yangilash. Tortish masofasi React holatida saqlanmaydi: har `touchmove`da butun
+ * Mini App qayta chizilib, barmoq ortidan qotib yurardi. Endi ko‘rsatkich elementi to‘g‘ridan-to‘g‘ri
+ * (requestAnimationFrame bilan, kadrga bir marta) o‘zgartiriladi; React faqat «yangilanmoqda» holatini biladi.
+ */
 export function usePullToRefresh(enabled: boolean, onRefresh: () => Promise<unknown>) {
-  const [pull, setPull] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const indicator = useRef<HTMLDivElement | null>(null);
+  const refresh = useRef(onRefresh);
+  refresh.current = onRefresh;
   useEffect(() => {
     if (!enabled) return;
     let startY: number | null = null;
     let distance = 0;
+    let frame = 0;
+    const paint = () => {
+      frame = 0;
+      const el = indicator.current;
+      if (!el) return;
+      const pull = startY === null ? 0 : Math.min(90, distance * 0.5);
+      el.style.height = pull ? `${pull}px` : "";
+      if (pull >= 70) el.dataset.ready = "1";
+      else delete el.dataset.ready;
+      if (pull > 0) el.dataset.drag = "1";
+      else delete el.dataset.drag;
+    };
+    const schedule = () => {
+      if (!frame) frame = window.requestAnimationFrame(paint);
+    };
     const onStart = (event: TouchEvent) => {
       const target = event.target as HTMLElement | null;
       // Ochiq oynalar (sheet) ichida va sahifa tepada bo‘lmasa — ishlamaydi.
@@ -264,27 +315,35 @@ export function usePullToRefresh(enabled: boolean, onRefresh: () => Promise<unkn
     };
     const onMove = (event: TouchEvent) => {
       if (startY === null) return;
-      distance = Math.max(0, event.touches[0].clientY - startY);
-      setPull(Math.min(90, distance * 0.5));
+      const next = Math.max(0, event.touches[0].clientY - startY);
+      if (next === distance) return;
+      distance = next;
+      schedule();
     };
     const onEnd = () => {
       if (startY === null) return;
       startY = null;
-      setPull(0);
+      schedule();
       if (distance * 0.5 >= 70) {
         window.Telegram?.WebApp?.HapticFeedback?.impactOccurred("medium");
         setRefreshing(true);
-        void onRefresh().finally(() => setRefreshing(false));
+        void refresh.current().finally(() => setRefreshing(false));
       }
+      distance = 0;
     };
     window.addEventListener("touchstart", onStart, { passive: true });
     window.addEventListener("touchmove", onMove, { passive: true });
-    window.addEventListener("touchend", onEnd);
+    window.addEventListener("touchend", onEnd, { passive: true });
+    window.addEventListener("touchcancel", onEnd, { passive: true });
     return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      startY = null;
+      paint();
       window.removeEventListener("touchstart", onStart);
       window.removeEventListener("touchmove", onMove);
       window.removeEventListener("touchend", onEnd);
+      window.removeEventListener("touchcancel", onEnd);
     };
-  }, [enabled, onRefresh]);
-  return { pull, ready: pull >= 70, refreshing };
+  }, [enabled]);
+  return { indicator, refreshing };
 }

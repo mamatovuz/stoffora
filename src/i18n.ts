@@ -461,6 +461,9 @@ const RU_PANEL: Record<string, string> = {
   "Asosiy ko‘rsatkichlar": "Ключевые показатели", "Xodim, filial yoki sahifa qidirish...": "Поиск сотрудника, филиала или страницы...", "Boshqaruv": "Управление",
   "Yordam": "Помощь", "Kompaniyalar": "Компании", "Kompaniya sozlamalari": "Настройки компании",
   "Interfeys tili": "Язык интерфейса", "Hisob menyusi": "Меню аккаунта", "Asosiy navigatsiya": "Основная навигация",
+  "Boshingizni biroz yon tomonga buring": "Слегка поверните голову в сторону",
+  "Kelmasangiz jarima yo‘q. Kelsangiz — sababsiz qolgan kun qoplanadi yoki qo‘shimcha ish hisoblanadi.":
+    "Если не придёте — штрафа нет. Если придёте — закроется пропуск без причины или засчитается сверхурочная работа.",
 };
 Object.assign(RU, RU_PANEL);
 

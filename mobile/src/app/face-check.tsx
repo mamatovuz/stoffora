@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TileMap } from "@/components/TileMap";
 import { Button, Icon, haptic } from "@/components/ui";
 import { ApiError, errorText, post } from "@/lib/api";
-import { FRAME, PLACEMENT_TEXT, grabFrame, placement, probeFace, verifyFaces, type Placement } from "@/lib/faceCamera";
+import { FRAME, PLACEMENT_TEXT, TURN_YAW, grabFrame, placement, probeFace, smallPictureSize, verifyFaces, type Placement } from "@/lib/faceCamera";
 import { duration, tashkentClock } from "@/lib/format";
 import { currentFix, distanceMeters, locationPermission, quickFix, type Fix } from "@/lib/location";
 import type { Attendance, HomeData } from "@/lib/types";
@@ -47,6 +47,10 @@ export default function FaceCheck() {
   const [percent, setPercent] = useState<number | null>(null);
   const [pass, setPass] = useState(65);
   const [green, setGreen] = useState(false);
+  /** Yuz mos keldi — endi jonlilik: «boshingizni biroz buring». */
+  const [turnAsk, setTurnAsk] = useState(false);
+  /** Kichik kadr o‘lchami (640x480) — har kadr tezroq olinadi. */
+  const [pictureSize, setPictureSize] = useState<string | undefined>();
   const [error, setError] = useState("");
   const [result, setResult] = useState<Attendance | null>(null);
   const [gpsError, setGpsError] = useState("");
@@ -185,22 +189,45 @@ export default function FaceCheck() {
     if (!ready || phase !== "face" || !permission?.granted) return;
     let stop = false;
     let streak = 0;
-    let greens: string[] = [];
+    let greens: { photo: string; yaw: number }[] = [];
     let smooth: number | null = null;
     let offline = 0;
+    /** match — yuz profilga mos kadrlar; turn — jonlilik (tekis rasm burilganda yaw o‘zgarmaydi). */
+    let stage: "match" | "turn" = "match";
+    let baseYaw = 0;
+    let lost = 0;
+    /** Keyingi kadr oldingisi serverda tekshirilayotgan paytda olinadi — kutish ikki baravar qisqa. */
+    let next: Promise<string> | null = null;
+    const capture = () => {
+      const shot = grabFrame(camera.current!);
+      shot.catch(() => undefined);
+      return shot;
+    };
+    const backToMatch = () => {
+      stage = "match";
+      streak = 0;
+      greens = [];
+      lost = 0;
+      setTurnAsk(false);
+    };
     (async () => {
       while (!stop && alive.current) {
         if (!active.current || !camera.current) {
+          next = null;
           await new Promise((r) => setTimeout(r, 300));
           continue;
         }
+        const started = Date.now();
         let photo: string;
         let probe: Awaited<ReturnType<typeof probeFace>>;
         try {
-          photo = await grabFrame(camera.current);
+          photo = await (next ?? capture());
+          next = null;
           if (stop) return;
+          next = capture();
           probe = await probeFace(photo);
         } catch (reason) {
+          next = null;
           if (stop || !alive.current) return;
           // Internet yo‘q (ketma-ket 2 marta) — telefonda saqlash rejimi.
           if (isOffline(reason) && ++offline >= 2) {
@@ -219,36 +246,65 @@ export default function FaceCheck() {
         }
         if (stop) return;
         offline = 0;
-        // Kadrlar orasida qisqa tanaffus (server navbati cheklangan; yakuniy tasdiq shu kadrlarni keshdan oladi).
-        await new Promise((r) => setTimeout(r, 200));
+        // Server navbatini bosmaslik uchun sikl kamida ~250 ms (kadr olish parallel ketadi).
+        const rest = 250 - (Date.now() - started);
+        if (rest > 0) await new Promise((r) => setTimeout(r, rest));
         if (stop) return;
         setPass(probe.passPercent);
         setFaceBox(probe.face?.box ?? null);
-        const where = placement(probe.face);
-        smooth = !probe.face || probe.percent === null ? null : smooth === null ? probe.percent : Math.round(smooth * 0.5 + probe.percent * 0.5);
-        setPercent(smooth);
-        const ok = where === "ok" && smooth !== null && smooth >= probe.passPercent;
-        setPlace(where);
-        setGreen(ok);
-        if (!ok) {
-          streak = 0;
-          greens = [];
+
+        /* ------------- jonlilik: yuz mos keldi, endi bosh biroz buriladi --- */
+        if (stage === "turn") {
+          if (!probe.face) {
+            if (++lost >= 2) backToMatch();
+            continue;
+          }
+          lost = 0;
+          setPlace("ok");
+          setGreen(true);
+          const sameish = probe.percent === null || probe.percent >= probe.passPercent - 20;
+          if (!sameish) {
+            backToMatch();
+            continue;
+          }
+          if (Math.abs(probe.face.yaw - baseYaw) < TURN_YAW) continue;
+          greens.push({ photo, yaw: probe.face.yaw });
+        } else {
+          const where = placement(probe.face);
+          smooth = !probe.face || probe.percent === null ? null : smooth === null ? probe.percent : Math.round(smooth * 0.5 + probe.percent * 0.5);
+          setPercent(smooth);
+          const ok = where === "ok" && smooth !== null && smooth >= probe.passPercent;
+          setPlace(where);
+          setGreen(ok);
+          if (!ok) {
+            streak = 0;
+            greens = [];
+            continue;
+          }
+          if (!streak) haptic.tap();
+          streak += 1;
+          greens.push({ photo, yaw: probe.face!.yaw });
+          if (streak < GREEN_STREAK) continue;
+          // Yuz mos — oddiy rasm o‘tmasligi uchun bosh biroz buriladi (haqiqiy yuzda burun siljiydi).
+          stage = "turn";
+          baseYaw = greens.reduce((s, g) => s + g.yaw, 0) / greens.length;
+          greens = greens.slice(-2);
+          haptic.select();
+          setTurnAsk(true);
           continue;
         }
-        if (!streak) haptic.tap();
-        streak += 1;
-        greens.push(photo);
-        if (streak < GREEN_STREAK) continue;
 
         /* ------------------------------- yakuniy tekshiruv (serverda) --- */
         stop = true;
         haptic.success();
         setPhase("verifying");
-        frames.current = greens.slice(-3);
+        // Ikki to‘g‘ri kadr + burilgan kadr (oxirida). Profil rasmi — to‘g‘ri kadr.
+        const shots = greens.slice(-3).map((g) => g.photo);
+        frames.current = shots;
         try {
-          const verified = await verifyFaces(greens.slice(-3));
+          const verified = await verifyFaces(shots, "turn");
           const created = await post<{ id: string; requiresQr: boolean }>("/mini/attendance/session", { action, faceProof: verified.proof });
-          session.current = { id: created.id, requiresQr: created.requiresQr, photo: greens[greens.length - 1] };
+          session.current = { id: created.id, requiresQr: created.requiresQr, photo: shots[0] };
           setPercent(verified.percent);
         } catch (reason) {
           if (!alive.current) return;
@@ -259,6 +315,7 @@ export default function FaceCheck() {
           if (reason instanceof ApiError && ["NO_FACE", "NOT_LIVE", "REPLAY"].includes(reason.code || "")) {
             // Kadrlar yaroqsiz — jimgina qaytadan (effekt qayta ishga tushadi).
             setGreen(false);
+            setTurnAsk(false);
             setPhase("face");
             return;
           }
@@ -292,6 +349,7 @@ export default function FaceCheck() {
     setResult(null);
     setPercent(null);
     setGreen(false);
+    setTurnAsk(false);
     setPlace("loading");
     setFaceBox(null);
     scanned.current = false;
@@ -350,7 +408,9 @@ export default function FaceCheck() {
               ? error
               : place === "loading"
                 ? "Kamera tayyorlanmoqda…"
-                : green
+                : turnAsk
+                  ? "Boshingizni biroz yon tomonga buring"
+                  : green
                   ? `Yuz tanildi${percent !== null ? ` · ${percent}%` : ""} — qimirlamang`
                   : place === "ok" && percent !== null
                     ? `Yuz tanilmadi · ${percent}%`
@@ -378,7 +438,26 @@ export default function FaceCheck() {
         {phase === "qr" ? (
           <CameraView style={StyleSheet.absoluteFill} facing="back" barcodeScannerSettings={{ barcodeTypes: ["qr"] }} onBarcodeScanned={onQr} />
         ) : (
-          <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="front" zoom={0} animateShutter={false} mirror={false} onCameraReady={() => setReady(true)} />
+          <CameraView
+            ref={camera}
+            style={StyleSheet.absoluteFill}
+            facing="front"
+            zoom={0}
+            animateShutter={false}
+            mirror={false}
+            pictureSize={pictureSize}
+            onCameraReady={() => {
+              setReady(true);
+              if (pictureSize) return;
+              void camera.current
+                ?.getAvailablePictureSizesAsync()
+                .then((sizes) => {
+                  const small = smallPictureSize(sizes);
+                  if (small && alive.current) setPictureSize(small);
+                })
+                .catch(() => undefined);
+            }}
+          />
         )}
         {frameBox && phase !== "qr" ? (
           <Animated.View pointerEvents="none" style={[st.frame, { width: anim.size, height: anim.size, left: anim.left, top: anim.top }]}>

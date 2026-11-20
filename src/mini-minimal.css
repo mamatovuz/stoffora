@@ -1,0 +1,72 @@
+/* =====================================================================
+   Mini App — minimal va yengil qatlam (styles.css dan keyin yuklanadi).
+   Maqsad: tinch, tushunarli ko‘rinish va sekin telefonlarda ham qotmaslik.
+   - doimiy (cheksiz) bezak animatsiyalari yo‘q — ekran tinch turganda hech narsa qayta chizilmaydi;
+   - shisha effekti (backdrop-filter) o‘rniga yaxlit fon — Android WebView’da aylantirish silliq;
+   - rang faqat ma’no uchun: ko‘k — amal, yashil/sariq/qizil — holat; rangli to‘rtburchaklar yo‘q.
+   ===================================================================== */
+
+/* ---------------------------------------------------------- bosh sahifa --- */
+/* Hero: oddiy oq karta, holat — faqat kichik nuqta. Burchakdagi yorug‘lik dog‘i va tugmadagi
+   «yaltiroq» yo‘l olib tashlandi (u har 3 soniyada butun tugmani qayta chizardi). */
+.mini .mh-hero { background: var(--m-card); }
+.mini .mh-hero::after,
+.mini .mh-action::after { content: none; display: none; animation: none; }
+.mini .mh-action:not(.out):not(:disabled) { background: var(--m-accent); box-shadow: none; }
+.mini .mh-done.off { background: var(--m-tint); }
+
+/* Maslahatlar: rangli fon emas — oq karta, ma’no ikonka rangida. */
+.mini .mh-hint,
+.mini .mh-hint.rest,
+.mini .mh-hint.info,
+.mini .mh-hint.warn { background: var(--m-card); }
+
+/* Bo‘limlar: bitta ko‘k rang, yumshoq fon, faqat nom (izohlar «Qaysi kun, soat ne…» deb kesilib qolardi). */
+.mini .mh-menu-row { grid-template-rows: auto; min-height: 54px; padding: 10px 12px; }
+.mini .mh-menu-row i { grid-row: auto; width: 32px; height: 32px; border-radius: 9px; background: color-mix(in srgb, var(--m-accent) 10%, transparent); color: var(--m-accent); }
+.mini .mh-menu-row i svg { width: 18px; height: 18px; }
+.mini .mh-menu-row small { display: none; }
+.mini .mh-menu-row b,
+.mini .mh-menu-row b:last-child { grid-row: auto; font-size: 14px; line-height: 1.25; white-space: normal; }
+
+/* Oylik kartasi: belgi ko‘k-neytral; yashil faqat progressda (ma’no). */
+.mini .ms-ico { background: color-mix(in srgb, var(--m-accent) 10%, transparent); color: var(--m-accent); }
+
+/* Tug‘ilgan kunlar: oddiy karta, sakrash yo‘q. */
+.mini .bd-card { background: var(--m-card); }
+.mini .bd-icon { background: color-mix(in srgb, #ec4899 10%, transparent); }
+.mini .bd-card.mine .bd-icon { animation: none; }
+
+/* ------------------------------------------------- shisha → yaxlit fon --- */
+.mini .mini-nav { background: var(--m-card); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.mini::before { background: var(--m-bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+.mini .rc-layer { background: color-mix(in srgb, var(--m-bg) 97%, transparent); -webkit-backdrop-filter: none; backdrop-filter: none; }
+
+/* ------------------------------------------ cheksiz bezak animatsiyalari --- */
+.mini .rc-streak.record { animation: none; }
+.mini .mg-updated i { animation: none; box-shadow: none; }
+.mini .mh-geo-pulse::before { animation: none; }
+
+/* ------------------------------------------------------------ ro‘yxatlar --- */
+/* Ko‘p xabarnoma bo‘lsa — ekrandan tashqaridagilari chizilmaydi (o‘lchami eslab qolinadi). */
+.mini .mn-list > .mn-item { content-visibility: auto; contain-intrinsic-size: auto 72px; }
+
+/* -------------------------------------------- pastga tortib yangilash --- */
+/* Ko‘rsatkich endi React holatisiz, to‘g‘ridan-to‘g‘ri o‘zgaradi: tortayotganda barmoqqa darhol ergashadi. */
+.mini .ptr[data-drag] { transition: none; }
+.mini .ptr[data-ready] svg { transform: rotate(180deg); color: var(--m-accent); }
+.mini .ptr.refreshing { height: 36px; }
+
+/* ------------------------------------------------------------- teginish --- */
+/* Telegram WebView’da kulrang chaqnash va ikki marta bosishni kutish (300 ms) yo‘q. */
+.mini button,
+.mini a,
+.mini [role="button"],
+.mini [role="tab"] { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+
+/* --------------------------------------------------------- kam harakat --- */
+@media (prefers-reduced-motion: reduce) {
+  .mini *:not(.spin):not(.mini-spinner),
+  .mini *::before,
+  .mini *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+}

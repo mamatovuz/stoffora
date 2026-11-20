@@ -17,7 +17,6 @@ import {
   MessageCircleQuestion,
   Navigation,
   ScanFace,
-  ShieldCheck,
   Smartphone,
   TrendingUp,
   Users,
@@ -28,6 +27,7 @@ import { haversineDistance } from "@/lib/attendance";
 import { preloadFaceModels } from "../../components/FaceScanner";
 import { BirthdayCard } from "./Birthdays";
 import { quietPosition } from "./AttendanceFlow";
+import { prewarmCamera } from "./FaceCheck";
 import type { HelpdeskView } from "./Helpdesk";
 import { api, errorText, post } from "../../api";
 import { dateLongUz, duration, tashkentClock, tashkentWeekday } from "@/lib/format";
@@ -35,7 +35,7 @@ import { breakMinutes, type DeepLink } from "@/lib/mini";
 import { SalaryCard } from "../MiniMoney";
 import { getCached, setCached } from "../miniCache";
 import { NotifItem } from "./Notifications";
-import { clockDuration, miniModuleOn, Sheet, useClock, type Action, type HomeData, type Toast } from "./shared";
+import { clockDuration, miniModuleOn, Sheet, useMinuteClock, type Action, type HomeData, type Toast } from "./shared";
 import { haptic, shareText, useHomeScreen } from "./tg";
 import { elapsedMinutes, forwardMinutes, shiftMinutes } from "@/lib/shift-time";
 
@@ -81,7 +81,8 @@ export function MiniHome({
   onHelpdesk: (view: HelpdeskView) => void;
   onBirthdays: () => void;
 }) {
-  const now = useClock();
+  // Hammasi soat:daqiqa aniqligida — daqiqada bir marta yangilash yetarli (avval har soniyada edi).
+  const now = useMinuteClock();
   const a = data.attendance;
   const working = Boolean(a?.checkIn && !a.checkOut);
   const finished = Boolean(a?.checkOut);
@@ -100,7 +101,6 @@ export function MiniHome({
           : !day?.enabled
             ? { text: day?.overridden ? "Dam olish (ko‘chirilgan)" : "Dam olish kuni", tone: "off" }
             : { text: "Hali kelmagansiz", tone: "idle" };
-  const qr = (data.branch?.attendanceMode || "QR_GPS_FACE") === "QR_GPS_FACE";
   const [lateOpen, setLateOpen] = useState(false);
   const canNotifyLate = !a?.checkIn && !data.todayLeave && Boolean(day?.enabled) && !missingSetup && !offline;
 
@@ -119,6 +119,25 @@ export function MiniHome({
   useEffect(() => {
     if (near !== null) void preloadFaceModels().catch(() => undefined);
   }, [near]);
+  // Face ID modellari sahifa ochilib tinchlangach (bo‘sh vaqtda) yuklanadi — «Ishga keldim» bosilganda
+  // kutish bo‘lmaydi. Trafik tejash rejimi yoki 2G’da — faqat bosilganda.
+  const needsFace = !finished && !missingSetup && !offline && !quick && Boolean(data.employee.faceEnrolledAt);
+  useEffect(() => {
+    if (!needsFace) return;
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+    if (connection?.saveData || /2g$/.test(connection?.effectiveType || "")) return;
+    const idle = window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number; cancelIdleCallback?: (id: number) => void };
+    let idleId = 0;
+    const timer = window.setTimeout(() => {
+      const start = () => void preloadFaceModels().catch(() => undefined);
+      if (idle.requestIdleCallback) idleId = idle.requestIdleCallback(start, { timeout: 5000 });
+      else start();
+    }, 1500);
+    return () => {
+      window.clearTimeout(timer);
+      if (idleId) idle.cancelIdleCallback?.(idleId);
+    };
+  }, [needsFace]);
 
   return (
     <div className="mini-body mh">
@@ -173,8 +192,11 @@ export function MiniHome({
           <button
             className={`mh-action ${working ? "out" : ""}`}
             disabled={stale || Boolean(openBreak)}
-            // Barmoq tekkan zahoti model yuklana boshlaydi — bosish tugaguncha bir necha yuz ms yutiladi.
-            onPointerDown={() => void preloadFaceModels().catch(() => undefined)}
+            // Barmoq tekkan zahoti model va kamera tayyorlana boshlaydi — oyna ochilganda tasvir tayyor turadi.
+            onPointerDown={() => {
+              void preloadFaceModels().catch(() => undefined);
+              if (!quick && data.employee.faceEnrolledAt) prewarmCamera();
+            }}
             onClick={() => onAction(working ? "CHECK_OUT" : "CHECK_IN")}
           >
             {stale ? (
@@ -189,18 +211,12 @@ export function MiniHome({
             {stale ? "Yangilanmoqda…" : openBreak ? "Avval tanaffusni yakunlang" : working ? "Ishdan ketdim" : "Ishga keldim"}
           </button>
         )}
-        <div className="mh-note">
-          <ShieldCheck size={12} /> {quick ? (quick === "finger" ? "Barmoq izi" : "Telefon Face ID") : "Face ID"} · GPS{qr ? " · QR" : ""}
-        </div>
       </section>
 
       {!day?.enabled && !a?.checkIn && !data.todayLeave && !missingSetup && (
         <div className="mh-hint rest">
           <CalendarCheck size={16} />
-          <span>
-            Bugun dam olish kuningiz — kelmasangiz jarima yo‘q. Ishga kelsangiz, shu oydagi sababsiz kelmagan kun qoplanadi
-            (bo‘lmasa qo‘shimcha ish hisoblanadi).
-          </span>
+          <span>Kelmasangiz jarima yo‘q. Kelsangiz — sababsiz qolgan kun qoplanadi yoki qo‘shimcha ish hisoblanadi.</span>
         </div>
       )}
 

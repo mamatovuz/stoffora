@@ -23,11 +23,68 @@ import { haptic, reportError } from "./tg";
 
 type Reference = { descriptor: number[]; samples: number[][]; threshold: number; passPercent: number };
 type Box = { x: number; y: number; width: number; height: number };
-type Status = "loading" | "none" | "far" | "near" | "offcenter" | "tilted" | "dark" | "low" | "ok" | "sending" | "done" | "fail";
+type Status = "loading" | "none" | "far" | "near" | "offcenter" | "tilted" | "dark" | "low" | "ok" | "turn" | "sending" | "done" | "fail";
 
-const HOLD_MS = 700;
+const HOLD_MS = 450;
 /** Shuncha yaxshi kadr yig‘ilmaguncha tasdiqqa yuborilmaydi (server mediana bo‘yicha qaror qiladi). */
 const MIN_FRAMES = 3;
+/**
+ * Jonlilik: oddiy (bosma yoki telefondagi) rasm ko‘z yumolmaydi va burilganda «burun ko‘zlarga nisbatan»
+ * siljimaydi — tekis rasmda bu nisbat o‘zgarmaydi, haqiqiy yuzda esa keskin o‘zgaradi.
+ */
+const TURN_YAW = 0.15;
+const BLINK_DROP = 0.68;
+const BLINK_MAX_MS = 650;
+
+/* ----------------------------------------------------------- kamera --- */
+const CAMERA: MediaStreamConstraints = {
+  // 4:3 — old kameraning to‘liq ko‘rish maydoni (kvadrat so‘rov kadrni kesib, yuzni yaqinlashtirardi).
+  video: { facingMode: "user", width: { ideal: 960 }, height: { ideal: 720 }, aspectRatio: { ideal: 4 / 3 }, frameRate: { ideal: 30 } },
+  audio: false,
+};
+async function openCamera() {
+  const stream = await navigator.mediaDevices.getUserMedia(CAMERA);
+  // Ba’zi telefonlar old kamerani kattalashtirib ochadi — eng kichik zoom.
+  const track = stream.getVideoTracks()[0];
+  const caps = (track?.getCapabilities?.() || {}) as MediaTrackCapabilities & { zoom?: { min: number } };
+  if (caps.zoom) await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min } as MediaTrackConstraintSet] }).catch(() => undefined);
+  return stream;
+}
+let warmCamera: Promise<MediaStream> | null = null;
+let warmTimer = 0;
+/**
+ * «Ishga keldim / ketdim» tugmasiga barmoq tekkan zahoti (pointerdown) kamera ochila boshlaydi —
+ * oyna ochilganda tasvir allaqachon tayyor (avval bosilgandan keyin 0,5–1 soniya qora ekran turardi).
+ * 6 soniyada ishlatilmasa — yopiladi (kamera chirog‘i bekorga yonib turmasin).
+ */
+export function prewarmCamera() {
+  if (warmCamera || !navigator.mediaDevices?.getUserMedia) return;
+  const promise = openCamera();
+  warmCamera = promise;
+  promise.catch(() => {
+    if (warmCamera === promise) warmCamera = null;
+  });
+  window.clearTimeout(warmTimer);
+  warmTimer = window.setTimeout(() => {
+    if (warmCamera !== promise) return;
+    warmCamera = null;
+    void promise.then((stream) => stream.getTracks().forEach((t) => t.stop())).catch(() => undefined);
+  }, 6000);
+}
+function takeWarmCamera() {
+  const promise = warmCamera;
+  warmCamera = null;
+  window.clearTimeout(warmTimer);
+  // Oldindan ochilgan oqim yopilib qolgan bo‘lsa (tizim uzib qo‘ygan) — yangisi ochiladi.
+  return promise?.then((stream) => (stream.getVideoTracks().some((t) => t.readyState === "live") ? stream : openCamera()));
+}
+
+/** Ko‘z ochiqligi (EAR, 68 nuqta): yumilganda keskin kamayadi. */
+function eyeOpenness(p: { x: number; y: number }[]) {
+  const d = (a: number, b: number) => Math.hypot(p[a].x - p[b].x, p[a].y - p[b].y);
+  const ear = (i: number) => (d(i + 1, i + 5) + d(i + 2, i + 4)) / (2 * d(i, i + 3) || 1);
+  return (ear(36) + ear(42)) / 2;
+}
 /** Bir lahzalik yo‘qotish (yuz topilmadi / bir kadr qiyshiq) — shu vaqt ichida ushlab turish davom etadi. */
 const GRACE_MS = 350;
 /** Tanlangan kadrlar o‘rtachasidan shuncha uzoq kadr — chetdagi (xira, boshqa burchak), hisobga olinmaydi. */
@@ -86,6 +143,7 @@ const messages: Record<Status, string> = {
   dark: "Juda qorong‘i — yorug‘likka yuzlaning",
   low: "Yuz tanilmadi",
   ok: "Yuz tanildi — qimirlamang",
+  turn: "Boshingizni biroz yon tomonga buring",
   sending: "Tekshirilmoqda…",
   done: "Tasdiqlandi",
   fail: "Yuz mos kelmadi",
@@ -220,24 +278,21 @@ export function FaceCheck({
         preloadFaceModels(),
         streamRef.current
           ? Promise.resolve(streamRef.current)
-          : navigator.mediaDevices
-              // 4:3 — old kameraning to‘liq ko‘rish maydoni (kvadrat so‘rov kadrni kesib, yuzni yaqinlashtirardi).
-              .getUserMedia({ video: { facingMode: "user", width: { ideal: 960 }, height: { ideal: 720 }, aspectRatio: { ideal: 4 / 3 }, frameRate: { ideal: 30 } }, audio: false })
-              .then(async (value) => {
-                // Ba’zi telefonlar old kamerani kattalashtirib ochadi — eng kichik zoom.
-                const track = value.getVideoTracks()[0];
-                const caps = (track?.getCapabilities?.() || {}) as MediaTrackCapabilities & { zoom?: { min: number } };
-                if (caps.zoom) await track.applyConstraints({ advanced: [{ zoom: caps.zoom.min } as MediaTrackConstraintSet] }).catch(() => undefined);
-                // Kamera darhol ko‘rinadi — model yuklanishini kutmasdan.
-                if (videoRef.current) {
-                  videoRef.current.srcObject = value;
-                  void videoRef.current.play().catch(() => undefined);
-                }
-                return value;
-              }),
+          : (takeWarmCamera() ?? openCamera()).then((value) => {
+              // Kamera darhol ko‘rinadi — model yuklanishini kutmasdan.
+              if (videoRef.current) {
+                videoRef.current.srcObject = value;
+                void videoRef.current.play().catch(() => undefined);
+              }
+              return value;
+            }),
         loadReference(),
       ]);
-      if (!active()) return;
+      if (!active()) {
+        // Oyna kamera ochilguncha yopildi — kamera yonib qolmasin.
+        if (stream !== streamRef.current) stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
       const video = videoRef.current!;
       if (video.srcObject !== stream) {
@@ -249,7 +304,8 @@ export function FaceCheck({
       layout();
       if (reference) setPass(reference.passPercent);
       const passPercent = reference?.passPercent ?? 65;
-      const detector = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 });
+      // 0.5 — soya, qo‘l yoki fon «yuz» deb olinmaydi (ramka faqat odam yuzida chiqadi).
+      const detector = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
       const nextFrame = () =>
         new Promise<void>((resolve) => {
           const v = video as HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number };
@@ -259,10 +315,19 @@ export function FaceCheck({
 
       let smooth: number | null = null;
       let holdStart = 0;
-      let collected: { descriptor: number[]; quality: number; box: Box }[] = [];
+      let collected: { descriptor: number[]; quality: number; box: Box; yaw: number }[] = [];
       let frames = 0;
       let failures = 0;
       let lastGood = 0;
+      /** match — yuz profilga mos kadrlar yig‘iladi; live — jonlilik (bosh burish yoki ko‘z yumish) kutiladi. */
+      let stage: "match" | "live" = "match";
+      let live: "blink" | "turn" | null = null;
+      let baseYaw = 0;
+      let ears: number[] = [];
+      let blinkAt = 0;
+      let blinkFrames = 0;
+      let blinkMin = 1;
+      let frontPhoto: string | undefined;
       const inGrace = () => holdStart > 0 && performance.now() - lastGood < GRACE_MS;
       setStatus("none");
       while (active()) {
@@ -278,6 +343,12 @@ export function FaceCheck({
           setStatus(next);
           holdStart = 0;
           collected = [];
+          // Yuz almashgan bo‘lishi mumkin — jonlilik ham boshidan.
+          stage = "match";
+          live = null;
+          ears = [];
+          blinkAt = 0;
+          frontPhoto = undefined;
         };
         if (!face) {
           if (inGrace()) continue;
@@ -297,65 +368,112 @@ export function FaceCheck({
         const faceSize = Math.max(box.width, box.height);
         const dx = (center.x - target.cx) / target.size;
         const dy = (center.y - target.cy) / target.size;
-        if (faceSize < target.size * 0.4) {
-          reset("far");
-          continue;
-        }
-        if (faceSize > target.size * 1.02) {
-          reset("near");
-          continue;
-        }
-        if (Math.abs(dx) > 0.38 || Math.abs(dy) > 0.4) {
-          reset("offcenter");
-          continue;
-        }
         const g = geometry(face.landmarks.positions);
         const points = face.landmarks.positions;
-        // Boshning qiyshayishi (ko‘zlar chizig‘i burchagi) va burilishi.
-        const roll = Math.abs(Math.atan2(points[45].y - points[36].y, points[45].x - points[36].x));
-        if (Math.abs(g.yaw) > 0.16 || roll > 0.22 || g.pitch < 0.15 || g.pitch > 1.2) {
-          reset("tilted");
-          continue;
+        const now = performance.now();
+
+        /* ---- ko‘z yumish: ochiq ko‘z darajasidan keskin tushib, tez qaytishi (rasm buni qila olmaydi) ---- */
+        if (Math.abs(g.yaw) < 0.3) {
+          const ear = eyeOpenness(points);
+          const open = ears.length >= 4 ? [...ears].sort((a, b) => a - b)[Math.floor(ears.length * 0.75)] : 0;
+          if (open > 0.18 && ear < open * BLINK_DROP) {
+            if (!blinkAt) {
+              blinkAt = now;
+              blinkFrames = 0;
+              blinkMin = ear;
+            }
+            blinkFrames += 1;
+            blinkMin = Math.min(blinkMin, ear);
+          } else {
+            // Bir kadrlik «sakrash» (silkingan rasm) emas: kamida 2 kadr yoki juda chuqur yumilish.
+            const real = blinkFrames >= 2 || blinkMin < open * 0.5;
+            if (blinkAt && real && ear > open * 0.86 && now - blinkAt <= BLINK_MAX_MS) live = live || "blink";
+            if (!blinkAt || ear > open * 0.86 || now - blinkAt > BLINK_MAX_MS) blinkAt = 0;
+            ears.push(ear);
+            if (ears.length > 14) ears.shift();
+          }
         }
-        const q = faceQuality(video, box, canvas.current);
-        if (q.light < 50) {
-          reset("dark");
-          continue;
+
+        /* ---- jonlilik bosqichi: faqat kuzatish (og‘ir deskriptor yo‘q — kadrlar tez, ramka silliq) ---- */
+        if (stage === "live") {
+          if (faceSize < target.size * 0.3) {
+            reset("far", true);
+            continue;
+          }
+          lastGood = now;
+          if (!live && Math.abs(g.yaw - baseYaw) >= TURN_YAW) live = "turn";
+          if (!live) {
+            setStatus("turn");
+            continue;
+          }
+        } else {
+          if (faceSize < target.size * 0.4) {
+            reset("far");
+            continue;
+          }
+          if (faceSize > target.size * 1.02) {
+            reset("near");
+            continue;
+          }
+          if (Math.abs(dx) > 0.38 || Math.abs(dy) > 0.4) {
+            reset("offcenter");
+            continue;
+          }
+          // Boshning qiyshayishi (ko‘zlar chizig‘i burchagi) va burilishi.
+          const roll = Math.abs(Math.atan2(points[45].y - points[36].y, points[45].x - points[36].x));
+          if (Math.abs(g.yaw) > 0.16 || roll > 0.22 || g.pitch < 0.15 || g.pitch > 1.2) {
+            reset("tilted");
+            continue;
+          }
+          const q = faceQuality(video, box, canvas.current);
+          if (q.light < 50) {
+            reset("dark");
+            continue;
+          }
+          // Deskriptor (eng og‘ir qism) — faqat yuz to‘g‘ri joylashganda.
+          const [crop] = await faceapi.extractFaces(video, [face.landmarks.align(null, { useDlibAlignment: true })]);
+          if (!active() || !crop) continue;
+          const raw = await faceapi.computeFaceDescriptor(crop);
+          const descriptor = Array.from(Array.isArray(raw) ? raw[0] : raw);
+          let current = passPercent;
+          if (reference) {
+            const pct = percentOf(liveDistance(reference, descriptor), reference.threshold);
+            smooth = smooth === null ? pct : Math.round(smooth * 0.55 + pct * 0.45);
+            current = smooth;
+            setPercent(current);
+          }
+          if (current < passPercent) {
+            reset("low");
+            continue;
+          }
+          setStatus("ok");
+          lastGood = performance.now();
+          const quality = face.detection.score * Math.min(1, q.sharp / 120) * (1 - Math.min(0.6, Math.abs(g.yaw) * 2));
+          collected.push({ descriptor, quality, box: { x: box.x, y: box.y, width: box.width, height: box.height }, yaw: g.yaw });
+          if (!holdStart) holdStart = performance.now();
+          const progress = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
+          if (progress < 1 || collected.length < MIN_FRAMES) continue;
+          // Passiv: kadrlar aynan bir xil bo‘lmasligi kerak — qotgan rasm/yozuv emas.
+          const spread = distance(collected[0].descriptor, collected[collected.length - 1].descriptor);
+          if (spread < 0.0015) {
+            reset("tilted", true);
+            continue;
+          }
+          // Yuz mos — profil rasmi hozir (to‘g‘ri qarab turganda) olinadi, keyin jonlilik.
+          frontPhoto = capturePhoto(video, box);
+          baseYaw = collected.reduce((s, c) => s + c.yaw, 0) / collected.length;
+          if (!live) {
+            stage = "live";
+            haptic.tap("light");
+            setStatus("turn");
+            continue;
+          }
         }
-        // Deskriptor (eng og‘ir qism) — faqat yuz to‘g‘ri joylashganda.
-        const [crop] = await faceapi.extractFaces(video, [face.landmarks.align(null, { useDlibAlignment: true })]);
-        if (!active() || !crop) continue;
-        const raw = await faceapi.computeFaceDescriptor(crop);
-        const descriptor = Array.from(Array.isArray(raw) ? raw[0] : raw);
-        let current = passPercent;
-        if (reference) {
-          const pct = percentOf(liveDistance(reference, descriptor), reference.threshold);
-          smooth = smooth === null ? pct : Math.round(smooth * 0.55 + pct * 0.45);
-          current = smooth;
-          setPercent(current);
-        }
-        if (current < passPercent) {
-          reset("low");
-          continue;
-        }
-        setStatus("ok");
-        lastGood = performance.now();
-        const quality = face.detection.score * Math.min(1, q.sharp / 120) * (1 - Math.min(0.6, Math.abs(g.yaw) * 2));
-        collected.push({ descriptor, quality, box: { x: box.x, y: box.y, width: box.width, height: box.height } });
-        if (!holdStart) holdStart = performance.now();
-        const progress = Math.min(1, (performance.now() - holdStart) / HOLD_MS);
-        if (progress < 1 || collected.length < MIN_FRAMES) continue;
 
         /* ---------------------------------------- rasm va tasdiqlash --- */
-        // Jonlilik (passiv): kadrlar aynan bir xil bo‘lmasligi kerak — qotgan rasm/yozuv emas.
-        const spread = distance(collected[0].descriptor, collected[collected.length - 1].descriptor);
-        if (spread < 0.0015) {
-          reset("tilted", true);
-          continue;
-        }
         const chosen = bestFrames(collected);
         const best = chosen[0];
-        const photo = capturePhoto(video, best.box);
+        const photo = frontPhoto || capturePhoto(video, best.box);
         haptic.success();
         setStatus("sending");
         const capture: FaceCapture = { descriptor: mean(chosen.map((c) => c.descriptor)), photo };
@@ -370,7 +488,7 @@ export function FaceCheck({
             descriptor: capture.descriptor,
             // Har bir ushlab turilgan kadr ham — server mediana va 1:N (boshqa xodimlar) bo‘yicha qaror qiladi.
             frames: chosen.map((c) => c.descriptor),
-            liveness: { challenge: "hold", passed: true, frames },
+            liveness: { challenge: live || "hold", passed: true, frames },
             photoDataUrl: photo,
             photoQuality: Number(Math.max(0, Math.min(1, best.quality)).toFixed(3)),
           });
@@ -426,7 +544,7 @@ export function FaceCheck({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const tone = status === "ok" || status === "done" || status === "sending" ? "ok" : status === "loading" ? "idle" : status === "none" ? "idle" : "bad";
+  const tone = status === "ok" || status === "turn" || status === "done" || status === "sending" ? "ok" : status === "loading" ? "idle" : status === "none" ? "idle" : "bad";
   const pill =
     status === "low" || status === "ok" || status === "done"
       ? `${status === "low" ? "Yuz tanilmadi" : status === "done" ? "Tasdiqlandi" : "Yuz tanildi"}${percent !== null ? ` · ${percent}%` : ""}`

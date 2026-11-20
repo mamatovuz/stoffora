@@ -41,6 +41,8 @@ import { disableZoom } from "./mini/noZoom";
 import { BirthdaysSheet } from "./mini/Birthdays";
 import { FaceCheck } from "./mini/FaceCheck";
 import { NavMenu, type NavMenuItem } from "./mini/NavMenu";
+// Minimal va yengil qatlam: styles.css dan keyin yuklanadi (faqat Mini App bo‘lagi bilan).
+import "../mini-minimal.css";
 
 // Bo‘limlar kerak bo‘lganda yuklanadi — birinchi ochilish tezroq.
 const MiniHistory = lazy(() => import("./mini/History").then((m) => ({ default: m.MiniHistory })));
@@ -642,7 +644,7 @@ export function MiniAppPage() {
           </button>
           </header>
         )}
-        <div className={`ptr ${ptr.ready ? "ready" : ""}`} style={{ height: ptr.refreshing ? 36 : ptr.pull }} aria-hidden>
+        <div ref={ptr.indicator} className={`ptr${ptr.refreshing ? " refreshing" : ""}`} aria-hidden>
           {ptr.refreshing ? <LoaderCircle size={20} className="spin" /> : <ArrowDown size={20} />}
         </div>
         {(offline || queued > 0) && (
