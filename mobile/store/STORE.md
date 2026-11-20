@@ -1,6 +1,6 @@
 # Staffora — Google Play va App Store’ga chiqarish
 
-Loyiha: **expo.dev → @mamatovuz/staffora** · Paket / Bundle ID: **uz.staffora.app** · Server: `https://staffora.up.railway.app/api`
+Loyiha: **expo.dev → @mamatovuz/staffora** · Paket / Bundle ID: **uz.staffora.app** · Server: `https://app.staffora.uz/api`
 
 ## 0. Kerakli hisoblar (faqat egasi ochadi)
 
@@ -34,8 +34,8 @@ eas submit --platform android --profile production  # Play Console’ga yuklaydi
 Kalit faylini repoga qo‘ymang. Birinchi .aab’ni Play Console’ga qo‘lda yuklash ham mumkin (Internal testing).
 
 Play Console’da to‘ldirish:
-- **Privacy policy:** `https://staffora.up.railway.app/privacy.html`
-- **Hisobni o‘chirish (Data deletion):** `https://staffora.up.railway.app/delete-account.html`
+- **Privacy policy:** `https://app.staffora.uz/privacy.html`
+- **Hisobni o‘chirish (Data deletion):** `https://app.staffora.uz/delete-account.html`
 - **App access:** «Ilovaning ba’zi qismlari cheklangan» → sinov uchun ulash kodi (3-bo‘lim).
 - **Ads:** reklama yo‘q. **Target audience:** 18+. **Category:** Business.
 - **Data safety** — 4-bo‘lim.
@@ -49,7 +49,7 @@ eas submit --platform ios --profile production      # App Store Connect → Test
 ```
 
 App Store Connect’da:
-- **Privacy Policy URL:** `https://staffora.up.railway.app/privacy.html`
+- **Privacy Policy URL:** `https://app.staffora.uz/privacy.html`
 - **Category:** Business. **Age rating:** 4+ (foydalanuvchi kontenti yo‘q). **Encryption:** faqat standart (HTTPS) — `ITSAppUsesNonExemptEncryption = NO` sozlangan.
 - **App Privacy** — 4-bo‘lim.
 - **Sign-in required → App Review Information** — 3-bo‘lim.

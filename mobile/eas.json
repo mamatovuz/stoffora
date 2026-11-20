@@ -9,7 +9,7 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://staffora.up.railway.app/api"
+        "EXPO_PUBLIC_API_URL": "https://app.staffora.uz/api"
       }
     },
     "preview": {
@@ -19,14 +19,14 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://staffora.up.railway.app/api"
+        "EXPO_PUBLIC_API_URL": "https://app.staffora.uz/api"
       }
     },
     "production": {
       "channel": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://staffora.up.railway.app/api"
+        "EXPO_PUBLIC_API_URL": "https://app.staffora.uz/api"
       },
       "android": {
         "buildType": "app-bundle"
