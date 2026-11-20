@@ -153,7 +153,8 @@
         }
       ],
       "expo-task-manager",
-      "./plugins/withWorkManagerAlign"
+      "./plugins/withWorkManagerAlign",
+      "./plugins/withStableNetwork"
     ],
     "experiments": {
       "typedRoutes": true
