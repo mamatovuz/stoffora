@@ -3,8 +3,9 @@ import { devicePublicKey, signDevice, signedMessage } from "./deviceKey";
 import { KEYS, secureDelete, secureGet, secureSet } from "./secure";
 
 /*
- * Staffora API mijoz. Access token (15 daqiqa) faqat xotirada; refresh token va sessiya ID —
- * Keychain/Keystore’da. Refresh har safar qurilma kaliti imzosi bilan (challenge) va rotatsiya
+ * Staffora API mijoz. Refresh token, sessiya ID va 15 daqiqalik access token — Keychain/Keystore’da
+ * (access ham saqlanadi: ilova qayta ochilganda imzo + ikki so‘rovsiz darhol ishlaydi; refresh tokendan
+ * kuchsizroq, muddati qisqa). Refresh har safar qurilma kaliti imzosi bilan (challenge) va rotatsiya
  * qilinadi. Tokenlar hech qachon log qilinmaydi.
  *
  * Ikki rejim: xodim (HR, moliya, filial rahbari ham) — /mini/* yo‘llari; direktor — access token
@@ -57,6 +58,9 @@ export const errorText = (error: unknown, fallback = "Xatolik yuz berdi") =>
 
 let access: { token: string; expiresAt: number } | null = null;
 let refreshing: Promise<string> | null = null;
+type SavedAccess = { token: string; expiresAt: number; sessionId: string };
+/** Saqlangan access token ilova ochilganda bir marta o‘qiladi. */
+let restored: Promise<void> | null = null;
 const listeners = new Set<(reason: string) => void>();
 /** Sessiya tugaganda (qurilma bekor qilindi, refresh yaroqsiz) — ilova kirish ekraniga qaytadi. */
 export const onSignedOut = (fn: (reason: string) => void) => {
@@ -121,7 +125,7 @@ async function saveTokens(tokens: TokenResponse, login?: string) {
   if (!next) throw new ApiError("Server javobi tushunarsiz. Ilovani yangilang.", 0, "BAD_SESSION");
   access = { token: tokens.accessToken, expiresAt: Date.now() + (tokens.accessExpiresIn - 30) * 1000 };
   current = next;
-  await secureSet(KEYS.session, next);
+  await Promise.all([secureSet(KEYS.session, next), secureSet(KEYS.access, { ...access, sessionId: next.sessionId } satisfies SavedAccess)]);
   for (const fn of saved) fn(next);
   return next;
 }
@@ -136,7 +140,7 @@ export async function clearSession(reason = "logout") {
   access = null;
   current = null;
   refreshing = null;
-  await secureDelete(KEYS.session);
+  await Promise.all([secureDelete(KEYS.session), secureDelete(KEYS.access)]);
   for (const fn of listeners) fn(reason);
 }
 
@@ -165,8 +169,19 @@ async function refresh(): Promise<string> {
     throw error;
   }
 }
+/** Telefonda saqlangan, shu sessiyaga tegishli va muddati o‘tmagan access token’ni xotiraga qaytaradi. */
+function restoreAccess() {
+  restored ||= (async () => {
+    const started = epoch;
+    const [saved, session] = await Promise.all([secureGet<SavedAccess>(KEYS.access), loadSession()]);
+    if (started === epoch && !access && saved && session && saved.sessionId === session.sessionId && saved.expiresAt > Date.now())
+      access = { token: saved.token, expiresAt: saved.expiresAt };
+  })();
+  return restored;
+}
 /** Amaldagi access token. `fresh` — server tokenni rad etgan bo‘lsa, yangisini majburan olish. */
 export async function accessToken(fresh = false) {
+  await restoreAccess();
   if (fresh && !refreshing) access = null;
   if (access && access.expiresAt > Date.now()) return access.token;
   refreshing ||= refresh().finally(() => {

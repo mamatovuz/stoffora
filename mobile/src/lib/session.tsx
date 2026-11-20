@@ -3,7 +3,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import {
   accessToken,
   activate as activateApi,
-  isFatalSessionError,
   loadSession,
   login as loginApi,
   logout as logoutApi,
@@ -75,13 +74,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       applyTheme(prefsRef.current.theme);
       if (stored) {
         setSession(stored);
-        try {
-          await accessToken();
-          if (alive) setState("signedIn");
-        } catch (error) {
-          // Internet yo‘q — sessiya saqlangan, ilova ochiladi (keyin yangilanadi).
-          if (alive) setState(isFatalSessionError(error) ? "signedOut" : "signedIn");
-        }
+        // Ilova darhol ochiladi, token fonda tayyorlanadi (ekranlar o‘sha so‘rovni kutadi — takrorlanmaydi).
+        // Server sessiyani rad etsa — refresh() clearSession qiladi → onSignedOut → kirish ekrani.
+        setState("signedIn");
+        void accessToken().catch(() => undefined);
       } else setState(savedPrefs?.pendingRequestId ? "pending" : "signedOut");
     })();
     // Refresh rol/kompaniya nomini yangilashi mumkin — o‘zgargan bo‘lsagina qayta chiziladi.

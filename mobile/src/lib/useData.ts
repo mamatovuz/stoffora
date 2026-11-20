@@ -4,14 +4,31 @@ import { api, errorText } from "./api";
 
 /* Oddiy so‘rov hook’i: xotira keshi (ekranlar orasida tez ochilish), ekran fokusida yangilash. */
 const cache = new Map<string, { at: number; value: unknown }>();
+/** Yo‘ldagi so‘rovlar: bir vaqtda bir nechta ekran bir yo‘lni so‘rasa (masalan /mini/home) — bitta so‘rov. */
+const inflight = new Map<string, Promise<unknown>>();
+const shared = (path: string) => {
+  let request = inflight.get(path);
+  if (!request) {
+    request = api<unknown>(path).finally(() => {
+      if (inflight.get(path) === request) inflight.delete(path);
+    });
+    inflight.set(path, request);
+  }
+  return request;
+};
 /** Ochiq ekranlar: kesh tozalanganda shu yo‘ldagi ma’lumot darhol qayta yuklanadi. */
 const live = new Map<string, Set<() => void>>();
 export const invalidate = (prefix = "") => {
   for (const key of [...cache.keys()]) if (key.startsWith(prefix)) cache.delete(key);
+  // O‘zgarishdan oldin boshlangan so‘rov eski javob qaytarishi mumkin — qayta yuklash yangisini boshlaydi.
+  for (const key of [...inflight.keys()]) if (key.startsWith(prefix)) inflight.delete(key);
   for (const [path, fns] of live) if (path.startsWith(prefix)) for (const fn of fns) fn();
 };
 /** Butun keshni tozalash (chiqish / boshqa hisob bilan kirish) — ochiq ekranlar qayta so‘ramaydi. */
-export const clearCache = () => cache.clear();
+export const clearCache = () => {
+  cache.clear();
+  inflight.clear();
+};
 
 export function useData<T>(path: string | null, options: { refetchOnFocus?: boolean; maxAgeMs?: number } = {}) {
   const { refetchOnFocus = true, maxAgeMs = 30_000 } = options;
@@ -33,10 +50,10 @@ export function useData<T>(path: string | null, options: { refetchOnFocus?: bool
     async () => {
       if (!path) return;
       try {
-        const value = await api<T>(path);
+        const value = await shared(path);
         cache.set(path, { at: Date.now(), value });
         if (alive.current) {
-          setData(value);
+          setData(value as T);
           setError("");
         }
       } catch (reason) {

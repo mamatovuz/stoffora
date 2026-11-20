@@ -9,6 +9,8 @@ const options: SecureStore.SecureStoreOptions = { keychainAccessible: SecureStor
 export const KEYS = {
   deviceKey: "staffora.deviceKey.v1",
   session: "staffora.session.v1",
+  /** 15 daqiqalik access token — ilova qayta ochilganda imzo va refresh’siz davom etish uchun. */
+  access: "staffora.access.v1",
   prefs: "staffora.prefs.v1",
 } as const;
 

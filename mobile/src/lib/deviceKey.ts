@@ -13,6 +13,13 @@ import { KEYS, secureGet, secureSet } from "./secure";
 type Stored = { secret: string; createdAt: string };
 let cache: Uint8Array | null = null;
 
+/*
+ * Kichik oldindan-hisob jadvali (4-oyna). Standart (8-oyna, 4224 nuqta) birinchi imzoda quriladi va
+ * Hermes’da (JIT yo‘q, BigInt sekin) soniyalab JS oqimini to‘xtatadi. Biz 15 daqiqada bir marta imzolaymiz —
+ * katta jadval o‘zini oqlamaydi. V8’da: birinchi imzo 99 ms → 16 ms; keyingilari 0,8 → 3,7 ms (ahamiyatsiz).
+ */
+p256.Point.BASE.precompute(4);
+
 const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 export function toBase64(bytes: Uint8Array) {
   let out = "";

@@ -5,6 +5,7 @@ import { Alert, Linking, Pressable, ScrollView, Switch, View } from "react-nativ
 import { Text } from "@/components/T";
 import { Group, GroupTitle, Hint, Icon, Row, Sheet, haptic } from "@/components/ui";
 import { API_URL, APP_VERSION } from "@/lib/config";
+import { runDiagnostics } from "@/lib/diagnostics";
 import { appVersion } from "@/lib/report";
 import { updateInfo } from "@/lib/updates";
 import { dateUz } from "@/lib/format";
@@ -41,6 +42,7 @@ export default function Settings() {
   const [bio, setBio] = useState({ available: false, label: ios ? "Face ID" : "Barmoq izi" });
   const [themeOpen, setThemeOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
+  const [checking, setChecking] = useState(false);
   const lang = useLang();
   useEffect(() => {
     // Ruxsat bo‘lsa — tokenni darhol (qayta) ro‘yxatdan o‘tkazamiz va natijani ko‘rsatamiz.
@@ -73,6 +75,18 @@ export default function Settings() {
     if (!serial) return;
     await Clipboard.setStringAsync(serial);
     haptic.success();
+  };
+  const diagnose = async () => {
+    setChecking(true);
+    try {
+      const report = await runDiagnostics(employee);
+      Alert.alert("Tarmoq tekshiruvi", report, [
+        { text: "Nusxalash", onPress: () => void Clipboard.setStringAsync(report) },
+        { text: "Yopish", style: "cancel" },
+      ]);
+    } finally {
+      setChecking(false);
+    }
   };
   const theme = prefs.theme || "system";
   return (
@@ -134,6 +148,7 @@ export default function Settings() {
       <Group>
         <Row icon="barcode" iconColor="#8E8E93" label="Seriya raqami" sub={serial || "—"} right={serial ? <Icon name="copy-outline" size={18} color={c.muted} /> : undefined} onPress={serial ? () => void copySerial() : undefined} />
         <Row icon="information-circle" iconColor="#8E8E93" label="Versiyasi" value={appVersion() || APP_VERSION} sub={`Yangilanish: ${updateInfo()}`} />
+        <Row icon="speedometer" iconColor="#FF9500" label="Tarmoq tekshiruvi" value={checking ? "Tekshirilmoqda…" : undefined} onPress={checking ? undefined : () => void diagnose()} />
         <Row icon="document-lock" iconColor="#0A84FF" label="Maxfiylik siyosati" onPress={() => void Linking.openURL(`${API_URL.replace(/\/api$/, "")}/privacy.html`)} />
         <Row icon="trash-outline" iconColor="#FF3B30" label="Hisobni o‘chirish" onPress={() => void Linking.openURL(`${API_URL.replace(/\/api$/, "")}/delete-account.html`)} last />
       </Group>
