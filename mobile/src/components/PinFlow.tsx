@@ -4,6 +4,7 @@ import { Text, TextInput } from "@/components/T";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { errorText } from "@/lib/api";
 import { MAX_PIN_ATTEMPTS, checkPin, pinBlocked, removePin, requestPinReset, setPin, verifyPinReset } from "@/lib/pin";
+import { useSession } from "@/lib/session";
 import { ios, useTheme } from "@/lib/theme";
 import { PinPad } from "./PinPad";
 import { Button, Icon, haptic } from "./ui";
@@ -173,8 +174,51 @@ function greeting(now = new Date()) {
   return "Xayrli tun";
 }
 
-/** Tiklash: kod so‘rash → 5 xonali kodni kiritish. */
+/** Tiklash: xodim — Telegram’ga kod; direktor (Telegram bot yo‘q) — chiqib, login va parol bilan qayta kirish. */
 function ResetStep({ onBack, onVerified }: { onBack: () => void; onVerified: () => void }) {
+  const { mode } = useSession();
+  return mode === "manager" ? <ReloginStep onBack={onBack} /> : <CodeResetStep onBack={onBack} onVerified={onVerified} />;
+}
+
+/** Direktor: PIN sessiya bilan birga o‘chadi — login va parol bilan qayta kiriladi. */
+function ReloginStep({ onBack }: { onBack: () => void }) {
+  const { c } = useTheme();
+  const insets = useSafeAreaInsets();
+  const { logout } = useSession();
+  const [busy, setBusy] = useState(false);
+  return (
+    <View style={[st.root, { backgroundColor: c.bg, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]}>
+      <View style={st.top}>
+        <Pressable onPress={onBack} hitSlop={12} style={{ flexDirection: "row", alignItems: "center" }}>
+          <Icon name="chevron-back" size={22} color={c.accent} />
+          <Text style={{ color: c.accent, fontSize: 17 }}>Orqaga</Text>
+        </Pressable>
+      </View>
+      <View style={{ paddingHorizontal: 24, marginTop: 40, gap: 12, alignItems: "center" }}>
+        <View style={[st.lock, { backgroundColor: `${c.accent}14` }]}>
+          <Icon name="key-outline" size={24} color={c.accent} />
+        </View>
+        <Text style={{ color: c.ink, fontSize: 22, fontWeight: "700", textAlign: "center" }}>PIN-kodni tiklash</Text>
+        <Text style={{ color: c.muted, fontSize: 15, lineHeight: 21, textAlign: "center" }}>Ilovadan chiqing va login hamda parol bilan qayta kiring — PIN-kod o‘chadi.</Text>
+      </View>
+      <View style={{ flex: 1 }} />
+      <View style={{ paddingHorizontal: 20 }}>
+        <Button
+          title="Chiqish va qayta kirish"
+          big
+          busy={busy}
+          onPress={() => {
+            setBusy(true);
+            void logout().finally(() => setBusy(false));
+          }}
+        />
+      </View>
+    </View>
+  );
+}
+
+/** Xodim: kod so‘rash → 5 xonali kodni kiritish. */
+function CodeResetStep({ onBack, onVerified }: { onBack: () => void; onVerified: () => void }) {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const [sent, setSent] = useState<null | { telegram: boolean }>(null);

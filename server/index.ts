@@ -114,6 +114,8 @@ import { createLandingStaticMiddleware, createLeadAdminRouter, createPanelSeoRou
 import { createInsightRouter } from "./insight";
 import { STAFF_ROLES, branchManagerNames, syncStaffRoles } from "../lib/staff-roles";
 import { createMobileAdminRouter, createMobilePublicRouter, createMobileRouter } from "./mobile";
+import { createPanelMobileLoginRouter } from "./staff-account";
+import { revokeUserSessions } from "../lib/staff-credentials";
 import { startPushDispatcher } from "./push";
 import { createTileRouter } from "./tiles";
 import { startWatchdog } from "./watchdog";
@@ -897,6 +899,8 @@ app.use("/api", createEngageRouter());
 app.use("/api", createBadgeRouter());
 app.use("/api", createInsightRouter());
 app.use("/api", createMobileAdminRouter());
+// Direktor/rahbar: mobil ilova logini (bir marta; parol — panel paroli).
+app.use("/api", createPanelMobileLoginRouter());
 // Kompaniya panelidan platformaga murojaat (Yordam markazi) va tarjimasi yo‘q matnlar hisoboti.
 app.use("/api", createCompanySupportRouter());
 app.use("/api", createI18nReportRouter());
@@ -930,9 +934,11 @@ app.put(
     await updateDb((next) => {
       const row = next.users.find((item) => item.id === current.id);
       if (row) row.passwordHash = passwordHash;
+      // Boshqa qurilmalardagi panel va mobil (rahbar) sessiyalari yopiladi — joriy sessiya qoladi.
+      const revoked = row ? revokeUserSessions(next, row.id, req.session!.sid) : 0;
       if (row?.companyId)
         next.auditLogs.unshift(
-          audit(row.companyId, row.name, "Parol o‘zgartirildi", "user", row.id),
+          audit(row.companyId, row.name, "Parol o‘zgartirildi", "user", row.id, undefined, { revokedSessions: revoked }),
         );
     });
     res.json({ ok: true });
@@ -3221,19 +3227,22 @@ app.put(
         absenceCompensation: z.boolean().default(true),
         deductBreaks: z.boolean().default(false),
         overtimeTwoStep: z.boolean().default(false),
+        // Kechikishni ishlab yopish. Yuborilmasa (eski panel) — avvalgi qiymat saqlanadi.
+        lateOffset: z.boolean().optional(),
       })
       .refine((v) => v.advanceWindowFrom <= v.advanceWindowTo, { message: "Avans oynasi: boshlanish kuni tugash kunidan katta bo‘lmasin.", path: ["advanceWindowTo"] })
       .parse(req.body);
     const tenant = companyId(req);
-    const settings = normalizePayrollSettings(input);
-    await updateDb((db) => {
+    const settings = await updateDb((db) => {
       const company = db.companies.find((c) => c.id === tenant);
       if (!company) throw httpError("Kompaniya topilmadi.", 404);
       const before = company.payroll;
+      const settings = normalizePayrollSettings({ ...input, lateOffset: input.lateOffset ?? before?.lateOffset });
       company.payroll = settings;
       db.auditLogs.unshift(
         audit(tenant, req.session!.name, "Ish haqi / jarima sozlamalari o‘zgartirildi", "company", tenant, before, settings),
       );
+      return settings;
     });
     res.json(settings);
   }),
@@ -3690,8 +3699,8 @@ app.post(
       const user = db.users.find((u) => u.companyId === String(req.params.id) && u.role === "COMPANY_OWNER");
       if (!user) throw httpError("Kompaniya egasi topilmadi.", 404);
       user.passwordHash = passwordHash;
-      const now = new Date().toISOString();
-      for (const row of db.panelSessions) if (row.userId === user.id && !row.revokedAt) row.revokedAt = now;
+      // Panel va mobil (rahbar rejimi) sessiyalari yopiladi.
+      revokeUserSessions(db, user.id, undefined, "Parol tiklandi");
       db.auditLogs.unshift(audit(String(req.params.id), req.session!.name, "Super admin egasining parolini tikladi", "user", user.id));
       return { email: user.email, name: user.name };
     });
@@ -3730,7 +3739,7 @@ if (existsSync(dist)) {
 }
 app.use(
   (
-    error: Error & { status?: number; issues?: unknown },
+    error: Error & { status?: number; issues?: unknown; code?: unknown },
     _req: Request,
     res: Response,
     _next: NextFunction,
@@ -3752,6 +3761,8 @@ app.use(
       message: error.status
         ? error.message
         : "Kutilmagan xatolik yuz berdi. Qayta urinib ko‘ring.",
+      // Mijozlar (mobil ilova, Mini App) xatoni kod bo‘yicha ajratadi: LOGIN_TAKEN, DEVICE_REVOKED…
+      ...(error.status && error.status < 500 && typeof error.code === "string" && /^[A-Z0-9_]{2,40}$/.test(error.code) ? { code: error.code } : {}),
     });
   },
 );

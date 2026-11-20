@@ -18,7 +18,20 @@ type View = "leave" | "marks" | "swap" | "dayoff" | "overtime";
 /** Bo‘lim → modul (super admin o‘chirgan bo‘lsa tab ko‘rinmaydi). */
 const viewModule: Partial<Record<View, string>> = { leave: "leave", marks: "attendanceRequests", dayoff: "attendanceRequests" };
 
-export function MiniRequests({ onToast, initialView, focusId, off = [] }: { onToast: Toast; initialView?: View; focusId?: string; off?: string[] }) {
+export function MiniRequests({
+  onToast,
+  initialView,
+  focusId,
+  off = [],
+  overtime = true,
+}: {
+  onToast: Toast;
+  initialView?: View;
+  focusId?: string;
+  off?: string[];
+  /** «Qo‘shimcha ish uchun to‘lash» o‘chiq bo‘lsa — «Qo‘sh. ish» bo‘limi yo‘q. */
+  overtime?: boolean;
+}) {
   const options = (
     [
       ["leave", "Ta’til"],
@@ -27,14 +40,13 @@ export function MiniRequests({ onToast, initialView, focusId, off = [] }: { onTo
       ["dayoff", "Dam kuni"],
       ["overtime", "Qo‘sh. ish"],
     ] as [View, string][]
-  ).filter(([key]) => !viewModule[key] || !off.includes(viewModule[key]!));
+  ).filter(([key]) => (!viewModule[key] || !off.includes(viewModule[key]!)) && (key !== "overtime" || overtime));
   const [picked, setView] = useState<View>(initialView || options[0][0]);
   const view = options.some(([key]) => key === picked) ? picked : options[0][0];
   return (
     <div className="mini-body">
       <div className="mini-title">
         <h1>So‘rovlar</h1>
-        <p>Ta’til, belgilash, smena, dam olish kuni va qo‘shimcha ish</p>
       </div>
       <Seg
         className={["", "one", "two", "three", "four", "five"][options.length]}

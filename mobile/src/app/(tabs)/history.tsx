@@ -1,11 +1,10 @@
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "@/components/T";
-import { Badge, Card, Empty, ErrorBox, Group, GroupTitle, Icon, Loading, Row, Screen, Segmented, haptic } from "@/components/ui";
+import { Badge, Card, ErrorBox, Group, GroupTitle, Icon, Loading, Row, Screen, Segmented, haptic } from "@/components/ui";
 import { WEEKDAYS_SHORT, dateLongUz, dateUz, duration, tashkentIsoDate, weekdayShort } from "@/lib/format";
 import { radius, useTheme } from "@/lib/theme";
-import type { Attendance, HomeData } from "@/lib/types";
 import { useData } from "@/lib/useData";
 import { api } from "@/lib/api";
 import { HistoryCalendar } from "@/components/HistoryCalendar";
@@ -47,9 +46,12 @@ const firstOffset = (month: string) => (new Date(`${month}-01T12:00:00Z`).getUTC
 export default function History() {
   const params = useLocalSearchParams<{ view?: View3 }>();
   const [view, setView] = useState<View3>(params.view || "calendar");
-  useEffect(() => {
+  // Bo‘limlar / havola boshqa ko‘rinish bilan ochsa — shu render’da (effekt’siz).
+  const [seenView, setSeenView] = useState(params.view);
+  if (seenView !== params.view) {
+    setSeenView(params.view);
     if (params.view) setView(params.view);
-  }, [params.view]);
+  }
   return (
     <Screen title={view === "calendar" ? "Taqvim" : view === "schedule" ? "Ish grafigim" : "Statistika"}>
       <Segmented<View3>

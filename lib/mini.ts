@@ -15,8 +15,9 @@ export type DeepLink =
   | { tab: "home"; action?: "checkin" | "checkout" | "salary" | "advance" | "notifs" | "late" }
   | { tab: "history"; view?: "calendar" | "schedule" | "stats" }
   | { tab: "leave"; view?: "leave" | "swap" | "overtime" | "dayoff" | "marks"; id?: string }
-  | { tab: "profile"; section?: "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays"; id?: string }
+  | { tab: "profile"; section?: "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays" | "reminders"; id?: string }
   | { tab: "manager"; view?: "desk" | "today" | "requests" | "map" | "week" | "money" | "devices" }
+  | { tab: "sections" }
   | { tab: "badge" };
 
 const MONTH = /^\d{4}-\d{2}$/;
@@ -77,6 +78,12 @@ export function parseDeepLink(raw?: string | null): DeepLink | null {
       return { tab: "profile", section: "helpdesk", id };
     case "birthdays":
       return { tab: "profile", section: "birthdays" };
+    case "reminders":
+      return { tab: "profile", section: "reminders" };
+    // «Bo‘limlar» katalogi (pastki menyudagi tab).
+    case "sections":
+    case "menu":
+      return { tab: "sections" };
     case "manager": {
       // «manager_today_LATE» — davomat ro‘yxati (filtr ilovada qo‘llanadi; Mini App’da — davomat bo‘limi).
       const view = tail.split("_")[0];

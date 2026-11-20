@@ -71,34 +71,6 @@ export function getPosition(highAccuracy: boolean) {
 }
 
 /**
- * Ruxsat SO‘RAMASDAN joylashuv (geofence uchun): faqat ruxsat allaqachon berilgan bo‘lsa.
- * Aks holda null — foydalanuvchi bezovta qilinmaydi.
- */
-export async function quietPosition(): Promise<GeolocationPosition | null> {
-  const manager = tg()?.LocationManager;
-  if (manager && supports("8.0")) {
-    // init ruxsat so‘ramaydi — faqat holatni (berilganmi) o‘qiydi.
-    if (!manager.isInited)
-      await new Promise<void>((resolve) => {
-        window.setTimeout(resolve, 1500);
-        try {
-          manager.init(() => resolve());
-        } catch {
-          resolve();
-        }
-      });
-    if (manager.isAccessGranted) return telegramPosition().catch(() => null);
-  }
-  try {
-    const status = await navigator.permissions?.query({ name: "geolocation" as PermissionName });
-    if (status?.state === "granted") return await browserPosition(false);
-  } catch {
-    /* permissions API yo‘q */
-  }
-  return null;
-}
-
-/**
  * GPS’ni Face ID bilan parallel boshlash: tugma bosilganda joylashuv so‘raladi,
  * Face ID tugaguncha u tayyor bo‘ladi. Natija 60 soniya ichida qayta ishlatiladi.
  * Shu paytda harakat sensori ham o‘lchanadi (emulyatorni sezish uchun).

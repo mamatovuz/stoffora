@@ -372,6 +372,49 @@ export const MOBILE_RU: Record<string, string> = {
   "Ilova EAS loyihasiga ulanmagan (projectId yo‘q).": "Приложение не подключено к проекту EAS (нет projectId).",
   "Android push uchun Firebase (FCM) sozlanmagan — administratorga xabar bering.": "Для push на Android не настроен Firebase (FCM) — сообщите администратору.",
   "Push ulanmadi:": "Push не подключён:",
+
+  // ------------------------------------------------------------ login va parol bilan kirish
+  "Hisobingiz boshqa telefonda ochildi. Qayta kiring.": "Ваш аккаунт открыт на другом телефоне. Войдите снова.",
+  "Xavfsizlik uchun sessiya yopildi. Qayta kiring.": "Сессия закрыта в целях безопасности. Войдите снова.",
+  "Sessiya muddati tugadi. Qayta kiring.": "Срок сессии истёк. Войдите снова.", "Sessiya yaroqsiz. Qayta kiring.": "Сессия недействительна. Войдите снова.",
+  "Profilingiz faol emas. HR bilan bog‘laning.": "Ваш профиль неактивен. Свяжитесь с HR.", "Login yoki parol noto‘g‘ri.": "Неверный логин или пароль.",
+  "Urinishlar juda ko‘p. Birozdan keyin qayta urinib ko‘ring.": "Слишком много попыток. Попробуйте позже.", "Login noto‘g‘ri yozilgan.": "Логин указан неверно.",
+  "Kompaniya hisobi to‘xtatilgan.": "Аккаунт компании приостановлен.", "Hisob bloklangan. Administrator bilan bog‘laning.": "Аккаунт заблокирован. Свяжитесь с администратором.",
+  "Kirib bo‘lmadi.": "Не удалось войти.", "Login": "Логин",
+  "Login va parolni ro‘yxatdan o‘tishda botdan yoki Mini App → Profil → Ilovaga kirish bo‘limidan olasiz": "Логин и пароль выдаются ботом при регистрации или в Mini App → Профиль → Вход в приложение",
+  "Tasdiqlash kodi": "Код подтверждения", "Yangi kod yuborildi.": "Новый код отправлен.", "Kod tasdiqlanmadi.": "Код не подтверждён.", "Kod yuborilmadi.": "Код не отправлен.",
+  "Telegram’ga tasdiqlash kodi yuborildi.": "Код подтверждения отправлен в Telegram.", "Loginni yozing. Misol: ozodbek": "Введите логин. Например: ozodbek",
+  "Faqat login yozing (masalan: ozodbek) — oxiriga @staffora.uz avtomatik qo‘shiladi.": "Введите только логин (например: ozodbek) — @staffora.uz добавится автоматически.",
+  "Loginda bo‘sh joy bo‘lmasin. Misol: ozodbek.mamatov": "В логине не должно быть пробелов. Например: ozodbek.mamatov",
+  "Faqat lotin harflari, raqam, nuqta (.) va chiziqcha (-, _) ishlating.": "Используйте только латинские буквы, цифры, точку (.) и дефис (-, _).",
+  "Login harf bilan boshlansin. Misol: ozodbek": "Логин должен начинаться с буквы. Например: ozodbek",
+  "Login oxiri yoki ketma-ket belgilar nuqta/chiziqcha bo‘lmasin.": "Логин не должен заканчиваться точкой/дефисом или содержать их подряд.",
+  "Login kamida 3 belgi bo‘lsin.": "Логин — не менее 3 символов.", "Login 30 belgidan oshmasin.": "Логин — не более 30 символов.",
+  "Parol kamida 8 belgi bo‘lsin.": "Пароль — не менее 8 символов.", "Parol 72 belgidan oshmasin.": "Пароль — не более 72 символов.",
+  "Parol kamida 10 belgi bo‘lsin.": "Пароль — не менее 10 символов.", "Parolda bo‘sh joy bo‘lmasin.": "В пароле не должно быть пробелов.",
+  "Parolda kamida bitta harf va bitta raqam bo‘lsin.": "В пароле должна быть хотя бы одна буква и одна цифра.",
+  "Kod ishlamadi": "Код не сработал", "Ulanmoqda…": "Подключение…", "Login bilan kirish": "Войти по логину",
+  "Server javobi tushunarsiz. Ilovani yangilang.": "Непонятный ответ сервера. Обновите приложение.",
+  "Ilovaga kirish": "Вход в приложение", "Login va parol o‘rnatish": "Задать логин и пароль", "Parol o‘rnatish": "Задать пароль", "Nusxalandi": "Скопировано",
+  "Ilovadan chiqasizmi? Qayta kirish uchun login va parolingiz kerak bo‘ladi.": "Выйти из приложения? Для входа понадобятся логин и пароль.",
+  "Mavzu, til, PIN-kod, bildirishnomalar": "Тема, язык, PIN-код, уведомления", "Mavzu, til, PIN-kod": "Тема, язык, PIN-код", "Direktor": "Директор",
+  "Login va parol": "Логин и пароль", "Joriy parol": "Текущий пароль", "Yangi parol": "Новый пароль", "Yangi parolni takrorlang": "Повторите новый пароль",
+  "Parollar bir xil emas.": "Пароли не совпадают.", "Yangi parollar bir xil emas.": "Новые пароли не совпадают.",
+  "Yangi parol eskisidan farq qilsin.": "Новый пароль должен отличаться от старого.", "Parol o‘zgartirildi.": "Пароль изменён.",
+  "Joriy parol noto‘g‘ri.": "Текущий пароль неверный.", "Login keyin o‘zgarmaydi": "Логин потом не меняется",
+  "PIN faqat shu telefonda saqlanadi. Unutsangiz — ilovadan chiqib, login va parol bilan qayta kirasiz.": "PIN хранится только на этом телефоне. Если забудете — выйдите и войдите снова по логину и паролю.",
+  "Har bir xodimda bitta faol telefon. Yangi telefonda login va parol bilan kirsangiz, bu telefondan avtomatik chiqiladi.": "У каждого сотрудника один активный телефон. Если войти по логину и паролю на новом телефоне, выход с этого произойдёт автоматически.",
+  "Ilovadan chiqing va login hamda parol bilan qayta kiring — PIN-kod o‘chadi.": "Выйдите и войдите снова по логину и паролю — PIN-код будет удалён.",
+  "Chiqish va qayta kirish": "Выйти и войти снова",
+
+  // ------------------------------------------------------------ bosh sahifa va Bo‘limlar
+  "Kechikaman": "Опаздываю", "Rahbaringiz ogohlantirilgan": "Руководитель предупреждён", "Bugun allaqachon ishga kelgansiz.": "Сегодня вы уже пришли на работу.",
+  "Bugun ish kuni emas.": "Сегодня не рабочий день.", "HR filial va grafikni biriktirishi kerak.": "HR должен назначить филиал и график.",
+  "Kechikish yopildi": "Опоздание отработано", "Ish kuni yakunlandi · kechikish yopildi": "Рабочий день завершён · опоздание отработано",
+
+  // ------------------------------------------------------------ rahbar: Umumiy va Boshqaruv
+  "Tezkor amallar": "Быстрые действия", "Moliya va avans": "Финансы и аванс", "Telefonlar": "Телефоны", "Foydalanuvchilar": "Пользователи",
+  "Ishlaringiz «Boshqaruv»da": "Ваши задачи — в «Управлении»", "Ish haqi fondi": "Фонд зарплаты", "Bu oy (bugungacha)": "Этот месяц (на сегодня)",
 };
 
 /*
@@ -484,4 +527,5 @@ export const MOBILE_TEMPLATES: Record<string, string> = {
   "Ketma-ket vaqtida: {#0} kun": "Подряд вовремя: {0} дн.",
   "Ishlab topildi: {0} · {1} kun{2}": "Заработано: {0} · {1} дн.{2}",
   "{#0}/{#1} ish kuni": "{0}/{1} раб. дн.",
+  "Login: {0}. Parol saqlandi.": "Логин: {0}. Пароль сохранён.",
 };

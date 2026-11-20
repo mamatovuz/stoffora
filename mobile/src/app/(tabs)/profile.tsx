@@ -1,18 +1,21 @@
-import { router, useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import { mediaUri } from "@/lib/config";
 import { go } from "@/lib/nav";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Image, Linking, Platform, StyleSheet, View } from "react-native";
 import { Text } from "@/components/T";
+import { AppLoginGroup } from "@/components/AppLogin";
 import { Card, Group, GroupTitle, Loading, Row, Screen } from "@/components/ui";
+import type { ManagerSession } from "@/lib/api";
 import { WEEKDAYS_SHORT, tashkentIsoDate } from "@/lib/format";
+import { ROLE_LABEL, mcall } from "@/lib/manager";
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/lib/theme";
-import type { HomeData } from "@/lib/types";
+import type { AccountInfo, HomeData } from "@/lib/types";
 import { useData } from "@/lib/useData";
 
-type Section = "directory" | "payslips" | "docs" | "helpdesk" | "certificates" | "feedback" | "birthdays" | "security";
-const ROUTES: Record<Section, Parameters<typeof router.push>[0]> = {
+type Section = "directory" | "payslips" | "docs" | "helpdesk" | "certificates" | "feedback" | "birthdays" | "security" | "account";
+const ROUTES: Partial<Record<Section, Parameters<typeof go>[0]>> = {
   directory: "/directory",
   payslips: "/payslips",
   docs: "/documents",
@@ -23,15 +26,31 @@ const ROUTES: Record<Section, Parameters<typeof router.push>[0]> = {
   security: "/security",
 };
 
-/** Profil — Mini App’dagi kabi: shaxsiy ma’lumot, ish joyi, grafik, hujjatlar, HR bilan aloqa, xavfsizlik. */
+const confirmLogout = (logout: () => Promise<void>) =>
+  Alert.alert("Chiqish", "Ilovadan chiqasizmi? Qayta kirish uchun login va parolingiz kerak bo‘ladi.", [
+    { text: "Bekor qilish", style: "cancel" },
+    { text: "Chiqish", style: "destructive", onPress: () => void logout() },
+  ]);
+
+/** Profil — kimligim, ish joyi, grafik, ilovaga kirish (login/parol) va sozlamalar. Bo‘limlar — «Bo‘limlar» tabida. */
 export default function Profile() {
+  const { session } = useSession();
+  const params = useLocalSearchParams<{ section?: Section; t?: string }>();
+  useEffect(() => {
+    const target = params.section ? ROUTES[params.section] : undefined;
+    if (target) go(target);
+  }, [params.section]);
+  const accountSignal = params.section === "account" ? params.t || "1" : undefined;
+  if (session?.mode === "manager") return <ManagerProfile session={session} openSignal={accountSignal} />;
+  return <EmployeeProfile openSignal={accountSignal} />;
+}
+
+/* ------------------------------------------------------------------ xodim --- */
+function EmployeeProfile({ openSignal }: { openSignal?: string }) {
   const { c } = useTheme();
-  const params = useLocalSearchParams<{ section?: Section }>();
   const { logout } = useSession();
   const { data, refreshing, reload } = useData<HomeData>("/mini/home");
-  useEffect(() => {
-    if (params.section && ROUTES[params.section]) go(ROUTES[params.section]);
-  }, [params.section]);
+  const account = useData<AccountInfo>("/mini/account", { maxAgeMs: 60_000 });
 
   if (!data)
     return (
@@ -47,19 +66,20 @@ export default function Profile() {
     const url = Platform.OS === "ios" ? `http://maps.apple.com/?ll=${lat},${lng}&q=${encodeURIComponent(data.branch.name)}` : `geo:${lat},${lng}?q=${lat},${lng}(${encodeURIComponent(data.branch.name)})`;
     void Linking.openURL(url);
   };
-  const confirmLogout = () =>
-    Alert.alert("Chiqish", "Ilovadan chiqasizmi? Telefon sizga bog‘langanicha qoladi — qayta kirish uchun yangi kod kerak bo‘ladi.", [
-      { text: "Bekor qilish", style: "cancel" },
-      { text: "Chiqish", style: "destructive", onPress: () => void logout() },
-    ]);
+  const refresh = () => {
+    void reload();
+    void account.reload();
+  };
+  // Server eski bo‘lsa (/mini/account yo‘q) — bosh sahifadagi login ko‘rsatiladi.
+  const info: AccountInfo | null = account.data || (e.login ? { login: e.login, suggested: e.login, hasPassword: true } : null);
 
   return (
-    <Screen title="Profil" refreshing={refreshing} onRefresh={reload}>
+    <Screen title="Profil" refreshing={refreshing} onRefresh={refresh}>
       <Card style={st.head}>
         {e.photoDataUrl ? (
           <Image source={{ uri: mediaUri(e.photoDataUrl) }} style={st.avatar} />
         ) : (
-          <View style={[st.avatar, { backgroundColor: `${c.accent}22`, alignItems: "center", justifyContent: "center" }]}>
+          <View style={[st.avatar, st.initials, { backgroundColor: `${c.accent}22` }]}>
             <Text style={{ color: c.accent, fontSize: 26, fontWeight: "700" }}>
               {e.firstName[0]}
               {e.lastName[0]}
@@ -78,8 +98,7 @@ export default function Profile() {
       <GroupTitle>Ish joyi</GroupTitle>
       <Group>
         <Row icon="business" label={data.company?.name || "Kompaniya"} />
-        <Row icon="location" iconColor="#34C759" label={data.branch?.name || "Filial biriktirilmagan"} sub={data.branch?.address} onPress={data.branch ? openMap : undefined} />
-        <Row icon="people" iconColor="#5856D6" label="Hamkasblar ma’lumotnomasi" onPress={() => go("/directory")} last />
+        <Row icon="location" label={data.branch?.name || "Filial biriktirilmagan"} sub={data.branch?.address} onPress={data.branch ? openMap : undefined} last />
       </Group>
 
       {data.schedule ? (
@@ -102,31 +121,63 @@ export default function Profile() {
         </>
       ) : null}
 
-      <GroupTitle>Hujjatlar va pul</GroupTitle>
-      <Group>
-        <Row icon="wallet" iconColor="#34C759" label="Mening oyligim va avans" onPress={() => go("/salary")} />
-        <Row icon="receipt" iconColor="#FF9500" label="Hisob varaqalar" onPress={() => go("/payslips")} />
-        <Row icon="folder" iconColor="#0A84FF" label="Hujjatlarim" onPress={() => go("/documents")} last />
-      </Group>
-
-      <GroupTitle>Raqamli ID</GroupTitle>
-      <Group>
-        <Row icon="id-card" iconColor="#34C759" label="Mening ID (QR guvohnoma)" onPress={() => go("/badge")} last />
-      </Group>
-
-      <GroupTitle>HR bilan aloqa</GroupTitle>
-      <Group>
-        <Row icon="chatbubble-ellipses" label="HR’ga savol berish" onPress={() => go({ pathname: "/helpdesk", params: { view: "questions" } })} />
-        <Row icon="document-text" iconColor="#5AC8FA" label="Ma’lumotnoma (spravka) so‘rash" onPress={() => go({ pathname: "/helpdesk", params: { view: "certificates" } })} />
-        <Row icon="megaphone" iconColor="#FF9500" label="Taklif yoki shikoyat (anonim mumkin)" onPress={() => go({ pathname: "/helpdesk", params: { view: "feedback" } })} />
-        <Row icon="gift" iconColor="#FF2D55" label="Tug‘ilgan kunlar" onPress={() => go("/birthdays")} last />
-      </Group>
+      <AppLoginGroup mode="employee" account={info} onChanged={() => void account.reload()} openSignal={openSignal} />
 
       <GroupTitle>Ilova</GroupTitle>
       <Group>
-        <Row icon="settings" iconColor="#8E8E93" label="Sozlamalar" sub="Mavzu, PIN-kod, bildirishnomalar, ilova haqida" onPress={() => go("/security")} />
-        <Row icon="notifications" iconColor="#FF3B30" label="Bildirishnomalar" onPress={() => go("/notifications")} />
-        <Row icon="log-out-outline" label="Chiqish" danger onPress={confirmLogout} last />
+        <Row icon="settings" label="Sozlamalar" sub="Mavzu, til, PIN-kod, bildirishnomalar" onPress={() => go("/security")} />
+        <Row icon="log-out-outline" label="Chiqish" danger onPress={() => confirmLogout(logout)} last />
+      </Group>
+    </Screen>
+  );
+}
+
+/* --------------------------------------------------------------- direktor --- */
+function ManagerProfile({ session, openSignal }: { session: ManagerSession; openSignal?: string }) {
+  const { c } = useTheme();
+  const { logout } = useSession();
+  const { user, company } = session;
+  // Login kirishda saqlanadi; eski sessiyada bo‘lmasa — paneldan so‘raladi.
+  const [fetched, setFetched] = useState<string | null>(null);
+  useEffect(() => {
+    if (session.login) return;
+    let live = true;
+    mcall<{ login: string | null }>("/auth/mobile-login")
+      .then((r) => live && setFetched(r.login))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [session.login]);
+  const initials = user.name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0] || "")
+    .join("");
+
+  return (
+    <Screen title="Profil">
+      <Card style={st.head}>
+        {user.photoDataUrl ? (
+          <Image source={{ uri: mediaUri(user.photoDataUrl) }} style={st.avatar} />
+        ) : (
+          <View style={[st.avatar, st.initials, { backgroundColor: `${c.accent}22` }]}>
+            <Text style={{ color: c.accent, fontSize: 24, fontWeight: "700" }}>{initials.toUpperCase()}</Text>
+          </View>
+        )}
+        <View style={{ flex: 1, gap: 2 }}>
+          <Text style={{ color: c.ink, fontSize: 20, fontWeight: "700" }}>{user.name}</Text>
+          <Text style={{ color: c.muted, fontSize: 14 }}>{ROLE_LABEL[user.role] || user.role}</Text>
+          <Text style={{ color: c.muted, fontSize: 12.5 }}>{company.name}</Text>
+        </View>
+      </Card>
+
+      <AppLoginGroup mode="manager" login={session.login || fetched} openSignal={openSignal} />
+
+      <GroupTitle>Ilova</GroupTitle>
+      <Group>
+        <Row icon="settings" label="Sozlamalar" sub="Mavzu, til, PIN-kod" onPress={() => go("/security")} />
+        <Row icon="log-out-outline" label="Chiqish" danger onPress={() => confirmLogout(logout)} last />
       </Group>
     </Screen>
   );
@@ -135,6 +186,7 @@ export default function Profile() {
 const st = StyleSheet.create({
   head: { flexDirection: "row", alignItems: "center", gap: 14 },
   avatar: { width: 66, height: 66, borderRadius: 33 },
+  initials: { alignItems: "center", justifyContent: "center" },
   week: { flexDirection: "row", gap: 5, padding: 10 },
   weekDay: { flex: 1, alignItems: "center", gap: 2, paddingVertical: 8, borderRadius: 10 },
 });

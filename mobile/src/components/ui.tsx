@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { type ComponentProps, type ReactNode } from "react";
-import { ActivityIndicator, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Pressable, RefreshControl, ScrollView, StyleSheet, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 import { Text } from "@/components/T";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { elevation, ios, radius, typo, useTheme } from "@/lib/theme";
@@ -274,28 +274,30 @@ export function ErrorBox({ text, onRetry }: { text: string; onRetry?: () => void
   );
 }
 
-/** Pastdan chiquvchi oyna (iOS «sheet» / Android «bottom sheet»). */
+/** Pastdan chiquvchi oyna (iOS «sheet» / Android «bottom sheet»). Klaviatura ochilsa — oyna yuqoriga suriladi. */
 export function Sheet({ visible, title, subtitle, onClose, children }: { visible: boolean; title: string; subtitle?: string; onClose: () => void; children: ReactNode }) {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: c.overlay }]} onPress={onClose} accessibilityLabel="Yopish" />
-      <View style={[s.sheet, { backgroundColor: ios ? c.bg : c.card, paddingBottom: insets.bottom + 16 }]}>
-        <View style={[s.grabber, { backgroundColor: c.line }]} />
-        <View style={s.sheetHead}>
-          <View style={{ flex: 1 }}>
-            <Text style={{ color: c.ink, fontSize: 18, fontWeight: "700" }}>{title}</Text>
-            {subtitle ? <Text style={{ color: c.muted, fontSize: 13, marginTop: 2 }}>{subtitle}</Text> : null}
+      <KeyboardAvoidingView behavior={ios ? "padding" : undefined} style={s.sheetWrap}>
+        <View style={[s.sheet, { backgroundColor: ios ? c.bg : c.card, paddingBottom: insets.bottom + 16 }]}>
+          <View style={[s.grabber, { backgroundColor: c.line }]} />
+          <View style={s.sheetHead}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: c.ink, fontSize: 18, fontWeight: "700" }}>{title}</Text>
+              {subtitle ? <Text style={{ color: c.muted, fontSize: 13, marginTop: 2 }}>{subtitle}</Text> : null}
+            </View>
+            <Pressable onPress={onClose} hitSlop={12} style={[s.sheetClose, { backgroundColor: c.tint }]} accessibilityLabel="Yopish">
+              <Icon name="close" size={18} color={c.muted} />
+            </Pressable>
           </View>
-          <Pressable onPress={onClose} hitSlop={12} style={[s.sheetClose, { backgroundColor: c.tint }]} accessibilityLabel="Yopish">
-            <Icon name="close" size={18} color={c.muted} />
-          </Pressable>
+          <ScrollView style={{ maxHeight: 560 }} contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
+            {children}
+          </ScrollView>
         </View>
-        <ScrollView style={{ maxHeight: 560 }} contentContainerStyle={{ gap: 12 }} keyboardShouldPersistTaps="handled">
-          {children}
-        </ScrollView>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -365,7 +367,8 @@ export const s = StyleSheet.create({
   badgeDot: { width: 7, height: 7, borderRadius: 4 },
   empty: { alignItems: "center", gap: 10, paddingVertical: 40, paddingHorizontal: 24 },
   emptyIcon: { width: 60, height: 60, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 4 },
-  sheet: { position: "absolute", left: 0, right: 0, bottom: 0, borderTopLeftRadius: ios ? 14 : 24, borderTopRightRadius: ios ? 14 : 24, paddingHorizontal: 16, paddingTop: 8 },
+  sheetWrap: { flex: 1, justifyContent: "flex-end", pointerEvents: "box-none" },
+  sheet: { borderTopLeftRadius: ios ? 14 : 24, borderTopRightRadius: ios ? 14 : 24, paddingHorizontal: 16, paddingTop: 8 },
   grabber: { alignSelf: "center", width: 36, height: 5, borderRadius: 3, marginBottom: 10 },
   sheetHead: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 14 },
   sheetClose: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },

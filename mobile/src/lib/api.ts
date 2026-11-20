@@ -6,11 +6,41 @@ import { KEYS, secureDelete, secureGet, secureSet } from "./secure";
  * Staffora API mijoz. Access token (15 daqiqa) faqat xotirada; refresh token va sessiya ID —
  * Keychain/Keystore’da. Refresh har safar qurilma kaliti imzosi bilan (challenge) va rotatsiya
  * qilinadi. Tokenlar hech qachon log qilinmaydi.
+ *
+ * Ikki rejim: xodim (HR, moliya, filial rahbari ham) — /mini/* yo‘llari; direktor — access token
+ * panel sessiyasining o‘zi (panel API’lari uchun Bearer, lib/manager.ts).
  */
 
 export type Employee = { id: string; firstName: string; lastName: string; companyId: string };
-export type StoredSession = { sessionId: string; refreshToken: string; deviceId: string; employee: Employee };
-type TokenResponse = StoredSession & { accessToken: string; accessExpiresIn: number };
+/** Direktor (panel foydalanuvchisi) — ilovada faqat «Rahbar» paneli. */
+export type ManagerUser = { id: string; name: string; role: string; branchIds: string[]; photoDataUrl?: string };
+export type Company = { id: string; name: string };
+export type SessionMode = "employee" | "manager";
+type SessionBase = {
+  sessionId: string;
+  refreshToken: string;
+  deviceId: string;
+  /** Kirishda yozilgan to‘liq login (ozodbek@staffora.uz) — Profilda ko‘rsatish uchun. */
+  login?: string;
+};
+/** Xodim: keldi-ketdi + /mini/* yo‘llari. */
+export type EmployeeSession = SessionBase & { mode: "employee"; employee: Employee };
+/** Direktor: faqat rahbar paneli. */
+export type ManagerSession = SessionBase & { mode: "manager"; user: ManagerUser; company: Company };
+export type StoredSession = EmployeeSession | ManagerSession;
+/** Server javobi: login / refresh / eski faollashtirish (u yerda `mode` yo‘q — xodim). */
+type TokenResponse = {
+  mode?: SessionMode;
+  accessToken: string;
+  accessExpiresIn: number;
+  sessionId: string;
+  refreshToken: string;
+  deviceId: string;
+  employee?: Employee;
+  user?: ManagerUser;
+  company?: Company;
+};
+export type DeviceInfo = { platform: "ios" | "android"; model?: string; osVersion?: string; appVersion?: string };
 
 export class ApiError extends Error {
   constructor(
@@ -28,7 +58,7 @@ export const errorText = (error: unknown, fallback = "Xatolik yuz berdi") =>
 let access: { token: string; expiresAt: number } | null = null;
 let refreshing: Promise<string> | null = null;
 const listeners = new Set<(reason: string) => void>();
-/** Sessiya tugaganda (qurilma bekor qilindi, refresh yaroqsiz) — ilova faollashtirish ekraniga qaytadi. */
+/** Sessiya tugaganda (qurilma bekor qilindi, refresh yaroqsiz) — ilova kirish ekraniga qaytadi. */
 export const onSignedOut = (fn: (reason: string) => void) => {
   listeners.add(fn);
   return () => listeners.delete(fn);
@@ -58,37 +88,86 @@ async function raw<T>(path: string, init: RequestInit & { token?: string; timeou
 
 export const publicPost = <T>(path: string, body: unknown) => raw<T>(path, { method: "POST", body: JSON.stringify(body) });
 
+/*
+ * Saqlangan sessiya. `mode` yo‘q eski sessiya (kod bilan faollashtirilgan) — xodim rejimi.
+ * Xotirada ham nusxa turadi: rahbar API’si har chaqiruvda Keychain’ni o‘qimasin.
+ */
+let current: StoredSession | null = null;
+const saved = new Set<(session: StoredSession) => void>();
+/** Sessiya yozilganda (kirish, refresh — rol yoki kompaniya nomi o‘zgargan bo‘lishi mumkin). */
+export const onSessionSaved = (fn: (session: StoredSession) => void) => {
+  saved.add(fn);
+  return () => saved.delete(fn);
+};
+
+type RawSession = Partial<Omit<TokenResponse, "mode">> & { mode?: SessionMode; login?: string };
+function normalize(value: RawSession | null | undefined): StoredSession | null {
+  if (!value?.sessionId || !value.refreshToken || !value.deviceId) return null;
+  const base = { sessionId: value.sessionId, refreshToken: value.refreshToken, deviceId: value.deviceId, login: value.login };
+  if (value.mode === "manager") return value.user && value.company ? { ...base, mode: "manager", user: value.user, company: value.company } : null;
+  return value.employee ? { ...base, mode: "employee", employee: value.employee } : null;
+}
+
 export async function loadSession() {
-  return secureGet<StoredSession>(KEYS.session);
+  if (current) return current;
+  current = normalize(await secureGet<RawSession>(KEYS.session));
+  return current;
 }
-export async function saveTokens(tokens: TokenResponse) {
-  const { accessToken, accessExpiresIn, sessionId, refreshToken, deviceId, employee } = tokens;
-  access = { token: accessToken, expiresAt: Date.now() + (accessExpiresIn - 30) * 1000 };
-  await secureSet(KEYS.session, { sessionId, refreshToken, deviceId, employee } satisfies StoredSession);
+/** Xotiradagi sessiya (yuklangan bo‘lsa) — sinxron. */
+export const cachedSession = () => current;
+
+async function saveTokens(tokens: TokenResponse, login?: string) {
+  const next = normalize({ ...tokens, login: login || current?.login });
+  if (!next) throw new ApiError("Server javobi tushunarsiz. Ilovani yangilang.", 0, "BAD_SESSION");
+  access = { token: tokens.accessToken, expiresAt: Date.now() + (tokens.accessExpiresIn - 30) * 1000 };
+  current = next;
+  await secureSet(KEYS.session, next);
+  for (const fn of saved) fn(next);
+  return next;
 }
+/**
+ * Sessiya «davri»: har chiqishda oshadi. Chiqish paytida yo‘lda qolgan refresh javobi kelsa —
+ * u eski davrga tegishli, tokenlar qayta yozilmaydi (aks holda keyingi ochilishda jimgina kirib qolardi).
+ */
+let epoch = 0;
 /** Sessiyani faqat telefondan o‘chiradi (logout). Qurilma kaliti va bog‘lanish saqlanadi. */
 export async function clearSession(reason = "logout") {
+  epoch += 1;
   access = null;
+  current = null;
+  refreshing = null;
   await secureDelete(KEYS.session);
   for (const fn of listeners) fn(reason);
 }
 
+/** Hisob bloklangan, xodim bo‘shatilgan, kompaniya to‘xtatilgan — sessiyani saqlashdan foyda yo‘q. */
+const FATAL_403 = new Set(["ACCOUNT_BLOCKED", "EMPLOYEE_INACTIVE", "COMPANY_SUSPENDED", "NOT_MANAGER"]);
+/** Server sessiyani butunlay rad etdimi (tarmoq xatosi emas) — telefondan chiqish kerak. */
+export const isFatalSessionError = (error: unknown) =>
+  error instanceof ApiError && (error.status === 401 || (error.status === 403 && FATAL_403.has(error.code || "")));
+
 async function refresh(): Promise<string> {
   const session = await loadSession();
   if (!session) throw new ApiError("Sessiya yo‘q.", 401, "NO_SESSION");
+  const started = epoch;
   try {
     const { nonce } = await publicPost<{ nonce: string }>("/mobile/auth/challenge", { deviceId: session.deviceId });
     const signature = await signDevice(signedMessage("refresh", nonce, session.sessionId));
     const tokens = await publicPost<TokenResponse>("/mobile/auth/refresh", { sessionId: session.sessionId, refreshToken: session.refreshToken, nonce, signature });
-    await saveTokens(tokens);
+    if (started !== epoch) throw new ApiError("Sessiya yopildi.", 401, "NO_SESSION");
+    // Eski server `mode` yubormasa — saqlangan rejim va ma’lumotlar qoladi.
+    const keep = session.mode === "manager" ? { user: session.user, company: session.company } : { employee: session.employee };
+    await saveTokens({ ...keep, ...tokens, mode: tokens.mode || session.mode });
     return tokens.accessToken;
   } catch (error) {
     // Tarmoq xatosida sessiya saqlanadi; server rad etsa — chiqamiz.
-    if (error instanceof ApiError && error.status === 401) await clearSession(error.code || "SESSION_INVALID");
+    if (started === epoch && isFatalSessionError(error)) await clearSession((error as ApiError).code || "SESSION_INVALID");
     throw error;
   }
 }
-export async function accessToken() {
+/** Amaldagi access token. `fresh` — server tokenni rad etgan bo‘lsa, yangisini majburan olish. */
+export async function accessToken(fresh = false) {
+  if (fresh && !refreshing) access = null;
   if (access && access.expiresAt > Date.now()) return access.token;
   refreshing ||= refresh().finally(() => {
     refreshing = null;
@@ -107,8 +186,7 @@ export async function api<T>(path: string, init: RequestInit & { timeoutMs?: num
       await clearSession("DEVICE_REVOKED");
       throw error;
     }
-    access = null;
-    return raw<T>(path, { ...init, token: await accessToken() });
+    return raw<T>(path, { ...init, token: await accessToken(true) });
   }
 }
 export const post = <T>(path: string, body: unknown = {}, timeoutMs?: number) => api<T>(path, { method: "POST", body: JSON.stringify(body), timeoutMs });
@@ -116,10 +194,38 @@ export const put = <T>(path: string, body: unknown = {}) => api<T>(path, { metho
 export const patch = <T>(path: string, body: unknown = {}) => api<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 export const del = <T>(path: string) => api<T>(path, { method: "DELETE" });
 
-/* ------------------------------------------------------- faollashtirish --- */
-export type ActivateResult = { kind: "session"; employee: Employee } | { kind: "pending"; requestId: string; message: string };
+/* ------------------------------------------------------------- kirish --- */
+export type LoginResult = { kind: "session"; session: StoredSession } | { kind: "2fa"; message: string };
 
-export async function activate(code: string, device: { platform: "ios" | "android"; model?: string; osVersion?: string; appVersion?: string }): Promise<ActivateResult> {
+/**
+ * Login + parol bilan kirish. Telefon kaliti shu yerda serverga bog‘lanadi (challenge imzosi):
+ * parolning o‘zi yetmaydi — sessiya keyin faqat shu qurilma kaliti bilan yangilanadi.
+ * Direktorda Telegram 2FA bo‘lsa — server kod yuboradi, ilova kod bilan qayta chaqiradi (yangi nonce).
+ * `fullLogin` — tekshirilgan to‘liq login (ozodbek@staffora.uz).
+ */
+export async function login(fullLogin: string, password: string, device: DeviceInfo, code?: string): Promise<LoginResult> {
+  const publicKey = await devicePublicKey();
+  const { nonce } = await publicPost<{ nonce: string }>("/mobile/activation/challenge", { publicKey });
+  const normalized = fullLogin.trim().toLowerCase();
+  const signature = await signDevice(signedMessage("login", nonce, normalized));
+  const result = await publicPost<TokenResponse | { requires2fa: true; message?: string }>("/mobile/auth/login", {
+    login: normalized,
+    password,
+    publicKey,
+    nonce,
+    signature,
+    ...device,
+    ...(code ? { code } : {}),
+  });
+  if ("requires2fa" in result && result.requires2fa) return { kind: "2fa", message: result.message || "Telegram’ga tasdiqlash kodi yuborildi." };
+  return { kind: "session", session: await saveTokens(result as TokenResponse, normalized) };
+}
+
+/* ------------------------------------- eski faollashtirish (havola orqali) --- */
+export type ActivateResult = { kind: "session"; session: StoredSession } | { kind: "pending"; requestId: string; message: string };
+
+/** Faqat eski staffora://activate?code=… havolalari uchun (asosiy kirish — login va parol). */
+export async function activate(code: string, device: DeviceInfo): Promise<ActivateResult> {
   const publicKey = await devicePublicKey();
   const { nonce } = await publicPost<{ nonce: string }>("/mobile/activation/challenge", { publicKey });
   const normalized = code.toUpperCase().replace(/[^A-Z0-9]/g, "");
@@ -132,8 +238,7 @@ export async function activate(code: string, device: { platform: "ios" | "androi
     ...device,
   });
   if ("requestId" in result) return { kind: "pending", requestId: result.requestId, message: result.message };
-  await saveTokens(result);
-  return { kind: "session", employee: result.employee };
+  return { kind: "session", session: await saveTokens(result) };
 }
 
 /** Yangi telefon so‘rovi holati (HR tasdiqlasa — shu yerda sessiya beriladi). */

@@ -35,8 +35,9 @@ const secret =
   process.env.SESSION_SECRET || "staffora-local-session-secret-change-me";
 const employeeSecret = process.env.JWT_SECRET || `${secret}-employee`;
 
-export function signSession(session: Session) {
-  return jwt.sign(session, secret, { expiresIn: "8h", issuer: "staffora" });
+/** Panel sessiyasi tokeni. `expiresIn` — mobil rahbar rejimida qisqa (15 daqiqa, refresh bilan yangilanadi). */
+export function signSession(session: Session, expiresIn: number | `${number}h` = "8h") {
+  return jwt.sign(session, secret, { expiresIn, issuer: "staffora" });
 }
 
 /**

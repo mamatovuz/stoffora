@@ -2,6 +2,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect } from "react";
 import { ActivityIndicator, View } from "react-native";
 import { routeForGo } from "@/lib/links";
+import { useSession } from "@/lib/session";
 import { useTheme } from "@/lib/theme";
 import type { HomeData } from "@/lib/types";
 import { useData } from "@/lib/useData";
@@ -13,9 +14,16 @@ import { useData } from "@/lib/useData";
 export default function GoLink() {
   const { c } = useTheme();
   const { target } = useLocalSearchParams<{ target: string }>();
-  const action = target === "checkin" ? "CHECK_IN" : target === "checkout" ? "CHECK_OUT" : null;
+  const { mode } = useSession();
+  // Direktor (faqat rahbar paneli) keldi-ketdi qilmaydi — xodim API’siga so‘rov ham yuborilmaydi.
+  const manager = mode === "manager";
+  const action = !manager && target === "checkin" ? "CHECK_IN" : !manager && target === "checkout" ? "CHECK_OUT" : null;
   const { data, error } = useData<HomeData>(action ? "/mini/home" : null);
   useEffect(() => {
+    if (manager) {
+      router.replace("/(tabs)/manager");
+      return;
+    }
     if (!action) {
       router.replace(routeForGo(target) || "/(tabs)");
       return;
@@ -28,7 +36,7 @@ export default function GoLink() {
     if (!valid || !data.branch) return router.replace("/(tabs)");
     router.replace("/(tabs)");
     router.push({ pathname: data.employee.faceEnrolledAt ? "/face-check" : "/face-enroll", params: { action } });
-  }, [action, target, data, error]);
+  }, [manager, action, target, data, error]);
   return (
     <View style={{ flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: c.bg }}>
       <ActivityIndicator color={c.muted} />

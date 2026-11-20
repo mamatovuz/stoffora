@@ -10,6 +10,8 @@ export const invalidate = (prefix = "") => {
   for (const key of [...cache.keys()]) if (key.startsWith(prefix)) cache.delete(key);
   for (const [path, fns] of live) if (path.startsWith(prefix)) for (const fn of fns) fn();
 };
+/** Butun keshni tozalash (chiqish / boshqa hisob bilan kirish) — ochiq ekranlar qayta so‘ramaydi. */
+export const clearCache = () => cache.clear();
 
 export function useData<T>(path: string | null, options: { refetchOnFocus?: boolean; maxAgeMs?: number } = {}) {
   const { refetchOnFocus = true, maxAgeMs = 30_000 } = options;
@@ -26,10 +28,10 @@ export function useData<T>(path: string | null, options: { refetchOnFocus?: bool
     [],
   );
 
+  /** Yuklash (holat faqat javobdan keyin o‘zgaradi — effekt ichida sinxron setState yo‘q). */
   const load = useCallback(
-    async (mode: "initial" | "refresh" | "silent" = "silent") => {
+    async () => {
       if (!path) return;
-      if (mode === "refresh") setRefreshing(true);
       try {
         const value = await api<T>(path);
         cache.set(path, { at: Date.now(), value });
@@ -49,16 +51,23 @@ export function useData<T>(path: string | null, options: { refetchOnFocus?: bool
     [path],
   );
 
+  // Yo‘l o‘zgarsa (masalan boshqa oy) — keshdagi qiymat shu render’dayoq ko‘rsatiladi (effekt’siz).
+  const [shownPath, setShownPath] = useState(path);
+  if (shownPath !== path) {
+    setShownPath(path);
+    const hit = path ? cache.get(path) : undefined;
+    if (hit) setData(hit.value as T);
+  }
+
   useEffect(() => {
     if (!path) return;
     const hit = cache.get(path);
-    if (hit) setData(hit.value as T);
-    if (!hit || Date.now() - hit.at > maxAgeMs) void load(hit ? "silent" : "initial");
+    if (!hit || Date.now() - hit.at > maxAgeMs) void load();
   }, [path, load, maxAgeMs]);
 
   useEffect(() => {
     if (!path) return;
-    const fn = () => void load("silent");
+    const fn = () => void load();
     const set = live.get(path) || new Set();
     set.add(fn);
     live.set(path, set);
@@ -73,9 +82,13 @@ export function useData<T>(path: string | null, options: { refetchOnFocus?: bool
       if (!refetchOnFocus || !path) return;
       const hit = cache.get(path);
       // Kesh tozalangan (invalidate) yoki eskirgan bo‘lsa — ekranga qaytganda yangilanadi.
-      if (!hit || Date.now() - hit.at > 5_000) void load("silent");
+      if (!hit || Date.now() - hit.at > 5_000) void load();
     }, [refetchOnFocus, path, load]),
   );
 
-  return { data, error, loading, refreshing, reload: () => load("refresh"), reloadSilent: () => load("silent"), setData };
+  const reload = () => {
+    if (path) setRefreshing(true);
+    return load();
+  };
+  return { data, error, loading, refreshing, reload, reloadSilent: load, setData };
 }

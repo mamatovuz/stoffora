@@ -3872,3 +3872,589 @@ a.tp-stat:active {
     min-height: 40px;
   }
 }
+
+/* ======================================================================
+   Sozlamalar: ish haqi guruhlari, mobil ilova logini va ro‘yxat anketasi
+   ====================================================================== */
+/* Holat: kichik nuqta + matn */
+.dot-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  text-wrap: pretty;
+}
+.dot-text::before {
+  content: "";
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.dot-text.green::before {
+  background: var(--green);
+}
+.dot-text.amber::before {
+  background: var(--amber-solid);
+}
+.dot-text.gray::before {
+  background: var(--faint);
+}
+
+/* --- Ish haqi va jarima: guruhlar --- */
+.set-group {
+  padding: 20px 0;
+  border-top: 1px solid var(--line-2);
+}
+.pay-settings .card-body > .set-group:first-child {
+  padding-top: 2px;
+  border-top: 0;
+}
+.set-group > header {
+  margin-bottom: 10px;
+}
+.set-group > header h3 {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.set-group > header p {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-wrap: pretty;
+}
+.set-group-body {
+  display: grid;
+}
+.set-group-body > .mode-options {
+  margin: 4px 0 14px;
+}
+.set-group .setting-row {
+  align-items: flex-start;
+  padding: 12px 0;
+  border: 0;
+  border-radius: 0;
+}
+.set-group .setting-row .switch {
+  margin-top: 2px;
+}
+.set-group .setting-row small {
+  text-wrap: pretty;
+}
+.set-group-body > * + .setting-row {
+  border-top: 1px solid var(--line-2);
+}
+/* Bog‘liq sozlama: chap tomonda ingichka chiziq bilan ichkariroq */
+.set-group .setting-row.sub,
+.set-fields.sub {
+  position: relative;
+  margin-left: 6px;
+  padding-left: 20px;
+}
+.set-group .setting-row.sub::before,
+.set-fields.sub::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--line);
+}
+.set-group-body > .setting-row.sub,
+.set-group-body > .set-fields.sub {
+  border-top: 0;
+}
+.set-fields {
+  padding-top: 2px;
+}
+.set-fields.sub {
+  padding-top: 8px;
+}
+.set-example {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+.set-example svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--muted);
+}
+.set-foot-hint {
+  margin: 0 0 12px;
+  text-wrap: pretty;
+}
+/* Uzun sahifa: «Saqlash» doim ko‘rinib turadi */
+.set-savebar,
+.fb-savebar {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--r-lg) var(--r-lg);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+
+/* --- Mobil ilova uchun login --- */
+.mlog-input {
+  display: flex;
+  align-items: stretch;
+  max-width: 440px;
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  transition-property: border-color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.mlog-input:hover {
+  border-color: var(--line-strong);
+}
+.mlog-input:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 4px var(--brand-glow);
+}
+.mlog-input.invalid {
+  border-color: var(--red);
+}
+.mlog-input.invalid:focus-within {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--red) 14%, transparent);
+}
+.mlog-input input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 6px 0 12px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+.mlog-suffix {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-left: 1px solid var(--line);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 13.5px;
+  white-space: nowrap;
+  user-select: none;
+}
+.mlog-actions {
+  justify-content: flex-start;
+  margin-top: 0;
+}
+.mlog-done {
+  display: grid;
+  gap: 6px;
+}
+.mlog-value {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.mlog-value > span {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.mlog-value b {
+  font-size: 15px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.mlog-value .icon-btn {
+  width: 32px;
+  height: 32px;
+}
+
+/* --- Ro‘yxat anketasi (qayta dizayn) --- */
+.fb .fb-layout {
+  padding-top: 18px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 28px;
+}
+.fb-main {
+  display: grid;
+  gap: 26px;
+  min-width: 0;
+}
+.fb-sec-head {
+  margin-bottom: 8px;
+}
+.fb-sec-head h3 {
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.fb-sec-head p {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+  text-wrap: pretty;
+}
+.fb-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--line-2);
+}
+.fb-row {
+  border-bottom: 1px solid var(--line-2);
+}
+.fb-row-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+.fb-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 4px 8px 4px 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition-property: background-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.fb-row-main:hover {
+  background: var(--row-hover);
+}
+.fb-row-main:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+.fb-row .fb-num {
+  font-variant-numeric: tabular-nums;
+}
+.fb-row.off .fb-num {
+  background: var(--gray-bg);
+  color: var(--faint);
+}
+.fb-row-text {
+  display: grid;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+.fb-row-text b {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.fb-row-text b svg {
+  flex: none;
+  color: var(--muted);
+}
+.fb-row-text b span,
+.fb-row-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-row-text small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.fb-row.off .fb-row-text b {
+  color: var(--muted);
+}
+.fb-chev {
+  flex: none;
+  color: var(--faint);
+  transition-property: transform;
+  transition-duration: 180ms;
+  transition-timing-function: var(--spring);
+}
+.fb-row.open .fb-chev {
+  transform: rotate(180deg);
+}
+.fb-row-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  min-width: 68px;
+}
+.fb-row-actions .icon-btn {
+  width: 32px;
+  height: 32px;
+}
+.fb-row-actions .icon-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.fb-row-actions .icon-btn:disabled:hover {
+  background: transparent;
+  color: var(--muted);
+}
+.fb-last {
+  padding: 0 6px;
+  color: var(--faint);
+  font-size: 12px;
+}
+.fb-row-edit {
+  display: grid;
+  padding: 6px 4px 14px 42px;
+  animation: fb-reveal 180ms var(--spring);
+}
+@keyframes fb-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.fb-textarea {
+  min-height: 64px;
+}
+.fb-note {
+  margin: -4px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-wrap: pretty;
+}
+.fb-note-inline {
+  color: var(--muted);
+  font-weight: 500;
+}
+.fb-anchor .select {
+  max-width: 360px;
+}
+
+/* Majburiy / Ixtiyoriy / So‘ralmaydi */
+.fb-need {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 9px;
+  background: var(--gray-bg);
+}
+.fb-need button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition-property: background-color, color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.fb-need button:hover:not(:disabled):not(.active) {
+  color: var(--ink);
+}
+.fb-need button.active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(23, 32, 51, 0.08), 0 0 0 1px rgba(23, 32, 51, 0.04);
+}
+.fb-need button.active.required {
+  color: var(--brand);
+}
+.fb-need button.active.off {
+  color: var(--ink-2);
+}
+.fb-need button:disabled:not(.active) {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.fb-need button:disabled.active {
+  cursor: default;
+}
+.fb-need button:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+/* Javob turi tanlovi */
+.fb-typegrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 6px;
+}
+.fb-typeopt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition-property: border-color, background-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.fb-typeopt svg {
+  flex: none;
+  color: var(--muted);
+}
+.fb-typeopt span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-typeopt:hover {
+  border-color: var(--line-strong);
+}
+.fb-typeopt[aria-checked="true"] {
+  border-color: var(--brand);
+  background: var(--brand-50);
+  color: var(--brand);
+  font-weight: 600;
+}
+.fb-typeopt[aria-checked="true"] svg {
+  color: var(--brand);
+}
+.fb-typeopt:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+}
+
+/* Yangi savol */
+.fb-add-btn {
+  margin-top: 10px;
+}
+.fb-composer {
+  display: grid;
+  margin-top: 10px;
+  padding: 16px 16px 14px;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
+  animation: fb-reveal 180ms var(--spring);
+}
+.fb-composer-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.fb-spacer {
+  flex: 1;
+}
+
+/* Ko‘rinish */
+.fb .fb-preview {
+  gap: 10px;
+}
+.fb-preview-cap {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.fb-preview-cap b {
+  overflow: hidden;
+  color: var(--ink-2);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fb-save-error {
+  padding: 0 20px 12px;
+}
+.fb-savebar {
+  justify-content: space-between;
+}
+.fb-savebar-actions {
+  display: flex;
+  gap: 8px;
+}
+@media (max-width: 1100px) {
+  .fb .fb-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 720px) {
+  .fb-row-head {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 8px;
+  }
+  .fb-row-head .fb-need {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: start;
+    margin: 0 0 6px 38px;
+  }
+  .fb-row-edit {
+    padding-left: 4px;
+  }
+  .set-group .setting-row.sub,
+  .set-fields.sub {
+    padding-left: 14px;
+  }
+  .fb-savebar,
+  .set-savebar {
+    padding: 10px 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fb-row-edit,
+  .fb-composer {
+    animation: none;
+  }
+}
+/* Staffora AI tugmasi (pastki o‘ng burchak) «Saqlash»ni yopib qo‘ymasin */
+:root:has(.sai-fab) .set-savebar,
+:root:has(.sai-fab) .fb-savebar {
+  padding-right: 96px;
+}

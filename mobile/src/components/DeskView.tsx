@@ -1,20 +1,18 @@
-import { router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { Text } from "@/components/T";
-import { errorText } from "@/lib/api";
-import { som } from "@/lib/format";
+import { som, tashkentIsoDate } from "@/lib/format";
 import { can, mcall } from "@/lib/manager";
 import { typo, useTheme } from "@/lib/theme";
-import { Card, Empty, ErrorBox, Group, GroupTitle, Icon, Loading, Stats } from "./ui";
+import { LiveFeed } from "./ManagerExtras";
+import { Button, Card, Empty, Group, GroupTitle, Icon, Loading, Row, Stats } from "./ui";
 
 /*
- * Ish stoli (ilova): Action Center — «bugun nima qilishim kerak» (rolga mos), direktor/HR uchun
- * Control Center (bugun, oy pullari, filiallar), filial rahbari uchun smena markazi (bugun + ertaga).
- * Ko‘rinish minimal: bitta statistika kartasi, muhimlik bo‘yicha saralangan vazifalar, so‘ng tafsilotlar.
+ * «Umumiy» — toza ko‘rinish, vazifalar ro‘yxatisiz: bugun (rejada / keldi / kechikdi / kelmadi),
+ * so‘nggi kelganlar, filiallar foizi va (huquq bo‘lsa) shu oy pullari. Filial rahbari — o‘z smenasi
+ * va ertangi tayyorlik. Moliya (davomat ko‘rmaydi) — shu oy xulosasi. Amallar — «Boshqaruv»da.
  */
 
-type Action = { level: "red" | "orange" | "yellow" | "info"; text: string; count: number; view?: string };
 type Overview = {
   today: { employees: number; planned: number; came: number; late: number; absent: number; notYet: number; noCheckout: number };
   money: { net: number; advance: number; bonus: number; fine: number; overtime: number } | null;
@@ -25,32 +23,59 @@ type Shift = {
   name: string;
   today: { planned: number; came: number; late: number; absent: number; notYet: number; noCheckout: number };
   window: { start: string; end: string } | null;
-  issues: { employeeId: string; name: string; text: string; tone: "bad" | "warn" }[];
   tomorrow: { date: string; planned: number; onLeave: number; required?: number; shortage: number };
 };
-const DOT = { red: "#FF3B30", orange: "#FF9500", yellow: "#FFCC00", info: "#0A84FF" };
-const ORDER = { red: 0, orange: 1, yellow: 2, info: 3 };
+type Finance = { net: number; employees: number; bonus: number; advances: { pendingCount: number; unpaidCount: number }; pendingFines: number };
+type FeedRow = Parameters<typeof LiveFeed>[0]["rows"][number];
 
-export function DeskView({ role, onOpen, reloadKey }: { role: string; onOpen: (view: string) => void; reloadKey: number }) {
+export function DeskView({
+  role,
+  rows,
+  onOpen,
+  onAdmin,
+  reloadKey,
+}: {
+  role: string;
+  /** Bugungi davomat qatorlari (so‘nggi kelganlar uchun). */
+  rows?: FeedRow[];
+  onOpen: (view: string) => void;
+  onAdmin: () => void;
+  reloadKey: number;
+}) {
   const { c } = useTheme();
-  const [actions, setActions] = useState<Action[] | null>(null);
+  const attendance = can(role, "attendance.view");
+  const branchManager = role === "BRANCH_MANAGER";
+  const finance = !attendance && can(role, "payroll.edit");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [shifts, setShifts] = useState<Shift[] | null>(null);
-  const [error, setError] = useState("");
+  const [money, setMoney] = useState<Finance | null>(null);
+  const [loaded, setLoaded] = useState(false);
   useEffect(() => {
-    mcall<{ actions: Action[] }>("/workspace/actions")
-      .then((r) => setActions(r.actions))
-      .catch((e) => setError(errorText(e)));
-    if (can(role, "attendance.view") && role !== "BRANCH_MANAGER") mcall<Overview>("/workspace/overview").then(setOverview).catch(() => undefined);
-    if (role === "BRANCH_MANAGER") mcall<Shift[]>("/workspace/branch-shift").then(setShifts).catch(() => undefined);
-  }, [role, reloadKey]);
+    let live = true;
+    const jobs: Promise<unknown>[] = [];
+    if (attendance && !branchManager) jobs.push(mcall<Overview>("/workspace/overview").then((r) => live && setOverview(r)));
+    if (branchManager) jobs.push(mcall<Shift[]>("/workspace/branch-shift").then((r) => live && setShifts(r)));
+    if (finance) jobs.push(mcall<Finance>(`/finance/summary?month=${tashkentIsoDate().slice(0, 7)}`).then((r) => live && setMoney(r)));
+    void Promise.allSettled(jobs).then(() => live && setLoaded(true));
+    return () => {
+      live = false;
+    };
+  }, [attendance, branchManager, finance, reloadKey]);
 
-  // Muammolar birinchi: qizil → to‘q sariq → sariq → ma’lumot.
-  const list = [...(actions || [])].sort((a, b) => ORDER[a.level] - ORDER[b.level]);
   const line = (i: number, total: number) => i < total - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line };
+  const nothing = !overview && !shifts?.length && !money && !rows?.length;
+  if (nothing && !loaded) return <Loading />;
+  if (nothing)
+    return (
+      <Empty
+        icon="grid-outline"
+        title="Ishlaringiz «Boshqaruv»da"
+        action={<Button title="Boshqaruv" icon="apps-outline" tone="soft" onPress={onAdmin} style={{ alignSelf: "stretch" }} />}
+      />
+    );
+
   return (
     <>
-      {error ? <ErrorBox text={error} /> : null}
       {overview ? (
         <Stats
           title="Bugun"
@@ -72,37 +97,20 @@ export function DeskView({ role, onOpen, reloadKey }: { role: string; onOpen: (v
           <View style={{ flexDirection: "row" }}>
             {(
               [
-                [s.today.planned, "rejada", c.ink],
-                [s.today.came, "keldi", c.success],
-                [s.today.late, "kechikdi", s.today.late ? c.warn : c.ink],
-                [s.today.absent, "kelmadi", s.today.absent ? c.danger : c.ink],
+                [s.today.planned, "rejada", c.ink, "today:ALL"],
+                [s.today.came, "keldi", c.success, "today:IN"],
+                [s.today.late, "kechikdi", s.today.late ? c.warn : c.ink, "today:LATE"],
+                [s.today.absent, "kelmadi", s.today.absent ? c.danger : c.ink, "today:ABSENT"],
               ] as const
-            ).map(([value, label, color], i) => (
+            ).map(([value, label, color, target], i) => (
               <View key={label} style={[st.tile, i > 0 && { borderLeftWidth: StyleSheet.hairlineWidth, borderLeftColor: c.line }]}>
-                <Text style={[typo.stat, { color }]}>{value}</Text>
+                <Text style={[typo.stat, { color }]} onPress={() => onOpen(target)} suppressHighlighting>
+                  {value}
+                </Text>
                 <Text style={[typo.caption, { color: c.muted }]}>{label}</Text>
               </View>
             ))}
           </View>
-          {s.issues.length ? (
-            <View style={{ gap: 0 }}>
-              {s.issues.slice(0, 8).map((issue, i, all) => (
-                <Pressable
-                  key={`${issue.employeeId}:${issue.text}`}
-                  onPress={() => router.push({ pathname: "/employee/[id]", params: { id: issue.employeeId } })}
-                  style={({ pressed }) => [st.issue, line(i, all.length), pressed && { opacity: 0.6 }]}
-                >
-                  <View style={[st.dot, { backgroundColor: issue.tone === "bad" ? c.danger : c.warn }]} />
-                  <Text style={[typo.bodyStrong, { color: c.ink, flexShrink: 1 }]} numberOfLines={1}>
-                    {issue.name}
-                  </Text>
-                  <Text style={[typo.sub, { color: c.muted, flex: 1, textAlign: "right" }]} numberOfLines={1}>
-                    {issue.text}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-          ) : null}
           <View style={[st.tomorrow, { backgroundColor: c.tint }]}>
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={[typo.bodyStrong, { color: c.ink }]}>Ertaga</Text>
@@ -120,32 +128,28 @@ export function DeskView({ role, onOpen, reloadKey }: { role: string; onOpen: (v
         </Card>
       ))}
 
-      <GroupTitle>Bugungi vazifalar</GroupTitle>
-      {!actions ? (
-        <Loading />
-      ) : !list.length ? (
-        <Empty icon="checkmark-done-outline" title="Hammasi joyida" text="Hozircha e’tibor talab qiladigan ish yo‘q." />
-      ) : (
-        <Group>
-          {list.map((a, i) => (
-            <Pressable
-              key={a.text}
-              disabled={!a.view}
-              onPress={() => a.view && onOpen(a.view === "inbox" ? "requests" : a.view)}
-              style={({ pressed }) => [st.row, line(i, list.length), pressed && { opacity: 0.6 }]}
-            >
-              <View style={[st.dot, { backgroundColor: DOT[a.level] }]} />
-              <Text style={[typo.body, { flex: 1, color: c.ink }]} numberOfLines={2}>
-                {a.text}
-              </Text>
-              <View style={[st.count, { backgroundColor: a.level === "red" ? `${c.danger}1A` : c.tint }]}>
-                <Text style={[typo.bodyStrong, { color: a.level === "red" ? c.danger : c.ink, fontVariant: ["tabular-nums"] }]}>{a.count}</Text>
+      {rows?.length ? <LiveFeed rows={rows} /> : null}
+
+      {overview && overview.branches.length > 1 ? (
+        <>
+          <GroupTitle>Filiallar — bugun</GroupTitle>
+          <Group>
+            {overview.branches.slice(0, 8).map((b, i, all) => (
+              <View key={b.id} style={[st.row, line(i, all.length)]}>
+                <Text style={[typo.body, { flex: 1, color: c.ink }]} numberOfLines={1}>
+                  {b.name}
+                </Text>
+                <View style={[st.meter, { backgroundColor: c.tint }]}>
+                  <View style={{ width: `${Math.min(100, b.rate)}%`, height: "100%", borderRadius: 3, backgroundColor: b.rate >= 90 ? c.success : b.rate >= 70 ? c.warn : c.danger }} />
+                </View>
+                <Text style={[typo.sub, st.ratio, { color: c.muted }]}>
+                  {b.came}/{b.planned}
+                </Text>
               </View>
-              {a.view ? <Icon name="chevron-forward" size={16} color={c.muted} /> : null}
-            </Pressable>
-          ))}
-        </Group>
-      )}
+            ))}
+          </Group>
+        </>
+      ) : null}
 
       {overview?.money ? (
         <>
@@ -168,23 +172,14 @@ export function DeskView({ role, onOpen, reloadKey }: { role: string; onOpen: (v
         </>
       ) : null}
 
-      {overview && overview.branches.length > 1 ? (
+      {money ? (
         <>
-          <GroupTitle>Filiallar — bugun</GroupTitle>
+          <GroupTitle>Bu oy</GroupTitle>
           <Group>
-            {overview.branches.slice(0, 8).map((b, i, all) => (
-              <View key={b.id} style={[st.row, line(i, all.length)]}>
-                <Text style={[typo.body, { flex: 1, color: c.ink }]} numberOfLines={1}>
-                  {b.name}
-                </Text>
-                <View style={[st.meter, { backgroundColor: c.tint }]}>
-                  <View style={{ width: `${b.rate}%`, height: "100%", borderRadius: 3, backgroundColor: b.rate >= 90 ? c.success : b.rate >= 70 ? c.warn : c.danger }} />
-                </View>
-                <Text style={[typo.sub, { width: 48, textAlign: "right", color: c.muted, fontVariant: ["tabular-nums"] }]}>
-                  {b.came}/{b.planned}
-                </Text>
-              </View>
-            ))}
+            <Row icon="cash-outline" label="Ish haqi fondi" value={som(money.net)} />
+            <Row icon="people-outline" label="Xodimlar" value={String(money.employees)} />
+            <Row icon="gift-outline" label="Bonus" value={som(money.bonus)} />
+            <Row icon="wallet-outline" label="Avans so‘rovlari" value={String(money.advances.pendingCount)} onPress={() => onOpen("money")} last />
           </Group>
         </>
       ) : null}
@@ -194,10 +189,8 @@ export function DeskView({ role, onOpen, reloadKey }: { role: string; onOpen: (v
 
 const st = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, minHeight: 50, paddingVertical: 10 },
-  issue: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10 },
   tile: { flex: 1, alignItems: "center", gap: 2 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  count: { minWidth: 32, height: 26, paddingHorizontal: 8, borderRadius: 13, alignItems: "center", justifyContent: "center" },
   meter: { width: 72, height: 6, borderRadius: 3, overflow: "hidden" },
+  ratio: { width: 48, textAlign: "right", fontVariant: ["tabular-nums"] },
   tomorrow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 12 },
 });

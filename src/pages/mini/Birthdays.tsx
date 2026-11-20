@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Cake, ChevronRight, LoaderCircle, PartyPopper } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { api, errorText, post } from "../../api";
 import { dateLongUz } from "@/lib/format";
 import { getCached, setCached } from "../miniCache";
@@ -50,31 +50,6 @@ const split = (name: string) => {
   const [firstName, ...rest] = name.split(" ");
   return { firstName, lastName: rest.join(" ") || " " };
 };
-
-/** Bosh sahifadagi karta: faqat bugun tug‘ilgan kun bo‘lsa ko‘rinadi. */
-export function BirthdayCard({ onOpen, offline }: { onOpen: () => void; offline?: boolean }) {
-  const { rows } = useBirthdays(!offline);
-  const today = (rows || []).filter((r) => r.inDays === 0);
-  if (!today.length) return null;
-  const mine = today.find((r) => r.me);
-  const others = today.filter((r) => !r.me);
-  return (
-    <button className={`bd-card ${mine ? "mine" : ""}`} onClick={onOpen}>
-      <span className="bd-icon">{mine ? <PartyPopper size={20} /> : <Cake size={20} />}</span>
-      <span>
-        <b>{mine ? "Tug‘ilgan kuningiz muborak! 🎉" : `Bugun ${others[0].name.split(" ")[0]}ning tug‘ilgan kuni`}</b>
-        <small>
-          {mine
-            ? "Butun jamoa nomidan tabriklaymiz!"
-            : others.length > 1
-              ? `va yana ${others.length - 1} kishi — tabriklang 🎂`
-              : `${others[0].position || "Hamkasbingiz"} — tabriklang 🎂`}
-        </small>
-      </span>
-      <ChevronRight size={16} />
-    </button>
-  );
-}
 
 export function BirthdaysSheet({ onClose, onToast }: { onClose: () => void; onToast: Toast }) {
   const { rows, reload } = useBirthdays();

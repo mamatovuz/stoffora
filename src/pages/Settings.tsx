@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Banknote,
   Building2,
   Camera,
   CheckCircle2,
+  Copy,
   KeyRound,
   Laptop,
   LogOut,
@@ -60,6 +61,7 @@ import { advanceWindow, calculatePayroll, defaultPayrollSettings } from "@/lib/p
 import { dateUz, money, tashkentIsoDate } from "@/lib/format";
 import { resizePhoto } from "./Employees";
 import { TimeInput } from "../components/TimeInput";
+import { LOGIN_SUFFIX, checkLoginInput } from "@/lib/staff-login";
 
 type Tab = "profile" | "security" | "lock" | "devices" | "apps" | "company" | "payroll" | "reports" | "channel" | "bot" | "miniapp" | "regbot" | "integrations";
 const tabs: [Tab, string, typeof UserRound][] = [
@@ -238,6 +240,7 @@ type Security = {
 };
 function SecuritySection() {
   const toast = useToast();
+  const { user } = useAuth();
   const { data, loading, reload } = useApi<Security>("/auth/security");
   const [link, setLink] = useState<string | null>(null);
   const [password, setPassword] = useState("");
@@ -379,6 +382,8 @@ function SecuritySection() {
         </div>
       </section>
 
+      {user?.companyId && <MobileLoginCard />}
+
       <form
         className="card"
         onSubmit={async (e) => {
@@ -437,6 +442,124 @@ function SecuritySection() {
         />
       )}
     </>
+  );
+}
+
+/* ------------------------------------------------ mobil ilova uchun login --- */
+type MobileLogin = { login: string | null; suggested: string };
+/** «ozodbek@staffora.uz» → «ozodbek» (maydonda faqat nom yoziladi, domen yonida turadi). */
+const loginLocal = (value: string) => {
+  const text = (value || "").trim();
+  return text.toLowerCase().endsWith(LOGIN_SUFFIX) ? text.slice(0, -LOGIN_SUFFIX.length) : text;
+};
+function MobileLoginCard() {
+  const toast = useToast();
+  const { data, loading, error, reload } = useApi<MobileLogin>("/auth/mobile-login");
+  const [value, setValue] = useState("");
+  const [touched, setTouched] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    if (data && !data.login && data.suggested) setValue((current) => current || loginLocal(data.suggested));
+  }, [data]);
+  const check = checkLoginInput(value);
+  const showError = !check.ok && (touched || value.trim() !== "");
+  return (
+    <section className="card">
+      <div className="card-head">
+        <div>
+          <h2>Mobil ilova uchun login</h2>
+          <p>Shu login bilan Staffora ilovasida faqat rahbar paneli ochiladi</p>
+        </div>
+        {data?.login && <span className="dot-text green">Berilgan</span>}
+      </div>
+      <div className="card-body">
+        {loading && !data ? (
+          <Loading />
+        ) : error ? (
+          <p className="hint">{error}</p>
+        ) : data?.login ? (
+          <div className="mlog-done">
+            <div className="mlog-value">
+              <span>Login</span>
+              <b>{data.login}</b>
+              <button
+                type="button"
+                className="icon-btn"
+                aria-label="Loginni nusxalash"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(data.login || "").catch(() => undefined);
+                  toast("Nusxalandi");
+                }}
+              >
+                <Copy size={14} />
+              </button>
+            </div>
+            <p className="hint">Parol — panel parolingiz. Login o‘zgarmaydi.</p>
+          </div>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setTouched(true);
+              if (check.ok) setConfirming(true);
+            }}
+          >
+            <div className="field">
+              <label className="label" htmlFor="mobile-login">
+                Login
+              </label>
+              <span className={`mlog-input ${showError ? "invalid" : ""}`}>
+                <input
+                  id="mobile-login"
+                  value={value}
+                  placeholder="ozodbek"
+                  autoComplete="off"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  maxLength={60}
+                  aria-invalid={showError}
+                  aria-describedby="mobile-login-note"
+                  onChange={(e) => setValue(loginLocal(e.target.value))}
+                  onBlur={() => setTouched(true)}
+                />
+                <span className="mlog-suffix">{LOGIN_SUFFIX}</span>
+              </span>
+              {showError && !check.ok ? (
+                <span className="field-error" id="mobile-login-note">
+                  {check.error}
+                </span>
+              ) : (
+                <span className="hint" id="mobile-login-note">
+                  Parol — panel parolingiz. Login bir marta tanlanadi va keyin o‘zgarmaydi.
+                </span>
+              )}
+            </div>
+            <div className="form-actions mlog-actions">
+              <button className="btn btn-primary" disabled={!check.ok}>
+                <Save size={15} /> Saqlash
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+      {confirming && check.ok && (
+        <Confirm
+          title="Login saqlansinmi?"
+          text={
+            <>
+              <b>{check.login}</b> — keyin o‘zgartirib bo‘lmaydi. Ilovaga shu login va panel parolingiz bilan kirasiz.
+            </>
+          }
+          confirmLabel="Saqlash"
+          onClose={() => setConfirming(false)}
+          onConfirm={async () => {
+            await post<{ login: string }>("/auth/mobile-login", { login: check.login });
+            toast("Mobil ilova logini saqlandi");
+            void reload(true);
+          }}
+        />
+      )}
+    </section>
   );
 }
 
@@ -616,6 +739,47 @@ function CompanySection() {
 }
 
 /* ---------------------------------------------------- ish haqi / jarima --- */
+/** Sozlamalar guruhi: sarlavha, bir qatorli izoh va ichidagi qatorlar. */
+function SettingGroup({ title, note, children }: { title: string; note?: string; children: ReactNode }) {
+  return (
+    <section className="set-group">
+      <header>
+        <h3>{title}</h3>
+        {note && <p>{note}</p>}
+      </header>
+      <div className="set-group-body">{children}</div>
+    </section>
+  );
+}
+
+/** Yoqish/o‘chirish qatori. `sub` — yuqoridagi sozlamaga bog‘liq (ichkariroq turadi). */
+function SwitchRow({
+  title,
+  text,
+  checked,
+  onChange,
+  sub,
+}: {
+  title: string;
+  text?: ReactNode;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  sub?: boolean;
+}) {
+  return (
+    <label className={`setting-row ${sub ? "sub" : ""}`}>
+      <span>
+        <b>{title}</b>
+        {text && <small>{text}</small>}
+      </span>
+      <span className="switch">
+        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <span />
+      </span>
+    </label>
+  );
+}
+
 function PayrollSection() {
   const toast = useToast();
   const { data, loading } = useApi<Company>("/company");
@@ -626,6 +790,7 @@ function PayrollSection() {
     if (data) setForm({ ...defaultPayrollSettings, ...(data.payroll || {}) });
   }, [data]);
   if (loading && !data) return <Loading />;
+  const set = (patch: Partial<PayrollSettings>) => setForm((current) => ({ ...current, ...patch }));
   // Namuna: 5 000 000 oylik, 3 kun jami 25 daqiqa kechikish
   const example = calculatePayroll(
     5_000_000,
@@ -636,9 +801,11 @@ function PayrollSection() {
     ],
     form,
   );
+  const advance = form.advanceRequestsEnabled !== false;
+  const advanceDays = advanceWindow(form, tashkentIsoDate());
   return (
     <form
-      className="card"
+      className="card pay-settings"
       onSubmit={async (e) => {
         e.preventDefault();
         setSaving(true);
@@ -655,229 +822,198 @@ function PayrollSection() {
     >
       <div className="card-head">
         <div>
-          <h2>Kechikish uchun ushlanma</h2>
-          <p>Kechikkan daqiqalar oy davomida yig‘iladi va oylikdan bir marta ushlab qolinadi</p>
+          <h2>Ish haqi va jarima</h2>
+          <p>Qoidalar joriy va keyingi oylar hisobiga ta’sir qiladi</p>
         </div>
       </div>
       <div className="card-body">
-        <div className="mode-options three" style={{ marginBottom: 16 }}>
-          {(
-            [
-              ["PER_MINUTE", "Har daqiqa uchun", "Belgilangan summa × kechikkan daqiqa"],
-              ["HOURLY", "Soatlik stavka", "Oylik / ish soati × kechikkan vaqt"],
-              ["NONE", "Ushlanmasin", "Faqat hisobotda ko‘rinadi"],
-            ] as const
-          ).map(([value, title, text]) => (
-            <button
-              type="button"
-              key={value}
-              className={`mode-option ${form.latePenaltyMode === value ? "active" : ""}`}
-              onClick={() => setForm({ ...form, latePenaltyMode: value })}
-            >
-              <b>{title}</b>
-              <small>{text}</small>
-            </button>
-          ))}
-        </div>
-        <div className="form-grid">
-          {form.latePenaltyMode === "PER_MINUTE" && (
-            <Field label="1 daqiqa kechikish uchun (so‘m)">
-              <input className="input" type="number" min={0} step={100} value={form.latePenaltyPerMinute} onChange={(e) => setForm({ ...form, latePenaltyPerMinute: Number(e.target.value) })} />
-            </Field>
-          )}
-          {form.latePenaltyMode === "HOURLY" && (
-            <Field label="Oylik ish soati" hint="Soatlik stavka = oylik / shu son">
-              <input className="input" type="number" min={1} max={400} value={form.monthlyHours} onChange={(e) => setForm({ ...form, monthlyHours: Number(e.target.value) })} />
-            </Field>
-          )}
-          {form.latePenaltyMode !== "NONE" && (
-            <Field label="Oyiga jarimasiz daqiqalar" hint="Masalan 15 — oyiga 15 daqiqagacha kechikish kechiriladi">
-              <input className="input" type="number" min={0} value={form.freeLateMinutesPerMonth} onChange={(e) => setForm({ ...form, freeLateMinutesPerMonth: Number(e.target.value) })} />
-            </Field>
-          )}
-        </div>
-        <div className="stack" style={{ gap: 8, marginBottom: 16 }}>
-          <label className="setting-row">
-            <span>
-              <b>Qo‘shimcha ish uchun to‘lash</b>
-              <small>Grafikdan tashqari ishlangan soatlar soatlik stavka bo‘yicha qo‘shiladi</small>
-            </span>
-            <span className="switch">
-              <input type="checkbox" checked={form.overtimePay} onChange={(e) => setForm({ ...form, overtimePay: e.target.checked })} />
-              <span />
-            </span>
-          </label>
-          <label className="setting-row">
-            <span>
-              <b>Qo‘shimcha ish faqat tasdiqlangandan keyin</b>
-              <small>Rahbar «Ish haqi → Qo‘shimcha ish» oynasida tasdiqlagan soatlargina pul bo‘ladi</small>
-            </span>
-            <span className="switch">
-              <input
-                type="checkbox"
-                checked={Boolean(form.overtimeRequiresApproval)}
-                onChange={(e) => setForm({ ...form, overtimeRequiresApproval: e.target.checked })}
-              />
-              <span />
-            </span>
-          </label>
-          <label className="setting-row">
-            <span>
-              <b>Xodimlar Mini App orqali avans so‘ray oladi</b>
-              <small>So‘rov «Ish haqi → Avans so‘rovlari» ga tushadi; tasdiqlangan summa oylikdan avtomatik ushlanadi</small>
-            </span>
-            <span className="switch">
-              <input
-                type="checkbox"
-                checked={form.advanceRequestsEnabled !== false}
-                onChange={(e) => setForm({ ...form, advanceRequestsEnabled: e.target.checked })}
-              />
-              <span />
-            </span>
-          </label>
-          {form.advanceRequestsEnabled !== false && (
-            <label className="setting-row">
-              <span>
-                <b>Avansni avval HR, keyin moliya tasdiqlaydi</b>
-                <small>Xodim → HR (Ta’til va yo‘qlik → Avans so‘rovlari) → Moliya (Ish haqi → Avans so‘rovlari) → to‘lov. O‘chirilsa — faqat moliya.</small>
-              </span>
-              <span className="switch">
-                <input
-                  type="checkbox"
-                  checked={form.advanceHrApproval !== false}
-                  onChange={(e) => setForm({ ...form, advanceHrApproval: e.target.checked })}
-                />
-                <span />
-              </span>
-            </label>
-          )}
-          {form.advanceRequestsEnabled !== false && (
-            <Field label="Oyiga avans chegarasi (oylikning foizi)" hint="Masalan 50 — oylik 4 mln bo‘lsa, ko‘pi bilan 2 mln so‘raladi">
-              <input
-                className="input"
-                type="number"
-                min={0}
-                max={100}
-                value={form.advanceMaxPercent ?? 50}
-                onChange={(e) => setForm({ ...form, advanceMaxPercent: Number(e.target.value) })}
-                style={{ maxWidth: 160 }}
-              />
-            </Field>
-          )}
-          {form.advanceRequestsEnabled !== false && (
-            <Field
-              label="Avans so‘rovlari qabul qilinadigan kunlar"
-              hint={`Har oyning shu kunlari oralig‘ida xodim avans so‘ray oladi, qolgan kunlari so‘rov qabul qilinmaydi. 1 va 31 — oy davomida. Hozir: ${advanceWindow(form, tashkentIsoDate()).text}.`}
-            >
-              <span className="day-range">
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={31}
-                  value={form.advanceWindowFrom ?? 1}
-                  onChange={(e) => setForm({ ...form, advanceWindowFrom: Number(e.target.value) })}
-                  aria-label="Boshlanish kuni"
-                />
-                <span>-kunidan</span>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={31}
-                  value={form.advanceWindowTo ?? 31}
-                  onChange={(e) => setForm({ ...form, advanceWindowTo: Number(e.target.value) })}
-                  aria-label="Tugash kuni"
-                />
-                <span>-kunigacha</span>
-              </span>
-            </Field>
-          )}
-          {form.advanceRequestsEnabled !== false && !advanceWindow(form, tashkentIsoDate()).always && (
-            <label className="setting-row">
-              <span>
-                <b>Oyna ochilgan kuni xodimlarga xabar yuborilsin</b>
-                <small>
-                  Soat 09:00 da «Avans oluvchilar ro‘yxatini shakllantiryapmiz — siz ham ro‘yxatdamisiz?» xabari ilovaga, Telegram’ga va telefonga boradi; bosilsa avans
-                  formasi ochiladi. Qo‘lda: Ta’til va yo‘qlik → Avans so‘rovlari → «Xodimlarga xabar yuborish».
-                </small>
-              </span>
-              <span className="switch">
-                <input type="checkbox" checked={form.advanceAnnounce !== false} onChange={(e) => setForm({ ...form, advanceAnnounce: e.target.checked })} />
-                <span />
-              </span>
-            </label>
-          )}
-          <label className="setting-row">
-            <span>
-              <b>Sababsiz kelmagan kun uchun ushlanma</b>
-              <small>Kunlik stavka = oylik / oydagi ish kunlari. Ta’til, dam olish va mashq davri hisobga kirmaydi</small>
-            </span>
-            <span className="switch">
-              <input
-                type="checkbox"
-                checked={form.absencePenalty === "DAILY"}
-                onChange={(e) => setForm({ ...form, absencePenalty: e.target.checked ? "DAILY" : "NONE" })}
-              />
-              <span />
-            </span>
-          </label>
-          {form.absencePenalty === "DAILY" && (
-            <label className="setting-row">
-              <span>
-                <b>Kelmagan kunni dam olish kunida ishlab qoplash</b>
-                <small>Masalan seshanba sababsiz kelmagan xodim shu oydagi dam kunida (jumada) ishlasa — ushlanma olinmaydi. O‘sha dam kunidagi ish qo‘shimcha ish sifatida to‘lanmaydi.</small>
-              </span>
-              <span className="switch">
-                <input
-                  type="checkbox"
-                  checked={form.absenceCompensation !== false}
-                  onChange={(e) => setForm({ ...form, absenceCompensation: e.target.checked })}
-                />
-                <span />
-              </span>
-            </label>
-          )}
-          <label className="setting-row">
-            <span>
-              <b>Tanaffusni ish vaqtidan ayirish</b>
-              <small>Xodim «Tanaffus» bosgan vaqt (tushlik va h.k.) ishlangan soatga qo‘shilmaydi.</small>
-            </span>
-            <span className="switch">
-              <input type="checkbox" checked={Boolean(form.deductBreaks)} onChange={(e) => setForm({ ...form, deductBreaks: e.target.checked })} />
-              <span />
-            </span>
-          </label>
-          <label className="setting-row">
-            <span>
-              <b>Qo‘shimcha ish — ikki bosqichli tasdiq</b>
-              <small>Avval rahbar (filial rahbari/HR) tasdiqlaydi, keyin moliya. Moliya foydalanuvchisi bo‘lmasa — bitta tasdiq yetarli.</small>
-            </span>
-            <span className="switch">
-              <input type="checkbox" checked={Boolean(form.overtimeTwoStep)} onChange={(e) => setForm({ ...form, overtimeTwoStep: e.target.checked })} />
-              <span />
-            </span>
-          </label>
-        </div>
-        <div className="alert info" style={{ marginBottom: 14 }}>
-          <Banknote size={18} />
-          <div>
-            <b>Namuna hisob</b>
-            <p>
-              {example.explanation} (Oylik {money(5_000_000)}, 3 marta jami 25 daqiqa kechikish.)
-            </p>
+        <SettingGroup title="Kechikish" note="Kechikkan daqiqalar oy davomida yig‘iladi va oylikdan bir marta ushlanadi">
+          <div className="mode-options three">
+            {(
+              [
+                ["PER_MINUTE", "Har daqiqa uchun", "Belgilangan summa × kechikkan daqiqa"],
+                ["HOURLY", "Soatlik stavka", "Oylik / ish soati × kechikkan vaqt"],
+                ["NONE", "Ushlanmasin", "Faqat hisobotda ko‘rinadi"],
+              ] as const
+            ).map(([value, title, text]) => (
+              <button
+                type="button"
+                key={value}
+                aria-pressed={form.latePenaltyMode === value}
+                className={`mode-option ${form.latePenaltyMode === value ? "active" : ""}`}
+                onClick={() => set({ latePenaltyMode: value })}
+              >
+                <b>{title}</b>
+                <small>{text}</small>
+              </button>
+            ))}
           </div>
-        </div>
-        <p className="hint" style={{ marginBottom: 12 }}>
-          Kechikish faqat grafikdagi «kechikish imtiyozi»dan oshgan daqiqalar uchun hisoblanadi. Ushlanma hech qachon
-          oylikdan oshmaydi. O‘zgarish joriy va keyingi oylar hisobiga ta’sir qiladi.
+          {form.latePenaltyMode !== "NONE" && (
+            <div className="form-grid set-fields">
+              {form.latePenaltyMode === "PER_MINUTE" && (
+                <Field label="1 daqiqa kechikish uchun (so‘m)">
+                  <input className="input" type="number" min={0} step={100} value={form.latePenaltyPerMinute} onChange={(e) => set({ latePenaltyPerMinute: Number(e.target.value) })} />
+                </Field>
+              )}
+              {form.latePenaltyMode === "HOURLY" && (
+                <Field label="Oylik ish soati" hint="Soatlik stavka = oylik / shu son">
+                  <input className="input" type="number" min={1} max={400} value={form.monthlyHours} onChange={(e) => set({ monthlyHours: Number(e.target.value) })} />
+                </Field>
+              )}
+              <Field label="Oyiga jarimasiz daqiqalar" hint="Masalan 15 — oyiga 15 daqiqagacha kechikish kechiriladi">
+                <input className="input" type="number" min={0} value={form.freeLateMinutesPerMonth} onChange={(e) => set({ freeLateMinutesPerMonth: Number(e.target.value) })} />
+              </Field>
+            </div>
+          )}
+          <SwitchRow
+            title="Kechikishni ishlab yopish"
+            text="Kechikkan daqiqalarni ish tugagach qolib ishlasa — o‘sha kungi kechikish yopiladi, jarima va ushlanma bo‘lmaydi. Misol: 30 daq kech keldi → 30 daq ko‘p qoldi → 0 so‘m."
+            checked={Boolean(form.lateOffset)}
+            onChange={(lateOffset) => set({ lateOffset })}
+          />
+          <p className="set-example">
+            <Banknote size={15} />
+            <span>
+              <b>Namuna:</b> {example.explanation} (Oylik {money(5_000_000)}, 3 marta jami 25 daqiqa kechikish.)
+            </span>
+          </p>
+        </SettingGroup>
+
+        <SettingGroup title="Qo‘shimcha ish" note="Smena tugagandan keyin qolib ishlangan vaqt">
+          <SwitchRow
+            title="Qo‘shimcha ish uchun to‘lash"
+            text={
+              form.overtimePay ? (
+                "Smenadan keyin ishlangan soatlar soatlik stavka bo‘yicha oylikka qo‘shiladi"
+              ) : (
+                <span className="dot-text gray">O‘chiq: smenadan keyin qolish oddiy ish vaqti — to‘lov ham, rahbarga so‘rov ham yo‘q</span>
+              )
+            }
+            checked={form.overtimePay}
+            onChange={(overtimePay) => set({ overtimePay })}
+          />
+          {form.overtimePay && (
+            <SwitchRow
+              sub
+              title="Faqat rahbar tasdiqlagandan keyin to‘lansin"
+              text="Rahbar «Ish haqi → Qo‘shimcha ish» oynasida tasdiqlagan soatlargina pul bo‘ladi"
+              checked={Boolean(form.overtimeRequiresApproval)}
+              onChange={(overtimeRequiresApproval) => set({ overtimeRequiresApproval })}
+            />
+          )}
+          {form.overtimePay && form.overtimeRequiresApproval && (
+            <SwitchRow
+              sub
+              title="Ikki bosqichli tasdiq"
+              text="Avval rahbar (filial rahbari yoki HR), keyin moliya. Moliya foydalanuvchisi bo‘lmasa — bitta tasdiq yetarli"
+              checked={Boolean(form.overtimeTwoStep)}
+              onChange={(overtimeTwoStep) => set({ overtimeTwoStep })}
+            />
+          )}
+        </SettingGroup>
+
+        <SettingGroup title="Avans">
+          <SwitchRow
+            title="Xodimlar Mini App orqali avans so‘ray oladi"
+            text="Tasdiqlangan summa oylikdan avtomatik ushlanadi"
+            checked={advance}
+            onChange={(advanceRequestsEnabled) => set({ advanceRequestsEnabled })}
+          />
+          {advance && (
+            <SwitchRow
+              sub
+              title="Avval HR, keyin moliya tasdiqlaydi"
+              text="O‘chirilsa — faqat moliya («Ish haqi → Avans so‘rovlari»)"
+              checked={form.advanceHrApproval !== false}
+              onChange={(advanceHrApproval) => set({ advanceHrApproval })}
+            />
+          )}
+          {advance && (
+            <div className="form-grid set-fields sub">
+              <Field label="Oyiga avans chegarasi (oylikning %)" hint="Masalan 50 — oylik 4 mln bo‘lsa, ko‘pi bilan 2 mln">
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={form.advanceMaxPercent ?? 50}
+                  onChange={(e) => set({ advanceMaxPercent: Number(e.target.value) })}
+                  style={{ maxWidth: 160 }}
+                />
+              </Field>
+              <Field label="So‘rov qabul qilinadigan kunlar" hint={`1 va 31 — oy davomida. Hozir: ${advanceDays.text}.`}>
+                <span className="day-range">
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={form.advanceWindowFrom ?? 1}
+                    onChange={(e) => set({ advanceWindowFrom: Number(e.target.value) })}
+                    aria-label="Boshlanish kuni"
+                  />
+                  <span>-kunidan</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={form.advanceWindowTo ?? 31}
+                    onChange={(e) => set({ advanceWindowTo: Number(e.target.value) })}
+                    aria-label="Tugash kuni"
+                  />
+                  <span>-kunigacha</span>
+                </span>
+              </Field>
+            </div>
+          )}
+          {advance && !advanceDays.always && (
+            <SwitchRow
+              sub
+              title="Oyna ochilgan kuni xodimlarga xabar"
+              text="Soat 09:00 da ilova, Telegram va telefonga «Avans oluvchilar ro‘yxatini shakllantiryapmiz» xabari boradi"
+              checked={form.advanceAnnounce !== false}
+              onChange={(advanceAnnounce) => set({ advanceAnnounce })}
+            />
+          )}
+        </SettingGroup>
+
+        <SettingGroup title="Kelmaslik">
+          <SwitchRow
+            title="Sababsiz kelmagan kun uchun ushlanma"
+            text="Kunlik stavka = oylik / oydagi ish kunlari. Ta’til, dam olish va mashq davri hisobga kirmaydi"
+            checked={form.absencePenalty === "DAILY"}
+            onChange={(on) => set({ absencePenalty: on ? "DAILY" : "NONE" })}
+          />
+          {form.absencePenalty === "DAILY" && (
+            <SwitchRow
+              sub
+              title="Dam olish kunida ishlab qoplash"
+              text="Shu oydagi dam kunida ishlasa — ushlanma olinmaydi (o‘sha kun qo‘shimcha ish sifatida to‘lanmaydi)"
+              checked={form.absenceCompensation !== false}
+              onChange={(absenceCompensation) => set({ absenceCompensation })}
+            />
+          )}
+        </SettingGroup>
+
+        <SettingGroup title="Tanaffus">
+          <SwitchRow
+            title="Tanaffusni ish vaqtidan ayirish"
+            text="Xodim «Tanaffus» bosgan vaqt (tushlik va h.k.) ishlangan soatga qo‘shilmaydi"
+            checked={Boolean(form.deductBreaks)}
+            onChange={(deductBreaks) => set({ deductBreaks })}
+          />
+        </SettingGroup>
+
+        <p className="hint set-foot-hint">
+          Kechikish grafikdagi «kechikish imtiyozi»dan oshgan daqiqalar uchun hisoblanadi. Ushlanma hech qachon oylikdan oshmaydi.
         </p>
         <ErrorBox message={error} />
-        <div className="form-actions">
-          <button className="btn btn-primary" disabled={saving}>
-            <Save size={15} /> {saving ? "Saqlanmoqda…" : "Saqlash"}
-          </button>
-        </div>
+      </div>
+      <div className="set-savebar">
+        <button className="btn btn-primary" disabled={saving}>
+          <Save size={15} /> {saving ? "Saqlanmoqda…" : "Saqlash"}
+        </button>
       </div>
     </form>
   );

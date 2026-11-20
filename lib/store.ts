@@ -107,6 +107,8 @@ function normalizeDatabase(database: Database): Database {
   database.mobileActivationCodes ||= [];
   database.deviceChangeRequests ||= [];
   database.mobilePushTokens ||= [];
+  // Ilovaga kirish loginlari (parol xeshlari) — eski bazalarda bo‘sh boshlanadi.
+  database.staffCredentials ||= [];
   // Super Admin Control Center — yangi to‘plamlar (eski bazalarda bo‘sh boshlanadi).
   database.subscriptionPlans ||= [];
   database.promoCodes ||= [];
@@ -899,7 +901,7 @@ export function dataIndexes(db: Database): DataIndexes {
 }
 
 /** Audit yozuvida biometrik ma’lumot va rasm saqlanmaydi (yuz vektori, Face ID namunalari, foto). */
-const SENSITIVE_KEYS = new Set(["photoDataUrl", "descriptor", "samples", "lastDescriptor", "passwordHash"]);
+const SENSITIVE_KEYS = new Set(["photoDataUrl", "descriptor", "samples", "lastDescriptor", "passwordHash", "appPasswordHash"]);
 export function scrubSensitive(value: unknown, depth = 0): unknown {
   if (!value || typeof value !== "object" || depth > 4) return value;
   if (Array.isArray(value)) return value.map((item) => scrubSensitive(item, depth + 1));

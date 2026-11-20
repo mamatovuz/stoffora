@@ -16,8 +16,12 @@ export function routeForGo(go?: string | null): Href | null {
     case "checkout":
       return { pathname: "/go/[target]", params: { target: "checkout" } };
     case "home":
-    case "late":
       return "/(tabs)";
+    // «Kechikaman» — Bo‘limlar sahifasida (bosh sahifada endi faqat keldi-ketdi va oylik).
+    case "late":
+      return { pathname: "/(tabs)/sections", params: { late: String(Date.now()) } };
+    case "sections":
+      return "/(tabs)/sections";
     case "notifs":
       return "/notifications";
     case "salary":
@@ -35,17 +39,17 @@ export function routeForGo(go?: string | null): Href | null {
       return { pathname: "/(tabs)/history", params: { view: "stats" } };
     case "leave":
     case "requests":
-      return { pathname: "/(tabs)/requests", params: { view: "leave" } };
+      return { pathname: "/requests", params: { view: "leave" } };
     case "swap":
     case "swaps":
-      return { pathname: "/(tabs)/requests", params: { view: "swap" } };
+      return { pathname: "/requests", params: { view: "swap" } };
     case "dayoff":
-      return { pathname: "/(tabs)/requests", params: { view: "dayoff" } };
+      return { pathname: "/requests", params: { view: "dayoff" } };
     case "overtime":
-      return { pathname: "/(tabs)/requests", params: { view: "overtime" } };
+      return { pathname: "/requests", params: { view: "overtime" } };
     case "marks":
     case "correction":
-      return { pathname: "/(tabs)/requests", params: { view: "marks" } };
+      return { pathname: "/requests", params: { view: "marks" } };
     case "docs":
       return "/documents";
     case "badge":
@@ -66,6 +70,10 @@ export function routeForGo(go?: string | null): Href | null {
     case "profile":
     case "settings":
       return "/(tabs)/profile";
+    // «Ilovaga kirish» — login va parol oynasi ochiq holda.
+    case "account":
+    case "password":
+      return { pathname: "/(tabs)/profile", params: { section: "account", t: String(Date.now()) } };
     case "manager": {
       // manager_requests · manager_today · manager_today_ABSENT / _LATE / _FLAGGED (davomat filtri bilan).
       const [, view, filter] = value.split("_");

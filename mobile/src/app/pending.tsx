@@ -7,7 +7,9 @@ import { errorText } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/lib/theme";
 
-/** Yangi telefon: HR tasdig‘ini kutish. Holat qurilma imzosi bilan tekshiriladi (har 15 soniyada). */
+const statusText = (status: string) => (status === "REJECTED" ? "So‘rov rad etildi." : "");
+
+/** Yangi telefon (eski kod bilan ulanishda): HR tasdig‘ini kutish. Holat qurilma imzosi bilan tekshiriladi (har 15 soniyada). */
 export default function Pending() {
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
@@ -18,8 +20,7 @@ export default function Pending() {
   const check = async () => {
     setBusy(true);
     try {
-      const status = await checkPending();
-      setError(status === "REJECTED" ? "So‘rov rad etildi." : "");
+      setError(statusText(await checkPending()));
     } catch (reason) {
       setError(errorText(reason));
     } finally {
@@ -27,15 +28,18 @@ export default function Pending() {
     }
   };
   useEffect(() => {
-    void check();
-    const id = setInterval(() => void check(), 15_000);
-    const sub = AppState.addEventListener("change", (s) => s === "active" && void check());
+    const poll = () =>
+      checkPending()
+        .then((status) => setError(statusText(status)))
+        .catch((reason) => setError(errorText(reason)));
+    void poll();
+    const id = setInterval(() => void poll(), 15_000);
+    const sub = AppState.addEventListener("change", (s) => s === "active" && void poll());
     return () => {
       clearInterval(id);
       sub.remove();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [checkPending]);
 
   return (
     <View style={{ flex: 1, backgroundColor: c.bg, paddingTop: insets.top + 60, paddingHorizontal: 20, gap: 18 }}>
@@ -49,7 +53,7 @@ export default function Pending() {
       {error ? <Hint tone="bad" icon="alert-circle">{error}</Hint> : null}
       <View style={{ alignItems: "center", minHeight: 24 }}>{busy ? <ActivityIndicator color={c.muted} /> : null}</View>
       <Button title="Holatni tekshirish" icon="refresh" tone="soft" onPress={() => void check()} />
-      <Button title="Boshqa kod kiritish" tone="ghost" onPress={() => void cancelPending()} />
+      <Button title="Login bilan kirish" tone="ghost" onPress={() => void cancelPending()} />
     </View>
   );
 }

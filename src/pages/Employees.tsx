@@ -955,6 +955,7 @@ export function EmployeeProfilePage() {
                   <Field2 label="Ota-ona telefoni" value={e.parentPhone} href={e.parentPhone ? `tel:${e.parentPhone}` : undefined} />
                   <Field2 label="Telegram" value={e.telegramUsername ? `@${e.telegramUsername}` : e.telegramConnected ? "Ulangan" : undefined} href={e.telegramUsername ? `https://t.me/${e.telegramUsername}` : undefined} />
                   <Field2 label="Email" value={e.email} href={e.email ? `mailto:${e.email}` : undefined} />
+                  <Field2 label="Login" value={e.login} copy />
                   <Field2 label="Tug‘ilgan sana" value={e.birthDate ? `${e.birthDate.split("-").reverse().join(".")} · ${ageOf(e.birthDate)} yosh` : undefined} />
                   <Field2 label="Jinsi" value={genderLabel(e.gender)} />
                   <Field2 label="JShShIR" value={e.pinfl} copy />

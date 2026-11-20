@@ -7,6 +7,7 @@ import { duration, forwardMinutes, som, tashkentIsoDate, toMinutes } from "@/lib
 import { currentFix } from "@/lib/location";
 import { canOpenPage, canWeb, mcall, openPanelFile } from "@/lib/manager";
 import { useTheme } from "@/lib/theme";
+import { Catalog, type CatalogGroup } from "./Catalog";
 import { Badge, Button, Card, Empty, Group, GroupTitle, Icon, Loading, Row, Segmented, Sheet, haptic, type IconName } from "./ui";
 
 /*
@@ -157,28 +158,38 @@ type Meta = {
 };
 
 /* ------------------------------------------------------------- menyu --- */
-export function AdminMenu({ role, extra, onOpen }: { role: Role; extra: { key: string; label: string; hint: string; icon: IconName }[]; onOpen: (key: string) => void }) {
-  const items = [...adminItemsFor(role), ...extra];
-  if (!items.length) return <Empty icon="grid-outline" title="Bu bo‘limda siz uchun ish yo‘q" />;
-  // Bo‘limlar mavzu bo‘yicha guruhlanadi — uzun bitta ro‘yxatdan topish oson (Mini App bilan bir xil).
-  const groups = ADMIN_GROUPS.map((g) => ({ ...g, items: items.filter((i) => g.keys.includes(i.key)) }));
-  const rest = items.filter((i) => !ADMIN_GROUPS.some((g) => g.keys.includes(i.key)));
-  if (rest.length) groups.push({ title: "Boshqa", keys: [], items: rest });
+/** Katalogdagi qisqa nom (2 qatorga sig‘sin); to‘liq nom — ichki sahifa sarlavhasida. */
+const SHORT: Record<string, string> = {
+  attendance: "Davomatni tuzatish",
+  payroll: "Ish haqi va tabel",
+  org: "Bo‘lim va lavozimlar",
+  users: "Foydalanuvchilar",
+  audit: "Audit jurnali",
+};
+/** Katalogda to‘q (to‘ldirilgan) belgi — «-outline» olib tashlanadi. */
+const solid = (icon: IconName) => icon.replace(/-outline$/, "") as IconName;
+
+/**
+ * «Boshqaruv» — barcha vositalar bitta katalogda (Bo‘limlar bilan bir xil ko‘rinish): tezkor amallar,
+ * so‘ng mavzu bo‘yicha guruhlar. Har bir bo‘lim saytdagi sahifa bilan bir xil ruxsat bilan ko‘rinadi.
+ */
+export function AdminMenu({ role, extra, onOpen }: { role: Role; extra: { key: string; label: string; hint: string; icon: IconName; group?: "quick" }[]; onOpen: (key: string) => void }) {
+  const groups = useMemo<CatalogGroup[]>(() => {
+    const items = [...adminItemsFor(role), ...extra.filter((i) => i.group !== "quick")];
+    const tile = (i: { key: string; label: string; icon: IconName }) => ({ key: i.key, label: SHORT[i.key] || i.label, icon: solid(i.icon) });
+    const list: CatalogGroup[] = [
+      { title: "Tezkor amallar", items: extra.filter((i) => i.group === "quick").map(tile) },
+      ...ADMIN_GROUPS.map((g) => ({ title: g.title, items: items.filter((i) => g.keys.includes(i.key)).map(tile) })),
+    ];
+    const rest = items.filter((i) => !ADMIN_GROUPS.some((g) => g.keys.includes(i.key)));
+    if (rest.length) list.push({ title: "Boshqa", items: rest.map(tile) });
+    return list;
+  }, [role, extra]);
+  if (!groups.some((g) => g.items.length)) return <Empty icon="grid-outline" title="Bu bo‘limda siz uchun ish yo‘q" />;
   return (
-    <>
-      {groups
-        .filter((g) => g.items.length)
-        .map((g) => (
-          <View key={g.title} style={{ gap: 6 }}>
-            <GroupTitle>{g.title}</GroupTitle>
-            <Group>
-              {g.items.map((i, index) => (
-                <Row key={i.key} icon={i.icon} label={i.label} sub={i.hint} onPress={() => onOpen(i.key)} last={index === g.items.length - 1} />
-              ))}
-            </Group>
-          </View>
-        ))}
-    </>
+    <View style={st.catalog}>
+      <Catalog groups={groups} onOpen={onOpen} />
+    </View>
   );
 }
 
@@ -1567,6 +1578,7 @@ export function AdminBack({ title, onBack }: { title: string; onBack: () => void
 }
 
 const st = StyleSheet.create({
+  catalog: { gap: 24, paddingTop: 8, paddingBottom: 8 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15.5 },
   choice: { flexDirection: "row", alignItems: "center", gap: 8 },
   options: { borderWidth: 1, borderRadius: 12, overflow: "hidden" },

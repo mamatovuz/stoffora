@@ -4,7 +4,6 @@ import {
   useEffect,
   useMemo,
   useState,
-  type ReactNode,
 } from "react";
 import {
   Banknote,
@@ -24,6 +23,7 @@ import {
   Search,
   UserCog,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 import { canOpenPage, can } from "@/lib/permissions";
 import { duration, tashkentIsoDate } from "@/lib/format";
@@ -51,6 +51,7 @@ import { roleLabels } from "../../auth";
 import { STAFF_ROLE_LABELS } from "@/lib/staff-roles";
 import { PhotoAvatar, Seg, Sheet, SkeletonList, som } from "./shared";
 import { EmployeeCardSheet } from "./ManagerTools";
+import { Catalog, type CatalogGroup, type CatalogItem } from "./Catalog";
 import { confirmNative, haptic, openExternal, openTelegram, supports, tg } from "./tg";
 
 /*
@@ -85,106 +86,31 @@ export type AdminKey =
 export const ADMIN_ITEMS: {
   key: AdminKey;
   label: string;
-  hint: string;
+  /** Katalog plitkasidagi qisqa nom (2 qatorga sig‘sin); bo‘lmasa — label. */
+  tile?: string;
   path: string;
-  icon: ReactNode;
+  icon: LucideIcon;
   /** Sahifadan tashqari kerakli ruxsat (masalan, ko‘rish emas — tahrirlash). */
   need?: string;
 }[] = [
-  {
-    key: "employees",
-    label: "Xodimlar",
-    hint: "qo‘shish, tahrirlash, bo‘shatish",
-    path: "/employees",
-    icon: <Users size={18} />,
-  },
-  {
-    key: "attendance",
-    label: "Davomatni tuzatish",
-    hint: "istalgan kun: kelish/ketish vaqtini kiritish",
-    path: "/attendance",
-    need: "attendance.edit",
-    icon: <Clock3 size={18} />,
-  },
+  { key: "employees", label: "Xodimlar", path: "/employees", icon: Users },
+  { key: "attendance", label: "Davomatni tuzatish", path: "/attendance", need: "attendance.edit", icon: Clock3 },
   // HR — tabel (timesheet) bosqichi, moliya va direktor — pul hisobi; jarayon bitta.
-  {
-    key: "payroll",
-    label: "Ish haqi va tabel",
-    hint: "oy yakuni va tasdiqlash bosqichlari",
-    path: "/timesheet",
-    icon: <Banknote size={18} />,
-  },
-  {
-    key: "leave",
-    label: "Ta’tillar",
-    hint: "ta’til va yo‘qlik qo‘shish",
-    path: "/leave",
-    icon: <Plane size={18} />,
-  },
-  {
-    key: "registrations",
-    label: "Arizalar",
-    hint: "botdagi nomzodlar",
-    path: "/registrations",
-    icon: <ClipboardCheck size={18} />,
-  },
-  {
-    key: "schedules",
-    label: "Ish grafiklari",
-    hint: "ish vaqti va dam kunlari",
-    path: "/schedules",
-    icon: <ClipboardList size={18} />,
-  },
-  {
-    key: "branches",
-    label: "Filiallar",
-    hint: "manzil, GPS hudud, rejim",
-    path: "/branches",
-    icon: <Building2 size={18} />,
-  },
-  {
-    key: "org",
-    label: "Bo‘lim va lavozimlar",
-    hint: "tuzilma, lavozimga panel huquqi",
-    path: "/departments",
-    icon: <Network size={18} />,
-  },
-  {
-    key: "announcements",
-    label: "E’lonlar",
-    hint: "yuborilganlar va yangi e’lon",
-    path: "/announcements",
-    icon: <Megaphone size={18} />,
-  },
-  {
-    key: "helpdesk",
-    label: "Murojaatlar",
-    hint: "xodimlar savollariga javob",
-    path: "/helpdesk",
-    icon: <MessagesSquare size={18} />,
-  },
-  {
-    key: "reports",
-    label: "Hisobotlar",
-    hint: "Excel fayllar",
-    path: "/reports",
-    icon: <FileSpreadsheet size={18} />,
-  },
-  {
-    key: "users",
-    label: "Panel foydalanuvchilari",
-    hint: "HR, moliya, filial rahbari",
-    path: "/users",
-    icon: <UserCog size={18} />,
-  },
-  {
-    key: "audit",
-    label: "Audit jurnali",
-    hint: "kim nima qildi",
-    path: "/audit",
-    icon: <ScrollText size={18} />,
-  },
+  { key: "payroll", label: "Ish haqi va tabel", path: "/timesheet", icon: Banknote },
+  { key: "leave", label: "Ta’tillar", path: "/leave", icon: Plane },
+  { key: "registrations", label: "Arizalar", path: "/registrations", icon: ClipboardCheck },
+  { key: "schedules", label: "Ish grafiklari", path: "/schedules", icon: ClipboardList },
+  { key: "branches", label: "Filiallar", path: "/branches", icon: Building2 },
+  { key: "org", label: "Bo‘lim va lavozimlar", path: "/departments", icon: Network },
+  { key: "announcements", label: "E’lonlar", path: "/announcements", icon: Megaphone },
+  { key: "helpdesk", label: "Murojaatlar", path: "/helpdesk", icon: MessagesSquare },
+  { key: "reports", label: "Hisobotlar", path: "/reports", icon: FileSpreadsheet },
+  { key: "users", label: "Panel foydalanuvchilari", tile: "Panel a’zolari", path: "/users", icon: UserCog },
+  { key: "audit", label: "Audit jurnali", path: "/audit", icon: ScrollText },
 ];
+
+/** Rahbar rejimining o‘z ko‘rinishlari (Trendlar, Moliya, Telefonlar) — katalogda bo‘limlar qatorida. */
+export type AdminExtra = { key: string; label: string; tile?: string; icon: LucideIcon };
 
 /** Shu rolga ruxsat etilgan bo‘limlar (saytdagi menyu bilan bir xil qoida). */
 export const adminItemsFor = (role: Role, disabled?: readonly string[]) =>
@@ -205,7 +131,10 @@ const when = (iso: string) =>
 const fullName = (e: Pick<Employee, "firstName" | "lastName">) =>
   `${e.firstName} ${e.lastName}`.trim();
 
-/** Bo‘lim ro‘yxati (Boshqaruv bosh sahifasi). `extra` — rahbar rejimining mavjud ko‘rinishlari (Moliya, Qurilmalar…). */
+/**
+ * «Boshqaruv» bosh sahifasi — xodimning «Bo‘limlar»i bilan bir xil katalog: mavzu bo‘yicha guruhlar,
+ * har birida ikonkali plitkalar. Ruxsat va modul cheklovlari (adminItemsFor) o‘zgarmagan.
+ */
 export function AdminMenu({
   role,
   extra,
@@ -213,50 +142,30 @@ export function AdminMenu({
   disabled,
 }: {
   role: Role;
-  extra: { key: string; label: string; hint: string; icon: ReactNode }[];
+  extra: AdminExtra[];
   onOpen: (key: string) => void;
   /** Super admin o‘chirgan modullar. */
   disabled?: readonly string[];
 }) {
-  const items = [...adminItemsFor(role, disabled), ...extra];
+  const items: AdminExtra[] = [...adminItemsFor(role, disabled), ...extra];
   if (!items.length)
     return <div className="mini-empty">Bu bo‘limda siz uchun ish yo‘q</div>;
-  // Bo‘limlar mavzu bo‘yicha guruhlanadi — 15 ta qatorli bitta ro‘yxatdan topish oson.
-  const groups = ADMIN_GROUPS.map((g) => ({ ...g, items: items.filter((i) => g.keys.includes(i.key)) }));
+  const tile = (i: AdminExtra): CatalogItem => ({
+    key: i.key,
+    label: i.tile || i.label,
+    icon: i.icon,
+    onClick: () => {
+      haptic.select();
+      onOpen(i.key);
+    },
+  });
+  const groups: CatalogGroup[] = ADMIN_GROUPS.map((g) => ({
+    title: g.title,
+    items: g.keys.flatMap((key) => items.filter((i) => i.key === key)).map(tile),
+  }));
   const rest = items.filter((i) => !ADMIN_GROUPS.some((g) => g.keys.includes(i.key)));
-  if (rest.length) groups.push({ title: "Boshqa", keys: [], items: rest });
-  return (
-    <>
-      {groups
-        .filter((g) => g.items.length)
-        .map((g) => (
-          <div key={g.title} className="adm-group">
-            <div className="mp-group-title">{g.title}</div>
-            <section className="mini-card">
-              <div className="mini-rows">
-                {g.items.map((item) => (
-                  <button
-                    key={item.key}
-                    className="mini-row adm-item"
-                    onClick={() => {
-                      haptic.select();
-                      onOpen(item.key);
-                    }}
-                  >
-                    <span className="mini-ico">{item.icon}</span>
-                    <span>
-                      <b>{item.label}</b>
-                      <small>{item.hint}</small>
-                    </span>
-                    <ChevronRight size={16} />
-                  </button>
-                ))}
-              </div>
-            </section>
-          </div>
-        ))}
-    </>
-  );
+  if (rest.length) groups.push({ title: "Boshqa", items: rest.map(tile) });
+  return <Catalog groups={groups} />;
 }
 
 const ADMIN_GROUPS: { title: string; keys: string[] }[] = [

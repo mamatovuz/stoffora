@@ -1,8 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { Api, Bot, GrammyError, InlineKeyboard, InputFile, webhookCallback, type Context } from "grammy";
+import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { audit, documentFiles, readDb, updateDb } from "../lib/store";
+import { checkLoginInput, passwordProblem } from "../lib/staff-login";
+import { isLoginTaken } from "../lib/staff-credentials";
 import { can } from "../lib/permissions";
 import type { Company, CompanyBotSettings, Database, Employee, RegistrationForm, RegistrationQuestion, RegistrationRequest } from "../lib/types";
 import type { AuthedRequest } from "./auth";
@@ -12,9 +15,13 @@ import {
   BUILTINS,
   CUSTOM_TYPES,
   DEFAULT_TEXTS,
+  TYPE_LABELS,
   activeQuestions,
+  applyRegistrationLogin,
   approveRegistration,
   buttonsFor,
+  existingEmployeeMatch,
+  findExistingEmployee,
   companyForm,
   describe,
   escape,
@@ -313,6 +320,9 @@ async function cancelDraft(requestId: string) {
     const row = db.registrations.find((r) => r.id === requestId);
     if (row) {
       row.status = "CANCELLED";
+      // Bekor qilingan anketada parol xeshi va band qilingan login qolmaydi.
+      delete row.data.appPasswordHash;
+      delete row.data.appLogin;
       row.updatedAt = new Date().toISOString();
     }
   });
@@ -320,6 +330,70 @@ async function cancelDraft(requestId: string) {
 
 /** Anketaga yuboriladigan hujjat rasmi chegarasi (hujjatlar bilan bir xil). */
 const MAX_DOC_BYTES = 1_400_000;
+
+/** Bot login qadami chegarasi: bitta Telegram hisobidan 10 daqiqada 20 ta login/parol urinishi. */
+const loginAttempts = new Map<string, { count: number; first: number }>();
+const LOGIN_STEP_LIMIT = 20;
+const LOGIN_STEP_WINDOW_MS = 10 * 60_000;
+function loginStepAllowed(telegramId: string) {
+  const now = Date.now();
+  for (const [key, row] of loginAttempts) {
+    if (now - row.first <= LOGIN_STEP_WINDOW_MS) break;
+    loginAttempts.delete(key);
+  }
+  let row = loginAttempts.get(telegramId);
+  if (!row || now - row.first > LOGIN_STEP_WINDOW_MS) {
+    loginAttempts.delete(telegramId);
+    row = { count: 0, first: now };
+  }
+  row.count += 1;
+  loginAttempts.set(telegramId, row);
+  return row.count <= LOGIN_STEP_LIMIT;
+}
+const LOGIN_STEP_BUSY = "Juda ko‘p urinish. 10 daqiqadan keyin qayta urinib ko‘ring.";
+
+/**
+ * Ilova logini (1-qadam): tekshiradi va shu anketaga band qiladi. Login barcha kompaniyalar bo‘yicha noyob:
+ * xodimlar loginlari, panel foydalanuvchilari va boshqa ko‘rib chiqilayotgan anketalarda band qilinganlari.
+ * Qaytaradi: xato matni yoki undefined (band qilindi — endi parol so‘raladi).
+ */
+async function reserveLogin(requestId: string, questionId: string, raw: string): Promise<string | undefined> {
+  const check = checkLoginInput(raw);
+  if (!check.ok) return check.error;
+  return updateDb((db) => {
+    const row = db.registrations.find((r) => r.id === requestId && r.status === "DRAFT");
+    if (!row || row.step !== questionId) return "Bu savol yopilgan. /start bosing.";
+    if (isLoginTaken(db, check.login, { requestId: row.id })) return `«${check.login}» band. Boshqa login yozing — masalan, oxiriga raqam qo‘shing.`;
+    row.data.appLogin = check.login;
+    delete row.data.appPasswordHash;
+    row.updatedAt = new Date().toISOString();
+    return undefined;
+  });
+}
+
+/**
+ * Ilova paroli (2-qadam): faqat bcrypt xeshi saqlanadi, keyingi savolga (yoki xulosaga) o‘tiladi.
+ * Uzoq to‘xtab qolgan anketada login shu orada band bo‘lib qolgan bo‘lsa — login qayta so‘raladi ("taken").
+ */
+async function savePassword(requestId: string, questionId: string, passwordHash: string) {
+  return updateDb((db): RegistrationRequest | "taken" | undefined => {
+    const row = db.registrations.find((r) => r.id === requestId && r.status === "DRAFT");
+    if (!row || row.step !== questionId || !row.data.appLogin) return undefined;
+    if (isLoginTaken(db, row.data.appLogin, { requestId: row.id })) {
+      delete row.data.appLogin;
+      delete row.data.appPasswordHash;
+      row.updatedAt = new Date().toISOString();
+      return "taken";
+    }
+    const form = companyForm(db.companies.find((c) => c.id === row.companyId));
+    row.data.appPasswordHash = passwordHash;
+    row.confirming = false;
+    row.step = nextStep(form, row, questionId);
+    if (row.step === "summary") row.editing = false;
+    row.updatedAt = new Date().toISOString();
+    return { ...row };
+  });
+}
 
 export function attachHandlers(bot: Bot, companyId: string) {
   bot.command("id", async (ctx) => {
@@ -479,7 +553,10 @@ export function attachHandlers(bot: Bot, companyId: string) {
         break;
       case "ef":
         updated = await moveTo(draft.id, (row, form) => {
-          if (!findQuestion(form, parts[0])) return;
+          const question = findQuestion(form, parts[0]);
+          if (!question) return;
+          // Login va parolni qayta tanlash: ikkalasi ham boshidan so‘raladi.
+          if (question.type === "login") setValue(question, row.data, undefined);
           row.step = parts[0];
           row.editing = true;
           row.confirming = false;
@@ -511,6 +588,19 @@ export function attachHandlers(bot: Bot, companyId: string) {
           await ctx.answerCallbackQuery();
           await ctx.reply("✍️ Ish vaqtingizni yozing. Misol: <b>09:00 - 18:00</b>", { parse_mode: "HTML" });
           return;
+        }
+        if (question.type === "login") {
+          if (value === "__relogin") {
+            updated = await moveTo(draft.id, (row) => setValue(question, row.data, undefined));
+            break;
+          }
+          const problem = loginStepAllowed(String(ctx.from.id)) ? await reserveLogin(draft.id, question.id, value) : LOGIN_STEP_BUSY;
+          if (problem) {
+            await ctx.answerCallbackQuery({ text: problem.slice(0, 180), show_alert: true });
+            return;
+          }
+          updated = await activeDraft(companyId, String(ctx.from.id));
+          break;
         }
         const parsed = parseButton(question, value, db, companyId);
         if (!parsed.ok) return void (await ctx.answerCallbackQuery({ text: parsed.error }));
@@ -546,6 +636,38 @@ export function attachHandlers(bot: Bot, companyId: string) {
     if (!question || draft.confirming) {
       await ctx.reply("👇 Iltimos, yuqoridagi tugmalardan birini tanlang.");
       return;
+    }
+    if (question.type === "login") {
+      // 1-qadam — login (yozilgan matn), 2-qadam — parol (xabar chatdan o‘chiriladi, faqat xeshi saqlanadi).
+      const allowed = loginStepAllowed(String(ctx.from.id));
+      if (!draft.data.appLogin) {
+        const problem = allowed ? await reserveLogin(draft.id, question.id, ctx.message.text) : LOGIN_STEP_BUSY;
+        if (problem) return void (await ctx.reply(`⚠️ ${escape(problem)}`, { parse_mode: "HTML" }));
+        return void (await ask(ctx, companyId, draft.id));
+      }
+      const password = ctx.message.text;
+      // Parol yozilgan xabar chatdan o‘chiriladi; o‘chmasa — foydalanuvchi o‘zi o‘chiradi, parol qayta ko‘rsatilmaydi.
+      const removed = await ctx.deleteMessage().then(
+        () => true,
+        () => false,
+      );
+      const removeYourself = removed ? "" : "\n⚠️ Parol yozilgan xabaringizni o‘chira olmadim — uni o‘zingiz o‘chiring.";
+      if (!allowed) return void (await ctx.reply(`⚠️ ${LOGIN_STEP_BUSY}${removeYourself}`, { parse_mode: "HTML" }));
+      const weak = passwordProblem(password);
+      if (weak) return void (await ctx.reply(`⚠️ ${escape(weak)} Qaytadan yozing.${removeYourself}`, { parse_mode: "HTML" }));
+      const saved = await savePassword(draft.id, question.id, await bcrypt.hash(password, 12));
+      if (!saved) return void (await ctx.reply("Anketa topilmadi. /start bosing."));
+      if (saved === "taken") {
+        await ctx.reply(`⚠️ Bu login shu orada band bo‘lib qoldi — boshqa login tanlang.${removeYourself}`, { parse_mode: "HTML" });
+        return void (await ask(ctx, companyId, draft.id));
+      }
+      await ctx.reply(
+        removed
+          ? `✅ Login: <code>${escape(saved.data.appLogin || "")}</code> · Parol: <tg-spoiler>${escape(password)}</tg-spoiler> — saqlab qo‘ying.\nIlovaga kirish anketa tasdiqlangach ishlaydi.`
+          : `✅ Login: <code>${escape(saved.data.appLogin || "")}</code> · parol saqlandi.${removeYourself}\nIlovaga kirish anketa tasdiqlangach ishlaydi.`,
+        { parse_mode: "HTML" },
+      );
+      return void (await ask(ctx, companyId, saved.id));
     }
     const result = validateText(question, ctx.message.text);
     if (!result) {
@@ -682,7 +804,9 @@ async function notifyApprovers(companyId: string, requestId: string) {
   if (!current || !company || !request) return;
   const form = companyForm(company);
   const who = request.telegramUsername ? `@${escape(request.telegramUsername)}` : `<a href="tg://user?id=${request.telegramId}">${escape(request.telegramName || "profil")}</a>`;
-  const text = `🆕 <b>Yangi xodim anketasi</b>\nTelegram: ${who}\n\n${summaryText(form, request, company.name, lookupsFor(db, companyId))}`;
+  // Telefon (yoki Telegram) mavjud xodimga mos kelsa — HR ogohlantiriladi (tasdiqlansa o‘sha profil yangilanadi).
+  const match = existingEmployeeMatch(db, request);
+  const text = `🆕 <b>Yangi xodim anketasi</b>\nTelegram: ${who}${match ? `\n\n${match.warning}` : ""}\n\n${summaryText(form, request, company.name, lookupsFor(db, companyId))}`;
   const keyboard = new InlineKeyboard().text("✅ Tasdiqlash", `hr:a:${request.id}`).text("❌ Rad etish", `hr:r:${request.id}`);
   const messages: { chatId: string; messageId: number }[] = [];
   for (const chatId of company.bot?.approverTelegramIds || []) {
@@ -749,24 +873,35 @@ export async function decideRegistration(
     if (decision === "APPROVE") {
       if (options.positionId) request.data.positionId = options.positionId;
       if (options.branchId) request.data.branchId = options.branchId;
+      // Mavjud xodimga mos kelgan anketa uning kirish ma’lumotiga tegmaydi (applyRegistrationLogin).
+      const matchedExisting = Boolean(findExistingEmployee(db, request));
       const employee = approveRegistration(db, request, actor, { selfieDataUrl });
-      return { request: { ...request }, employee: { ...employee } as Employee | undefined };
+      // Anketadagi ilova logini va paroli shu yerda faollashadi (login band bo‘lib qolsa — keyin Mini App’da).
+      const access = applyRegistrationLogin(db, request, employee, actor, { matchedExisting });
+      return { request: { ...request, data: { ...request.data } }, employee: { ...employee } as Employee | undefined, access };
     }
     rejectRegistration(db, request, actor, options.reason);
-    return { request: { ...request }, employee: undefined as Employee | undefined };
+    return { request: { ...request, data: { ...request.data } }, employee: undefined as Employee | undefined, access: {} as ReturnType<typeof applyRegistrationLogin> };
   });
   const current = running.get(companyId);
   if (!current) return result;
   const db = await readDb();
   const company = db.companies.find((c) => c.id === companyId);
   const form = companyForm(company);
-  const { request, employee } = result;
+  const { request, employee, access } = result;
   const api: Api = current.bot.api;
+  const loginNote = access.login
+    ? `\n\n🔐 Staffora ilovasiga kirish: <code>${escape(access.login)}</code> va anketada yozgan parolingiz.`
+    : access.taken
+      ? "\n\n⚠️ Tanlagan loginingiz band bo‘lib qoldi. Ilovaga kirish uchun Mini App → Profil → «Ilovaga kirish» bo‘limida login va parol o‘rnating."
+      : access.existing
+        ? "\n\n🔐 Sizning profilingiz avvaldan bor edi — ilovaga kirish ma’lumotlari o‘zgarmadi. Login va parolni Mini App → Profil → «Ilovaga kirish» bo‘limida ko‘ring yoki o‘rnating."
+        : "";
   try {
     if (employee)
       await api.sendMessage(
         request.telegramId,
-        safeHtml(fillTemplateRaw(form.approvedText || DEFAULT_TEXTS.approvedText, { name: employee.firstName, company: company?.name || "" })),
+        safeHtml(fillTemplateRaw(form.approvedText || DEFAULT_TEXTS.approvedText, { name: employee.firstName, company: company?.name || "" })) + loginNote,
         { parse_mode: "HTML", reply_markup: webAppKeyboard() },
       );
     else
@@ -931,8 +1066,11 @@ export function createCompanyBotRouter() {
       res.json({
         form: companyForm(company),
         defaults: DEFAULT_TEXTS,
-        builtins: Object.fromEntries(Object.entries(BUILTINS).map(([key, value]) => [key, { label: value.label, locked: value.locked, type: value.type }])),
+        builtins: Object.fromEntries(
+          Object.entries(BUILTINS).map(([key, value]) => [key, { label: value.label, locked: value.locked, type: value.type, defaultEnabled: value.enabled, optional: Boolean(value.optional) }]),
+        ),
         customTypes: CUSTOM_TYPES,
+        typeLabels: TYPE_LABELS,
         companyName: company.name,
         positions: db.positions.filter((p) => p.companyId === company.id).map((p) => p.name),
         branches: db.branches.filter((b) => b.companyId === company.id && b.status === "ACTIVE").map((b) => b.name),
@@ -1012,12 +1150,19 @@ export function createCompanyBotRouter() {
           const questions = (r.questions?.length ? r.questions : activeQuestions(form)).filter((q) => q.enabled);
           return {
             ...r,
+            // Parol xeshi panelga hech qachon chiqmaydi.
+            data: { ...r.data, appPasswordHash: undefined },
             lastPromptId: undefined,
             hrMessages: undefined,
             questions: undefined,
             positionName: db.positions.find((p) => p.id === r.data.positionId)?.name,
             branchName: db.branches.find((b) => b.id === r.data.branchId)?.name,
             answers: questions.map((q) => ({ id: q.id, label: shortLabel(q), value: describe(q, r.data, lookups), field: q.field })),
+            // Kutilayotgan anketa mavjud xodimga mos kelsa — panel ogohlantiradi (phone — telefon bir xil, Telegram boshqa).
+            ...(() => {
+              const match = r.status === "PENDING" ? existingEmployeeMatch(db, r) : undefined;
+              return match ? { matchesExistingEmployee: true, matchedBy: match.by, matchedEmployeeId: match.employee.id, matchedEmployeeName: match.name } : { matchesExistingEmployee: false };
+            })(),
           };
         });
       const counts = {

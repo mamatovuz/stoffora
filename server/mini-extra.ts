@@ -19,6 +19,7 @@ import { companyBotApi } from "./bot-registry";
 import { readDocumentFile } from "./documents";
 import { addPayslipSheet, createWorkbook, sendWorkbook } from "./excel";
 import { closedPeriod, monthLabel } from "./payroll-routes";
+import { lateCoverage, normalizePayrollSettings } from "../lib/payroll";
 import { monthPlan } from "./month-plan";
 import { notifyEmployee } from "./integrations/hooks";
 
@@ -50,6 +51,7 @@ function ownEmployee(db: Database, auth: EmployeeSession) {
 export function miniFeatures(db: Database, employee: Employee) {
   const company = db.companies.find((c) => c.id === employee.companyId);
   const settings = company?.miniApp || {};
+  const payroll = normalizePayrollSettings(company?.payroll);
   return {
     biometric: settings.biometricEnabled !== false,
     biometricRegistered: db.biometricDevices.some((d) => d.employeeId === employee.id && !d.revokedAt),
@@ -58,7 +60,11 @@ export function miniFeatures(db: Database, employee: Employee) {
     breaks: settings.breaksEnabled === true,
     leaderboard: settings.leaderboardEnabled !== false,
     advances: company?.payroll?.advanceRequestsEnabled !== false && employee.baseSalary > 0 && companyModuleEnabled(db, employee.companyId, "advances"),
-    overtimeApproval: Boolean(company?.payroll?.overtimeRequiresApproval),
+    /** «Qo‘shimcha ish uchun to‘lash» o‘chiq bo‘lsa — Mini App/ilova qo‘shimcha ish bo‘limini yashiradi. */
+    overtime: payroll.overtimePay,
+    overtimeApproval: payroll.overtimePay && payroll.overtimeRequiresApproval,
+    /** Kechikishni smenadan keyin qolib ishlab yopish yoqilgan. */
+    lateOffset: Boolean(payroll.lateOffset),
     /** Ishda bo‘lganda Telegram emoji-statusi (Premium) — server sozlamasida berilgan bo‘lsa. */
     workEmojiId: process.env.TELEGRAM_WORK_EMOJI_ID?.trim() || undefined,
     /** Super admin o‘chirgan modullar — Mini App ularning bo‘limlarini ko‘rsatmaydi. */
@@ -312,8 +318,11 @@ export function createMiniExtraRouter() {
       const db = await readDb();
       const employee = ownEmployee(db, auth);
       const company = db.companies.find((c) => c.id === employee.companyId);
+      const payroll = normalizePayrollSettings(company?.payroll);
+      // Qo‘shimcha ish to‘lanmaydi — bo‘lim bo‘sh (daqiqalar davomat tarixida qoladi).
+      if (!payroll.overtimePay) return res.json({ requiresApproval: false, paid: false, rows: [] });
       const rows = (dataIndexes(db).attendanceByEmployee.get(employee.id) || [])
-        .filter((a) => a.overtimeMinutes > 0)
+        .filter((a) => lateCoverage(a, payroll).overtime > 0)
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 40)
         .map((a) => ({
@@ -322,13 +331,13 @@ export function createMiniExtraRouter() {
           checkIn: a.checkIn,
           checkOut: a.checkOut,
           scheduledEnd: a.scheduledEnd,
-          overtimeMinutes: a.overtimeMinutes,
+          overtimeMinutes: lateCoverage(a, payroll).overtime,
           approved: a.overtimeApproved,
           decidedBy: a.overtimeDecidedBy,
           note: a.overtimeNote,
           closed: Boolean(closedPeriod(db, employee.companyId, a.date.slice(0, 7))),
         }));
-      res.json({ requiresApproval: Boolean(company?.payroll?.overtimeRequiresApproval), paid: company?.payroll?.overtimePay !== false, rows });
+      res.json({ requiresApproval: payroll.overtimeRequiresApproval, paid: true, rows });
     }),
   );
 
@@ -340,8 +349,10 @@ export function createMiniExtraRouter() {
       const { note } = z.object({ note: z.string().trim().min(3, "Izohni yozing.").max(300) }).parse(req.body);
       const result = await updateDb((db) => {
         const employee = ownEmployee(db, auth);
+        const payroll = normalizePayrollSettings(db.companies.find((c) => c.id === employee.companyId)?.payroll);
+        if (!payroll.overtimePay) throw httpError("Qo‘shimcha ish uchun to‘lov o‘chirilgan — izoh kerak emas.", 409, "OVERTIME_DISABLED");
         const record = db.attendance.find((a) => a.id === req.params.id && a.employeeId === employee.id);
-        if (!record || record.overtimeMinutes <= 0) throw httpError("Qo‘shimcha ish yozuvi topilmadi.", 404);
+        if (!record || lateCoverage(record, payroll).overtime <= 0) throw httpError("Qo‘shimcha ish yozuvi topilmadi.", 404);
         if (record.overtimeApproved !== undefined) throw httpError("Bu qo‘shimcha ish allaqachon ko‘rib chiqilgan.", 409);
         if (closedPeriod(db, employee.companyId, record.date.slice(0, 7))) throw httpError("Bu oy yopilgan.", 409);
         record.overtimeNote = note;
@@ -350,12 +361,12 @@ export function createMiniExtraRouter() {
           id: randomUUID(),
           companyId: employee.companyId,
           title: "Qo‘shimcha ish — izoh",
-          body: `${nameOf(employee)} ${dmy(record.date)}: ${record.overtimeMinutes} daq. «${note}». Ish haqi → Qo‘shimcha ish bo‘limida tasdiqlang.`,
+          body: `${nameOf(employee)} ${dmy(record.date)}: ${lateCoverage(record, payroll).overtime} daq. «${note}». Ish haqi → Qo‘shimcha ish bo‘limida tasdiqlang.`,
           type: "PAYROLL",
           read: false,
           createdAt: record.updatedAt,
         });
-        return { record: { ...record }, employee };
+        return { record: { ...record, overtimeMinutes: lateCoverage(record, payroll).overtime }, employee };
       });
       const db = await readDb();
       void notifyManagers(

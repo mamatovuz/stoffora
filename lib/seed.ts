@@ -58,6 +58,7 @@ export function emptyDatabase(): Database {
     mobileActivationCodes: [],
     deviceChangeRequests: [],
     mobilePushTokens: [],
+    staffCredentials: [],
     subscriptionPlans: [],
     promoCodes: [],
     promoRedemptions: [],

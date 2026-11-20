@@ -14,6 +14,7 @@ import {
   Plane,
   RefreshCw,
   Search,
+  Smartphone,
   LogIn,
   Gavel,
   FileWarning,
@@ -42,7 +43,7 @@ import { FLAG_LABELS } from "@/lib/gps";
 import { Briefing, EmployeeCardSheet, QuickAnnounceSheet, TrendsList, type TrendRow } from "./mini/ManagerTools";
 import type { ManagerAuth, ManagerView } from "./mini/managerAuth";
 import { confirmNative, haptic, useMainButton, useSecondaryButton } from "./mini/tg";
-import { AdminMenu, AdminScreen, ADMIN_ITEMS, adminItemsFor, type AdminKey } from "./mini/Admin";
+import { AdminMenu, AdminScreen, ADMIN_ITEMS, adminItemsFor, type AdminExtra, type AdminKey } from "./mini/Admin";
 
 /*
  * Rahbar rejimi: panelga kirmasdan Telegram’dan bugungi holat, so‘rovlar,
@@ -158,7 +159,10 @@ const TODAY_GROUPS: { key: string; label: string; color: string; test: (r: Today
 export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: ManagerAuth; onToast: Toast; onExpired: () => void; initialView?: ManagerView }) {
   const call = useMemo(() => client(auth.token), [auth.token]);
   const role = auth.user.role;
-  const [view, setView] = useState<ManagerView>(initialView || "desk");
+  // «Umumiy» faqat davomat yoki pulni ko‘ra oladiganlarda (pastdagi hasDesk bilan bir xil qoida).
+  const [view, setView] = useState<ManagerView>(
+    () => initialView || (can(role, "attendance.view") || can(role, "payroll.view") || can(role, "payroll.edit") ? "desk" : "admin"),
+  );
   // «Boshqaruv» ichidagi bo‘lim (xodimlar, ish haqi, grafiklar…).
   const [adminScreen, setAdminScreen] = useState<AdminKey | null>(null);
   const [day, setDay] = useState<Day | null>(null);
@@ -208,9 +212,12 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   // Qurilmalar — IT va HR; «So‘rovlar» — davomat/ta’til/moliya bilan ishlaydiganlar (IT — yo‘q).
   const canDevices = can(role, "devices.manage") || can(role, "employees.edit");
   const canRequests = canAttendance || canLeave || canAdvances || fineDirect;
+  // «Umumiy» — davomat yoki pul xulosasini ko‘ra oladiganlarga (IT uchun bo‘sh bo‘lardi — darhol «Boshqaruv»).
+  const hasDesk = canAttendance || canMoney;
   useEffect(() => {
     if (!canAttendance && (view === "today" || view === "map")) setView(canMoney ? "money" : canDevices && !canRequests ? "devices" : "requests");
-  }, [canAttendance, canMoney, canDevices, canRequests, view]);
+    else if (!hasDesk && view === "desk") setView("admin");
+  }, [canAttendance, canMoney, canDevices, canRequests, hasDesk, view]);
 
   const handle = useCallback(
     (reason: unknown) => {
@@ -239,7 +246,10 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
               );
             })
           : Promise.resolve([] as AdvanceRow[]),
-        canOvertime ? call<{ rows: OvertimeRow[] }>(`/overtime?month=${month}`).catch(() => ({ rows: [] as OvertimeRow[] })) : Promise.resolve({ rows: [] as OvertimeRow[] }),
+        // «Qo‘shimcha ish uchun to‘lash» o‘chiq bo‘lsa server `disabled: true` qaytaradi — tasdiqlash yo‘q.
+        canOvertime
+          ? call<{ rows: OvertimeRow[]; disabled?: boolean }>(`/overtime?month=${month}`).catch(() => ({ rows: [] as OvertimeRow[], disabled: true }))
+          : Promise.resolve({ rows: [] as OvertimeRow[], disabled: true }),
         canAttendance ? call<LateNotice[]>("/late-notices").catch(() => [] as LateNotice[]) : Promise.resolve([] as LateNotice[]),
         canAttendance ? call<Branch[]>("/branches").catch(() => [] as Branch[]) : Promise.resolve([] as Branch[]),
         canAttendance ? call<TrendRow[]>("/trends").catch(() => [] as TrendRow[]) : Promise.resolve([] as TrendRow[]),
@@ -265,7 +275,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
       if (fineDirect) void call<FineRow[]>("/fines?status=PENDING").then(setFines).catch(() => setFines([]));
       if (can(role, "employees.view")) void call<typeof expiring>("/documents/expiring").then(setExpiring).catch(() => setExpiring([]));
       setAdvances(a);
-      setOvertime(o.rows.filter((r) => r.approved === undefined));
+      setOvertime(o.disabled ? [] : (o.rows || []).filter((r) => r.approved === undefined));
       setNotices(n);
       setBranches(b);
       setTrends(t);
@@ -384,14 +394,14 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
     .sort((a, b) => order(a) - order(b) || `${a.employee.firstName}`.localeCompare(`${b.employee.firstName}`));
   const pendingCount = fines.length + marks.length + leaves.length + swaps.length + dayoffs.length + advances.length + overtime.length;
   // Ixcham 4 ta tab: Ish stoli · Bugun (ro‘yxat/xarita) · So‘rovlar · Boshqaruv (qolgan hammasi).
-  const adminExtra = [
-    ...(canAnalytics ? [{ key: "week", label: "Xulosa va trendlar", hint: "davomat reytingi, diqqat talab qilganlar", icon: <TrendingUp size={18} /> }] : []),
-    ...(canMoney ? [{ key: "money", label: "Moliya, avans va jarimalar", hint: "oy xulosasi, avans to‘lash", icon: <HandCoins size={18} /> }] : []),
-    ...(canDevices ? [{ key: "devices", label: "Telefonlar (qurilmalar)", hint: "ulash, almashtirish, o‘chirish", icon: <LogIn size={18} /> }] : []),
+  const adminExtra: AdminExtra[] = [
+    ...(canAnalytics ? [{ key: "week", label: "Xulosa va trendlar", tile: "Trendlar", icon: TrendingUp }] : []),
+    ...(canMoney ? [{ key: "money", label: "Moliya, avans va jarimalar", tile: "Moliya va avans", icon: HandCoins }] : []),
+    ...(canDevices ? [{ key: "devices", label: "Telefonlar (qurilmalar)", tile: "Telefonlar", icon: Smartphone }] : []),
   ];
   const hasAdmin = adminExtra.length > 0 || adminItemsFor(role, auth.user.modules).length > 0;
   const tabs = [
-    ["desk", "Umumiy", 0] as const,
+    ...(hasDesk ? ([["desk", "Umumiy", 0]] as const) : []),
     ...(canAttendance ? ([["today", "Davomat", 0]] as const) : []),
     ...(canRequests ? ([["requests", "So‘rovlar", pendingCount]] as const) : []),
     ...(hasAdmin ? ([["admin", "Boshqaruv", 0]] as const) : []),
@@ -399,7 +409,6 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
   const tabOf = (v: ManagerView): ManagerView => (v === "map" ? "today" : v === "week" || v === "money" || v === "devices" ? "admin" : v);
 
   const markDays = [...new Set(marks.map((m) => m.date))].sort((a, b) => b.localeCompare(a));
-  const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
 
   // Pastki Telegram tugmalari: ommaviy tasdiqlash rejimida.
   useMainButton(view === "requests" && selecting ? { text: selected.length ? `Tasdiqlash (${selected.length})` : "So‘rovlarni belgilang", onClick: () => void bulkApprove(), disabled: !selected.length, progress: busy === "bulk" } : null);
@@ -466,7 +475,7 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
         </button>
         {badge.sheet}
       </div>
-      {view === "desk" && (
+      {(view === "desk" || (!hasDesk && view === "admin" && !adminScreen)) && (
         <div className="mg-quick" aria-label="Tezkor amallar">
           {canAnnounce && (
             <button onClick={() => setAnnouncing(true)}>
@@ -911,16 +920,25 @@ export function ManagerHome({ auth, onToast, onExpired, initialView }: { auth: M
           onChanged={() => void load()}
         />
       )}
-      {view === "desk" && (
+      {view === "desk" && hasDesk && (
         <MiniDesk
           call={call}
           role={role}
           canAttendance={canAttendance}
+          canMoney={canMoney}
+          rows={day ? rows : null}
           onOpen={(v) => {
             // «today:LATE» — davomat ro‘yxati shu filtr bilan ochiladi.
             const [next, f] = v.split(":");
             setView(next as ManagerView);
-            if (f) setFilter(f as Filter);
+            setFilter((f as Filter) || "ALL");
+            setBranch("");
+            setQuery("");
+          }}
+          onBranch={(name) => {
+            setBranch(name);
+            setFilter("ALL");
+            setView("today");
           }}
           onEmployee={setCardFor}
         />
@@ -1386,21 +1404,6 @@ function Actions({ busy, onApprove, onReject }: { busy: boolean; onApprove: () =
         <X size={16} /> Rad etish
       </button>
     </div>
-  );
-}
-
-function Tile({ label, value, tone, active, onClick }: { label: string; value: number; tone?: string; active?: boolean; onClick: () => void }) {
-  return (
-    <button
-      className={`mg-tile ${tone || ""} ${active ? "on" : ""}`}
-      onClick={() => {
-        haptic.select();
-        onClick();
-      }}
-    >
-      <b>{value}</b>
-      <small>{label}</small>
-    </button>
   );
 }
 

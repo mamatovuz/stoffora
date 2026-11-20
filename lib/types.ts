@@ -180,6 +180,12 @@ export interface PayrollSettings {
   overtimeTwoStep?: boolean;
   /** Qo‘shimcha ish stavkasi, foizda (100 — oddiy soatlik stavka; 150 — 1,5 baravar). Qonuniy tekshiruvsiz standart 100. */
   overtimeRatePercent?: number;
+  /**
+   * Kechikishni ishlab yopish: xodim kechikkan daqiqalarini smena tugagandan keyin qolib ishlasa,
+   * o‘sha kungi kechikish yopiladi — jarima/ushlanma olinmaydi (o‘sha qolgan vaqt qo‘shimcha ish emas).
+   * Standart: o‘chiq.
+   */
+  lateOffset?: boolean;
 }
 export interface Branch {
   id: string;
@@ -364,6 +370,8 @@ export interface Employee {
   telegramIdSource?: "LINK" | "INTEGRATION";
   /** Xabarlar qaysi bot orqali yetadi: Staffora boti, kompaniya boti yoki xodimlar boti. */
   telegramChannel?: "STAFFORA_BOT" | "COMPANY_BOT" | "EMPLOYEE_BOT";
+  /** Ilovaga kirish logini (ozodbek@staffora.uz) — faqat ko‘rsatish uchun; parol xeshi `staffCredentials` da. */
+  login?: string;
   parentPhone?: string;
   education?: string;
   shift?: "DAY" | "NIGHT" | "BOTH";
@@ -588,6 +596,8 @@ export interface User extends UserPlatformFields {
   /** Panel tili. */
   language?: "uz" | "ru";
   screenLock?: { enabled: boolean; minutes: number; passwordHash?: string };
+  /** Mobil ilovaga kirish logini (direktor@staffora.uz) — parol: panel paroli. Bir marta beriladi. */
+  mobileLogin?: string;
 }
 export interface PanelSession {
   id: string;
@@ -751,6 +761,8 @@ export interface Database {
   mobileActivationCodes: MobileActivationCode[];
   deviceChangeRequests: DeviceChangeRequest[];
   mobilePushTokens: MobilePushToken[];
+  /** Ilovaga kirish (login + parol xeshi). Xodim obyektidan alohida — API javoblariga tasodifan chiqmasin. */
+  staffCredentials: StaffCredential[];
   /* --- Super Admin Control Center (lib/platform/types.ts) --- */
   subscriptionPlans: SubscriptionPlan[];
   promoCodes: PromoCode[];
@@ -1068,7 +1080,10 @@ export interface PayrollPeriod {
 export interface MobileDevice {
   id: string;
   companyId: string;
+  /** Xodim qurilmasi. Faqat rahbar (direktor) qurilmasida — bo‘sh satr ('' ), o‘rniga `userId`. */
   employeeId: string;
+  /** Rahbar rejimi (login + panel paroli bilan kirgan, xodim profili yo‘q panel foydalanuvchisi). */
+  userId?: string;
   /** SPKI (DER, base64) — imzoni tekshirish uchun. */
   publicKey: string;
   /** Ochiq kalitning SHA-256 izi — noyoblik va qidiruv uchun. */
@@ -1088,7 +1103,11 @@ export interface MobileDevice {
 export interface MobileSession {
   id: string;
   companyId: string;
+  /** Rahbar sessiyasida — bo‘sh satr ('' ), o‘rniga `userId`. */
   employeeId: string;
+  /** Rahbar rejimi: panel foydalanuvchisi va unga bog‘langan panel sessiyasi (access token shu sessiyaga bog‘liq). */
+  userId?: string;
+  panelSessionId?: string;
   deviceId: string;
   refreshHash: string;
   /** Oldingi refresh token xeshi — qayta ishlatilsa (o‘g‘irlangan token) sessiya yopiladi. */
@@ -1098,6 +1117,21 @@ export interface MobileSession {
   expiresAt: string;
   revokedAt?: string;
   revokeReason?: string;
+}
+/**
+ * Ilovaga kirish ma’lumoti: login (ozodbek@staffora.uz, barcha kompaniyalar bo‘yicha noyob) va parolning
+ * bcrypt xeshi. Login bir marta beriladi, o‘zgarmaydi; parolni xodim ilova yoki Mini App’da almashtiradi.
+ * Xeshi hech qachon API javobida qaytarilmaydi (xodimda faqat `login` nusxasi bor).
+ */
+export interface StaffCredential {
+  id: string;
+  companyId: string;
+  employeeId?: string;
+  userId?: string;
+  login: string;
+  passwordHash: string;
+  createdAt: string;
+  updatedAt: string;
 }
 /** Bir martalik faollashtirish kodi (xesh saqlanadi); Mini App yoki HR beradi. */
 export interface MobileActivationCode {
@@ -1253,7 +1287,9 @@ export type BuiltinField =
   | "gender"
   | "pinfl"
   | "idDocument"
-  | "selfie";
+  | "selfie"
+  | "email"
+  | "appLogin";
 export type QuestionType =
   | "name"
   | "text"
@@ -1271,7 +1307,10 @@ export type QuestionType =
   | "weekday"
   | "gender"
   | "pinfl"
-  | "photo";
+  | "photo"
+  | "age"
+  | "email"
+  | "login";
 /** Anketa savoli — kompaniya panelda qo‘shadi, o‘chiradi, tahrirlaydi. */
 export interface RegistrationQuestion {
   id: string;
@@ -1323,6 +1362,11 @@ export interface RegistrationData {
   selfieDescriptor?: number[];
   /** «Ish vaqti» savolida tanlangan mavjud ish grafigi. */
   scheduleId?: string;
+  email?: string;
+  /** Ilova uchun tanlangan login (ozodbek@staffora.uz) — tasdiqlangach faollashadi. */
+  appLogin?: string;
+  /** Parolning bcrypt xeshi (ochiq parol saqlanmaydi); tasdiqlangach `staffCredentials` ga o‘tadi va bu yerdan o‘chadi. */
+  appPasswordHash?: string;
   /** Kompaniya qo‘shgan savollar javoblari (savol ID → javob). */
   custom?: Record<string, string>;
 }

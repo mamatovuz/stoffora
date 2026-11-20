@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, ArrowDown, Bell, BriefcaseBusiness, CheckCircle2, Clock, House, Inbox, LoaderCircle, RefreshCw, RotateCcw, Send, UserRound, WifiOff } from "lucide-react";
+import { AlertCircle, ArrowDown, Bell, BriefcaseBusiness, CheckCircle2, Clock, House, LayoutGrid, LoaderCircle, RefreshCw, RotateCcw, Send, UserRound, WifiOff } from "lucide-react";
 import { ApiError, api, errorText, post, restoreBearerToken, setBearerToken } from "../api";
 import { FaceScanner, type FaceCapture } from "../components/FaceScanner";
 import { enqueueOffline, isNetworkError, readQueue, restoreQueueBackup, syncOfflineQueue } from "./miniOffline";
@@ -10,7 +10,6 @@ import type { Attendance } from "@/lib/types";
 import stafforaMark from "../assets/staffora-mark.svg";
 import { requestManagerAuth, type ManagerAuth, type ManagerView } from "./mini/managerAuth";
 import { SalarySheet } from "./MiniMoney";
-import { NotificationsSheet } from "./mini/Notifications";
 import { clearCached } from "./miniCache";
 import { applyPrefs, DEFAULT_PREFS, loadCloudPrefs, readPrefs, savePrefs, type MiniPrefs } from "./miniPrefs";
 import { rememberLang, startTranslator, storedLang, type Lang } from "../i18n";
@@ -38,7 +37,6 @@ import {
 import type { ProfileSection } from "./mini/Profile";
 import type { HelpdeskView } from "./mini/Helpdesk";
 import { disableZoom } from "./mini/noZoom";
-import { BirthdaysSheet } from "./mini/Birthdays";
 import { FaceCheck } from "./mini/FaceCheck";
 import { NavMenu, type NavMenuItem } from "./mini/NavMenu";
 // Minimal va yengil qatlam: styles.css dan keyin yuklanadi (faqat Mini App bo‘lagi bilan).
@@ -48,14 +46,19 @@ import "../mini-minimal.css";
 const MiniHistory = lazy(() => import("./mini/History").then((m) => ({ default: m.MiniHistory })));
 const MiniRequests = lazy(() => import("./mini/Requests").then((m) => ({ default: m.MiniRequests })));
 const MiniProfile = lazy(() => import("./mini/Profile").then((m) => ({ default: m.MiniProfile })));
+const loadSections = () => import("./mini/Sections");
+const MiniSections = lazy(() => loadSections().then((m) => ({ default: m.MiniSections })));
 const ManagerHome = lazy(() => import("./MiniManager").then((m) => ({ default: m.ManagerHome })));
 const DirectorySheet = lazy(() => import("./mini/Directory").then((m) => ({ default: m.DirectorySheet })));
 const BadgeSheet = lazy(() => import("./mini/Badge").then((m) => ({ default: m.BadgeSheet })));
 const HelpdeskSheet = lazy(() => import("./mini/Helpdesk").then((m) => ({ default: m.HelpdeskSheet })));
 const Receipt = lazy(() => import("./mini/Receipt").then((m) => ({ default: m.Receipt })));
+const NotificationsSheet = lazy(() => import("./mini/Notifications").then((m) => ({ default: m.NotificationsSheet })));
+const BirthdaysSheet = lazy(() => import("./mini/Birthdays").then((m) => ({ default: m.BirthdaysSheet })));
 
 type AuthError = { message: string; code?: string; botUsername?: string };
-type Nav = { tab: Tab; key: number; view?: string; id?: string; section?: ProfileSection };
+/** `back` — «Orqaga» qayerga qaytaradi (masalan, «Bo‘limlar»dan ochilgan ekran katalogga qaytadi). */
+type Nav = { tab: Tab; key: number; view?: string; id?: string; section?: ProfileSection; back?: Tab };
 
 const EMOJI_KEY = "staffora_work_emoji";
 const BIO_OFFER_KEY = "staffora_bio_offer";
@@ -320,6 +323,14 @@ export function MiniAppPage() {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [home, loadHome]);
 
+  // «Bo‘limlar» bo‘lagi bosh sahifa ochilib tinchlangach oldindan yuklanadi — birinchi bosishda kutish bo‘lmaydi.
+  const homeReady = Boolean(home);
+  useEffect(() => {
+    if (!homeReady) return;
+    const timer = window.setTimeout(() => void loadSections().catch(() => undefined), 4000);
+    return () => window.clearTimeout(timer);
+  }, [homeReady]);
+
   // Davomat jarayonida Mini App tasodifan yopilib ketmasin.
   useEffect(() => {
     const webApp = tg();
@@ -330,12 +341,18 @@ export function MiniAppPage() {
 
   /* ------------------------------------------------------- navigatsiya --- */
   const navigate = useCallback(
-    (link: DeepLink) => {
+    (link: DeepLink, from?: Tab) => {
       haptic.select();
       setNotifOpen(false);
       setSalaryOpen(false);
       if (link.tab === "home") {
-        setTab("home");
+        // «Kechikaman» endi «Bo‘limlar»da.
+        if (link.action === "late") {
+          setNav((current) => ({ tab: "sections", key: current.key + 1, view: "late" }));
+          return;
+        }
+        // «Bo‘limlar»dan ochilgan oynalar (oylik, xabarlar) katalog ustida ochiladi — yopilganda shu yerga qaytiladi.
+        if (!from) setTab("home");
         if (link.action === "salary" || link.action === "advance") {
           setSalaryAsk(link.action === "advance");
           setSalaryOpen(true);
@@ -365,10 +382,12 @@ export function MiniAppPage() {
         view: "view" in link ? link.view : undefined,
         id: "id" in link ? link.id : undefined,
         section: link.tab === "profile" ? link.section : undefined,
+        back: from,
       }));
     },
     [setTab],
   );
+  const openFromSections = useCallback((link: DeepLink) => navigate(link, "sections"), [navigate]);
   // Bot xabaridagi havola bilan ochilgan bo‘lsa — kerakli bo‘limga (bir marta, kirgandan keyin).
   const pendingLink = useRef<DeepLink | null>(initialLink());
   useEffect(() => {
@@ -395,6 +414,8 @@ export function MiniAppPage() {
 
   // Telegram «Orqaga» tugmasi
   const anyOpen = notifOpen || salaryOpen || directoryOpen || Boolean(helpdesk) || badgeOpen || birthdaysOpen || Boolean(receipt) || Boolean(flow) || Boolean(faceAction) || bioEnroll;
+  // So‘rovlar ekrani «Bo‘limlar»ning bir qismi — orqaga katalogga; qolganlari — ochilgan joyiga yoki bosh sahifaga.
+  const backTab: Tab = nav.back ?? (nav.tab === "leave" ? "sections" : "home");
   useBackButton(
     anyOpen || nav.tab !== "home"
       ? () => {
@@ -408,7 +429,7 @@ export function MiniAppPage() {
           else if (flow) setFlow(null);
           else if (faceAction) setFaceAction(null);
           else if (bioEnroll) setBioEnroll(false);
-          else setTab("home");
+          else setTab(backTab);
         }
       : null,
   );
@@ -673,16 +694,32 @@ export function MiniAppPage() {
                 setSalaryAsk(false);
                 setSalaryOpen(true);
               }}
-              onNotifications={() => setNotifOpen(true)}
-              onNavigate={navigate}
               onRefresh={() => loadHome().catch(() => undefined)}
               onToast={showToast}
-              onHelpdesk={(view) => setHelpdesk({ view })}
-              onBirthdays={() => setBirthdaysOpen(true)}
+            />
+          )}
+          {nav.tab === "sections" && (
+            <MiniSections
+              key={nav.key}
+              data={home}
+              offline={offline}
+              initialView={nav.view}
+              onOpen={openFromSections}
+              onToast={showToast}
+              onRefresh={() => loadHome().catch(() => undefined)}
             />
           )}
           {nav.tab === "history" && <MiniHistory key={nav.key} home={home} initialView={nav.view as "calendar" | "schedule" | "stats" | undefined} />}
-          {nav.tab === "leave" && <MiniRequests key={nav.key} onToast={showToast} off={home?.features?.modules} initialView={nav.view as "leave" | "marks" | "swap" | "dayoff" | "overtime" | undefined} focusId={nav.id} />}
+          {nav.tab === "leave" && (
+            <MiniRequests
+              key={nav.key}
+              onToast={showToast}
+              off={home.features?.modules}
+              overtime={home.features?.overtime !== false}
+              initialView={nav.view as "leave" | "marks" | "swap" | "dayoff" | "overtime" | undefined}
+              focusId={nav.id}
+            />
+          )}
           {nav.tab === "manager" && manager && (
             <ManagerHome key={nav.key} auth={manager} onToast={showToast} onExpired={() => void checkManager()} initialView={nav.view as ManagerView | undefined} />
           )}
@@ -729,14 +766,17 @@ export function MiniAppPage() {
           [
             { key: "home", icon: House, label: "Bosh sahifa" },
             { key: "history", icon: Clock, label: "Tarix" },
-            { key: "leave", icon: Inbox, label: "So‘rovlar" },
+            { key: "sections", icon: LayoutGrid, label: "Bo‘limlar" },
             { key: "profile", icon: UserRound, label: "Profil" },
             ...(manager ? [{ key: "manager", icon: BriefcaseBusiness, label: "Rahbar" }] : []),
           ] as NavMenuItem<Tab>[]
         }
-        value={nav.tab}
+        // So‘rovlar ekrani «Bo‘limlar» ichida — menyuda o‘sha tab belgilanadi.
+        value={nav.tab === "leave" ? "sections" : nav.tab}
         onSelect={(key) => {
           haptic.select();
+          // Tanlangan tabga qayta bosish: ichki ekrandan (masalan, So‘rovlar) tab boshiga yoki sahifa tepasiga.
+          if (key === nav.tab && !nav.view && !nav.section) return window.scrollTo({ top: 0, behavior: "smooth" });
           setTab(key);
         }}
       />

@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Cake, ChevronRight, IdCard, Fingerprint, MapPin, MessageCircleQuestion, ScrollText, Share2, Smartphone, Smile, Users } from "lucide-react";
 import type { HelpdeskView } from "./Helpdesk";
-import { MobileLinkRow } from "./MobileLink";
+import { AppLoginGroup } from "./MobileLink";
 import { MiniNotifyPrefs, MiniReminders } from "./Reminders";
 import { dateUz, tashkentWeekday } from "@/lib/format";
 import type { Lang } from "../../i18n";
@@ -16,7 +16,7 @@ import { confirmNative, haptic, openExternal, shareText, tg, useHomeScreen } fro
 /** «09:00» → «9», «09:30» → «9:30» — haftalik jadval tor ustunlarga sig‘sin. */
 const short = (hhmm: string) => (hhmm.endsWith(":00") ? String(Number(hhmm.slice(0, 2))) : hhmm.replace(/^0/, ""));
 
-export type ProfileSection = "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays";
+export type ProfileSection = "docs" | "payslips" | "settings" | "directory" | "helpdesk" | "birthdays" | "reminders";
 
 export function MiniProfile({
   data,
@@ -58,8 +58,10 @@ export function MiniProfile({
   const settingsRef = useRef<HTMLDivElement>(null);
   const docsRef = useRef<HTMLDivElement>(null);
   const payslipsRef = useRef<HTMLDivElement>(null);
+  const remindersRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const target = section === "settings" ? settingsRef : section === "docs" ? docsRef : section === "payslips" ? payslipsRef : null;
+    const target =
+      section === "settings" ? settingsRef : section === "docs" ? docsRef : section === "payslips" ? payslipsRef : section === "reminders" ? remindersRef : null;
     if (target) window.setTimeout(() => target.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 250);
   }, [section]);
 
@@ -192,10 +194,7 @@ export function MiniProfile({
         </button>
       </section>
 
-      <div className="mp-group-title">Mobil ilova</div>
-      <section className="mp-group">
-        <MobileLinkRow onToast={onToast} />
-      </section>
+      {miniModuleOn(features, "mobileApp") && <AppLoginGroup onToast={onToast} initialLogin={e.login} firstName={e.firstName} lastName={e.lastName} />}
 
       {data.schedule && (
         <>
@@ -341,8 +340,10 @@ export function MiniProfile({
         </button>
       </section>
 
-      <MiniReminders onToast={onToast} />
-      <MiniNotifyPrefs onToast={onToast} />
+      <div ref={remindersRef} className="mp-sub">
+        <MiniReminders onToast={onToast} />
+        <MiniNotifyPrefs onToast={onToast} />
+      </div>
 
       <div className="mp-group-title">Til</div>
       <section className="mp-group">

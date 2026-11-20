@@ -1,56 +1,23 @@
 import { useEffect, useState } from "react";
-import {
-  AlertCircle,
-  Cake,
-  CalendarCheck,
-  CalendarRange,
-  CheckCircle2,
-  ChevronRight,
-  Coffee,
-  FileText,
-  Fingerprint,
-  Hourglass,
-  IdCard,
-  LoaderCircle,
-  LogOut,
-  MapPin,
-  MessageCircleQuestion,
-  Navigation,
-  ScanFace,
-  Smartphone,
-  TrendingUp,
-  Users,
-  Wallet,
-  X,
-} from "lucide-react";
-import { haversineDistance } from "@/lib/attendance";
+import { AlertCircle, CheckCircle2, Coffee, Fingerprint, LoaderCircle, LogOut, MapPin, ScanFace } from "lucide-react";
 import { preloadFaceModels } from "../../components/FaceScanner";
-import { BirthdayCard } from "./Birthdays";
-import { quietPosition } from "./AttendanceFlow";
 import { prewarmCamera } from "./FaceCheck";
-import type { HelpdeskView } from "./Helpdesk";
-import { api, errorText, post } from "../../api";
+import { errorText, post } from "../../api";
 import { dateLongUz, duration, tashkentClock, tashkentWeekday } from "@/lib/format";
-import { breakMinutes, type DeepLink } from "@/lib/mini";
+import { breakMinutes } from "@/lib/mini";
 import { SalaryCard } from "../MiniMoney";
-import { getCached, setCached } from "../miniCache";
-import { NotifItem } from "./Notifications";
-import { clockDuration, miniModuleOn, Sheet, useMinuteClock, type Action, type HomeData, type Toast } from "./shared";
-import { haptic, shareText, useHomeScreen } from "./tg";
-import { elapsedMinutes, forwardMinutes, shiftMinutes } from "@/lib/shift-time";
+import { clockDuration, todayPlanOf, useMinuteClock, type Action, type HomeData, type Toast } from "./shared";
+import { haptic } from "./tg";
+import { elapsedMinutes, forwardMinutes } from "@/lib/shift-time";
 
-type Stats = { streak: { current: number; best: number; badge: { emoji: string; label: string } | null } };
+/*
+ * Bosh sahifa — faqat eng kerakli: bugungi holat, «Ishga keldim / Ishdan ketdim» va oylik.
+ * Qolgan hamma bo‘limlar pastki menyudagi «Bo‘limlar»da.
+ */
 
 /** Kelgandan beri (kechki smenada yarim tundan o‘tsa ham; erta kelganda — 0, «23:38» emas). */
 function minutesSince(checkIn: string) {
   return elapsedMinutes(checkIn, tashkentClock());
-}
-
-/** Bugungi reja: serverdan (shaxsiy dam kuni, ko‘chirish hisobga olingan), bo‘lmasa haftalik grafik. */
-function todayPlanOf(data: HomeData) {
-  if (data.todayPlan) return data.todayPlan;
-  const weekly = data.schedule?.days.find((d) => d.day === tashkentWeekday());
-  return weekly ? { enabled: weekly.enabled, start: weekly.start, end: weekly.end, overridden: false } : undefined;
 }
 
 export function MiniHome({
@@ -59,29 +26,21 @@ export function MiniHome({
   offline,
   quick,
   onAction,
-  onNotifications,
   onSalary,
-  onNavigate,
   onRefresh,
   onToast,
-  onHelpdesk,
-  onBirthdays,
 }: {
   data: HomeData;
   stale: boolean;
   offline?: boolean;
-  /** Biometriya ulangan: tugma ostida «barmoq izi bilan» belgisi. */
+  /** Biometriya ulangan: tugmada barmoq izi belgisi. */
   quick?: "finger" | "face" | null;
   onSalary: () => void;
   onAction: (action: Action) => void;
-  onNotifications: () => void;
-  onNavigate: (link: DeepLink) => void;
   onRefresh: () => Promise<void>;
   onToast: Toast;
-  onHelpdesk: (view: HelpdeskView) => void;
-  onBirthdays: () => void;
 }) {
-  // Hammasi soat:daqiqa aniqligida — daqiqada bir marta yangilash yetarli (avval har soniyada edi).
+  // Hammasi soat:daqiqa aniqligida — daqiqada bir marta yangilash yetarli.
   const now = useMinuteClock();
   const a = data.attendance;
   const working = Boolean(a?.checkIn && !a.checkOut);
@@ -90,36 +49,22 @@ export function MiniHome({
   const clock = now.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tashkent" });
   const missingSetup = !data.branch || !data.schedule;
   const openBreak = a?.breaks?.find((b) => !b.end);
+  // «Kechikishni ishlab yopish»: ketgandan keyin qo‘shimcha ish bilan yopilgan daqiqalar kechikish emas.
+  const late = a?.lateMinutes || 0;
+  const lateLeft = Math.max(0, late - (a?.lateCoveredMinutes || 0));
   const status = finished
     ? { text: "Ish kuni yakunlandi", tone: "done" }
     : openBreak
       ? { text: "Tanaffusda", tone: "late" }
       : working
-        ? { text: a?.lateMinutes ? `Ishdasiz · ${duration(a.lateMinutes)} kech` : "Ishdasiz", tone: a?.lateMinutes ? "late" : "on" }
+        ? { text: late ? `Ishdasiz · ${duration(late)} kech` : "Ishdasiz", tone: late ? "late" : "on" }
         : data.todayLeave
           ? { text: "Bugun ta’tildasiz", tone: "off" }
           : !day?.enabled
             ? { text: day?.overridden ? "Dam olish (ko‘chirilgan)" : "Dam olish kuni", tone: "off" }
             : { text: "Hali kelmagansiz", tone: "idle" };
-  const [lateOpen, setLateOpen] = useState(false);
-  const canNotifyLate = !a?.checkIn && !data.todayLeave && Boolean(day?.enabled) && !missingSetup && !offline;
 
-  const [stats, setStats] = useState<Stats | null>(() => getCached<Stats>("stats-mini"));
-  useEffect(() => {
-    if (offline || getCached("stats-mini")) return;
-    void api<Stats>("/mini/stats")
-      .then((value) => {
-        setCached("stats-mini", value);
-        setStats(value);
-      })
-      .catch(() => undefined);
-  }, [offline]);
-  const streak = stats?.streak.current || 0;
-  const near = useGeofence(Boolean(!a?.checkIn && day?.enabled && !data.todayLeave && !offline && !stale), data);
-  useEffect(() => {
-    if (near !== null) void preloadFaceModels().catch(() => undefined);
-  }, [near]);
-  // Face ID modellari sahifa ochilib tinchlangach (bo‘sh vaqtda) yuklanadi — «Ishga keldim» bosilganda
+  // Face ID modellari sahifa tinchlangach (bo‘sh vaqtda) yuklanadi — «Ishga keldim» bosilganda
   // kutish bo‘lmaydi. Trafik tejash rejimi yoki 2G’da — faqat bosilganda.
   const needsFace = !finished && !missingSetup && !offline && !quick && Boolean(data.employee.faceEnrolledAt);
   useEffect(() => {
@@ -160,7 +105,9 @@ export function MiniHome({
           <div>
             <small>Keldi</small>
             <b className={a?.checkIn ? "" : "is-blank"}>{a?.checkIn || "--:--"}</b>
-            {a?.checkIn && <em className={a.lateMinutes ? "late" : "ok"}>{a.lateMinutes ? `${duration(a.lateMinutes)} kech` : "vaqtida"}</em>}
+            {a?.checkIn && (
+              <em className={lateLeft ? "late" : "ok"}>{lateLeft ? `${duration(lateLeft)} kech` : late ? "kechikish yopildi" : "vaqtida"}</em>
+            )}
           </div>
           <div>
             <small>{finished ? "Ketdi" : "Ishlangan"}</small>
@@ -213,176 +160,15 @@ export function MiniHome({
         )}
       </section>
 
-      {!day?.enabled && !a?.checkIn && !data.todayLeave && !missingSetup && (
-        <div className="mh-hint rest">
-          <CalendarCheck size={16} />
-          <span>Kelmasangiz jarima yo‘q. Kelsangiz — sababsiz qolgan kun qoplanadi yoki qo‘shimcha ish hisoblanadi.</span>
-        </div>
-      )}
-
-      {near && !missingSetup && (
-        <button
-          className="mh-geo"
-          onClick={() => {
-            haptic.tap("medium");
-            onAction("CHECK_IN");
-          }}
-        >
-          <span className="mh-geo-pulse">
-            <Navigation size={18} />
-          </span>
-          <span>
-            <b>Siz {data.branch?.name} yonidasiz</b>
-            <small>Ishga keldingizmi? Hozir belgilang — {near} m</small>
-          </span>
-          <ChevronRight size={16} />
-        </button>
-      )}
-
-      {data.features?.breaks && working && !finished && <BreakCard data={data} now={now} onChanged={onRefresh} onToast={onToast} />}
-
-      <BirthdayCard onOpen={onBirthdays} offline={offline} />
-
-      {canNotifyLate &&
-        (data.lateNotice ? (
-          <div className="mh-hint info">
-            <Hourglass size={16} />
-            <span>
-              Rahbaringiz ogohlantirildi: ~{duration(data.lateNotice.minutes)} kechikasiz. «{data.lateNotice.reason}»
-            </span>
-          </div>
-        ) : (
-          <button className="mh-late" onClick={() => setLateOpen(true)}>
-            <Hourglass size={17} />
-            <span>
-              <b>Kechikyapsizmi?</b>
-              <small>Rahbaringizni oldindan ogohlantiring</small>
-            </span>
-            <ChevronRight size={16} />
-          </button>
-        ))}
-
-      <button className="mh-stats" onClick={() => onNavigate({ tab: "history", view: "stats" })} aria-label="Bu oy statistikasi">
-        <div>
-          <b>{data.month.days}</b>
-          <small>kun keldi</small>
-        </div>
-        <div>
-          <b className={data.month.late ? "warn" : ""}>{data.month.late}</b>
-          <small>marta kechikdi</small>
-        </div>
-        {streak > 0 ? (
-          <div className="mh-streak">
-            <b>{streak}</b>
-            <small>kun ketma-ket vaqtida</small>
-          </div>
-        ) : (
-          <div>
-            <b>{Math.round(data.month.workedMinutes / 60)}</b>
-            <small>soat ishladi</small>
-          </div>
-        )}
-      </button>
+      {data.features?.breaks && working && <BreakCard data={data} now={now} onChanged={onRefresh} onToast={onToast} />}
 
       <SalaryCard onOpen={onSalary} offline={offline} />
-
-      <HomeScreenCard />
-
-      <div className="mp-group-title">Bo‘limlar</div>
-      <nav className="mh-menu" aria-label="Bo‘limlar">
-        <MenuRow icon={<CalendarRange size={19} />} tone="blue" title="Ish grafigim" hint="Qaysi kun, soat nechada" onClick={() => onNavigate({ tab: "history", view: "schedule" })} />
-        {miniModuleOn(data.features, "leave") && (
-          <MenuRow icon={<CalendarCheck size={19} />} tone="green" title="Ta’til so‘rash" hint="Ta’til yoki javob" onClick={() => onNavigate({ tab: "leave", view: "leave" })} />
-        )}
-        {miniModuleOn(data.features, "payroll") && (
-          <MenuRow icon={<Wallet size={19} />} tone="teal" title="Hisob varaqalar" hint="Oylik tafsiloti" onClick={() => onNavigate({ tab: "profile", section: "payslips" })} />
-        )}
-        {miniModuleOn(data.features, "helpdesk") && (
-          <MenuRow icon={<MessageCircleQuestion size={19} />} tone="orange" title="HR’ga savol" hint="Javob shu yerga keladi" onClick={() => onHelpdesk("questions")} />
-        )}
-        {data.features?.directory !== false ? (
-          <MenuRow icon={<Users size={19} />} tone="indigo" title="Hamkasblar" hint="Telefon raqamlari" onClick={() => onNavigate({ tab: "profile", section: "directory" })} />
-        ) : (
-          <MenuRow icon={<FileText size={19} />} tone="indigo" title="Hujjatlarim" onClick={() => onNavigate({ tab: "profile", section: "docs" })} />
-        )}
-        <MenuRow icon={<IdCard size={19} />} tone="gray" title="ID kartam" hint="QR guvohnoma" onClick={() => onNavigate({ tab: "badge" })} />
-        <MenuRow icon={<TrendingUp size={19} />} tone="violet" title="Statistika" hint="Oylar bo‘yicha davomatim" onClick={() => onNavigate({ tab: "history", view: "stats" })} />
-        <MenuRow icon={<Cake size={19} />} tone="pink" title="Tug‘ilgan kunlar" hint="Hamkasblarni tabriklash" onClick={onBirthdays} />
-      </nav>
-
-      {data.month.practiceUntil && (
-        <div className="mh-hint info">
-          <CalendarCheck size={16} />
-          <span>{data.month.practiceUntil.split("-").reverse().join(".")} gacha mashq davri — kechikish va ushlanmalar hisoblanmaydi.</span>
-        </div>
-      )}
-      {!data.month.practiceUntil && data.month.lateMinutes > 0 && (
-        <div className="mh-hint warn">
-          <AlertCircle size={16} />
-          <span>
-            Bu oy {duration(data.month.lateMinutes)} kechikdingiz
-            {data.month.deduction ? ` · ${data.month.deduction.toLocaleString("ru-RU")} so‘m ushlanadi` : ""}
-          </span>
-        </div>
-      )}
-      {!data.employee.faceEnrolledAt && !finished && !missingSetup && (
-        <div className="mh-hint info">
-          <ScanFace size={16} />
-          <span>Birinchi marta Face ID sozlanadi (~15 soniya). Yorug‘ joyda turing.</span>
-        </div>
-      )}
-
-      {data.notifications.length > 0 && (
-        <section className="mh-notifs">
-          <button className="mh-notifs-head" onClick={onNotifications}>
-            <span>
-              Xabarlar
-              {(data.unreadNotifications || 0) > 0 && <span className="mini-badge inline">{data.unreadNotifications}</span>}
-            </span>
-            <ChevronRight size={16} />
-          </button>
-          <div className="mn-list">
-            {data.notifications.slice(0, 2).map((item) => (
-              <NotifItem key={item.id} item={item} onOpen={onNotifications} />
-            ))}
-          </div>
-        </section>
-      )}
-      {lateOpen && (
-        <LateSheet
-          start={day?.start || ""}
-          onClose={() => setLateOpen(false)}
-          onSaved={async (sent) => {
-            setLateOpen(false);
-            onToast(sent ? "Rahbaringiz ogohlantirildi" : "Ogohlantirish saqlandi — HR panelida ko‘rinadi");
-            haptic.success();
-            await onRefresh();
-          }}
-          name={`${data.employee.firstName} ${data.employee.lastName}`}
-        />
-      )}
     </div>
   );
 }
 
-function MenuRow({ icon, tone, title, hint, onClick }: { icon: React.ReactNode; tone: string; title: string; hint?: string; onClick: () => void }) {
-  return (
-    <button
-      className={`mh-menu-row ${tone}`}
-      onClick={() => {
-        haptic.select();
-        onClick();
-      }}
-    >
-      <i>{icon}</i>
-      <b>{title}</b>
-      {hint && <small>{hint}</small>}
-    </button>
-  );
-}
-
 /** Ish kuni halqasi: necha foiz o‘tgani va qancha qolgani. */
-export function ShiftProgress({ start, end, now }: { start: string; end: string; now: Date }) {
+function ShiftProgress({ start, end, now }: { start: string; end: string; now: Date }) {
   // Kechki smena (14:00 → 00:00) ham: tugash ertasi kunda bo‘lishi mumkin.
   const total = Math.max(1, forwardMinutes(start, end));
   const done = Math.min(total, elapsedMinutes(start, tashkentClock(now)));
@@ -403,44 +189,6 @@ export function ShiftProgress({ start, end, now }: { start: string; end: string;
       </span>
     </div>
   );
-}
-
-/**
- * Geofence: Mini App ochiq bo‘lsa va xodim hali kelmagan bo‘lsa, filialga yaqinlashganini
- * sezib «Ishga keldingizmi?» taklifini ko‘rsatadi. Faqat joylashuvga oldin ruxsat
- * berilgan bo‘lsa ishlaydi (yangi ruxsat so‘ramaydi) va kam quvvatli rejimda.
- */
-function useGeofence(enabled: boolean, data: HomeData) {
-  const [near, setNear] = useState<number | null>(null);
-  const branch = data.branch;
-  const day = todayPlanOf(data);
-  useEffect(() => {
-    setNear(null);
-    if (!enabled || !branch || !day?.enabled) return;
-    // Faqat ish boshlanishidan 90 daqiqa oldin — tugashigacha.
-    if (forwardMinutes(day.start, tashkentClock()) > shiftMinutes(day.start, day.end) && forwardMinutes(tashkentClock(), day.start) > 90) return;
-    let notified = false;
-    let alive = true;
-    // Ruxsat so‘ramaydigan joylashuv (allaqachon berilgan bo‘lsa) — har 45 soniyada.
-    const check = async () => {
-      const position = await quietPosition();
-      if (!alive || !position) return;
-      const distance = Math.round(haversineDistance(position.coords.latitude, position.coords.longitude, branch.latitude, branch.longitude));
-      const inside = distance - Math.min(35, position.coords.accuracy) <= branch.radiusMeters + 40;
-      setNear(inside ? distance : null);
-      if (inside && !notified) {
-        notified = true;
-        haptic.success();
-      }
-    };
-    void check();
-    const timer = window.setInterval(() => document.visibilityState === "visible" && void check(), 45_000);
-    return () => {
-      alive = false;
-      window.clearInterval(timer);
-    };
-  }, [enabled, branch, day?.enabled, day?.start, day?.end]);
-  return near;
 }
 
 /* ------------------------------------------------------------ tanaffus --- */
@@ -471,127 +219,13 @@ function BreakCard({ data, now, onChanged, onToast }: { data: HomeData; now: Dat
       <span>
         <b>{open ? `Tanaffusda · ${open.start} dan` : "Tanaffus"}</b>
         <small>
-          Bugun: {duration(total)}{planned ? ` / ${duration(planned)}` : ""}
+          Bugun: {duration(total)}
+          {planned ? ` / ${duration(planned)}` : ""}
         </small>
       </span>
       <button className={`mini-btn sm ${open ? "" : "soft"}`} disabled={busy} onClick={() => void toggle()}>
         {busy ? <LoaderCircle size={15} className="spin" /> : null}
         {open ? "Qaytdim" : "Boshlash"}
-      </button>
-    </section>
-  );
-}
-
-/* ----------------------------------------------------------- kechikaman --- */
-function LateSheet({ start, name, onClose, onSaved }: { start: string; name: string; onClose: () => void; onSaved: (sent: boolean) => void }) {
-  const [minutes, setMinutes] = useState(15);
-  const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const presets = ["Tirbandlik", "Transport kechikdi", "Shifokorda", "Oilaviy sabab"];
-  async function save() {
-    if (reason.trim().length < 3) return setError("Sababni qisqacha yozing.");
-    setBusy(true);
-    setError("");
-    try {
-      const result = await post<{ managersNotified: number }>("/mini/late-notice", { minutes, reason: reason.trim() });
-      onSaved(result.managersNotified > 0);
-    } catch (reason) {
-      setError(errorText(reason, "Yuborilmadi."));
-      haptic.error();
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Sheet
-      title="Kechikaman"
-      subtitle={start ? `Ish ${start} da boshlanadi · rahbaringizga xabar boradi` : "Rahbaringizga xabar boradi"}
-      onClose={onClose}
-      primary={{ text: `~${minutes} daqiqaga kechikaman`, onClick: () => void save(), busy, disabled: reason.trim().length < 3 }}
-      secondary={{
-        text: "Hamkasbga ulashish",
-        onClick: () => void shareText("Kechikaman", `⏳ ${name}: ishga ~${duration(minutes)} kechikaman.${reason.trim() ? ` Sabab: ${reason.trim()}` : ""}`),
-      }}
-    >
-      <div className="ml-minutes" role="radiogroup" aria-label="Necha daqiqa">
-        {[5, 10, 15, 30, 45, 60, 90].map((value) => (
-          <button
-            key={value}
-            role="radio"
-            aria-checked={minutes === value}
-            className={minutes === value ? "on" : ""}
-            onClick={() => {
-              haptic.select();
-              setMinutes(value);
-            }}
-          >
-            {value < 60 ? `${value} daq` : `${value / 60} soat`.replace("1.5", "1,5")}
-          </button>
-        ))}
-      </div>
-      <div className="ms-chips">
-        {presets.map((text) => (
-          <button type="button" key={text} onClick={() => setReason(text)}>
-            {text}
-          </button>
-        ))}
-      </div>
-      <label className="ml-field">
-        Sabab
-        <textarea value={reason} maxLength={200} onChange={(e) => setReason(e.target.value)} placeholder="Masalan: avtobus kechikdi" />
-      </label>
-      {error && (
-        <div className="mini-alert">
-          <AlertCircle size={18} />
-          <span>{error}</span>
-        </div>
-      )}
-      <p className="mp-note">Ogohlantirish kechikishni bekor qilmaydi, lekin rahbaringiz vaziyatdan xabardor bo‘ladi.</p>
-    </Sheet>
-  );
-}
-
-const HOME_SCREEN_KEY = "staffora_homescreen_hidden";
-/** «Bosh ekranga qo‘shish» taklifi — yorliq qo‘shilguncha yoki yopilguncha. */
-function HomeScreenCard() {
-  const homeScreen = useHomeScreen();
-  const [hidden, setHidden] = useState(() => {
-    try {
-      return localStorage.getItem(HOME_SCREEN_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
-  if (!homeScreen.canAdd || hidden) return null;
-  const hide = () => {
-    setHidden(true);
-    try {
-      localStorage.setItem(HOME_SCREEN_KEY, "1");
-    } catch {
-      /* ignore */
-    }
-  };
-  return (
-    <section className="mh-homescreen">
-      <span className="mh-homescreen-ico">
-        <Smartphone size={20} />
-      </span>
-      <span>
-        <b>Bosh ekranga qo‘shing</b>
-        <small>Staffora telefon ekranidan bir bosishda ochiladi</small>
-      </span>
-      <button
-        className="mh-homescreen-add"
-        onClick={() => {
-          haptic.tap();
-          homeScreen.add();
-        }}
-      >
-        Qo‘shish
-      </button>
-      <button className="mh-homescreen-x" onClick={hide} aria-label="Yopish">
-        <X size={16} />
       </button>
     </section>
   );

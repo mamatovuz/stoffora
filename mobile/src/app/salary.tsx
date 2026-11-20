@@ -1,12 +1,12 @@
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Alert, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { Text, TextInput } from "@/components/T";
 import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Row, Sheet, haptic } from "@/components/ui";
 import { errorText, post } from "@/lib/api";
 import { dateUz, duration, som, tashkentIsoDate } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
-import type { AdvanceRequest, Salary } from "@/lib/types";
+import type { AdvanceRequest, HomeData, Salary } from "@/lib/types";
 import { invalidate, useData } from "@/lib/useData";
 
 /* Karta: tozalash, Luhn va ko‘rinish (server ham xuddi shunday tekshiradi). */
@@ -53,11 +53,13 @@ export default function SalaryScreen() {
   const current = tashkentIsoDate().slice(0, 7);
   const [month, setMonth] = useState(current);
   const { data, error, loading, reload } = useData<Salary>(`/mini/salary?month=${month}`, { maxAgeMs: 0 });
+  // Kompaniyada qo‘shimcha ish to‘lanmasa — u haqidagi qatorlar ko‘rsatilmaydi.
+  const overtimeOn = useData<HomeData>("/mini/home", { refetchOnFocus: false }).data?.features?.overtime !== false;
   const [visible, setVisible] = useState(false);
   const [open, setOpen] = useState(false);
   // «Avans so‘rash» xabari (push / bildirishnoma) orqali kelganda — forma darhol ochiladi (bir marta).
   const { ask } = useLocalSearchParams<{ ask?: string }>();
-  const asked = useRef(false);
+  const [asked, setAsked] = useState(false);
   const canAsk = Boolean(
     data &&
       data.current !== false &&
@@ -67,11 +69,11 @@ export default function SalaryScreen() {
       data.limit.available >= 10_000 &&
       !data.requests.some((r) => r.status === "PENDING" || r.status === "HR_APPROVED"),
   );
-  useEffect(() => {
-    if (ask !== "1" || asked.current || !data) return;
-    asked.current = true;
+  // Ma’lumot kelgan birinchi render’da (effekt’siz).
+  if (ask === "1" && !asked && data) {
+    setAsked(true);
     if (canAsk) setOpen(true);
-  }, [ask, canAsk, data]);
+  }
   if (loading && !data) return <Loading />;
   if (!data) return <ErrorBox text={error || "Ma’lumot yuklanmadi"} onRetry={reload} />;
   const show = (v: number) => (visible ? som(v) : "•••");
@@ -129,7 +131,7 @@ export default function SalaryScreen() {
       <Card style={{ gap: 10 }}>
         <MoneyLine label="Hisoblandi" value={show(data.accrued ?? data.base)} tone={c.success} head />
         <MoneyLine label="+ Maosh (oklad)" value={show(data.base)} sub />
-        <MoneyLine label="+ Qo‘shimcha ish" value={show(data.overtimeAmount)} sub />
+        {overtimeOn ? <MoneyLine label="+ Qo‘shimcha ish" value={show(data.overtimeAmount)} sub /> : null}
         <MoneyLine label="+ Mukofot" value={show(data.bonus)} sub />
         <View style={{ height: StyleSheet.hairlineWidth, backgroundColor: c.line, marginVertical: 4 }} />
         <MoneyLine label="Ushlab qolindi" value={show(data.withheld ?? 0)} tone={c.danger} head />
@@ -154,7 +156,7 @@ export default function SalaryScreen() {
         <MoneyLine label="1 ish kuni" value={show(data.workingDays ? Math.round(data.base / data.workingDays) : 0)} sub />
       </Card>
       {data.compensatedDays ? <Hint tone="ok" icon="checkmark-circle-outline">{data.compensatedDays} ta sababsiz kelmagan kun dam kunida ishlab qoplandi.</Hint> : null}
-      {data.pendingOvertimeMinutes ? <Hint icon="timer-outline">{duration(data.pendingOvertimeMinutes)} qo‘shimcha ish rahbar tasdig‘ini kutmoqda.</Hint> : null}
+      {overtimeOn && data.pendingOvertimeMinutes ? <Hint icon="timer-outline">{duration(data.pendingOvertimeMinutes)} qo‘shimcha ish rahbar tasdig‘ini kutmoqda.</Hint> : null}
 
       {data.current !== false && data.limit.enabled ? (
         <>

@@ -11,6 +11,7 @@ import type { AuthedRequest } from "./auth";
 import { documentStatus } from "./documents";
 import { financeSummary } from "./finance";
 import { closedPeriod } from "./payroll-routes";
+import { lateCoverage, normalizePayrollSettings } from "../lib/payroll";
 import { MANUAL_STEPS } from "./people";
 
 /*
@@ -195,12 +196,17 @@ export function buildInbox(db: Database, tenant: string, role: Role, scope: Set<
     }
 
   const company = db.companies.find((c) => c.id === tenant);
-  if (company?.payroll?.overtimeRequiresApproval && canAny(role, ["attendance.edit", "payroll.edit"])) {
+  const payroll = normalizePayrollSettings(company?.payroll);
+  // Qo‘shimcha ish to‘lanmasa (overtimePay o‘chiq) — tasdiqlash so‘rovlari ham chiqmaydi.
+  if (payroll.overtimePay && payroll.overtimeRequiresApproval && canAny(role, ["attendance.edit", "payroll.edit"])) {
     const month = today.slice(0, 7);
     if (!closedPeriod(db, tenant, month))
       for (const a of db.attendance.filter((x) => x.companyId === tenant && x.date.startsWith(month) && x.overtimeMinutes > 0 && x.overtimeApproved === undefined)) {
         const e = emp(a.employeeId);
         if (!inScope(e, a.branchId)) continue;
+        // Kechikishni yopish uchun ishlangan vaqt qo‘shimcha ish emas.
+        const extra = lateCoverage(a, payroll).overtime;
+        if (extra <= 0) continue;
         // Ikki bosqich: rahbar tasdiqlagani — faqat moliyada; tasdiqlanmagani — rahbarda (moliya ham ko‘radi).
         if (a.overtimeManagerBy && !can(role, "payroll.edit")) continue;
         items.push({
@@ -208,7 +214,7 @@ export function buildInbox(db: Database, tenant: string, role: Role, scope: Set<
           id: a.id,
           label: "Qo‘shimcha ish",
           title: nameOf(e),
-          sub: `${dmy(a.date)} · +${a.overtimeMinutes} daq (${a.checkOut || "…"} / grafik ${a.scheduledEnd})`,
+          sub: `${dmy(a.date)} · +${extra} daq (${a.checkOut || "…"} / grafik ${a.scheduledEnd})`,
           detail: a.overtimeNote,
           stage: a.overtimeManagerBy ? `Rahbar ✓ (${a.overtimeManagerBy}) → Moliya kutilmoqda` : undefined,
           urgent: false,
@@ -364,7 +370,8 @@ function buildActions(db: Database, tenant: string, role: Role, scope: Set<strin
   if (canAny(role, ["employees.edit", "payroll.edit"])) push({ level: "orange", text: "jarima taklifi tasdiq kutmoqda", count: count("fine"), link: "/fines", view: "inbox" });
   if (canAny(role, ["devices.manage", "employees.edit"])) {
     push({ level: "red", text: "telefon almashtirish so‘rovi (xodim kira olmayapti)", count: count("device"), link: "/settings?tab=apps", view: "devices" });
-    const active = db.mobileDevices.filter((d) => d.companyId === tenant && d.status === "ACTIVE");
+    // Rahbar (direktor) qurilmalari push token yubormaydi — faqat xodim telefonlari sanaladi.
+    const active = db.mobileDevices.filter((d) => d.companyId === tenant && d.status === "ACTIVE" && d.employeeId);
     const pushOk = new Set(db.mobilePushTokens.filter((t) => t.active).map((t) => t.deviceId));
     push({ level: "yellow", text: "telefonda push ishlamayapti", count: active.filter((d) => !pushOk.has(d.id)).length, link: "/settings?tab=apps", view: "devices" });
     const latest = active.map((d) => d.appVersion).filter(Boolean).sort(compareVersions).pop();
@@ -533,7 +540,7 @@ export function createWorkspaceRouter() {
       if (!canAny(role, ["devices.manage", "employees.edit"])) return res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
       const db = await readDb();
       const tenant = req.session!.companyId!;
-      const devices = db.mobileDevices.filter((d) => d.companyId === tenant);
+      const devices = db.mobileDevices.filter((d) => d.companyId === tenant && d.employeeId);
       const active = devices.filter((d) => d.status === "ACTIVE");
       const pushOk = new Set(db.mobilePushTokens.filter((t) => t.active).map((t) => t.deviceId));
       const latest = active.map((d) => d.appVersion).filter(Boolean).sort(compareVersions).pop();

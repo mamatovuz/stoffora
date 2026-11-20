@@ -69,6 +69,8 @@ export function purgeEmployees(db: Database, companyId: string, ids: Set<string>
   db.telegramInvites = db.telegramInvites.filter((i) => !mine(i));
   db.attendanceSessions = db.attendanceSessions.filter((s) => !mine(s));
   db.notifications = db.notifications.filter((n) => !mine(n));
+  // Ilovaga kirish logini va parol xeshi — xodim bilan birga o‘chadi (login yana bo‘shaydi).
+  db.staffCredentials = (db.staffCredentials || []).filter((c) => !mine(c));
   db.entityMappings = db.entityMappings.filter((m) => !(m.companyId === companyId && m.entity === "employee" && ids.has(m.localId)));
   db.integrationConflicts = db.integrationConflicts.filter((c) => !(c.companyId === companyId && c.entity === "employee" && ids.has(c.localId)));
   for (const request of db.registrations)

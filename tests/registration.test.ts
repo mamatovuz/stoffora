@@ -3,8 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Bot } from "grammy";
+import bcrypt from "bcryptjs";
 import {
+  checkAge,
   checkBirthDate,
+  checkEmail,
   checkFullName,
   checkPhone,
   checkPinfl,
@@ -47,6 +50,21 @@ describe("anketa tekshiruvlari", () => {
     expect(checkSalary("4 000 000")).toEqual({ ok: true, value: 4_000_000 });
     expect(checkSalary("3.5 mln")).toEqual({ ok: true, value: 3_500_000 });
     expect(checkSalary("oz").ok).toBe(false);
+  });
+  it("yosh — butun son 14–80; email — oddiy tekshiruv", () => {
+    expect(checkAge("25")).toEqual({ ok: true, value: "25" });
+    expect(checkAge(" 14 ")).toEqual({ ok: true, value: "14" });
+    expect(checkAge("80").ok).toBe(true);
+    expect(checkAge("13").ok).toBe(false);
+    expect(checkAge("81").ok).toBe(false);
+    expect(checkAge("25.5").ok).toBe(false);
+    expect(checkAge("yigirma").ok).toBe(false);
+    expect(checkEmail(" Ali.Valiyev@Gmail.com ")).toEqual({ ok: true, value: "ali.valiyev@gmail.com" });
+    expect(checkEmail("ali@mail.uz").ok).toBe(true);
+    expect(checkEmail("ali@gmail").ok).toBe(false);
+    expect(checkEmail("ali gmail.com").ok).toBe(false);
+    expect(checkEmail("ali..v@gmail.com").ok).toBe(false);
+    expect(checkEmail("@gmail.com").ok).toBe(false);
   });
 });
 
@@ -213,8 +231,27 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     expect(draft?.data.idDocument).toBeTruthy();
     expect(draft?.data.selfie).toBeTruthy();
     expect(draft?.data.selfieDescriptor).toHaveLength(128);
+    // Oxirgi savol — ilova logini: tugmada ism-familiyadan taklif.
+    expect(draft?.step).toBe("appLogin");
+    expect(JSON.stringify(t.calls.at(-1)?.payload.reply_markup)).toContain("ali.valiyev@staffora.uz");
+    await t.text(555, "ali@gmail.com"); // boshqa domen
+    expect(t.lastText()).toContain("@staffora.uz avtomatik");
+    await t.press(555, "rg:a:appLogin:ali.valiyev");
+    expect((await t.draft())?.data.appLogin).toBe("ali.valiyev@staffora.uz");
+    expect(t.lastText()).toContain("parol");
+    await t.text(555, "qisqa1"); // zaif parol
+    expect(t.lastText()).toContain("kamida 8");
+    await t.text(555, "Valiyev2026");
+    // Parol xabari chatdan o‘chiriladi; javobda — spoiler ichida; bazada — faqat bcrypt xeshi.
+    expect(t.calls.filter((c) => c.method === "deleteMessage")).toHaveLength(2);
+    const spoiler = t.calls.filter((c) => c.method === "sendMessage").map((c) => String(c.payload.text)).find((x) => x.includes("tg-spoiler"));
+    expect(spoiler).toContain("<code>ali.valiyev@staffora.uz</code> · Parol: <tg-spoiler>Valiyev2026</tg-spoiler>");
+    draft = await t.draft();
+    expect(draft?.data.appPasswordHash).toMatch(/^\$2[aby]\$12\$/);
+    expect(JSON.stringify(draft)).not.toContain("Valiyev2026");
     expect(draft?.step).toBe("summary");
     expect(t.lastText()).toContain("Ali Valiyev");
+    expect(t.lastText()).toContain("ali.valiyev@staffora.uz · parol: ••••••");
 
     // Tahrirlash: faqat bitta maydon, keyin xulosaga qaytadi
     await t.press(555, "rg:edit");
@@ -223,6 +260,16 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     draft = await t.draft();
     expect(draft?.step).toBe("summary");
     expect(draft?.data.address).toBe("Asaka shahri, Navoiy ko‘chasi 5");
+    // Login va parolni xulosadan qayta tanlash: ikkalasi boshidan so‘raladi, keyin xulosaga qaytadi.
+    await t.press(555, "rg:edit");
+    await t.press(555, "rg:ef:appLogin");
+    const reset = (await t.draft())?.data;
+    expect(reset?.appLogin).toBeUndefined();
+    expect(reset?.appPasswordHash).toBeUndefined();
+    await t.text(555, "Ali.V");
+    await t.text(555, "Yangi2026parol");
+    draft = await t.draft();
+    expect(draft).toMatchObject({ step: "summary", data: { appLogin: "ali.v@staffora.uz" } });
 
     await t.press(555, "rg:submit");
     draft = await t.draft();
@@ -258,6 +305,13 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
       gender: "MALE",
       pinfl: "31508951234567",
     });
+    // Ilova logini faollashdi: xodimda faqat login, xesh — staffCredentials’da; anketada xesh qolmaydi.
+    expect(employee.login).toBe("ali.v@staffora.uz");
+    const credential = db.staffCredentials.find((c) => c.employeeId === employee.id)!;
+    expect(credential.login).toBe("ali.v@staffora.uz");
+    expect(await bcrypt.compare("Yangi2026parol", credential.passwordHash)).toBe(true);
+    expect(JSON.stringify(employee)).not.toContain(credential.passwordHash);
+    expect(db.registrations.find((r) => r.id === draft!.id)?.data.appPasswordHash).toBeUndefined();
     // Pasport rasmi xodim hujjatlariga tushadi (fayl saqlangan)
     const passport = db.documents.find((d) => d.employeeId === employee.id && d.type === "PASSPORT")!;
     expect(passport.id).toBe(draft!.data.idDocument);
@@ -270,6 +324,7 @@ describe("botda ro‘yxatdan o‘tish (to‘liq suhbat)", () => {
     expect(schedule.days.find((d) => d.day === 0)?.enabled).toBe(false);
     const welcome = t.calls.find((c) => c.method === "sendMessage" && c.payload.chat_id === "555" && String(c.payload.text).includes("Tabriklaymiz"));
     expect(JSON.stringify(welcome?.payload.reply_markup)).toContain("web_app");
+    expect(String(welcome?.payload.text)).toContain("<code>ali.v@staffora.uz</code>");
     // HR xabari yangilanadi
     expect(t.calls.some((c) => c.method === "editMessageText" && String(c.payload.text).includes("Tasdiqlandi"))).toBe(true);
     // Qayta /start — endi xodim, anketa emas
@@ -316,6 +371,8 @@ describe("kompaniya o‘zi sozlagan anketa", () => {
           { id: "pinfl", field: "pinfl", type: "pinfl", title: "x", required: true, enabled: false },
           { id: "idDocument", field: "idDocument", type: "photo", title: "x", required: true, enabled: false },
           { id: "selfie", field: "selfie", type: "photo", title: "x", required: true, enabled: false },
+          // Ilova logini o‘chirilgan — anketa avvalgidek tugaydi.
+          { id: "appLogin", field: "appLogin", type: "login", title: "x", required: true, enabled: false },
         ],
         intro: "Salom! {company} jamoasiga xush kelibsiz <script>",
       });
@@ -342,6 +399,8 @@ describe("kompaniya o‘zi sozlagan anketa", () => {
     const employee = (await t.store.readDb()).employees.find((e) => e.telegramId === "555")!;
     expect(employee.customFields).toEqual({ "Ish tajribangiz qancha": "3 yildan ko‘p", "Haydovchilik guvohnomangiz bormi": "Ha" });
     expect(employee.parentPhone).toBeUndefined();
+    expect(employee.login).toBeUndefined();
+    expect((await t.store.readDb()).staffCredentials).toHaveLength(0);
     // Grafik ko‘rsatilmagan — standart 09:00–18:00 yaratiladi
     expect((await t.store.readDb()).schedules.find((s) => s.id === employee.scheduleId)?.days[1].start).toBe("09:00");
   });
@@ -358,8 +417,106 @@ describe("kompaniya o‘zi sozlagan anketa", () => {
     const ids = form.questions.filter((q) => q.enabled).map((q) => q.id);
     expect(ids.indexOf("gender")).toBe(ids.indexOf("fullName") + 1);
     expect(ids).toContain("pinfl");
-    expect(ids.slice(-2)).toEqual(["idDocument", "selfie"]);
+    expect(ids.slice(-3)).toEqual(["idDocument", "selfie", "appLogin"]);
+    // Email — yangi tizim maydoni: ota-ona telefonidan keyin, o‘chiq va ixtiyoriy.
+    const all = form.questions.map((q) => q.id);
+    expect(all.indexOf("email")).toBe(all.indexOf("parentPhone") + 1);
+    expect(byId.email).toMatchObject({ enabled: false, required: false, type: "email" });
+    expect(byId.appLogin).toMatchObject({ enabled: true, required: true, type: "login" });
     const custom = normalizeForm({ questions: [{ id: "abcd1", type: "choice", title: "Tanlang", options: [], required: true, enabled: true }] });
     expect(custom.questions.find((q) => q.id === "abcd1")?.options).toEqual(["Ha", "Yo‘q"]);
+  });
+
+  it("ilova logini har doim oxirida; yangi savol turlari (yosh, email) saqlanadi", async () => {
+    const { normalizeForm, defaultForm, CUSTOM_TYPES, validateText } = await import("../server/registration");
+    expect(CUSTOM_TYPES).toEqual(["text", "number", "age", "phone", "email", "date", "money", "choice", "yesno"]);
+    const base = defaultForm().questions;
+    expect(base.at(-1)?.id).toBe("appLogin");
+    const login = base.find((q) => q.id === "appLogin")!;
+    const form = normalizeForm({
+      questions: [
+        { ...login, required: false },
+        ...base.filter((q) => q.id !== "appLogin"),
+        { id: "age1", type: "age", title: "Yoshingiz?", required: true, enabled: true },
+        { id: "mail1", type: "email", title: "Ish emailingiz?", required: false, enabled: true },
+        { id: "bad1", type: "login" as never, title: "Begona tur", required: true, enabled: true },
+      ],
+    });
+    expect(form.questions.at(-1)).toMatchObject({ id: "appLogin", required: true });
+    const byId = Object.fromEntries(form.questions.map((q) => [q.id, q]));
+    expect(byId.age1.type).toBe("age");
+    expect(byId.mail1.type).toBe("email");
+    // «login» — faqat tizim maydoni uchun; qo‘shimcha savolda matnga aylanadi.
+    expect(byId.bad1.type).toBe("text");
+    expect(validateText(byId.age1, "13")?.ok).toBe(false);
+    expect(validateText(byId.age1, "30")).toEqual({ ok: true, value: "30" });
+    expect(validateText(byId.mail1, "ali@mail.uz")).toEqual({ ok: true, value: "ali@mail.uz" });
+  });
+
+  it("anketa mavjud xodimning kirish ma’lumotini almashtira olmaydi; HR ogohlantiriladi", async () => {
+    const t = await setup();
+    const { normalizeForm, defaultForm, existingEmployeeMatch } = await import("../server/registration");
+    await t.store.updateDb((db) => {
+      db.companies[0].registrationForm = normalizeForm({
+        questions: defaultForm().questions.map((q) => ({ ...q, enabled: ["fullName", "phone", "positionId", "branchId", "appLogin"].includes(q.id) })),
+      });
+      db.employees.push({ id: "victim", companyId: "c1", employeeNo: "EMP-0001", firstName: "Vali", lastName: "Karimov", phone: "+998932303410", status: "ACTIVE", telegramId: "111", login: "vali@staffora.uz", branchId: "b1", positionId: "p1", baseSalary: 0, startDate: "2026-01-01" } as never);
+      db.staffCredentials.push({ id: "cv", companyId: "c1", employeeId: "victim", login: "vali@staffora.uz", passwordHash: "$2a$12$victimhash", createdAt: "", updatedAt: "" });
+      // Boshqa Telegram hisobidan hamkasbining telefoni va o‘z paroli bilan anketa.
+      db.registrations.push({
+        id: "r9", companyId: "c1", telegramId: "555", status: "DRAFT", step: "summary",
+        data: { fullName: "Vali Karimov", phone: "+998932303410", positionId: "p1", branchId: "b1", appLogin: "hujumchi@staffora.uz", appPasswordHash: "$2a$12$attacker" },
+        createdAt: "", updatedAt: new Date().toISOString(),
+      });
+    });
+    await t.press(555, "rg:submit");
+    expect((await t.store.readDb()).registrations.find((r) => r.id === "r9")?.status).toBe("PENDING");
+    const hr = t.calls.find((c) => c.method === "sendMessage" && c.payload.chat_id === "900");
+    expect(String(hr?.payload.text)).toContain("mavjud xodimniki — <b>Vali Karimov</b>");
+    const before = await t.store.readDb();
+    expect(existingEmployeeMatch(before, before.registrations.find((r) => r.id === "r9")!)).toMatchObject({ by: "phone", name: "Vali Karimov" });
+    await t.press(900, "hr:a:r9");
+    const db = await t.store.readDb();
+    expect(db.registrations.find((r) => r.id === "r9")?.status).toBe("APPROVED");
+    expect(db.staffCredentials.find((c) => c.employeeId === "victim")).toMatchObject({ login: "vali@staffora.uz", passwordHash: "$2a$12$victimhash" });
+    expect(db.staffCredentials.some((c) => c.login === "hujumchi@staffora.uz")).toBe(false);
+    expect(db.registrations.find((r) => r.id === "r9")?.data.appPasswordHash).toBeUndefined();
+    expect(t.lastText()).toContain("kirish ma’lumotlari o‘zgarmadi");
+  });
+
+  it("band login rad etiladi; taklif bo‘sh loginni beradi; tasdiqlashda band bo‘lsa — loginsiz tasdiqlanadi", async () => {
+    const t = await setup();
+    await t.store.updateDb((db) => {
+      db.staffCredentials.push({ id: "s1", companyId: "c9", employeeId: "x9", login: "ali.valiyev@staffora.uz", passwordHash: "$2a$12$x", createdAt: "", updatedAt: "" });
+      db.users.push({ id: "u9", name: "Direktor", email: "boss@firma.uz", passwordHash: "", role: "COMPANY_OWNER", companyId: "c9", mobileLogin: "direktor@staffora.uz" } as never);
+      db.registrations.push({
+        id: "r7", companyId: "c1", telegramId: "555", status: "DRAFT", step: "appLogin",
+        data: { fullName: "Ali Valiyev", phone: "+998932303410", positionId: "p1", branchId: "b1" },
+        createdAt: "", updatedAt: new Date().toISOString(),
+      });
+    });
+    const { buttonsFor, companyForm } = await import("../server/registration");
+    const db = await t.store.readDb();
+    const question = companyForm(db.companies[0]).questions.find((q) => q.id === "appLogin")!;
+    expect(JSON.stringify(buttonsFor(question, db, "c1", { fullName: "Ali Valiyev" }))).toContain("ali.valiyev2@staffora.uz");
+    await t.text(555, "ali.valiyev");
+    expect(t.lastText()).toContain("band");
+    await t.text(555, "direktor@staffora.uz");
+    expect(t.lastText()).toContain("band");
+    expect((await t.draft())?.data.appLogin).toBeUndefined();
+
+    // PENDING anketa: login tanlangan, lekin tasdiqlashdan oldin boshqa xodim olib qo‘ygan.
+    await t.store.updateDb((next) => {
+      const row = next.registrations.find((r) => r.id === "r7")!;
+      Object.assign(row, { status: "PENDING", step: "summary" });
+      Object.assign(row.data, { appLogin: "ali.free@staffora.uz", appPasswordHash: "$2a$12$hash" });
+      next.staffCredentials.push({ id: "s2", companyId: "c9", employeeId: "x8", login: "ali.free@staffora.uz", passwordHash: "$2a$12$y", createdAt: "", updatedAt: "" });
+    });
+    const result = await t.bots.decideRegistration("c1", "r7", "APPROVE", "HR");
+    expect(result.employee?.id).toBeTruthy();
+    const after = await t.store.readDb();
+    expect(after.staffCredentials.some((c) => c.employeeId === result.employee!.id)).toBe(false);
+    expect(after.registrations.find((r) => r.id === "r7")?.data.appPasswordHash).toBeUndefined();
+    expect(t.lastText()).toContain("Mini App → Profil");
   });
 });

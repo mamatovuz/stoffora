@@ -21,21 +21,8 @@
 .mini .mh-hint.info,
 .mini .mh-hint.warn { background: var(--m-card); }
 
-/* Bo‘limlar: bitta ko‘k rang, yumshoq fon, faqat nom (izohlar «Qaysi kun, soat ne…» deb kesilib qolardi). */
-.mini .mh-menu-row { grid-template-rows: auto; min-height: 54px; padding: 10px 12px; }
-.mini .mh-menu-row i { grid-row: auto; width: 32px; height: 32px; border-radius: 9px; background: color-mix(in srgb, var(--m-accent) 10%, transparent); color: var(--m-accent); }
-.mini .mh-menu-row i svg { width: 18px; height: 18px; }
-.mini .mh-menu-row small { display: none; }
-.mini .mh-menu-row b,
-.mini .mh-menu-row b:last-child { grid-row: auto; font-size: 14px; line-height: 1.25; white-space: normal; }
-
 /* Oylik kartasi: belgi ko‘k-neytral; yashil faqat progressda (ma’no). */
 .mini .ms-ico { background: color-mix(in srgb, var(--m-accent) 10%, transparent); color: var(--m-accent); }
-
-/* Tug‘ilgan kunlar: oddiy karta, sakrash yo‘q. */
-.mini .bd-card { background: var(--m-card); }
-.mini .bd-icon { background: color-mix(in srgb, #ec4899 10%, transparent); }
-.mini .bd-card.mine .bd-icon { animation: none; }
 
 /* ------------------------------------------------- shisha → yaxlit fon --- */
 .mini .mini-nav { background: var(--m-card); -webkit-backdrop-filter: none; backdrop-filter: none; }
@@ -45,7 +32,67 @@
 /* ------------------------------------------ cheksiz bezak animatsiyalari --- */
 .mini .rc-streak.record { animation: none; }
 .mini .mg-updated i { animation: none; box-shadow: none; }
-.mini .mh-geo-pulse::before { animation: none; }
+
+/* ------------------------------------------------- katalog (Bo‘limlar) --- */
+/* «Bo‘limlar» va rahbarning «Boshqaruv»i: guruh kartasi, qalin sarlavha, 4 ustunli plitkalar —
+   och-ko‘k yumshoq kvadrat ichida ko‘k belgi, ostida ko‘pi bilan 2 qatorli nom. */
+.mini .sec-title { margin: 2px 0 0; color: var(--m-ink); font-size: 20px; font-weight: 700; letter-spacing: -0.01em; text-align: center; }
+.mini .cat-card { padding: 16px 8px 18px; border-radius: 20px; background: var(--m-card); }
+.mini .cat-title { margin: 0 8px 14px; color: var(--m-ink); font-size: 17px; font-weight: 700; letter-spacing: -0.01em; text-wrap: balance; }
+.mini .cat-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); row-gap: 18px; column-gap: 2px; }
+.mini .cat-tile { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; padding: 0 2px; border: 0; background: none; color: var(--m-ink); font: inherit; cursor: pointer; }
+.mini .cat-ico { position: relative; display: grid; place-items: center; width: 60px; height: 60px; border-radius: 18px; background: color-mix(in srgb, var(--m-accent) 10%, var(--m-card)); color: var(--m-accent); transition-property: transform; transition-duration: 150ms; transition-timing-function: ease-out; }
+.mini .cat-tile:active .cat-ico { transform: scale(0.94); }
+.mini .cat-tile:focus-visible { outline: none; }
+.mini .cat-tile:focus-visible .cat-ico { box-shadow: 0 0 0 2px var(--m-accent); }
+.mini .cat-label { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; max-width: 100%; overflow: hidden; font-size: 12.5px; font-weight: 500; line-height: 1.25; text-align: center; overflow-wrap: break-word; }
+.mini .cat-badge { position: absolute; top: -5px; right: -7px; min-width: 19px; height: 19px; padding: 0 5px; border: 2px solid var(--m-card); border-radius: 99px; background: var(--m-danger); color: #fff; font-size: 10.5px; font-style: normal; font-weight: 700; line-height: 15px; text-align: center; font-variant-numeric: tabular-nums; }
+html[data-tg-scheme="dark"] .mini .cat-ico,
+html[data-mini-theme="dark"] .mini .cat-ico { background: color-mix(in srgb, var(--m-accent) 18%, var(--m-card)); }
+
+/* ------------------------------------------------- rahbar: «Umumiy» --- */
+.mini .desk-tiles b { font-variant-numeric: tabular-nums; }
+.mini .desk-tiles b.desk-sk { color: var(--m-muted); opacity: 0.45; }
+.mini .desk-all { display: inline-flex; align-items: center; gap: 2px; margin: 14px 4px 2px; padding: 0; font-size: 13px; }
+.mini .desk-recent { padding: 0 14px; }
+.mini .desk-ev { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.mini .desk-ev:active { opacity: 0.7; }
+.mini .desk-ev b { overflow: hidden; font-size: 14.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.mini .desk-ev-time { display: inline-flex; flex: none; align-items: center; gap: 6px; color: var(--m-muted); font-size: 13px; white-space: nowrap; }
+.mini .desk-ev-time::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--m-success); }
+.mini .desk-ev-time.late::before { background: var(--m-warn); }
+.mini .desk-ev-time.out::before { background: var(--m-muted); }
+.mini .desk-ev-time b { color: var(--m-ink); font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.mini .desk-branches { display: grid; gap: 14px; padding: 14px 16px; }
+.mini .desk-branch { display: grid; gap: 7px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.mini .desk-branch:active { opacity: 0.7; }
+.mini .desk-branch-top { display: flex; align-items: baseline; gap: 8px; }
+.mini .desk-branch-top b { flex: 1; min-width: 0; overflow: hidden; font-size: 14.5px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.mini .desk-branch-top small { color: var(--m-muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.mini .desk-branch-top strong { min-width: 42px; font-size: 14px; text-align: right; font-variant-numeric: tabular-nums; }
+.mini .desk-branch .ok { color: var(--m-success); }
+.mini .desk-branch .warn { color: var(--m-warn); }
+.mini .desk-branch .bad { color: var(--m-danger); }
+.mini .desk-bar { display: block; height: 4px; overflow: hidden; border-radius: 2px; background: var(--m-tint); }
+.mini .desk-bar i { display: block; height: 100%; border-radius: inherit; background: var(--m-success); }
+.mini .desk-bar i.warn { background: var(--m-warn); }
+.mini .desk-bar i.bad { background: var(--m-danger); }
+.mini .desk-money b { font-variant-numeric: tabular-nums; }
+
+/* -------------------------------------------------- ilovaga kirish --- */
+.mini .mp-sub { display: grid; gap: inherit; }
+.mini .al-row b { max-width: 72%; }
+.mini .al-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--m-ink); font-variant-numeric: tabular-nums; }
+.mini .al-hint { margin: -2px 6px 0; text-align: left; text-wrap: pretty; }
+.mini .al-form { display: grid; gap: 14px; }
+.mini .sheet .al-input { display: flex; align-items: center; gap: 4px; min-height: 46px; padding: 0 4px 0 14px; border-radius: 12px; background: var(--m-card); }
+.mini .sheet .al-input:focus-within { box-shadow: 0 0 0 2px var(--m-accent); }
+.mini .sheet .al-input.bad { box-shadow: 0 0 0 1.5px var(--m-danger); }
+.mini .sheet .al-input input { flex: 1; width: auto; min-width: 0; min-height: 44px; padding: 0; border-radius: 0; background: none; box-shadow: none; }
+.mini .al-suffix { flex: none; padding-right: 10px; color: var(--m-muted); font-size: 16px; }
+.mini .al-eye { display: grid; flex: none; place-items: center; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--m-muted); }
+.mini .al-err { color: var(--m-danger); font-size: 12.5px; font-weight: 500; line-height: 1.35; text-wrap: pretty; }
+.mini .al-help { color: var(--m-muted); font-size: 12.5px; font-weight: 400; }
 
 /* ------------------------------------------------------------ ro‘yxatlar --- */
 /* Ko‘p xabarnoma bo‘lsa — ekrandan tashqaridagilari chizilmaydi (o‘lchami eslab qolinadi). */

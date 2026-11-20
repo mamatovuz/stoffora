@@ -11,6 +11,7 @@ import { defaultPlans } from "../lib/platform/subscriptions";
 import { CORPORATE_TENANT, type CorporateTransaction } from "../lib/corporate/types";
 import { postLedger } from "../server/corporate/ledger";
 import { freezeMonth, setStage } from "../server/payroll-workflow";
+import { setEmployeeCredential, splitName, suggestFreeLogin } from "../lib/staff-credentials";
 import type { Attendance, Database } from "../lib/types";
 
 if (!process.env.SQLITE_PATH || /staffora\.sqlite$/.test(process.env.SQLITE_PATH)) {
@@ -237,6 +238,7 @@ async function main() {
   });
   await seedPayroll(company.id, today);
   await seedPlatform(company.id, today);
+  await seedLogins(company.id);
   console.log(`Demo ma’lumot yaratildi: ${PEOPLE.length} xodim, 4 filial, platforma va corporate namunasi.`);
 }
 
@@ -278,6 +280,22 @@ async function seedPayroll(companyId: string, today: string) {
       const amount = i % 4 === 2 ? Math.round(line.net / 2) : line.net;
       db.payrollPayments.push({ id: id(), companyId, employeeId: line.employeeId, month: prevMonth, amount, method: i % 3 ? "CARD" : "BANK", paidAt: `${today.slice(0, 7)}-05`, idempotencyKey: id(), createdAt: now, createdBy: "Ozodbek Mamatov" });
     });
+  });
+}
+
+/**
+ * Ilovaga kirish namunasi: dastlabki 6 xodimga login (ism.familiya@staffora.uz) va umumiy demo parol,
+ * kompaniya egasiga — mobil ilova logini (parol — panel paroli). Faqat lokal demo baza uchun.
+ */
+async function seedLogins(companyId: string) {
+  const passwordHash = await bcrypt.hash("Demo2026", 10);
+  await updateDb((db: Database) => {
+    for (const employee of db.employees.filter((e) => e.companyId === companyId).slice(0, 6))
+      setEmployeeCredential(db, employee, suggestFreeLogin(db, employee.firstName, employee.lastName, { employeeId: employee.id }), passwordHash);
+    const owner = db.users.find((u) => u.companyId === companyId && u.role === "COMPANY_OWNER" && !u.mobileLogin);
+    if (owner) owner.mobileLogin = suggestFreeLogin(db, ...splitName(owner.name), { userId: owner.id });
+    const company = db.companies.find((c) => c.id === companyId);
+    if (company) company.payroll = { ...(company.payroll || ({} as NonNullable<typeof company.payroll>)), lateOffset: true };
   });
 }
 

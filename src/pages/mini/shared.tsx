@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { Attendance, Branch, Company, Department, Employee, LeaveRequest, Notification, Position, Schedule } from "@/lib/types";
+import { tashkentWeekday } from "@/lib/format";
 import { useMainButton, useSecondaryButton } from "./tg";
 
 /* Mini App bo‘limlari uchun umumiy turlar va kichik komponentlar. */
@@ -14,6 +15,10 @@ export type MiniFeatures = {
   leaderboard: boolean;
   advances: boolean;
   overtimeApproval: boolean;
+  /** «Qo‘shimcha ish uchun to‘lash» o‘chiq bo‘lsa false — qo‘shimcha ish bo‘limlari ko‘rinmaydi (eski serverda yo‘q). */
+  overtime?: boolean;
+  /** «Kechikishni ishlab yopish» yoqilgan. */
+  lateOffset?: boolean;
   workEmojiId?: string;
   /** Super admin o‘chirgan modullar (lib/modules.ts kalitlari). */
   modules?: string[];
@@ -31,7 +36,8 @@ export type HomeData = {
   department: Department | null;
   position: Position | null;
   schedule: Schedule | null;
-  attendance?: Attendance;
+  /** lateCoveredMinutes — ish tugagach qo‘shimcha ish bilan yopilgan kechikish (yangi serverda). */
+  attendance?: Attendance & { lateCoveredMinutes?: number };
   todayLeave: LeaveRequest | null;
   /** Bugungi reja (server): smena almashish, dam kunini ko‘chirish, shaxsiy dam kuni hisobga olingan. */
   todayPlan?: { enabled: boolean; start: string; end: string; overridden: boolean; reason?: string; personalRest?: boolean };
@@ -50,13 +56,21 @@ export type HomeData = {
   notifications: Notification[];
   unreadNotifications?: number;
 };
-export type Tab = "home" | "history" | "leave" | "profile" | "manager";
+/** «leave» — So‘rovlar ekrani: pastki menyuda emas, «Bo‘limlar»dan ochiladi. */
+export type Tab = "home" | "history" | "sections" | "leave" | "profile" | "manager";
 export type Action = "CHECK_IN" | "CHECK_OUT";
 export type Toast = (text: string, tone?: "ok" | "error") => void;
 
 export const som = (value: number) => `${Math.round(value).toLocaleString("ru-RU").replace(/\s/g, " ")} so‘m`;
 export const clockDuration = (minutes: number) => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")}`;
 export const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
+
+/** Bugungi reja: serverdan (shaxsiy dam kuni, ko‘chirish hisobga olingan), bo‘lmasa haftalik grafik. */
+export function todayPlanOf(data: HomeData) {
+  if (data.todayPlan) return data.todayPlan;
+  const weekly = data.schedule?.days.find((d) => d.day === tashkentWeekday());
+  return weekly ? { enabled: weekly.enabled, start: weekly.start, end: weekly.end, overridden: false } : undefined;
+}
 
 export function useClock(intervalMs = 1000) {
   const [now, setNow] = useState(() => new Date());

@@ -11,11 +11,14 @@ import { AttendanceOverview } from "@/components/AttendanceOverview";
 import { DeskView } from "@/components/DeskView";
 import { BranchChips, Briefing, LiveFeed, TrendsList, type BriefTarget, type TrendRow } from "@/components/ManagerExtras";
 import { AdminBack, AdminMenu, AdminScreen, ADMIN_ITEMS, adminItemsFor, type AdminKey } from "@/components/AdminViews";
-import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic, type IconName } from "@/components/ui";
 import { ApiError, errorText } from "@/lib/api";
-import { dateUz, dayTitle, duration, som, tashkentClock, tashkentIsoDate, timeAgo } from "@/lib/format";
+import { dateUz, dayTitle, duration, tashkentClock, tashkentIsoDate, timeAgo } from "@/lib/format";
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { typo, useTheme } from "@/lib/theme";
+import type { HomeData } from "@/lib/types";
+import { useData } from "@/lib/useData";
+import { useSession } from "@/lib/session";
 
 type MView = "desk" | "today" | "requests" | "map" | "grid" | "week" | "money" | "devices" | "admin";
 type Emp = { id: string; firstName: string; lastName: string; photoDataUrl?: string; branchId: string };
@@ -48,7 +51,6 @@ type InboxItem = {
   meta?: { date?: string; time?: string; markKind?: "IN" | "OUT"; branch?: string };
 };
 type Pending = { spec: DecideSpec; urgent?: boolean; kind: "leave" | "swap" | "dayoff" | "advance" | "overtime" | "mark" | "fine" | "device" | "registration"; id: string; title: string; sub: string; extra?: string; date?: string; employeeId?: string; markKind?: "IN" | "OUT"; time?: string; branch?: string; photo?: string };
-type MarkRow = { id: string; employeeId: string; employeeName: string; photoDataUrl?: string; date: string; time: string; kind: "IN" | "OUT"; branchName: string; comment: string };
 type LateNotice = { id: string; employeeName: string; minutes: number; reason: string; createdAt: string };
 type Analytics = {
   current: { attendanceRate: number; punctuality: number; lateMinutes: number; absent: number; score: number | null };
@@ -58,47 +60,58 @@ type Analytics = {
   branches: { id: string; name: string; employees: number; attendanceRate: number; punctuality: number; score: number | null }[];
 };
 type Filter = "ALL" | "IN" | "LATE" | "ABSENT" | "NOT_YET" | "ON_LEAVE" | "FLAGGED";
-const LEAVE: Record<string, string> = { VACATION: "Mehnat ta’tili", SICK: "Kasallik", PERMISSION: "Ruxsat", UNPAID: "Haq to‘lanmaydigan", OTHER: "Boshqa" };
+const FILTERS: Filter[] = ["ALL", "IN", "LATE", "ABSENT", "NOT_YET", "ON_LEAVE", "FLAGGED"];
+const asFilter = (value?: string): Filter | undefined => (value && (FILTERS as string[]).includes(value) ? (value as Filter) : undefined);
 const name = (e: { firstName: string; lastName: string }) => `${e.firstName} ${e.lastName}`;
+/** «Boshqaruv» katalogidagi qo‘shimcha (AdminViews’dan tashqari) bo‘limlar va tezkor amallar. */
+type ExtraKey = "week" | "money" | "devices" | "announce" | "fine" | "scan";
 
 /** Rahbar paneli — Mini App’dagi «Rahbar» bilan bir xil: bugungi holat, so‘rovlar, filial xaritasi, haftalik xulosa. */
 export default function Manager() {
   const { c } = useTheme();
+  const { mode } = useSession();
   const [auth, setAuth] = useState<ManagerAuth | null>(null);
   const params = useLocalSearchParams<{ view?: MView; t?: string; filter?: string }>();
-  const [view, setView] = useState<MView>(params.view || "desk");
+  const [picked, setView] = useState<MView>(params.view || "desk");
   // «Boshqaruv» ichidagi bo‘lim (xodimlar, ish haqi, grafiklar…).
   const [adminScreen, setAdminScreen] = useState<AdminKey | null>(null);
-  useEffect(() => {
+  const [filter, setFilter] = useState<Filter>(asFilter(params.filter) || "ALL");
+  // Push/havola (masalan «Kelmadi 3: …» yoki «Shubhali belgi») — shu bo‘lim va filtr bilan; effekt’siz, shu render’da.
+  const [seen, setSeen] = useState({ view: params.view, t: params.t, filter: params.filter });
+  if (seen.view !== params.view || seen.t !== params.t || seen.filter !== params.filter) {
+    setSeen({ view: params.view, t: params.t, filter: params.filter });
     if (params.view) setView(params.view);
-  }, [params.view, params.t]);
+    const f = asFilter(params.filter);
+    if (f) setFilter(f);
+  }
   const [day, setDay] = useState<Day | null>(null);
   // Boshqa kun (‹ ›) — alohida yuklanadi; bugun — umumiy yangilanish bilan.
   const [dayDate, setDayDate] = useState(tashkentIsoDate());
-  const [otherDay, setOtherDay] = useState<Day | null>(null);
+  const [other, setOther] = useState<{ date: string; day: Day } | null>(null);
   useEffect(() => {
-    if (dayDate === tashkentIsoDate()) return setOtherDay(null);
+    if (dayDate === tashkentIsoDate()) return;
     let live = true;
-    setOtherDay(null);
     void mcall<Day>(`/attendance/day?date=${dayDate}`)
-      .then((d) => live && setOtherDay(d))
+      .then((d) => live && setOther({ date: dayDate, day: d }))
       .catch(() => undefined);
     return () => {
       live = false;
     };
   }, [dayDate]);
-  const [pending, setPending] = useState<Pending[]>([]);
+  const otherDay = other?.date === dayDate ? other.day : null;
+  // Qo‘shimcha ish to‘lanmasa (kompaniya sozlamasi) — tasdiqlash so‘rovlari ham ko‘rsatilmaydi (server ham suzadi).
+  const home = useData<HomeData>(mode === "employee" ? "/mini/home" : null, { refetchOnFocus: false });
+  const [overtimeOff, setOvertimeOff] = useState<boolean | null>(null);
+  const noOvertime = home.data?.features?.overtime === false || overtimeOff === true;
+  const [allPending, setPending] = useState<Pending[]>([]);
+  const pending = useMemo(() => (noOvertime ? allPending.filter((p) => p.kind !== "overtime") : allPending), [allPending, noOvertime]);
+  const overtimeChecked = useRef(false);
   const [notices, setNotices] = useState<LateNotice[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>("ALL");
-  // Push’dan (masalan «Kelmadi 3: …» yoki «Shubhali belgi») — davomat ro‘yxati shu filtr bilan.
-  useEffect(() => {
-    if (params.filter && ["ALL", "IN", "LATE", "ABSENT", "NOT_YET", "ON_LEAVE", "FLAGGED"].includes(params.filter)) setFilter(params.filter as Filter);
-  }, [params.filter, params.t]);
   const [query, setQuery] = useState("");
   const [branch, setBranch] = useState("");
   const [trends, setTrends] = useState<TrendRow[] | null>(null);
@@ -143,6 +156,13 @@ export default function Manager() {
         photo: i.photoDataUrl,
         spec: i.decide,
       }));
+      // Direktor: qo‘shimcha ish so‘rovi kelsa — kompaniyada u to‘lanadimi, bir marta tekshiriladi.
+      if (!overtimeChecked.current && list.some((p) => p.kind === "overtime") && (can(role, "attendance.edit") || can(role, "payroll.edit"))) {
+        overtimeChecked.current = true;
+        void mcall<{ disabled?: boolean }>(`/overtime?month=${month}`)
+          .then((r) => setOvertimeOff(Boolean(r.disabled)))
+          .catch(() => undefined);
+      }
       setDay(d);
       setPending(list);
       setNotices(n);
@@ -269,7 +289,6 @@ export default function Manager() {
       ),
     [rows, filter, search],
   );
-  const rate = stats.expected ? Math.round((stats.in / stats.expected) * 100) : 0;
   // Ish boshlangan, lekin hali kelmaganlar (eslatma uchun).
   const nowClock = tashkentClock();
   const late = rows.filter((r) => r.state === "ABSENT" || (r.state === "NOT_YET" && r.scheduledStart && r.scheduledStart <= nowClock));
@@ -286,15 +305,28 @@ export default function Manager() {
   const canRequests = canAttendanceView || can(role, "leave.approve") || can(role, "payroll.edit") || can(role, "employees.edit");
   // Davomatni ko‘rmaydigan rol (moliya) — darhol «Moliya».
   const noAttendance = Boolean(auth) && !can(role, "attendance.view");
-  useEffect(() => {
-    if (noAttendance && (view === "today" || view === "map" || view === "grid")) setView(canMoney ? "money" : canDevices && !canRequests ? "devices" : "requests");
-  }, [noAttendance, view, canMoney, canDevices]);
-  const adminExtra = [
-    ...(can(role, "dashboard.view") ? [{ key: "week", label: "Xulosa va trendlar", hint: "davomat reytingi, diqqat talab qilganlar", icon: "stats-chart-outline" as const }] : []),
-    ...(canMoney ? [{ key: "money", label: "Moliya, avans va jarimalar", hint: "oy xulosasi, avans to‘lash", icon: "wallet-outline" as const }] : []),
-    ...(canDevices ? [{ key: "devices", label: "Telefonlar (qurilmalar)", hint: "ulash, almashtirish, o‘chirish", icon: "phone-portrait-outline" as const }] : []),
-  ];
+  // Davomatni ko‘rmaydigan rol davomat bo‘limiga tushsa — o‘ziga mos bo‘lim (effekt’siz, hisoblab).
+  const view: MView =
+    noAttendance && (picked === "today" || picked === "map" || picked === "grid") ? (canMoney ? "money" : canDevices && !canRequests ? "devices" : "requests") : picked;
+  const canAnnounce = can(role, "announcements.create") || role === "BRANCH_MANAGER";
+  const canDashboard = can(role, "dashboard.view");
+  const adminExtra = useMemo<{ key: ExtraKey; label: string; hint: string; icon: IconName; group?: "quick" }[]>(() => [
+    // Tezkor amallar — avval «Umumiy»da edi, endi «Boshqaruv» katalogida.
+    ...(canAnnounce ? [{ key: "announce" as const, label: "Tezkor e’lon", hint: "", icon: "megaphone-outline" as const, group: "quick" as const }] : []),
+    ...(canFine ? [{ key: "fine" as const, label: "Jarima", hint: "", icon: "hammer-outline" as const, group: "quick" as const }] : []),
+    { key: "scan", label: "ID tekshirish", hint: "", icon: "qr-code-outline", group: "quick" },
+    ...(canDashboard ? [{ key: "week" as const, label: "Xulosa va trendlar", hint: "davomat reytingi, diqqat talab qilganlar", icon: "stats-chart-outline" as const }] : []),
+    ...(canMoney ? [{ key: "money" as const, label: "Moliya va avans", hint: "oy xulosasi, avans to‘lash", icon: "wallet-outline" as const }] : []),
+    ...(canDevices ? [{ key: "devices" as const, label: "Telefonlar", hint: "ulash, almashtirish, o‘chirish", icon: "phone-portrait-outline" as const }] : []),
+  ], [canAnnounce, canFine, canDashboard, canMoney, canDevices]);
   const hasAdmin = adminExtra.length > 0 || adminItemsFor(role).length > 0;
+  const openAdmin = useCallback((key: string) => {
+    if (key === "announce") return setAnnouncing(true);
+    if (key === "fine") return setFining(true);
+    if (key === "scan") return router.push("/badge-scan");
+    if (ADMIN_ITEMS.some((i) => i.key === key)) setAdminScreen(key as AdminKey);
+    else setView(key as MView);
+  }, []);
   const tabOf = (v: MView): MView => (v === "map" || v === "grid" ? "today" : v === "week" || v === "money" || v === "devices" ? "admin" : v);
   const marks = pending.filter((p) => p.kind === "mark");
   const others = pending.filter((p) => p.kind !== "mark");
@@ -362,10 +394,7 @@ export default function Manager() {
           <AdminMenu
             role={auth.user.role}
             extra={adminExtra}
-            onOpen={(key) => {
-              if (ADMIN_ITEMS.some((i) => i.key === key)) setAdminScreen(key as AdminKey);
-              else setView(key as MView);
-            }}
+            onOpen={openAdmin}
           />
         )
       ) : null}
@@ -650,25 +679,22 @@ export default function Manager() {
       ) : null}
 
       {view === "desk" && auth ? (
-        // Tezkor amallar — yozuvli, teng kenglikdagi tugmalar (faqat «Umumiy»da, boshqa tablarni chalkashtirmaydi).
-        <View style={st.quickRow}>
-          {can(auth.user.role, "announcements.create") || auth.user.role === "BRANCH_MANAGER" ? (
-            <Quick icon="megaphone-outline" label="E’lon" onPress={() => setAnnouncing(true)} />
-          ) : null}
-          {canFine ? <Quick icon="hammer-outline" label="Jarima" onPress={() => setFining(true)} /> : null}
-          <Quick icon="scan-outline" label="ID tekshirish" onPress={() => router.push("/badge-scan")} />
-        </View>
-      ) : null}
-      {view === "desk" && auth ? <DeskView
+        <DeskView
           role={auth.user.role}
-          reloadKey={moneyKey + pending.length}
+          rows={day?.rows}
+          reloadKey={moneyKey + allPending.length}
           onOpen={(v) => {
             // «today:LATE» — davomat ro‘yxati shu filtr bilan ochiladi.
             const [next, f] = v.split(":");
             setView(next as MView);
             if (f) setFilter(f as Filter);
           }}
-        /> : null}
+          onAdmin={() => {
+            setView("admin");
+            setAdminScreen(null);
+          }}
+        />
+      ) : null}
       {view === "devices" && canDevices ? <DevicesView /> : null}
       {view === "money" && canMoney ? <MoneyView canAdvances={canMoneyAdvances} canFines={canMoneyAdvances} reloadKey={moneyKey} /> : null}
       <FineSheet
@@ -734,25 +760,6 @@ const RosterLine = memo(function RosterLine({ row, last }: { row: RosterRow; las
     </Pressable>
   );
 });
-
-/** Tezkor amal: ikonka va qisqa yozuv, teng kenglikda. */
-function Quick({ icon, label, onPress }: { icon: "megaphone-outline" | "hammer-outline" | "scan-outline"; label: string; onPress: () => void }) {
-  const { c } = useTheme();
-  return (
-    <Pressable
-      onPress={() => {
-        haptic.select();
-        onPress();
-      }}
-      style={({ pressed }) => [st.quickTile, { backgroundColor: c.card }, pressed && { opacity: 0.6 }]}
-    >
-      <Icon name={icon} size={20} color={c.accent} />
-      <Text style={[typo.caption, { color: c.ink, fontWeight: "600" }]} numberOfLines={1}>
-        {label}
-      </Text>
-    </Pressable>
-  );
-}
 
 /** Belgilash so‘rovi kartasi: xodim, Kirish/Chiqish, vaqt, filial, izoh — Rad etish / Qabul qilish. */
 function MarkCard({ item, busy, onDecide }: { item: Pending; busy: boolean; onDecide: (approve: boolean) => void }) {
@@ -847,8 +854,6 @@ function AnnounceSheet({ visible, branches, onClose }: { visible: boolean; branc
 const st = StyleSheet.create({
   quick: { flexDirection: "row", alignItems: "center", gap: 7, height: 38, paddingHorizontal: 14, borderRadius: 12 },
   quickText: { fontSize: 13, fontWeight: "600" },
-  quickRow: { flexDirection: "row", gap: 8 },
-  quickTile: { flex: 1, height: 64, borderRadius: 14, alignItems: "center", justifyContent: "center", gap: 5 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 10, minHeight: 56 },
   avatar: { width: 40, height: 40, borderRadius: 20 },
   search: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, height: 44, borderRadius: 12 },

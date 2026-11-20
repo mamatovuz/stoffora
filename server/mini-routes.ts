@@ -1,5 +1,6 @@
 import { breakMinutes } from "../lib/mini";
 import { createMiniMobileRouter } from "./mobile";
+import { createMiniAccountRouter } from "./staff-account";
 import { Router, type NextFunction, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
 import jwt from "jsonwebtoken";
@@ -30,7 +31,7 @@ import {
   matchPassPercent,
 } from "../lib/face";
 import type { Attendance, Database, Employee, LeaveRequest } from "../lib/types";
-import { calculatePayroll, normalizePayrollSettings } from "../lib/payroll";
+import { calculatePayroll, lateCoverage, normalizePayrollSettings } from "../lib/payroll";
 import { onStafforaAttendance } from "./integrations/hooks";
 import { verifyViaEmployeeBot } from "./integrations/identity";
 import { dayPlan, minutesSinceCheckIn, shiftDateAt } from "../lib/schedule";
@@ -105,18 +106,30 @@ function monthSummary(db: Database, employeeId: string) {
   const employee = db.employees.find((e) => e.id === employeeId);
   const company = db.companies.find((c) => c.id === employee?.companyId);
   const counted = countedRecords(rows, company, employee);
-  const pay = calculatePayroll(employee?.baseSalary || 0, counted, company?.payroll);
+  const settings = normalizePayrollSettings(company?.payroll);
+  const pay = calculatePayroll(employee?.baseSalary || 0, counted, settings);
   const practiceUntil = countingStartDate(company, employee);
+  // Kechikishni ishlab yopish: yopilgan daqiqalar kechikish ham, qo‘shimcha ish ham emas.
+  const cover = (item: Attendance) => lateCoverage(item, settings);
   return {
     practiceUntil: practiceUntil && practiceUntil > tashkentIsoDate() ? practiceUntil : undefined,
     deduction: pay.deduction,
-    penaltyMode: normalizePayrollSettings(company?.payroll).latePenaltyMode,
+    penaltyMode: settings.latePenaltyMode,
     days: rows.filter((item) => item.checkIn).length,
-    late: counted.filter((item) => item.lateMinutes > 0).length,
-    lateMinutes: counted.reduce((sum, item) => sum + item.lateMinutes, 0),
+    late: counted.filter((item) => cover(item).late > 0).length,
+    lateMinutes: counted.reduce((sum, item) => sum + cover(item).late, 0),
+    lateCoveredMinutes: counted.reduce((sum, item) => sum + cover(item).covered, 0),
     workedMinutes: rows.reduce((sum, item) => sum + item.workedMinutes, 0),
-    overtimeMinutes: rows.reduce((sum, item) => sum + item.overtimeMinutes, 0),
+    overtimeMinutes: rows.reduce((sum, item) => sum + cover(item).overtime, 0),
   };
+}
+
+/** Bugungi yozuv: lateOffset yoqilgan va chiqish belgilangan bo‘lsa — ishlab yopilgan kechikish daqiqalari. */
+function withCoverage(db: Database, employee: Employee, attendance?: Attendance) {
+  if (!attendance) return attendance;
+  const settings = normalizePayrollSettings(db.companies.find((c) => c.id === employee.companyId)?.payroll);
+  if (!settings.lateOffset || !attendance.checkOut) return attendance;
+  return { ...attendance, lateCoveredMinutes: lateCoverage(attendance, settings).covered };
 }
 
 function buildHome(db: Database, employee: Employee) {
@@ -141,7 +154,7 @@ function buildHome(db: Database, employee: Employee) {
       db.positions.find((item) => item.id === employee.positionId) || null,
     schedule:
       db.schedules.find((item) => item.id === employee.scheduleId) || null,
-    attendance: dataIndexes(db).attendanceByKey.get(`${employee.id}|${date}`),
+    attendance: withCoverage(db, employee, dataIndexes(db).attendanceByKey.get(`${employee.id}|${date}`)),
     todayLeave: todayLeave || null,
     month: monthSummary(db, employee.id),
     // Bugungi reja: smena almashish, dam kunini ko‘chirish va shaxsiy dam kuni hisobga olingan.
@@ -350,6 +363,8 @@ export function createMiniRouter() {
   router.use(createMiniEngageRouter());
   router.use(createMiniBadgeRouter());
   router.use(createMiniMobileRouter());
+  // Ilovaga kirish: login va parol (Profil → «Ilovaga kirish»).
+  router.use(createMiniAccountRouter());
   router.get(
     "/mini/home",
     asyncRoute(async (req, res) => {

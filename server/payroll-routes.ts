@@ -9,6 +9,7 @@ import type { AuthedRequest } from "./auth";
 import { notifyEmployee } from "./integrations/hooks";
 import { payrollRows } from "./reports";
 import { freezeMonth, setStage } from "./payroll-workflow";
+import { lateCoverage, normalizePayrollSettings } from "../lib/payroll";
 
 /*
  * Ish haqi: avans / bonus / jarima, oyni yopish (raqamlar muzlatiladi),
@@ -18,7 +19,7 @@ import { freezeMonth, setStage } from "./payroll-workflow";
 type Handler = (req: AuthedRequest, res: Response) => Promise<unknown>;
 const route = (handler: Handler) => (req: Request, res: Response, next: NextFunction) =>
   Promise.resolve(handler(req as AuthedRequest, res)).catch(next);
-const httpError = (message: string, status: number) => Object.assign(new Error(message), { status });
+const httpError = (message: string, status: number, code?: string) => Object.assign(new Error(message), { status, code });
 const permit = (...permissions: string[]) => (req: Request, res: Response, next: NextFunction) =>
   canAny((req as AuthedRequest).session!.role, permissions) ? next() : res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
 const tenantOf = (req: AuthedRequest) => {
@@ -171,11 +172,15 @@ export function createPayrollRouter() {
       const tenant = tenantOf(req);
       const month = monthSchema.parse(String(req.query.month || new Date().toISOString().slice(0, 7)));
       const db = await readDb();
+      const settings = normalizePayrollSettings(db.companies.find((c) => c.id === tenant)?.payroll);
+      // «Qo‘shimcha ish uchun to‘lash» o‘chiq — kechroq qolish hech narsani o‘zgartirmaydi: ro‘yxat ham yo‘q.
+      if (!settings.overtimePay) return res.json({ month, closed: Boolean(closedPeriod(db, tenant, month)), disabled: true, rows: [] });
       // Filial rahbari faqat o‘z filiallaridagi xodimlarni ko‘radi.
       const scope = req.session!.role === "BRANCH_MANAGER" ? new Set(db.users.find((u) => u.id === req.session!.userId)?.branchIds || []) : null;
       const employees = new Map(db.employees.filter((e) => e.companyId === tenant && (!scope || scope.has(e.branchId))).map((e) => [e.id, e]));
+      // Kechikishni yopishga ketgan vaqt qo‘shimcha ish emas (lateOffset).
       const rows = db.attendance
-        .filter((a) => a.companyId === tenant && a.date.startsWith(month) && a.overtimeMinutes > 0 && employees.has(a.employeeId))
+        .filter((a) => a.companyId === tenant && a.date.startsWith(month) && employees.has(a.employeeId) && lateCoverage(a, settings).overtime > 0)
         .sort((a, b) => b.date.localeCompare(a.date))
         .map((a) => {
           const e = employees.get(a.employeeId)!;
@@ -188,7 +193,8 @@ export function createPayrollRouter() {
             checkIn: a.checkIn,
             checkOut: a.checkOut,
             scheduledEnd: a.scheduledEnd,
-            overtimeMinutes: a.overtimeMinutes,
+            overtimeMinutes: lateCoverage(a, settings).overtime,
+            lateCoveredMinutes: lateCoverage(a, settings).covered || undefined,
             approved: a.overtimeApproved,
             managerBy: a.overtimeManagerBy,
             decidedBy: a.overtimeDecidedBy,
@@ -214,6 +220,8 @@ export function createPayrollRouter() {
         assertOpen(db, tenant, record.date.slice(0, 7));
         // Ikki bosqich: rahbar (davomat huquqi) tasdiqlasa — moliyaga o‘tadi; moliya tasdiqlasa — oylikka.
         const settings = db.companies.find((c) => c.id === tenant)?.payroll;
+        if (!normalizePayrollSettings(settings).overtimePay)
+          throw httpError("Qo‘shimcha ish uchun to‘lash o‘chirilgan — tasdiqlash kerak emas.", 409, "OVERTIME_DISABLED");
         const hasFinance = db.users.some((u) => u.companyId === tenant && u.role === "FINANCE");
         const finance = canAny(req.session!.role, ["payroll.edit"]);
         if (approved && settings?.overtimeTwoStep && hasFinance && !finance) {

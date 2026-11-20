@@ -29,12 +29,14 @@ const LANGS: [Lang, string][] = [
 
 /**
  * Sozlamalar (Verifix uslubida guruhlangan): interfeys, xavfsizlik, bildirishnomalar, ishonchli telefon,
- * ilova haqida. Yangi telefon — Mini App kodi bilan darhol (eski telefon o‘chadi); «Chiqish» faqat sessiyani yopadi.
+ * ilova haqida. Yangi telefon — login va parol bilan darhol (eski telefon o‘chadi); «Chiqish» faqat sessiyani yopadi.
+ * Direktor rejimida xodimga xos qismlar (push, davomat Face ID) ko‘rinmaydi — /mobile/me chaqirilmaydi.
  */
 export default function Settings() {
   const { c } = useTheme();
-  const { prefs, setPrefs, logout } = useSession();
-  const { data } = useData<Me>("/mobile/me", { maxAgeMs: 0 });
+  const { prefs, setPrefs, logout, mode, session } = useSession();
+  const employee = mode !== "manager";
+  const { data } = useData<Me>(employee ? "/mobile/me" : null, { maxAgeMs: 0 });
   const [push, setPush] = useState<PushState>("undetermined");
   const [bio, setBio] = useState({ available: false, label: ios ? "Face ID" : "Barmoq izi" });
   const [themeOpen, setThemeOpen] = useState(false);
@@ -42,13 +44,13 @@ export default function Settings() {
   const lang = useLang();
   useEffect(() => {
     // Ruxsat bo‘lsa — tokenni darhol (qayta) ro‘yxatdan o‘tkazamiz va natijani ko‘rsatamiz.
-    void pushPermission().then((p) => (p === "granted" ? registerPush(false).then(setPush) : setPush(p)));
+    if (employee) void pushPermission().then((p) => (p === "granted" ? registerPush(false).then(setPush) : setPush(p)));
     void (async () => {
       const [has, enrolled, types] = await Promise.all([LocalAuthentication.hasHardwareAsync(), LocalAuthentication.isEnrolledAsync(), LocalAuthentication.supportedAuthenticationTypesAsync()]);
       const face = types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION);
       setBio({ available: has && enrolled, label: ios ? (face ? "Face ID" : "Touch ID") : face ? "Yuz bilan ochish" : "Barmoq izi" });
     })();
-  }, []);
+  }, [employee]);
 
   const toggleLock = async (next: boolean) => {
     const r = await LocalAuthentication.authenticateAsync({ promptMessage: t(next ? "Qulfni yoqish" : "Qulfni o‘chirish") });
@@ -60,17 +62,18 @@ export default function Settings() {
     if (state === "denied") Linking.openSettings();
   };
   const confirmLogout = () =>
-    Alert.alert("Chiqish", "Ilovadan chiqasizmi? Telefon sizga bog‘langanicha qoladi — qayta kirish uchun Mini App’dan yangi kod olasiz.", [
+    Alert.alert("Chiqish", "Ilovadan chiqasizmi? Qayta kirish uchun login va parolingiz kerak bo‘ladi.", [
       { text: "Bekor qilish", style: "cancel" },
       { text: "Chiqish", style: "destructive", onPress: () => void logout() },
     ]);
+  const d = data?.device;
+  // Seriya raqami — qurilma ID (direktorda /mobile/me yo‘q — sessiyadagi qurilma).
+  const serial = d?.id || session?.deviceId;
   const copySerial = async () => {
-    if (!data?.device) return;
-    await Clipboard.setStringAsync(data.device.id);
+    if (!serial) return;
+    await Clipboard.setStringAsync(serial);
     haptic.success();
   };
-
-  const d = data?.device;
   const theme = prefs.theme || "system";
   return (
     <ScrollView style={{ backgroundColor: c.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}>
@@ -96,36 +99,40 @@ export default function Settings() {
         ) : null}
       </Group>
       <Text style={{ color: c.muted, fontSize: 12.5, paddingHorizontal: 4 }}>
-        PIN faqat shu telefonda saqlanadi. Unutsangiz — kirish ekranidagi «PIN-kodni unutdingizmi?» orqali Telegram’ga kelgan kod bilan yangisini o‘rnatasiz.
+        {employee
+          ? "PIN faqat shu telefonda saqlanadi. Unutsangiz — kirish ekranidagi «PIN-kodni unutdingizmi?» orqali Telegram’ga kelgan kod bilan yangisini o‘rnatasiz."
+          : "PIN faqat shu telefonda saqlanadi. Unutsangiz — ilovadan chiqib, login va parol bilan qayta kirasiz."}
       </Text>
 
-      <GroupTitle>Bildirishnomalar</GroupTitle>
-      <Group>
-        <Row
-          icon="notifications"
-          iconColor="#FF3B30"
-          label="Push xabarnomalar"
-          value={push === "granted" ? "Yoqilgan" : push === "error" ? "Xato" : push === "unavailable" ? "Mavjud emas" : "O‘chiq"}
-          onPress={push === "granted" ? undefined : () => void enablePush()}
-        />
-        <Row icon="alarm" iconColor="#FF9500" label="Eslatmalar va bildirishnomalar" sub="Ish boshlanishi/oxiri eslatmasi, qaysi xabarlar telefonga kelsin" onPress={() => go("/reminders")} />
-        <Row icon="mail-unread" iconColor="#34C759" label="Barcha bildirishnomalar" onPress={() => go("/notifications")} last />
-      </Group>
-      {push === "error" || (push === "unavailable" && lastPushError) ? <Hint tone="warn" icon="notifications-off-outline">{lastPushError}</Hint> : null}
+      {employee ? (
+        <>
+          <GroupTitle>Bildirishnomalar</GroupTitle>
+          <Group>
+            <Row
+              icon="notifications"
+              iconColor="#FF3B30"
+              label="Push xabarnomalar"
+              value={push === "granted" ? "Yoqilgan" : push === "error" ? "Xato" : push === "unavailable" ? "Mavjud emas" : "O‘chiq"}
+              onPress={push === "granted" ? undefined : () => void enablePush()}
+            />
+            <Row icon="alarm" iconColor="#FF9500" label="Eslatmalar va bildirishnomalar" sub="Ish boshlanishi/oxiri eslatmasi, qaysi xabarlar telefonga kelsin" onPress={() => go("/reminders")} />
+            <Row icon="mail-unread" iconColor="#34C759" label="Barcha bildirishnomalar" onPress={() => go("/notifications")} last />
+          </Group>
+          {push === "error" || (push === "unavailable" && lastPushError) ? <Hint tone="warn" icon="notifications-off-outline">{lastPushError}</Hint> : null}
 
-      <GroupTitle>Ishonchli telefon</GroupTitle>
-      <Group>
-        <Row icon="phone-portrait" label={d?.model || (d?.platform === "ios" ? "iPhone" : "Android")} value={d?.status === "ACTIVE" ? "Faol" : "—"} />
-        <Row icon="calendar" iconColor="#8E8E93" label="Ulangan" value={d ? dateUz(d.createdAt.slice(0, 10)) : "—"} />
-        <Row icon="scan" iconColor="#34C759" label="Davomat Face ID" value={data?.faceEnrolled ? "Sozlangan" : "Sozlanmagan"} last />
-      </Group>
-      <Hint icon="shield-checkmark-outline">
-        Har bir xodimda bitta faol telefon. Yangi telefonga o‘tsangiz, Mini App → Profil → «Telefon ilovasi»dan kod olib yangi telefonda kiriting — darhol kirasiz, bu telefondan esa avtomatik chiqiladi.
-      </Hint>
+          <GroupTitle>Ishonchli telefon</GroupTitle>
+          <Group>
+            <Row icon="phone-portrait" label={d?.model || (d?.platform === "ios" ? "iPhone" : "Android")} value={d?.status === "ACTIVE" ? "Faol" : "—"} />
+            <Row icon="calendar" iconColor="#8E8E93" label="Ulangan" value={d ? dateUz(d.createdAt.slice(0, 10)) : "—"} />
+            <Row icon="scan" iconColor="#34C759" label="Davomat Face ID" value={data?.faceEnrolled ? "Sozlangan" : "Sozlanmagan"} last />
+          </Group>
+          <Hint icon="shield-checkmark-outline">Har bir xodimda bitta faol telefon. Yangi telefonda login va parol bilan kirsangiz, bu telefondan avtomatik chiqiladi.</Hint>
+        </>
+      ) : null}
 
       <GroupTitle>Ilova haqida</GroupTitle>
       <Group>
-        <Row icon="barcode" iconColor="#8E8E93" label="Seriya raqami" sub={d?.id || "—"} right={d ? <Icon name="copy-outline" size={18} color={c.muted} /> : undefined} onPress={d ? () => void copySerial() : undefined} />
+        <Row icon="barcode" iconColor="#8E8E93" label="Seriya raqami" sub={serial || "—"} right={serial ? <Icon name="copy-outline" size={18} color={c.muted} /> : undefined} onPress={serial ? () => void copySerial() : undefined} />
         <Row icon="information-circle" iconColor="#8E8E93" label="Versiyasi" value={appVersion() || APP_VERSION} sub={`Yangilanish: ${updateInfo()}`} />
         <Row icon="document-lock" iconColor="#0A84FF" label="Maxfiylik siyosati" onPress={() => void Linking.openURL(`${API_URL.replace(/\/api$/, "")}/privacy.html`)} />
         <Row icon="trash-outline" iconColor="#FF3B30" label="Hisobni o‘chirish" onPress={() => void Linking.openURL(`${API_URL.replace(/\/api$/, "")}/delete-account.html`)} last />

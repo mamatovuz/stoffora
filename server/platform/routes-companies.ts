@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { revokeUserSessions } from "../../lib/staff-credentials";
 import bcrypt from "bcryptjs";
 import { Router } from "express";
 import { z } from "zod";
@@ -579,7 +580,8 @@ export function createCompanyRouter() {
         mobile: db.mobileDevices
           .filter((d) => d.companyId === company.id)
           .slice(0, 300)
-          .map((d) => ({ id: d.id, employee: employee(d.employeeId), platform: d.platform, model: d.model || null, appVersion: d.appVersion || null, status: d.status, createdAt: d.createdAt, lastSeenAt: d.lastSeenAt || null, revokedAt: d.revokedAt || null })),
+          // Rahbar (direktor) qurilmasida xodim yo‘q — panel foydalanuvchisi ismi ko‘rsatiladi.
+          .map((d) => ({ id: d.id, employee: d.employeeId ? employee(d.employeeId) : d.userId ? `${name(d.userId)} (rahbar)` : "—", platform: d.platform, model: d.model || null, appVersion: d.appVersion || null, status: d.status, createdAt: d.createdAt, lastSeenAt: d.lastSeenAt || null, revokedAt: d.revokedAt || null })),
         biometric: db.biometricDevices.filter((d) => d.companyId === company.id && !d.revokedAt).length,
       });
     }),
@@ -775,8 +777,8 @@ export function createCompanyRouter() {
         const user = db.users.find((u) => u.companyId === String(req.params.id) && u.role === "COMPANY_OWNER");
         if (!user) throw httpError("Kompaniya egasi topilmadi.", 404);
         user.passwordHash = passwordHash;
-        const now = new Date().toISOString();
-        for (const row of db.panelSessions) if (row.userId === user.id && !row.revokedAt) row.revokedAt = now;
+        // Panel va mobil (rahbar rejimi) sessiyalari yopiladi.
+        revokeUserSessions(db, user.id, undefined, "Parol tiklandi (platforma)");
         db.auditLogs.unshift(audit(String(req.params.id), actor.name, "Platforma: egasining paroli tiklandi", "user", user.id));
         return { id: user.id, email: user.email, name: user.name };
       });

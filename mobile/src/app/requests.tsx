@@ -1,14 +1,15 @@
 import * as ImagePicker from "expo-image-picker";
 import { ImageManipulator, SaveFormat } from "expo-image-manipulator";
-import { router, useLocalSearchParams } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, StyleSheet, View } from "react-native";
+import { router, useLocalSearchParams, useNavigation } from "expo-router";
+import { useLayoutEffect, useMemo, useState } from "react";
+import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "@/components/T";
 import { DateStrip, addDays } from "@/components/DateStrip";
-import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Screen, Segmented, Sheet, haptic, type IconName } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorBox, Group, GroupTitle, Hint, Icon, Loading, Segmented, Sheet, haptic, type IconName } from "@/components/ui";
 import { errorText, patch, post } from "@/lib/api";
 import { WEEKDAYS, WEEKDAYS_SHORT, dateUz, duration, tashkentIsoDate } from "@/lib/format";
 import { useTheme } from "@/lib/theme";
+import type { HomeData } from "@/lib/types";
 import { invalidate, useData } from "@/lib/useData";
 
 type Tab = "leave" | "marks" | "swap" | "dayoff" | "overtime";
@@ -45,41 +46,56 @@ const KINDS: { key: Tab; icon: IconName; title: string; sub: string }[] = [
   { key: "swap", icon: "swap-horizontal-outline", title: "Smena almashish", sub: "Hamkasb bilan almashish" },
   { key: "overtime", icon: "briefcase-outline", title: "Qo‘shimcha ish vaqti", sub: "Izoh yozib rahbarga yuborish" },
 ];
+const TABS: [Tab, string][] = [
+  ["leave", "Ta’til"],
+  ["marks", "Belgilash"],
+  ["swap", "Smena"],
+  ["dayoff", "Dam kuni"],
+  ["overtime", "Qo‘shimcha"],
+];
+/** Bo‘lim → modul (super admin o‘chirgan bo‘lsa ko‘rinmaydi; Mini App bilan bir xil). */
+const TAB_MODULE: Partial<Record<Tab, string>> = { leave: "leave", marks: "attendanceRequests", dayoff: "attendanceRequests" };
+/** Kompaniya sozlamasi va modullar bo‘yicha ko‘rinadigan bo‘limlar. */
+export function requestTabsFor(features: HomeData["features"]) {
+  const off = features?.modules || [];
+  return TABS.filter(([key]) => !(key === "overtime" && features?.overtime === false) && !(TAB_MODULE[key] && off.includes(TAB_MODULE[key]!)));
+}
 
-/** So‘rovlar — Mini App’dagi «So‘rovlar» bo‘limi: ta’til, belgilash, smena, dam kuni, qo‘shimcha ish. */
+/** So‘rovlar — Mini App’dagi «So‘rovlar» bo‘limi: ta’til, belgilash, smena, dam kuni, qo‘shimcha ish. Bo‘limlar sahifasidan ochiladi. */
 export default function Requests() {
+  const { c } = useTheme();
+  const navigation = useNavigation();
   const params = useLocalSearchParams<{ view?: Tab; create?: string }>();
-  const [tab, setTab] = useState<Tab>(params.view || "leave");
-  const [picking, setPicking] = useState(false);
+  const home = useData<HomeData>("/mini/home", { refetchOnFocus: false });
+  const tabs = useMemo(() => requestTabsFor(home.data?.features), [home.data?.features]);
+  const [picked, setPicked] = useState<Tab>(params.view || "leave");
+  const [picking, setPicking] = useState(Boolean(params.create));
   const [createLeave, setCreateLeave] = useState(0);
-  useEffect(() => {
-    if (params.view) setTab(params.view);
-  }, [params.view]);
-  useEffect(() => {
-    if (params.create) setPicking(true);
-  }, [params.create]);
+  // Havola/bildirishnoma yangi `view` yoki `create` bilan kelsa — shu render’da qo‘llanadi (effekt’siz).
+  const [seen, setSeen] = useState({ view: params.view, create: params.create });
+  if (seen.view !== params.view || seen.create !== params.create) {
+    setSeen({ view: params.view, create: params.create });
+    if (params.view && params.view !== seen.view) setPicked(params.view);
+    if (params.create && params.create !== seen.create) setPicking(true);
+  }
+  // O‘chirilgan bo‘lim (masalan qo‘shimcha ish to‘lanmaydi) tanlangan bo‘lsa — birinchisi.
+  const tab = tabs.some(([key]) => key === picked) ? picked : tabs[0]?.[0] || "leave";
+  const kinds = useMemo(() => KINDS.filter((k) => tabs.some(([key]) => key === k.key)), [tabs]);
+  useLayoutEffect(() => {
+    navigation.setOptions({ headerRight: () => <NewButton onPress={() => setPicking(true)} /> });
+  }, [navigation]);
   const start = (key: Tab) => {
     setPicking(false);
-    setTab(key);
+    setPicked(key);
     if (key === "marks") setTimeout(() => router.push("/mark-request"), 250);
     if (key === "leave") setTimeout(() => setCreateLeave((n) => n + 1), 350);
   };
   return (
-    <Screen title="So‘rovlar" right={<NewButton onPress={() => setPicking(true)} />}>
-      <Segmented<Tab>
-        value={tab}
-        onChange={setTab}
-        options={[
-          ["leave", "Ta’til"],
-          ["marks", "Belgilash"],
-          ["swap", "Smena"],
-          ["dayoff", "Dam kuni"],
-          ["overtime", "Qo‘shimcha"],
-        ]}
-      />
+    <ScrollView style={{ backgroundColor: c.bg }} contentInsetAdjustmentBehavior="automatic" contentContainerStyle={st.page} keyboardShouldPersistTaps="handled">
+      {tabs.length > 1 ? <Segmented<Tab> value={tab} onChange={setPicked} options={tabs} /> : null}
       {tab === "leave" ? <LeaveTab create={createLeave} /> : tab === "marks" ? <MarksTab /> : tab === "swap" ? <SwapTab /> : tab === "dayoff" ? <DayOffTab /> : <OvertimeTab />}
-      <KindSheet visible={picking} onClose={() => setPicking(false)} onPick={start} />
-    </Screen>
+      <KindSheet visible={picking} kinds={kinds} onClose={() => setPicking(false)} onPick={start} />
+    </ScrollView>
   );
 }
 
@@ -87,24 +103,24 @@ function NewButton({ onPress }: { onPress: () => void }) {
   const { c } = useTheme();
   return (
     <Pressable onPress={onPress} hitSlop={8} style={[st.newBtn, { backgroundColor: c.accent }]} accessibilityLabel="So‘rov yaratish">
-      <Icon name="add" size={22} color="#fff" />
+      <Icon name="add" size={20} color="#fff" />
     </Pressable>
   );
 }
 
-function KindSheet({ visible, onClose, onPick }: { visible: boolean; onClose: () => void; onPick: (key: Tab) => void }) {
+function KindSheet({ visible, kinds, onClose, onPick }: { visible: boolean; kinds: typeof KINDS; onClose: () => void; onPick: (key: Tab) => void }) {
   const { c } = useTheme();
   return (
     <Sheet visible={visible} title="So‘rov turini tanlang" onClose={onClose}>
       <Group>
-        {KINDS.map((k, i) => (
+        {kinds.map((k, i) => (
           <Pressable
             key={k.key}
             onPress={() => {
               haptic.select();
               onPick(k.key);
             }}
-            style={({ pressed }) => [st.kind, i < KINDS.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }, pressed && { opacity: 0.6 }]}
+            style={({ pressed }) => [st.kind, i < kinds.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: c.line }, pressed && { opacity: 0.6 }]}
           >
             <View style={[st.rowIcon, { backgroundColor: `${c.accent}14` }]}>
               <Icon name={k.icon} size={19} color={c.accent} />
@@ -197,10 +213,13 @@ function LeaveTab({ create = 0 }: { create?: number }) {
   const { data, error, reload } = useData<Leave[]>("/mini/leave");
   const balance = useData<{ year: number; entitled: number; used: number; pending: number; remaining: number }>("/mini/leave-balance");
   const calendar = useData<{ holidays: { id: string; date: string; title: string; dayOff: boolean }[] }>("/mini/calendar");
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
+  const [open, setOpen] = useState(Boolean(create));
+  // «Ta’til so‘rash» qayta bosilsa (create oshadi) — forma ochiladi.
+  const [seenCreate, setSeenCreate] = useState(create);
+  if (seenCreate !== create) {
+    setSeenCreate(create);
     if (create) setOpen(true);
-  }, [create]);
+  }
   const cancel = async (item: Leave) => {
     if (!(await confirm("So‘rovni bekor qilish", `${dateUz(item.startDate)} – ${dateUz(item.endDate)} so‘rovini bekor qilasizmi?`, "Bekor qilish"))) return;
     try {
@@ -577,14 +596,12 @@ function MoveSheet({ visible, data, onClose, onSaved }: { visible: boolean; data
   const { c } = useTheme();
   const [from, setFrom] = useState(data.options.restDays[0] || "");
   const targets = useMemo(() => data.options.workDays.filter((d) => from && Math.abs(Date.parse(d) - Date.parse(from)) / 86_400_000 <= data.options.maxGapDays), [data, from]);
-  const [to, setTo] = useState("");
+  const [picked, setTo] = useState("");
+  // Tanlangan kun ro‘yxatda bo‘lmasa (dam kuni o‘zgardi) — eng yaqin keyingi ish kuni.
+  const to = targets.includes(picked) ? picked : targets.find((d) => d > from) || targets[0] || "";
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  useEffect(() => {
-    if (!targets.includes(to)) setTo(targets.find((d) => d > from) || targets[0] || "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [from, targets]);
   const save = async () => {
     setBusy(true);
     setError("");
@@ -692,7 +709,8 @@ function OvertimeTab() {
 }
 
 const st = StyleSheet.create({
-  newBtn: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  page: { padding: 16, gap: 12, paddingBottom: 40 },
+  newBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   kind: { flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   row: { flexDirection: "row", alignItems: "flex-start", gap: 12, paddingHorizontal: 14, paddingVertical: 12 },
   rowIcon: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },

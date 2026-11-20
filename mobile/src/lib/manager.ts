@@ -1,17 +1,33 @@
 import { Linking } from "react-native";
-import { ApiError, post } from "./api";
+import { ApiError, accessToken, cachedSession, loadSession, onSignedOut, post } from "./api";
 import { API_URL, SERVER_ORIGIN } from "./config";
 
 /*
- * Rahbar rejimi: ishonchli telefon orqali panel sessiyasi olinadi va panelning o‘z API’lari
- * chaqiriladi (huquq, filial chegarasi va audit — serverda, xuddi paneldagidek).
+ * Rahbar rejimi: panelning o‘z API’lari chaqiriladi (huquq, filial chegarasi va audit — serverda,
+ * xuddi paneldagidek). Panel tokeni ikki yo‘l bilan olinadi:
+ *   • direktor (login rejimi «manager») — ilovaga kirish tokenining o‘zi panel sessiyasi; u
+ *     /mobile/auth/refresh bilan yangilanadi (lib/api.ts, accessToken);
+ *   • rahbar-xodim (HR, moliya, filial rahbari) — xodim sessiyasi bilan /mobile/manager/session.
  * Token faqat xotirada; telefon bekor qilinsa server bu sessiyani ham yopadi.
  */
 export type Role = "COMPANY_OWNER" | "HR_ADMIN" | "HR_MANAGER" | "BRANCH_MANAGER" | "FINANCE" | string;
-export type ManagerAuth = { token: string; user: { id: string; name: string; role: Role; branchIds: string[] }; company: { id: string; name: string } };
+export type ManagerAuth = { token: string; user: { id: string; name: string; role: Role; branchIds: string[]; photoDataUrl?: string }; company: { id: string; name: string } };
 
 let current: Promise<ManagerAuth> | null = null;
-export function managerAuth(fresh = false) {
+// Chiqishda rahbar sessiyasi ham unutiladi — keyingi hisob eski panel tokenini ishlatmasin.
+onSignedOut(() => {
+  current = null;
+});
+
+export async function managerAuth(fresh = false): Promise<ManagerAuth> {
+  const session = cachedSession() || (await loadSession());
+  if (session?.mode === "manager") {
+    const token = await accessToken(fresh);
+    // Refresh rol yoki kompaniya nomini yangilagan bo‘lishi mumkin — eng so‘nggi nusxa.
+    const latest = cachedSession();
+    const s = latest?.mode === "manager" ? latest : session;
+    return { token, user: s.user, company: s.company };
+  }
   if (fresh || !current)
     current = post<ManagerAuth>("/mobile/manager/session", {}).catch((error) => {
       current = null;
@@ -42,7 +58,7 @@ export async function mcall<T>(path: string, body?: unknown, method = body === u
     return mcall<T>(path, body, method, false);
   }
   const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
-  if (!response.ok) throw new ApiError(String(data.message || `So‘rov bajarilmadi (${response.status}).`), response.status);
+  if (!response.ok) throw new ApiError(String(data.message || `So‘rov bajarilmadi (${response.status}).`), response.status, data.code as string | undefined, data);
   return data as T;
 }
 
@@ -59,6 +75,15 @@ const ROLE_PERMS: Record<string, string[]> = {
 };
 export const can = (role: Role, permission: string) => (ROLE_PERMS[role] || []).some((p) => p === "*" || p === permission);
 
+/** Rol nomi (Profil va rahbar paneli sarlavhasi). */
+export const ROLE_LABEL: Record<string, string> = {
+  COMPANY_OWNER: "Direktor",
+  HR_ADMIN: "HR",
+  HR_MANAGER: "HR",
+  FINANCE: "Moliya",
+  IT_ADMIN: "IT administrator",
+  BRANCH_MANAGER: "Filial rahbari",
+};
 
 export { canOpenPage, canWeb } from "./permissions";
 

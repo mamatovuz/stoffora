@@ -1,8 +1,23 @@
 import { Appearance } from "react-native";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ApiError, accessToken, activate as activateApi, loadSession, logout as logoutApi, onSignedOut, replacementStatus, type Employee } from "./api";
+import {
+  accessToken,
+  activate as activateApi,
+  isFatalSessionError,
+  loadSession,
+  login as loginApi,
+  logout as logoutApi,
+  onSessionSaved,
+  onSignedOut,
+  replacementStatus,
+  type DeviceInfo,
+  type Employee,
+  type SessionMode,
+  type StoredSession,
+} from "./api";
 import { removePin } from "./pin";
 import { KEYS, secureGet, secureSet } from "./secure";
+import { clearCache } from "./useData";
 
 export type Prefs = {
   /** Ruxsatlar bilan tanishtiruv ko‘rsatilganmi. */
@@ -11,7 +26,7 @@ export type Prefs = {
   appLock?: boolean;
   /** Ilovaga kirishda 4 xonali PIN-kod (xeshi Keychain/Keystore’da, lib/pin.ts). */
   pinLock?: boolean;
-  /** Yangi telefon so‘rovi (HR tasdig‘ini kutish). */
+  /** Yangi telefon so‘rovi (HR tasdig‘ini kutish) — faqat eski kod bilan faollashtirishda. */
   pendingRequestId?: string;
   /** Mavzu: tizimdagi kabi (standart), yorug‘ yoki qorong‘i. */
   theme?: "system" | "light" | "dark";
@@ -23,21 +38,29 @@ export function applyTheme(theme?: Prefs["theme"]) {
 type State = "loading" | "signedOut" | "pending" | "signedIn";
 type Ctx = {
   state: State;
+  /** Xodim (keldi-ketdi + bo‘limlar) yoki direktor (faqat rahbar paneli). */
+  mode: SessionMode | null;
+  session: StoredSession | null;
+  /** Xodim rejimida — xodim; direktorda — null. */
   employee: Employee | null;
   prefs: Prefs;
   signedOutReason?: string;
   setPrefs: (patch: Partial<Prefs>) => Promise<void>;
-  activate: (code: string, device: Parameters<typeof activateApi>[1]) => Promise<"session" | "pending">;
+  /** Login + parol (2FA bo‘lsa — avval «2fa», keyin kod bilan qayta). */
+  signIn: (login: string, password: string, device: DeviceInfo, code?: string) => Promise<{ kind: "session" } | { kind: "2fa"; message: string }>;
+  /** Eski staffora://activate?code=… havolasi. */
+  activate: (code: string, device: DeviceInfo) => Promise<"session" | "pending">;
   checkPending: () => Promise<"PENDING" | "APPROVED" | "REJECTED" | "CANCELLED">;
   cancelPending: () => Promise<void>;
   logout: () => Promise<void>;
 };
 
 const SessionContext = createContext<Ctx | null>(null);
+const same = (a: StoredSession | null, b: StoredSession | null) => JSON.stringify(a) === JSON.stringify(b);
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<State>("loading");
-  const [employee, setEmployee] = useState<Employee | null>(null);
+  const [session, setSession] = useState<StoredSession | null>(null);
   const [prefs, setPrefsState] = useState<Prefs>({});
   const prefsRef = useRef<Prefs>({});
   const [signedOutReason, setReason] = useState<string>();
@@ -51,28 +74,33 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setPrefsState(prefsRef.current);
       applyTheme(prefsRef.current.theme);
       if (stored) {
-        setEmployee(stored.employee);
+        setSession(stored);
         try {
           await accessToken();
           if (alive) setState("signedIn");
         } catch (error) {
           // Internet yo‘q — sessiya saqlangan, ilova ochiladi (keyin yangilanadi).
-          if (alive) setState(error instanceof ApiError && error.status === 401 ? "signedOut" : "signedIn");
+          if (alive) setState(isFatalSessionError(error) ? "signedOut" : "signedIn");
         }
       } else setState(savedPrefs?.pendingRequestId ? "pending" : "signedOut");
     })();
+    // Refresh rol/kompaniya nomini yangilashi mumkin — o‘zgargan bo‘lsagina qayta chiziladi.
+    const offSaved = onSessionSaved((next) => setSession((prev) => (same(prev, next) ? prev : next)));
     const off = onSignedOut((reason) => {
       // Sessiya tugasa — PIN ham o‘chadi (telefon boshqa xodimga berilishi mumkin).
       void removePin();
       prefsRef.current = { ...prefsRef.current, pinLock: false, appLock: false };
       setPrefsState(prefsRef.current);
       void secureSet(KEYS.prefs, prefsRef.current);
-      setEmployee(null);
+      // Oldingi foydalanuvchi ma’lumotlari keyingisiga ko‘rinmasin.
+      clearCache();
+      setSession(null);
       setReason(reason);
       setState("signedOut");
     });
     return () => {
       alive = false;
+      offSaved();
       off();
     };
   }, []);
@@ -84,6 +112,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await secureSet(KEYS.prefs, prefsRef.current);
   }, []);
 
+  const signedIn = useCallback(
+    async (next: StoredSession) => {
+      await setPrefs({ pendingRequestId: undefined });
+      clearCache();
+      setSession(next);
+      setReason(undefined);
+      setState("signedIn");
+    },
+    [setPrefs],
+  );
+
+  const signIn = useCallback<Ctx["signIn"]>(
+    async (login, password, device, code) => {
+      const result = await loginApi(login, password, device, code);
+      if (result.kind === "2fa") return result;
+      await signedIn(result.session);
+      return { kind: "session" };
+    },
+    [signedIn],
+  );
+
   const activate = useCallback<Ctx["activate"]>(
     async (code, device) => {
       const result = await activateApi(code, device);
@@ -92,29 +141,28 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setState("pending");
         return "pending";
       }
-      await setPrefs({ pendingRequestId: undefined });
-      setEmployee(result.employee);
-      setReason(undefined);
-      setState("signedIn");
+      await signedIn(result.session);
       return "session";
     },
-    [setPrefs],
+    [setPrefs, signedIn],
   );
 
   const checkPending = useCallback(async () => {
     if (!prefs.pendingRequestId) return "CANCELLED" as const;
     const status = await replacementStatus(prefs.pendingRequestId);
     if (status === "APPROVED") {
-      await setPrefs({ pendingRequestId: undefined });
       const stored = await loadSession();
-      setEmployee(stored?.employee || null);
-      setState("signedIn");
+      if (stored) await signedIn(stored);
+      else {
+        await setPrefs({ pendingRequestId: undefined });
+        setState("signedOut");
+      }
     } else if (status !== "PENDING") {
       await setPrefs({ pendingRequestId: undefined });
       setState("signedOut");
     }
     return status;
-  }, [prefs.pendingRequestId, setPrefs]);
+  }, [prefs.pendingRequestId, setPrefs, signedIn]);
 
   const cancelPending = useCallback(async () => {
     await setPrefs({ pendingRequestId: undefined });
@@ -125,7 +173,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     await logoutApi();
   }, []);
 
-  const value = useMemo(() => ({ state, employee, prefs, signedOutReason, setPrefs, activate, checkPending, cancelPending, logout }), [state, employee, prefs, signedOutReason, setPrefs, activate, checkPending, cancelPending, logout]);
+  const value = useMemo<Ctx>(
+    () => ({
+      state,
+      mode: session?.mode ?? null,
+      session,
+      employee: session?.mode === "employee" ? session.employee : null,
+      prefs,
+      signedOutReason,
+      setPrefs,
+      signIn,
+      activate,
+      checkPending,
+      cancelPending,
+      logout,
+    }),
+    [state, session, prefs, signedOutReason, setPrefs, signIn, activate, checkPending, cancelPending, logout],
+  );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

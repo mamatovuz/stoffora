@@ -5,7 +5,7 @@ import * as LocalAuthentication from "expo-local-authentication";
 import * as Notifications from "expo-notifications";
 import { Stack, router, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ActivityIndicator, AppState, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "@/components/T";
 import { SafeAreaProvider } from "react-native-safe-area-context";
@@ -41,20 +41,24 @@ export function ErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 }
 
 function Gate() {
-  const { state, prefs } = useSession();
+  const { state, prefs, mode } = useSession();
   const segments = useSegments();
   useEffect(() => {
     if (state === "loading") return;
     const top = segments[0] as string | undefined;
-    const open = top === "activate" || top === "pending";
-    if (state === "signedOut" && top !== "activate") router.replace("/activate");
+    // «activate» — faqat eski staffora://activate?code=… havolasi uchun ochiq qoladi.
+    const open = top === "login" || top === "activate" || top === "pending";
+    if (state === "signedOut" && top !== "login" && top !== "activate") router.replace("/login");
     else if (state === "pending" && top !== "pending") router.replace("/pending");
-    else if (state === "signedIn" && (open || !top)) router.replace(prefs.onboarded ? "/(tabs)" : "/permissions");
-  }, [state, segments, prefs.onboarded]);
+    else if (state === "signedIn" && (open || !top))
+      // Direktor — faqat rahbar paneli (keldi-ketdi ruxsatlari kerak emas).
+      router.replace(mode === "manager" ? "/(tabs)/manager" : prefs.onboarded ? "/(tabs)" : "/permissions");
+  }, [state, segments, prefs.onboarded, mode]);
 
-  // Push: token aylanishi va bildirishnomani bosganda tegishli ekranni ochish.
+  // Push: token aylanishi va bildirishnomani bosganda tegishli ekranni ochish (faqat xodim rejimi —
+  // push tokeni, internetsiz belgilar va /mini/* xodim sessiyasiga bog‘langan).
   useEffect(() => {
-    if (state !== "signedIn") return;
+    if (state !== "signedIn" || mode !== "employee") return;
     void registerPush(false).catch(() => undefined);
     const stopWatch = watchPushToken();
     // Internetsiz saqlangan belgilar — aloqa tiklanishi bilan avtomatik yuboriladi.
@@ -78,7 +82,7 @@ function Gate() {
       sub.remove();
       received.remove();
     };
-  }, [state]);
+  }, [state, mode]);
   return null;
 }
 
@@ -105,18 +109,19 @@ function AppLock() {
   // Faqat ilova ochilganda (sessiya yuklanib bo‘lgach) qulflanadi — PIN endigina yoqilganda emas.
   const booted = useRef(false);
   const enabledRef = useRef(enabled);
-  enabledRef.current = enabled;
   const lockRef = useRef(lock);
-  lockRef.current = lock;
+  // Eng so‘nggi qiymatlar — tinglovchilar (AppState) eski yopilmani ishlatmasin. Render’da emas, effektda.
+  useLayoutEffect(() => {
+    enabledRef.current = enabled;
+    lockRef.current = lock;
+  });
   useEffect(() => {
     if (state === "loading" || booted.current) return;
     booted.current = true;
     if (enabledRef.current) lockRef.current();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
-  useEffect(() => {
-    if (!enabled) setLocked(false);
-  }, [enabled]);
+  // Qulf o‘chirilsa yoki sessiya tugasa — qulf ekrani yopiladi (shu render’da).
+  if (!enabled && locked) setLocked(false);
   // 1 daqiqadan ko‘p fonda turgandan keyin qaytilganda qulflanadi. Vaqt har safar tozalanadi —
   // aks holda kamera, galereya yoki Face ID oynasidan qaytganda ham qayta-qayta qulflanardi.
   useEffect(() => {
@@ -129,7 +134,6 @@ function AppLock() {
       }
     });
     return () => sub.remove();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (!locked) return null;
   return (
@@ -188,6 +192,7 @@ function Shell() {
         }}
       >
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="login" options={{ gestureEnabled: false }} />
         <Stack.Screen name="activate" options={{ gestureEnabled: false }} />
         <Stack.Screen name="pending" options={{ gestureEnabled: false }} />
         <Stack.Screen name="permissions" options={{ gestureEnabled: false }} />
@@ -207,6 +212,7 @@ function Shell() {
         <Stack.Screen name="birthdays" options={{ headerShown: true, title: tr("Tug‘ilgan kunlar") }} />
         <Stack.Screen name="mark-request" options={{ headerShown: true, title: tr("Belgilash so‘rovi") }} />
         <Stack.Screen name="reminders" options={{ headerShown: true, title: tr("Eslatmalar") }} />
+        <Stack.Screen name="requests" options={{ headerShown: true, title: tr("So‘rovlar") }} />
         <Stack.Screen name="employee/[id]" options={{ headerShown: true, title: tr("Xodimning profili") }} />
       </Stack>
       <Gate />

@@ -1,153 +1,246 @@
-import { useEffect, useState } from "react";
-import { ChevronRight, Copy, RefreshCw, ShieldCheck, Smartphone } from "lucide-react";
-import { api, errorText, post } from "../../api";
+import { useCallback, useEffect, useState } from "react";
+import { ChevronRight, Copy, Eye, EyeOff } from "lucide-react";
+import { ApiError, api, errorText, post } from "../../api";
+import { checkLoginInput, LOGIN_SUFFIX, passwordProblem, suggestLoginLocal } from "@/lib/staff-login";
 import { Sheet, type Toast } from "./shared";
 import { haptic } from "./tg";
 
-type Status = { device?: { platform: string; model?: string; createdAt: string; lastSeenAt?: string }; pendingReplacement: boolean };
-type Code = { code: string; expiresAt: string; link: string; hasDevice: boolean };
-
-/**
- * «Telefon ilovasini ulash»: Telegram orqali tasdiqlangan xodim bir martalik (15 daqiqa) kod
- * oladi va uni Staffora ilovasiga kiritadi — darhol kiradi (HR tasdig‘i kerak emas).
- * Yangi telefonda kiritilsa, eski telefondagi ilovadan avtomatik chiqiladi.
- * Kod hech qayerda saqlanmaydi — faqat ekranda.
+/*
+ * «Ilovaga kirish»: Staffora telefon ilovasiga login (<nom>@staffora.uz) va parol bilan kiriladi.
+ * Login bir marta tanlanadi va o‘zgarmaydi; parolni shu yerda istalgan vaqtda yangilash mumkin —
+ * Telegram orqali kirgan xodimdan eski parol so‘ralmaydi (bu «parolni unutdim» ham).
+ * Eski bir martalik kod bilan ulash o‘rniga.
  */
-const CODE_TTL = 15 * 60;
-export function MobileLinkRow({ onToast }: { onToast: Toast }) {
-  const [status, setStatus] = useState<Status | null>(null);
-  const [open, setOpen] = useState(false);
-  const [code, setCode] = useState<Code | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [left, setLeft] = useState(0);
-  const [expired, setExpired] = useState(false);
 
-  useEffect(() => {
-    api<Status>("/mini/mobile/status").then(setStatus).catch(() => setStatus(null));
+type Account = { login: string | null; suggested?: string; hasPassword?: boolean };
+type Mode = "create" | "password";
+
+/** «ozodbek@staffora.uz» → «ozodbek» (maydonda domen alohida, o‘zgarmas yozuv). */
+const localOf = (login?: string) => {
+  const value = (login || "").trim();
+  return value.toLowerCase().endsWith(LOGIN_SUFFIX) ? value.slice(0, -LOGIN_SUFFIX.length) : value;
+};
+
+export function AppLoginGroup({ onToast, initialLogin, firstName, lastName }: { onToast: Toast; initialLogin?: string; firstName: string; lastName: string }) {
+  const [account, setAccount] = useState<Account | null>(initialLogin ? { login: initialLogin } : null);
+  const [state, setState] = useState<"loading" | "ready" | "missing" | "error">("loading");
+  const [sheet, setSheet] = useState<Mode | null>(null);
+  const load = useCallback(() => {
+    setState("loading");
+    api<Account>("/mini/account")
+      .then((value) => {
+        setAccount(value);
+        setState("ready");
+      })
+      // Server hali yangilanmagan (404) — bo‘lim ko‘rinmaydi; boshqa xatoda «qayta urinish».
+      .catch((reason) => setState(reason instanceof ApiError && reason.status === 404 ? "missing" : "error"));
   }, []);
   useEffect(() => {
-    if (!code) return;
-    const tick = () => {
-      const s = Math.max(0, Math.round((Date.parse(code.expiresAt) - Date.now()) / 1000));
-      setLeft(s);
-      if (!s) {
-        setCode(null);
-        setExpired(true);
-      }
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [code]);
+    load();
+  }, [load]);
 
-  const generate = async () => {
-    setBusy(true);
+  const login = account?.login || null;
+  if (state === "missing" && !login) return null;
+
+  const copy = async () => {
+    if (!login) return;
     try {
-      setCode(await post<Code>("/mini/mobile/activation-code", {}));
-      setExpired(false);
+      await navigator.clipboard.writeText(login);
       haptic.success();
-    } catch (error) {
-      onToast(errorText(error), "error");
+      onToast("Login nusxalandi");
+    } catch {
+      onToast("Nusxalab bo‘lmadi — loginni qo‘lda yozing", "error");
+    }
+  };
+
+  return (
+    <>
+      <div className="mp-group-title">Ilovaga kirish</div>
+      <section className="mp-group">
+        {login ? (
+          <>
+            <button className="mp-row link al-row" onClick={() => void copy()} aria-label="Loginni nusxalash">
+              <span>Login</span>
+              <b>
+                <span className="al-value">{login}</span>
+                <Copy size={15} />
+              </b>
+            </button>
+            <button className="mp-row link" onClick={() => setSheet("password")}>
+              <span>Parolni o‘zgartirish</span>
+              <ChevronRight size={16} />
+            </button>
+          </>
+        ) : state === "error" ? (
+          <button className="mp-row link" onClick={load}>
+            <span>Ma’lumot yuklanmadi</span>
+            <b>Qayta urinish</b>
+          </button>
+        ) : (
+          <button className="mp-row link" onClick={() => setSheet("create")} disabled={state === "loading"}>
+            <span>Login va parol yaratish</span>
+            <ChevronRight size={16} />
+          </button>
+        )}
+      </section>
+      {login && <p className="mp-note al-hint">Staffora ilovasida shu login va parol bilan kirasiz</p>}
+      {sheet && (
+        <AccountSheet
+          mode={sheet}
+          login={login}
+          suggested={localOf(account?.suggested) || suggestLoginLocal(firstName, lastName)}
+          onClose={() => setSheet(null)}
+          onFixed={() => {
+            setSheet(null);
+            onToast("Login allaqachon yaratilgan");
+            load();
+          }}
+          onSaved={(saved) => {
+            setSheet(null);
+            setAccount((current) => ({ ...(current || {}), login: saved, hasPassword: true }));
+            haptic.success();
+            onToast(sheet === "create" ? "Login va parol saqlandi" : "Parol yangilandi");
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function AccountSheet({
+  mode,
+  login,
+  suggested,
+  onClose,
+  onSaved,
+  onFixed,
+}: {
+  mode: Mode;
+  login: string | null;
+  suggested: string;
+  onClose: () => void;
+  onSaved: (login: string) => void;
+  onFixed: () => void;
+}) {
+  const creating = mode === "create";
+  const [local, setLocal] = useState(creating ? suggested : "");
+  const [password, setPassword] = useState("");
+  const [repeat, setRepeat] = useState("");
+  const [show, setShow] = useState(false);
+  const [touched, setTouched] = useState({ password: false, repeat: false });
+  const [serverErr, setServerErr] = useState<{ login?: string; password?: string; general?: string }>({});
+  const [busy, setBusy] = useState(false);
+
+  const loginCheck = creating ? checkLoginInput(local) : null;
+  const loginErr = serverErr.login || (loginCheck && !loginCheck.ok && local.trim() ? loginCheck.error : "");
+  const pwProblem = passwordProblem(password);
+  const pwErr = serverErr.password || (touched.password && password ? pwProblem || "" : "");
+  const repeatErr = (touched.repeat || repeat.length >= password.length) && repeat && repeat !== password ? "Parollar mos emas" : "";
+  const valid = (!creating || Boolean(loginCheck?.ok)) && !pwProblem && repeat === password && !busy;
+
+  async function save() {
+    setTouched({ password: true, repeat: true });
+    if (!valid) return;
+    setBusy(true);
+    setServerErr({});
+    try {
+      const body = creating && loginCheck?.ok ? { login: loginCheck.local, password } : { password };
+      const result = await post<{ ok: boolean; login: string }>("/mini/account", body);
+      onSaved(result.login || (loginCheck?.ok ? loginCheck.login : login) || "");
+    } catch (reason) {
+      haptic.error();
+      const code = reason instanceof ApiError ? reason.code : undefined;
+      const message = errorText(reason);
+      if (code === "LOGIN_TAKEN") setServerErr({ login: "Bu login band — boshqasini yozing" });
+      else if (code === "LOGIN_INVALID") setServerErr({ login: message || "Login noto‘g‘ri" });
+      else if (code === "PASSWORD_WEAK") setServerErr({ password: message || "Parol juda oddiy" });
+      else if (code === "LOGIN_FIXED") return onFixed();
+      else if (reason instanceof ApiError && reason.status === 404) setServerErr({ general: "Bu imkoniyat hali yoqilmagan. Birozdan keyin urinib ko‘ring." });
+      else setServerErr({ general: message || "Saqlanmadi" });
     } finally {
       setBusy(false);
     }
-  };
-  const copy = async () => {
-    if (!code) return;
-    try {
-      await navigator.clipboard.writeText(code.code);
-      haptic.success();
-      onToast("Kod nusxalandi — ilovaga qo‘ying");
-    } catch {
-      onToast("Kodni qo‘lda kiriting", "error");
-    }
-  };
-  const close = () => {
-    setOpen(false);
-    setCode(null);
-    setExpired(false);
-  };
+  }
 
-  const device = status?.device;
+  const eye = (
+    <button type="button" className="al-eye" onClick={() => setShow(!show)} aria-label={show ? "Parolni yashirish" : "Parolni ko‘rsatish"}>
+      {show ? <EyeOff size={18} /> : <Eye size={18} />}
+    </button>
+  );
   return (
-    <>
-      <button className="mp-row link" onClick={() => setOpen(true)}>
-        <span className="mlink-row-label">
-          <Smartphone size={15} />
-          <span>
-            Telefon ilovasi
-            {status && !device && <small>Face ID bilan keldi-ketdi · 1 daqiqada ulanadi</small>}
+    <Sheet
+      title={creating ? "Ilovaga kirish" : "Parolni o‘zgartirish"}
+      subtitle={creating ? undefined : login || undefined}
+      onClose={onClose}
+      primary={{ text: "Saqlash", onClick: () => void save(), busy, disabled: !valid }}
+    >
+      <form
+        className="al-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void save();
+        }}
+      >
+        {creating && (
+          <label>
+            Login
+            <span className={`al-input ${loginErr ? "bad" : ""}`}>
+              <input
+                value={local}
+                onChange={(e) => {
+                  setLocal(e.target.value);
+                  if (serverErr.login) setServerErr({ ...serverErr, login: undefined });
+                }}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="username"
+                maxLength={60}
+                aria-invalid={Boolean(loginErr)}
+              />
+              <span className="al-suffix">{LOGIN_SUFFIX}</span>
+            </span>
+            {loginErr && <small className="al-err">{loginErr}</small>}
+          </label>
+        )}
+        <label>
+          {creating ? "Parol" : "Yangi parol"}
+          <span className={`al-input ${pwErr ? "bad" : ""}`}>
+            <input
+              type={show ? "text" : "password"}
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (serverErr.password) setServerErr({ ...serverErr, password: undefined });
+              }}
+              onBlur={() => setTouched((t) => ({ ...t, password: true }))}
+              autoComplete="new-password"
+              maxLength={72}
+              aria-invalid={Boolean(pwErr)}
+            />
+            {eye}
           </span>
-        </span>
-        <span className="mp-row-end">
-          <small className={device ? "ok" : ""}>{device ? device.model || (device.platform === "ios" ? "iPhone" : "Android") : "Ulanmagan"}</small>
-          <ChevronRight size={16} />
-        </span>
-      </button>
-      {open && (
-        <Sheet
-          title="Staffora ilovasi"
-          subtitle="iPhone va Android uchun"
-          onClose={close}
-          primary={code ? null : { text: device ? "Yangi telefon uchun kod" : "Ulash kodini olish", onClick: () => void generate(), busy, icon: <Smartphone size={16} /> }}
-        >
-          <div className="mlink">
-            {device && (
-              <div className="mlink-device">
-                <ShieldCheck size={18} />
-                <div>
-                  <b>Ishonchli telefon: {device.model || device.platform}</b>
-                  <small>Ulangan: {new Date(device.createdAt).toLocaleDateString("ru-RU")}</small>
-                </div>
-              </div>
-            )}
-            {code ? (
-              <div className="mlink-code">
-                <small>Staffora ilovasiga shu kodni kiriting</small>
-                <button className="mlink-digits" onClick={() => void copy()} aria-label="Kodni nusxalash">
-                  {code.code}
-                  <Copy size={16} />
-                </button>
-                <div className="mlink-timer" aria-hidden>
-                  <i style={{ width: `${Math.min(100, (left / CODE_TTL) * 100)}%` }} />
-                </div>
-                <small>
-                  {Math.floor(left / 60)}:{String(left % 60).padStart(2, "0")} amal qiladi · faqat bir marta · bosib nusxalang
-                </small>
-                <button className="mlink-again" onClick={() => void generate()} disabled={busy}>
-                  <RefreshCw size={14} /> Yangi kod
-                </button>
-              </div>
-            ) : (
-              <>
-                {expired && <p className="mlink-note">Kod muddati tugadi. Yangi kod oling.</p>}
-                <ol className="mlink-steps">
-                  <li>
-                    <span>
-                      <b>O‘rnating.</b> App Store yoki Google Play’dan «Staffora» ilovasini yuklab oling.
-                    </span>
-                  </li>
-                  <li>
-                    <span>
-                      <b>Kod oling.</b> Pastdagi «{device ? "Yangi telefon uchun kod" : "Ulash kodini olish"}» tugmasini bosing.
-                    </span>
-                  </li>
-                  <li>
-                    <span>
-                      <b>Kiriting.</b> Ilovada 8 belgili kodni yozing — darhol kirasiz.
-                    </span>
-                  </li>
-                </ol>
-              </>
-            )}
-            <p className="mlink-hint">
-              {device
-                ? "Yangi telefonda kod kiritsangiz, ilova o‘sha telefonda ochiladi va eski telefondan avtomatik chiqiladi. HR tasdig‘i kerak emas."
-                : "Kodni hech kimga bermang. Davomat baribir Face ID bilan — faqat o‘zingiz belgilaysiz."}
-            </p>
-          </div>
-        </Sheet>
-      )}
-    </>
+          {pwErr ? <small className="al-err">{pwErr}</small> : <small className="al-help">Kamida 8 belgi: harf va raqam</small>}
+        </label>
+        <label>
+          Parolni takrorlang
+          <span className={`al-input ${repeatErr ? "bad" : ""}`}>
+            <input
+              type={show ? "text" : "password"}
+              value={repeat}
+              onChange={(e) => setRepeat(e.target.value)}
+              onBlur={() => setTouched((t) => ({ ...t, repeat: true }))}
+              autoComplete="new-password"
+              maxLength={72}
+              aria-invalid={Boolean(repeatErr)}
+            />
+          </span>
+          {repeatErr && <small className="al-err">{repeatErr}</small>}
+        </label>
+        {serverErr.general && <small className="al-err">{serverErr.general}</small>}
+        {/* Enter bilan yuborish (Telegram tashqarisida — Sheet o‘z tugmasini ko‘rsatadi). */}
+        <button type="submit" hidden aria-hidden tabIndex={-1} />
+      </form>
+    </Sheet>
   );
 }

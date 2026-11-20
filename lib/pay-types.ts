@@ -1,6 +1,7 @@
 import type { Attendance, PayRate, PayType, PayrollSettings } from "./types";
 import type { PayrollLine } from "./payroll";
-import { normalizePayrollSettings } from "./payroll";
+import { lateCoverage, normalizePayrollSettings } from "./payroll";
+import { duration } from "./format";
 
 /*
  * Ish haqi turlari (oylikdan tashqari): kunlik, soatbay va ishbay. Oylik — lib/payroll.ts calculatePayroll.
@@ -54,12 +55,15 @@ export function calculateTypedPay(
   const present = input.records.filter((r) => r.checkIn);
   const complete = present.filter((r) => r.checkOut);
   const openDays = present.filter((r) => !r.checkOut && r.date < input.today).map((r) => r.date);
-  const lateMinutes = present.reduce((s, r) => s + Math.max(0, Math.round(r.lateMinutes || 0)), 0);
-  const lateDays = present.filter((r) => (r.lateMinutes || 0) > 0).length;
+  // Kechikishni ishlab yopish: yopilgan daqiqalar na kechikish, na qo‘shimcha ish (lib/payroll.ts lateCoverage).
+  const lateMinutes = present.reduce((s, r) => s + lateCoverage(r, settings).late, 0);
+  const lateCoveredMinutes = present.reduce((s, r) => s + lateCoverage(r, settings).covered, 0);
+  const lateDays = present.filter((r) => lateCoverage(r, settings).late > 0).length;
   const workedMinutes = complete.reduce((s, r) => s + Math.max(0, Math.round(r.workedMinutes || 0)), 0);
   const approved = (r: Rec) => !settings.overtimeRequiresApproval || r.overtimeApproved === true;
-  const overtimeMinutes = complete.filter(approved).reduce((s, r) => s + Math.max(0, Math.round(r.overtimeMinutes || 0)), 0);
-  const pendingOvertimeMinutes = settings.overtimeRequiresApproval ? complete.filter((r) => r.overtimeApproved === undefined).reduce((s, r) => s + Math.max(0, r.overtimeMinutes || 0), 0) : 0;
+  const overtimeMinutes = complete.filter(approved).reduce((s, r) => s + lateCoverage(r, settings).overtime, 0);
+  const pendingOvertimeMinutes =
+    settings.overtimeRequiresApproval && settings.overtimePay ? complete.filter((r) => r.overtimeApproved === undefined).reduce((s, r) => s + lateCoverage(r, settings).overtime, 0) : 0;
   const overtimeFactor = (settings.overtimeRatePercent ?? 100) / 100;
   const chargeableLateMinutes = Math.max(0, lateMinutes - settings.freeLateMinutesPerMonth);
 
@@ -102,6 +106,7 @@ export function calculateTypedPay(
   if (overtimeAmount) parts.push(`+${som(overtimeAmount)} qo‘shimcha ish`);
   if (bonus) parts.push(`+${som(bonus)} bonus`);
   if (deduction) parts.push(`−${som(deduction)} kechikish`);
+  if (lateCoveredMinutes && input.payType === "DAILY") parts.push(`${duration(lateCoveredMinutes)} kechikish ishlab yopildi`);
   if (fine) parts.push(`−${som(fine)} jarima`);
   if (advance) parts.push(`−${som(advance)} avans`);
   if (openDays.length) parts.push(`${openDays.length} kun chiqish belgilanmagan — hisoblanmadi`);
@@ -111,6 +116,7 @@ export function calculateTypedPay(
     days: present.length,
     lateDays,
     lateMinutes,
+    lateCoveredMinutes,
     chargeableLateMinutes: input.payType === "DAILY" ? chargeableLateMinutes : 0,
     workedMinutes,
     overtimeMinutes,

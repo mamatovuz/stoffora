@@ -281,14 +281,16 @@ export function createUsersRouter() {
       if (kind === "mobile") {
         const employee = (id: string) => db.employees.find((e) => e.id === id);
         let rows = db.mobileSessions.map((s) => {
-          const e = employee(s.employeeId);
+          const e = s.employeeId ? employee(s.employeeId) : undefined;
+          // Rahbar rejimi sessiyasi (xodim profili yo‘q direktor).
+          const manager = !s.employeeId && s.userId ? db.users.find((u) => u.id === s.userId) : undefined;
           const device = db.mobileDevices.find((d) => d.id === s.deviceId);
           return {
             id: s.id,
             kind: "mobile",
             companyId: s.companyId,
             company: db.companies.find((c) => c.id === s.companyId)?.name || "—",
-            who: e ? `${e.lastName} ${e.firstName}` : "—",
+            who: e ? `${e.lastName} ${e.firstName}` : manager ? `${manager.name} (rahbar)` : "—",
             device: device ? `${device.platform === "ios" ? "iOS" : "Android"}${device.model ? ` · ${device.model}` : ""}` : "—",
             createdAt: s.createdAt,
             lastSeenAt: s.lastUsedAt,
@@ -358,7 +360,10 @@ export function createUsersRouter() {
         if (!row) throw httpError("Sessiya topilmadi.", 404);
         row.revokedAt ||= now;
         row.revokeReason = `Platforma: ${actor.name}`;
-        return { userId: row.employeeId, companyId: row.companyId };
+        // Rahbar rejimi: bog‘langan panel sessiyasi ham yopiladi (access token darhol ishlamaydi).
+        const panel = row.panelSessionId ? db.panelSessions.find((s) => s.id === row.panelSessionId) : undefined;
+        if (panel) panel.revokedAt ||= now;
+        return { userId: row.employeeId || row.userId || "", companyId: row.companyId };
       });
       await platformAudit({ req, companyId: info.companyId, action: "session.revoke", entity: `${kind}_session`, entityId: String(req.params.id), summary: `${kind === "panel" ? "Panel" : "Mobil"} sessiyasi bekor qilindi` });
       void recordSecurityEvent({ type: "SESSION_REVOKED", severity: "LOW", userId: info.userId, req, detail: kind });

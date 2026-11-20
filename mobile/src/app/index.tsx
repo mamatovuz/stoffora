@@ -2,9 +2,9 @@ import { Redirect } from "expo-router";
 import { useSession } from "@/lib/session";
 
 export default function Index() {
-  const { state, prefs } = useSession();
-  if (state === "signedOut") return <Redirect href="/activate" />;
+  const { state, prefs, mode } = useSession();
+  if (state === "signedOut") return <Redirect href="/login" />;
   if (state === "pending") return <Redirect href="/pending" />;
-  if (state === "signedIn") return <Redirect href={prefs.onboarded ? "/(tabs)" : "/permissions"} />;
+  if (state === "signedIn") return <Redirect href={mode === "manager" ? "/(tabs)/manager" : prefs.onboarded ? "/(tabs)" : "/permissions"} />;
   return null;
 }

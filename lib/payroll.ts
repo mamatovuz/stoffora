@@ -9,6 +9,7 @@ export const defaultPayrollSettings: PayrollSettings = {
   overtimePay: true,
   absencePenalty: "NONE",
   overtimeRequiresApproval: false,
+  lateOffset: false,
 };
 
 export function normalizePayrollSettings(
@@ -42,7 +43,25 @@ export function normalizePayrollSettings(
     deductBreaks: Boolean(merged.deductBreaks),
     overtimeTwoStep: Boolean(merged.overtimeTwoStep),
     overtimeRatePercent: int(merged.overtimeRatePercent ?? 100, 100, 400, 100),
+    lateOffset: Boolean(merged.lateOffset),
   };
+}
+
+/**
+ * Kechikishni ishlab yopish (lateOffset): bir kun ichida smena tugagandan keyin qolib ishlangan vaqt
+ * shu kungi kechikishni yopadi — covered = min(kechikish, qo‘shimcha ish). Yopilgan daqiqalar
+ * kechikish ham (ushlanma yo‘q), qo‘shimcha ish ham emas (to‘lanmaydi, tasdiq so‘ralmaydi).
+ * Qo‘shimcha ish faqat chiqish belgilangandan keyin hisoblanadi, shuning uchun ochiq kunda covered = 0.
+ */
+export function lateCoverage(
+  record: Pick<Attendance, "lateMinutes" | "overtimeMinutes"> & { checkOut?: string },
+  settings?: Pick<PayrollSettings, "lateOffset">,
+) {
+  const late = Math.max(0, Math.round(record.lateMinutes || 0));
+  const overtime = Math.max(0, Math.round(record.overtimeMinutes || 0));
+  const closed = !("checkOut" in record) || Boolean(record.checkOut);
+  const covered = settings?.lateOffset && closed ? Math.min(late, overtime) : 0;
+  return { covered, late: late - covered, overtime: overtime - covered };
 }
 
 export type AdvanceWindow = {
@@ -101,7 +120,10 @@ export type PayrollLine = {
   base: number;
   days: number;
   lateDays: number;
+  /** Ushlanmaga asos bo‘ladigan kechikish (ishlab yopilgani ayirilgan). */
   lateMinutes: number;
+  /** Smenadan keyin qolib ishlab yopilgan kechikish (lateOffset yoqilgan bo‘lsa). */
+  lateCoveredMinutes?: number;
   chargeableLateMinutes: number;
   workedMinutes: number;
   overtimeMinutes: number;
@@ -134,21 +156,22 @@ const som = (value: number) =>
  */
 export function calculatePayroll(
   baseSalary: number,
-  records: Pick<Attendance, "checkIn" | "lateMinutes" | "workedMinutes" | "overtimeMinutes" | "overtimeApproved">[],
+  records: (Pick<Attendance, "checkIn" | "lateMinutes" | "workedMinutes" | "overtimeMinutes" | "overtimeApproved"> & { checkOut?: string })[],
   settingsInput?: Partial<PayrollSettings>,
   extras: PayrollExtras = {},
 ): PayrollLine {
   const settings = normalizePayrollSettings(settingsInput);
   const base = Math.max(0, Math.round(baseSalary || 0));
-  const present = records.filter((r) => r.checkIn);
-  const lateMinutes = present.reduce((s, r) => s + Math.max(0, Math.round(r.lateMinutes || 0)), 0);
-  const lateDays = present.filter((r) => (r.lateMinutes || 0) > 0).length;
-  const workedMinutes = present.reduce((s, r) => s + Math.max(0, r.workedMinutes || 0), 0);
-  const approved = (r: (typeof present)[number]) => !settings.overtimeRequiresApproval || r.overtimeApproved === true;
-  const overtimeMinutes = present.filter(approved).reduce((s, r) => s + Math.max(0, r.overtimeMinutes || 0), 0);
-  const pendingOvertimeMinutes = settings.overtimeRequiresApproval
-    ? present.filter((r) => r.overtimeApproved === undefined).reduce((s, r) => s + Math.max(0, r.overtimeMinutes || 0), 0)
-    : 0;
+  const present = records.filter((r) => r.checkIn).map((r) => ({ r, c: lateCoverage(r, settings) }));
+  const lateMinutes = present.reduce((s, x) => s + x.c.late, 0);
+  const lateCoveredMinutes = present.reduce((s, x) => s + x.c.covered, 0);
+  const lateDays = present.filter((x) => x.c.late > 0).length;
+  const workedMinutes = present.reduce((s, x) => s + Math.max(0, x.r.workedMinutes || 0), 0);
+  const approved = (x: (typeof present)[number]) => !settings.overtimeRequiresApproval || x.r.overtimeApproved === true;
+  // Qo‘shimcha ish to‘lanmasa — tasdiq ham kutilmaydi (daqiqalar faqat tarix uchun saqlanadi).
+  const overtimeMinutes = present.filter(approved).reduce((s, x) => s + x.c.overtime, 0);
+  const pendingOvertimeMinutes =
+    settings.overtimeRequiresApproval && settings.overtimePay ? present.filter((x) => x.r.overtimeApproved === undefined).reduce((s, x) => s + x.c.overtime, 0) : 0;
   const hourlyRate = base / settings.monthlyHours;
   const chargeableLateMinutes = Math.max(0, lateMinutes - settings.freeLateMinutesPerMonth);
 
@@ -175,6 +198,7 @@ export function calculatePayroll(
   if (deduction) parts.push(`−${som(deduction)} kechikish (${duration(lateMinutes)})`);
   else if (lateMinutes)
     parts.push(`${duration(lateMinutes)} kechikish — ${settings.latePenaltyMode === "NONE" ? "jarima o‘chirilgan" : `${settings.freeLateMinutesPerMonth} daqiqagacha jarimasiz`}`);
+  if (lateCoveredMinutes) parts.push(`${duration(lateCoveredMinutes)} kechikish ishlab yopildi`);
   if (absenceDeduction) parts.push(`−${som(absenceDeduction)} kelmagan ${absentDays} kun`);
   if (fine) parts.push(`−${som(fine)} jarima`);
   if (advance) parts.push(`−${som(advance)} avans berilgan`);
@@ -188,6 +212,7 @@ export function calculatePayroll(
     days: present.length,
     lateDays,
     lateMinutes,
+    lateCoveredMinutes,
     chargeableLateMinutes,
     workedMinutes,
     overtimeMinutes,

@@ -9,6 +9,8 @@ export type Attendance = {
   scheduledStart?: string;
   scheduledEnd?: string;
   lateMinutes: number;
+  /** «Kechikishni ishlab yopish» yoqilgan bo‘lsa — ketishdan keyin yopilgan kechikish daqiqalari. */
+  lateCoveredMinutes?: number;
   earlyLeaveMinutes: number;
   workedMinutes: number;
   overtimeMinutes: number;
@@ -31,6 +33,8 @@ export type Employee = {
   restDays?: number[];
   hireDate?: string;
   role?: string;
+  /** Ilovaga kirish logini (ozodbek@staffora.uz) — faqat ko‘rsatish uchun. */
+  login?: string;
 };
 export type HomeData = {
   employee: Employee;
@@ -45,7 +49,19 @@ export type HomeData = {
   todayLeave: { id: string; type: string; startDate: string; endDate: string } | null;
   todayPlan?: { enabled: boolean; start: string; end: string; overridden: boolean; reason?: string; personalRest?: boolean };
   month: { practiceUntil?: string; deduction?: number; days: number; late: number; lateMinutes: number; workedMinutes: number; overtimeMinutes: number };
-  features?: { breaks: boolean; directory: boolean; advances: boolean; leaderboard: boolean; overtimeApproval: boolean };
+  features?: {
+    breaks: boolean;
+    directory: boolean;
+    advances: boolean;
+    leaderboard: boolean;
+    overtimeApproval: boolean;
+    /** false — kompaniyada qo‘shimcha ish to‘lanmaydi: qo‘shimcha ish bo‘limlari ko‘rinmaydi. */
+    overtime?: boolean;
+    /** Kechikishni kechroq qolib yopish yoqilgan. */
+    lateOffset?: boolean;
+    /** Super admin o‘chirgan modullar (lib/modules.ts kalitlari). */
+    modules?: string[];
+  };
   lateNotice?: { id: string; minutes: number; reason: string } | null;
   notifications: Notification[];
   unreadNotifications?: number;
@@ -103,3 +119,6 @@ export type Salary = {
   requests: AdvanceRequest[];
   savedCard?: { mask: string; brand: string; holder: string } | null;
 };
+
+/** GET /mini/account — ilovaga kirish ma’lumotlari. */
+export type AccountInfo = { login: string | null; suggested: string; hasPassword: boolean };

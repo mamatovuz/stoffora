@@ -5,7 +5,7 @@ import { Card, ErrorBox, Group, GroupTitle, Icon, Loading, Row, Screen, haptic }
 import { duration, som, tashkentIsoDate } from "@/lib/format";
 import { go } from "@/lib/nav";
 import { typo, useTheme } from "@/lib/theme";
-import type { Salary } from "@/lib/types";
+import type { HomeData, Salary } from "@/lib/types";
 import { useData } from "@/lib/useData";
 
 /*
@@ -33,6 +33,8 @@ export default function MyMonth() {
   const history = useData<MonthData>(`/mini/history?month=${month}`);
   const stats = useData<StatsData>("/mini/stats", { maxAgeMs: 5 * 60_000 });
   const salary = useData<Salary>("/mini/salary", { maxAgeMs: 60_000 });
+  // Kompaniyada qo‘shimcha ish to‘lanmasa — bu qator yo‘q.
+  const overtimeOn = useData<HomeData>("/mini/home", { refetchOnFocus: false }).data?.features?.overtime !== false;
   const [hidden, setHidden] = useState(true);
   const refresh = () => {
     void history.reload();
@@ -132,8 +134,8 @@ export default function MyMonth() {
       <GroupTitle>Vaqt</GroupTitle>
       <Group>
         <Row icon="time-outline" label="Ishlangan" value={`${duration(s.workedMinutes)} / ${duration(s.plannedMinutes)}`} />
-        <Row icon="alarm-outline" iconColor={c.warn} label="Jami kechikish" value={s.lateMinutes ? duration(s.lateMinutes) : "yo‘q"} />
-        <Row icon="trending-up-outline" iconColor={c.success} label="Qo‘shimcha ish" value={s.overtimeMinutes ? duration(s.overtimeMinutes) : "—"} last />
+        <Row icon="alarm-outline" iconColor={c.warn} label="Jami kechikish" value={s.lateMinutes ? duration(s.lateMinutes) : "yo‘q"} last={!overtimeOn} />
+        {overtimeOn ? <Row icon="trending-up-outline" iconColor={c.success} label="Qo‘shimcha ish" value={s.overtimeMinutes ? duration(s.overtimeMinutes) : "—"} last /> : null}
       </Group>
       {streak ? (
         <Card style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>

@@ -16,6 +16,8 @@ import type {
 import { parseSalary } from "./integrations/transform";
 import { assertEmployeeCapacity } from "../lib/limits";
 import { applyPanelReference } from "./face-reference";
+import { LOGIN_SUFFIX, checkLoginInput } from "../lib/staff-login";
+import { credentialOfEmployee, isLoginTaken, normalizeLogin, setEmployeeCredential, splitName, suggestFreeLogin } from "../lib/staff-credentials";
 
 /*
  * Botdagi xodim anketasi — sozlanadigan dvigatel.
@@ -42,7 +44,7 @@ export const SHIFTS = {
 /** Tizim maydonlari: turi, standart matni va o‘chirib bo‘lmaydiganlari. */
 export const BUILTINS: Record<
   BuiltinField,
-  { type: QuestionType; title: string; hint?: string; locked: boolean; enabled: boolean; options?: string[]; label: string }
+  { type: QuestionType; title: string; hint?: string; locked: boolean; enabled: boolean; options?: string[]; label: string; optional?: boolean }
 > = {
   fullName: { type: "name", label: "Ism-familiya", title: "👤 Ism va familiyangizni yozing.", hint: "Misol: Ali Valiyev", locked: true, enabled: true },
   gender: { type: "gender", label: "Jinsi", title: "🚻 Jinsingiz?", hint: "Pastdan tanlang", locked: false, enabled: true },
@@ -57,6 +59,7 @@ export const BUILTINS: Record<
   },
   phone: { type: "phone", label: "Telefon", title: "📱 Telefon raqamingizni yozing.", hint: "+998 bilan, bo‘sh joysiz. Misol: +998932303410", locked: true, enabled: true },
   parentPhone: { type: "phone", label: "Ota-ona telefoni", title: "👪 Ota yoki onangizning telefon raqami.", hint: "Misol: +998901234567", locked: false, enabled: true },
+  email: { type: "email", label: "Email", title: "📧 Email manzilingiz.", hint: "Misol: ali.valiyev@gmail.com", locked: false, enabled: false, optional: true },
   positionId: { type: "position", label: "Lavozim", title: "💼 Qaysi lavozimda ishlaysiz?", hint: "Pastdan tanlang", locked: true, enabled: true },
   address: { type: "text", label: "Manzil", title: "🏠 Yashash manzilingiz.", hint: "Misol: Chilonzor tumani, 12-kvartal", locked: false, enabled: true },
   branchId: { type: "branch", label: "Filial", title: "🏢 Qaysi filialda ishlaysiz?", hint: "Pastdan tanlang", locked: true, enabled: true },
@@ -96,9 +99,26 @@ export const BUILTINS: Record<
     locked: false,
     enabled: true,
   },
+  // Har doim oxirgi savol: login (tugma bilan taklif) → parol. Yoqilgan bo‘lsa — majburiy.
+  appLogin: {
+    type: "login",
+    label: "Ilova uchun login va parol",
+    title: "🔐 Staffora ilovasi uchun login tanlang.",
+    hint: "Pastdagi tugmani bosing yoki o‘zingiz yozing (faqat lotin harflari). Oxiriga @staffora.uz avtomatik qo‘shiladi.",
+    locked: false,
+    enabled: true,
+  },
 };
 /** Keyinroq qo‘shilgan tizim maydonlari: saqlangan anketada yo‘q bo‘lsa — yoqilgan holda shu savoldan keyin qo‘shiladi. */
-const ADDED_FIELDS: Partial<Record<BuiltinField, BuiltinField | "end">> = { gender: "fullName", pinfl: "birthDate", idDocument: "end", selfie: "end" };
+const ADDED_FIELDS: Partial<Record<BuiltinField, BuiltinField | "end">> = {
+  gender: "fullName",
+  pinfl: "birthDate",
+  idDocument: "end",
+  selfie: "end",
+  // Email — o‘chiq holda qo‘shiladi (kompaniya xohlasa yoqadi); ilova logini — yoqilgan, oxirida.
+  email: "parentPhone",
+  appLogin: "end",
+};
 
 /* -------------------------------------------- smena va ish grafiklari --- */
 const SHORT_DAYS = ["Ya", "Du", "Se", "Ch", "Pa", "Ju", "Sh"];
@@ -128,7 +148,7 @@ export function companySchedules(db: Database, companyId: string, shift?: string
 }
 const BUILTIN_ORDER = Object.keys(BUILTINS) as BuiltinField[];
 
-export const CUSTOM_TYPES: QuestionType[] = ["text", "number", "date", "phone", "money", "choice", "yesno"];
+export const CUSTOM_TYPES: QuestionType[] = ["text", "number", "age", "phone", "email", "date", "money", "choice", "yesno"];
 export const TYPE_LABELS: Record<QuestionType, string> = {
   name: "Ism-familiya",
   text: "Matn",
@@ -147,6 +167,9 @@ export const TYPE_LABELS: Record<QuestionType, string> = {
   gender: "Jins (Erkak / Ayol)",
   pinfl: "JShShIR",
   photo: "Rasm (hujjat)",
+  age: "Yosh",
+  email: "Email",
+  login: "Ilova logini va paroli",
 };
 
 export const DEFAULT_TEXTS = {
@@ -166,7 +189,7 @@ export function defaultForm(): RegistrationForm {
       title: BUILTINS[field].title,
       hint: BUILTINS[field].hint,
       options: BUILTINS[field].options ? [...BUILTINS[field].options!] : undefined,
-      required: true,
+      required: !BUILTINS[field].optional,
       enabled: BUILTINS[field].enabled,
     })),
   };
@@ -200,20 +223,25 @@ export function normalizeForm(form?: RegistrationForm): RegistrationForm {
       title: clip(raw.title, 300) || builtin?.title || "Savol",
       hint: clip(raw.hint, 200) || undefined,
       options: type === "choice" && !options?.length ? ["Ha", "Yo‘q"] : options,
-      required: builtin?.locked ? true : raw.required !== false,
+      // Ilova logini yoqilgan bo‘lsa — majburiy (o‘tkazib yuborilmaydi).
+      required: builtin?.locked || field === "appLogin" ? true : raw.required !== false,
       enabled: builtin?.locked ? true : raw.enabled !== false,
     });
   }
-  // Yo‘qolgan tizim maydonlari qo‘shiladi: majburiylari va yangi qo‘shilganlari (jins, JShShIR, hujjat) — yoqilgan.
+  // Yo‘qolgan tizim maydonlari qo‘shiladi: majburiylari va yangi qo‘shilganlari (jins, JShShIR, hujjat, ilova logini) —
+  // standart holatida (email — o‘chiq).
   for (const field of BUILTIN_ORDER)
     if (!seen.has(field)) {
       const base = defaultForm().questions.find((q) => q.field === field)!;
       const after = ADDED_FIELDS[field];
-      const row = { ...base, enabled: BUILTINS[field].locked || Boolean(after) };
+      const row = { ...base, enabled: BUILTINS[field].locked || (Boolean(after) && BUILTINS[field].enabled) };
       const index = after && after !== "end" ? questions.findIndex((q) => q.field === after) : -1;
       if (index >= 0) questions.splice(index + 1, 0, row);
       else questions.push(row);
     }
+  // Ilova logini har doim oxirgi savol (anketa tugagach login va parol beriladi).
+  const login = questions.findIndex((q) => q.field === "appLogin");
+  if (login >= 0 && login !== questions.length - 1) questions.push(...questions.splice(login, 1));
   return {
     questions,
     intro: clip(form?.intro, 1500) || undefined,
@@ -294,6 +322,24 @@ export function checkNumber(text: string): Check<string> {
   return { ok: true, value };
 }
 
+/** Yosh — butun son, 14 dan 80 gacha. */
+export function checkAge(text: string): Check<string> {
+  const value = text.trim().replace(/\s/g, "");
+  const age = /^\d{1,3}$/.test(value) ? Number(value) : NaN;
+  if (!Number.isInteger(age) || age < 14 || age > 80) return { ok: false, error: "Yoshingizni butun son bilan yozing (14 dan 80 gacha). Misol: 25" };
+  return { ok: true, value: String(age) };
+}
+
+/** Email — oddiy tekshiruv: nom@domen.zona (bo‘sh joysiz, kichik harfga keltiriladi). */
+export function checkEmail(text: string): Check<string> {
+  const value = text.trim().toLowerCase();
+  const ok =
+    value.length <= 120 &&
+    /^[a-z0-9](?:[a-z0-9._%+-]{0,62}[a-z0-9_%+-])?@[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*\.[a-z]{2,24}$/.test(value) &&
+    !value.includes("..");
+  return ok ? { ok: true, value } : { ok: false, error: "Email manzilni to‘g‘ri yozing. Misol: ali.valiyev@gmail.com" };
+}
+
 /** «09:00 - 18:00», «9:00-18:00», «14.00 – 00.00». */
 export function checkWorkHours(text: string): Check<string> {
   const match = /^(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})$/.exec(text.trim());
@@ -339,6 +385,10 @@ export function validateText(question: RegistrationQuestion, text: string): Chec
       return checkWorkHours(text);
     case "pinfl":
       return checkPinfl(text);
+    case "age":
+      return checkAge(text);
+    case "email":
+      return checkEmail(text);
     case "photo":
       return { ok: false, error: "Bu savolga javob sifatida rasm yuboring (📎 → Rasm)." };
     case "text":
@@ -356,6 +406,8 @@ export function getValue(question: RegistrationQuestion, data: RegistrationData)
 }
 
 export function setValue(question: RegistrationQuestion, data: RegistrationData, value: string | number | undefined) {
+  // Login o‘zgarsa (yoki tozalansa) — avvalgi parol ham bekor (parol aynan shu login uchun yozilgan).
+  if (question.field === "appLogin") delete data.appPasswordHash;
   if (question.field) (data as Record<string, unknown>)[question.field] = value;
   else {
     data.custom ||= {};
@@ -396,6 +448,8 @@ export function describe(question: RegistrationQuestion, data: RegistrationData,
       return value === "MALE" ? "Erkak" : value === "FEMALE" ? "Ayol" : String(value);
     case "photo":
       return "✅ Rasm yuklandi";
+    case "login":
+      return `${value} · parol: ••••••`;
     default:
       return String(value);
   }
@@ -471,6 +525,13 @@ export function buttonsFor(question: RegistrationQuestion, db: Database, company
       return [[{ label: "✅ Ha", value: "Ha" }, { label: "❌ Yo‘q", value: "Yo‘q" }]];
     case "gender":
       return [[{ label: "👨 Erkak", value: "MALE" }, { label: "👩 Ayol", value: "FEMALE" }]];
+    case "login": {
+      // Login tanlangan — endi parol yoziladi; xohlasa boshqa login tanlaydi.
+      if (data.appLogin) return [[{ label: "✏️ Boshqa login", value: "__relogin" }]];
+      const [first, last] = splitName(data.fullName || "");
+      const suggested = suggestFreeLogin(db, first, last);
+      return [[{ label: `✅ ${suggested}`, value: suggested.slice(0, -LOGIN_SUFFIX.length) }]];
+    }
     default:
       return null;
   }
@@ -506,6 +567,10 @@ export function parseButton(question: RegistrationQuestion, value: string, db: D
       return value === "Ha" || value === "Yo‘q" ? { ok: true, value } : bad;
     case "gender":
       return value === "MALE" || value === "FEMALE" ? { ok: true, value } : bad;
+    case "login": {
+      const check = checkLoginInput(value);
+      return check.ok ? { ok: true, value: check.login } : { ok: false, error: check.error };
+    }
     default:
       return bad;
   }
@@ -515,8 +580,15 @@ export function parseButton(question: RegistrationQuestion, value: string, db: D
 
 export const firstStep = (form: RegistrationForm) => activeQuestions(form)[0]?.id || "summary";
 
+/** Savolga javob berilganmi. Ilova logini — login VA parol yozilgandagina. */
+function answered(question: RegistrationQuestion, data: RegistrationData) {
+  const value = getValue(question, data);
+  if (value === undefined || value === "") return false;
+  return question.field !== "appLogin" || Boolean(data.appPasswordHash);
+}
+
 export function isComplete(form: RegistrationForm, data: RegistrationData) {
-  return activeQuestions(form).every((q) => !q.required || (getValue(q, data) !== undefined && getValue(q, data) !== ""));
+  return activeQuestions(form).every((q) => !q.required || answered(q, data));
 }
 
 /** Javobdan keyingi qadam. Tahrirlashda — xulosa (smena o‘zgarsa ish vaqti qayta so‘raladi). */
@@ -531,7 +603,7 @@ export function nextStep(form: RegistrationForm, request: RegistrationRequest, a
 }
 
 export function firstUnanswered(form: RegistrationForm, data: RegistrationData) {
-  return activeQuestions(form).find((q) => q.required && (getValue(q, data) === undefined || getValue(q, data) === ""))?.id || "summary";
+  return activeQuestions(form).find((q) => q.required && !answered(q, data))?.id || "summary";
 }
 
 export function previousStep(form: RegistrationForm, step: string): string | undefined {
@@ -556,6 +628,9 @@ export function questionText(form: RegistrationForm, question: RegistrationQuest
   void companyName;
   const head = "";
   if (confirming) return `${head}${escape(question.title)}\n\nSiz yozdingiz: <b>${escape(describe(question, data, { positions: new Map(), branches: new Map() }))}</b>\nTo‘g‘rimi?`;
+  // Ilova logini tanlangan — ikkinchi qadam: parol.
+  if (question.type === "login" && data.appLogin)
+    return `🔑 <b>Endi parol o‘ylab toping va yozing.</b>\nLogin: <code>${escape(data.appLogin)}</code>\nKamida 8 belgi, harf va raqam bo‘lsin. Xabaringiz chatdan darhol o‘chiriladi.`;
   const optional = question.required ? "" : "\n<i>Ixtiyoriy — o‘tkazib yuborish mumkin.</i>";
   return `${head}<b>${escape(question.title)}</b>${question.hint ? `\n${escape(question.hint)}` : ""}${optional}`;
 }
@@ -602,6 +677,33 @@ function scheduleFor(db: Database, companyId: string, workHours: string | undefi
   return schedule.id;
 }
 
+/** Anketa mavjud (faol) xodimga mos keladimi: o‘sha Telegram yoki o‘sha telefon raqami — tasdiqlansa, o‘sha profil yangilanadi. */
+export function findExistingEmployee(db: Database, request: RegistrationRequest) {
+  const key = phoneKey(request.data.phone);
+  return db.employees.find(
+    (e) =>
+      e.companyId === request.companyId &&
+      e.status === "ACTIVE" &&
+      (e.telegramId === request.telegramId || (key.length >= 9 && phoneKey(e.phone) === key)),
+  );
+}
+
+/**
+ * HR uchun ogohlantirish: anketa mavjud xodimga mos keladi. `phone` — telefon bir xil, lekin Telegram boshqa
+ * (boshqa odam hamkasbining raqamini yozgan bo‘lishi mumkin: tasdiqlansa o‘sha profil shu Telegram’ga o‘tadi).
+ */
+export function existingEmployeeMatch(db: Database, request: RegistrationRequest) {
+  const employee = findExistingEmployee(db, request);
+  if (!employee) return undefined;
+  const by: "telegram" | "phone" = employee.telegramId === request.telegramId ? "telegram" : "phone";
+  const name = `${employee.firstName} ${employee.lastName}`.trim();
+  const warning =
+    by === "phone"
+      ? `⚠️ <b>Diqqat:</b> bu telefon raqami mavjud xodimniki — <b>${escape(name)}</b> (Telegram hisobi boshqa). Tasdiqlansa, o‘sha xodim profili shu Telegram hisobiga o‘tadi. Tasdiqlashdan oldin shaxsini tekshiring.`
+      : `ℹ️ Mavjud xodim profili yangilanadi: <b>${escape(name)}</b>.`;
+  return { employee, by, name, warning };
+}
+
 /**
  * Arizani tasdiqlaydi: xodim yaratiladi (yoki telefon/Telegram bo‘yicha mavjudi
  * yangilanadi — dublikat bo‘lmaydi). updateDb ichida chaqiriladi.
@@ -632,6 +734,7 @@ export function approveRegistration(db: Database, request: RegistrationRequest, 
     pinfl: data.pinfl,
     phone: data.phone,
     parentPhone: data.parentPhone,
+    ...(data.email ? { email: data.email } : {}),
     address: data.address,
     positionId: position.id,
     departmentId: position.departmentId,
@@ -661,12 +764,7 @@ export function approveRegistration(db: Database, request: RegistrationRequest, 
       other.telegramId = undefined;
       other.telegramConnected = false;
     }
-  const existing = db.employees.find(
-    (e) =>
-      e.companyId === tenant &&
-      e.status === "ACTIVE" &&
-      (e.telegramId === request.telegramId || (phoneKey(e.phone).length >= 9 && phoneKey(e.phone) === phoneKey(data.phone))),
-  );
+  const existing = findExistingEmployee(db, request);
   let employee: Employee;
   if (existing) {
     const before = { ...existing };
@@ -723,8 +821,46 @@ export function approveRegistration(db: Database, request: RegistrationRequest, 
   return employee;
 }
 
+/**
+ * Tasdiqlangan anketadagi ilova logini va parolini faollashtiradi (updateDb ichida, approveRegistration dan keyin).
+ * Parol xeshi anketadan o‘chiriladi (staffCredentials ga o‘tadi). Login shu orada band bo‘lib qolgan bo‘lsa —
+ * ariza baribir tasdiqlanadi, xodim loginni keyin Mini App → Profil → «Ilovaga kirish» da o‘rnatadi.
+ *
+ * Xavfsizlik: ochiq botdagi anketa MAVJUD xodimning kirish ma’lumotini hech qachon yaratmaydi va almashtirmaydi
+ * (aks holda hamkasbining telefonini yozib, o‘z parolini qo‘yib uning hisobini egallash mumkin bo‘lardi).
+ * Mavjud xodimga mos kelgan anketada (`matchedExisting`) yoki xodimda allaqachon login bo‘lsa — login berilmaydi.
+ */
+export function applyRegistrationLogin(
+  db: Database,
+  request: RegistrationRequest,
+  employee: Employee,
+  actor: string,
+  options: { matchedExisting?: boolean } = {},
+): { login?: string; taken?: boolean; existing?: boolean } {
+  const { appLogin, appPasswordHash } = request.data;
+  delete request.data.appPasswordHash;
+  if (!appLogin || !appPasswordHash) return {};
+  if (options.matchedExisting || credentialOfEmployee(db, employee.id) || employee.login) {
+    delete request.data.appLogin;
+    db.auditLogs.unshift(audit(request.companyId, actor, "Anketa mavjud xodimga mos keldi — ilova logini va paroli o‘zgartirilmadi", "employee", employee.id));
+    return { existing: true };
+  }
+  const login = normalizeLogin(appLogin);
+  if (isLoginTaken(db, login, { employeeId: employee.id, requestId: request.id })) {
+    delete request.data.appLogin;
+    db.auditLogs.unshift(audit(request.companyId, actor, "Anketadagi ilova logini band bo‘lib qoldi — login berilmadi", "employee", employee.id, undefined, { login }));
+    return { taken: true };
+  }
+  setEmployeeCredential(db, employee, login, appPasswordHash);
+  request.data.appLogin = login;
+  db.auditLogs.unshift(audit(request.companyId, actor, "Ilovaga kirish logini berildi (anketa)", "employee", employee.id, undefined, { login }));
+  return { login };
+}
+
 export function rejectRegistration(db: Database, request: RegistrationRequest, actor: string, reason?: string) {
   if (request.status !== "PENDING") throw Object.assign(new Error("Ariza allaqachon ko‘rib chiqilgan."), { status: 409 });
+  // Rad etilgan anketada parol xeshi saqlanmaydi.
+  delete request.data.appPasswordHash;
   const now = new Date().toISOString();
   request.status = "REJECTED";
   request.rejectReason = reason?.trim().slice(0, 300) || undefined;

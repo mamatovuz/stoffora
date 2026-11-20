@@ -1,13 +1,16 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { rateLimit } from "express-rate-limit";
+import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { checkLoginInput } from "../lib/staff-login";
+import { credentialByLogin, normalizeLogin } from "../lib/staff-credentials";
 import { desiredStaffRole, syncStaffRoles } from "../lib/staff-roles";
 import { audit, readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
 import { adaptProfile, assertConsistentSamples, faceMatchThreshold, isReplayedDescriptor, matchFace, matchPassPercent, matchPercent, verifyIdentity } from "../lib/face";
 import { lookalikeAlert } from "./face-reference";
-import type { Database, Employee, MobileDevice, MobileSession, PanelSession, User } from "../lib/types";
+import type { Company, Database, Employee, MobileDevice, MobileSession, PanelSession, User } from "../lib/types";
 import { MOBILE_ACCESS_TTL_SECONDS, requireEmployee, signMobileAccess, signSession, type AuthedRequest, type EmployeeSession, type Session } from "./auth";
 import { signFaceProof } from "./face-proof";
 import { describeFace } from "./face-server";
@@ -19,6 +22,7 @@ import {
   newSecret,
   normalizeCode,
   normalizePublicKey,
+  safeEqualHex,
   sha256,
   signedMessage,
   verifyDeviceSignature,
@@ -28,8 +32,11 @@ import { sendTelegramMessage } from "./telegram";
 /*
  * Native mobil ilova (iOS / Android) — o‘sha Staffora backend va o‘sha xodimlar bazasi.
  *
- * Faollashtirish:  bir martalik kod (Mini App’dan yoki HR’dan) + qurilma kaliti imzosi
- * Qoida:           bir xodim — bitta faol telefon; bitta telefon — bitta faol xodim
+ * Kirish:          login (ozodbek@staffora.uz) + parol + qurilma kaliti imzosi (/mobile/auth/login);
+ *                  eski ilovalar uchun bir martalik kod (Mini App’dan yoki HR’dan) — /mobile/activate
+ * Rahbar rejimi:   xodim profili yo‘q direktor (panel foydalanuvchisi) — o‘z logini + panel paroli;
+ *                  access token — panel sessiyasi (panel API’lari), refresh — qurilma imzosi bilan
+ * Qoida:           bir xodim (rahbar) — bitta faol telefon; bitta telefon — bitta faol hisob
  * Yangi telefon:   Mini App’dan kod → yangi telefonda kiritiladi → darhol kiradi, eski telefon o‘chiriladi
  *                  (HR tasdig‘i yo‘q: davomat baribir Face ID bilan, kodni faqat Telegram egasi oladi)
  * Sessiya:         15 daqiqalik access token + almashadigan refresh token (qurilma imzosi bilan)
@@ -67,13 +74,14 @@ const deviceSchema = z.object({
 });
 
 /** Kirish natijasi: access + yangi refresh token (refresh xom holda faqat shu javobda). */
-function issueSession(db: Database, employee: Employee, device: MobileDevice) {
+function issueSession(db: Database, device: MobileDevice) {
   const now = new Date();
   const refreshToken = newSecret(32);
   const session: MobileSession = {
     id: randomUUID(),
-    companyId: employee.companyId,
-    employeeId: employee.id,
+    companyId: device.companyId,
+    employeeId: device.employeeId,
+    ...(!device.employeeId && device.userId ? { userId: device.userId } : {}),
     deviceId: device.id,
     refreshHash: sha256(refreshToken),
     createdAt: now.toISOString(),
@@ -85,6 +93,7 @@ function issueSession(db: Database, employee: Employee, device: MobileDevice) {
 }
 function tokens(employee: Employee, device: MobileDevice, session: MobileSession, refreshToken: string) {
   return {
+    mode: "employee" as const,
     accessToken: signMobileAccess({ employeeId: employee.id, companyId: employee.companyId, telegramId: employee.telegramId || "", kind: "employee", msid: session.id, mdid: device.id }),
     accessExpiresIn: MOBILE_ACCESS_TTL_SECONDS,
     refreshToken,
@@ -105,10 +114,10 @@ function revokeDevice(db: Database, device: MobileDevice, actor: string, reason:
   for (const s of db.panelSessions) if (!s.revokedAt && s.userAgent.startsWith(managerAgent(device.id))) s.revokedAt = now;
 }
 /** Rahbar sessiyasi qaysi telefonga tegishli ekanini bildiruvchi belgi (panel «Kirgan qurilmalar»da ko‘rinadi). */
-const managerAgent = (deviceId: string) => `Staffora mobil ilova · ${deviceId}`;
+export const managerAgent = (deviceId: string) => `Staffora mobil ilova · ${deviceId}`;
 const MANAGER_ROLES = new Set(["COMPANY_OWNER", "HR_ADMIN", "HR_MANAGER", "BRANCH_MANAGER", "FINANCE", "IT_ADMIN"]);
 /** Xodimning Telegram hisobi bilan bog‘langan panel hisobi (rahbar) — shu kompaniyada. */
-function managerUserOf(db: Database, employee: Employee): User | undefined {
+export function managerUserOf(db: Database, employee: Employee): User | undefined {
   const telegram = employee.telegramId && !employee.telegramId.startsWith("dev") ? employee.telegramId : undefined;
   return db.users.find(
     (u) => u.companyId === employee.companyId && MANAGER_ROLES.has(u.role) && ((u.autoRole && u.employeeId === employee.id) || (telegram && u.telegramId === telegram)),
@@ -116,6 +125,164 @@ function managerUserOf(db: Database, employee: Employee): User | undefined {
 }
 const securityLog = (db: Database, companyId: string, actor: string, action: string, employeeId: string, meta?: Record<string, unknown>) =>
   db.auditLogs.unshift(audit(companyId, actor, action, "mobile-device", employeeId, undefined, meta));
+
+/**
+ * Rahbar rejimi tokenlari: access — panel sessiyasi JWT’si (panel API’larida Bearer), mobil sessiyaga
+ * bog‘langan bitta PanelSession yozuvi (har refresh’da shu yozuv ishlatiladi; telefon bekor qilinsa yoki
+ * chiqilsa — yopiladi). Panel «Kirgan qurilmalar»dan yopilsa — keyingi refresh rad etiladi.
+ */
+function managerTokens(db: Database, user: User, company: Pick<Company, "id" | "name">, device: MobileDevice, session: MobileSession, refreshToken: string, ip: string) {
+  const now = new Date().toISOString();
+  let row = session.panelSessionId ? db.panelSessions.find((s) => s.id === session.panelSessionId && !s.revokedAt) : undefined;
+  if (row) row.lastSeenAt = now;
+  else {
+    row = { id: randomUUID(), userId: user.id, userAgent: `${managerAgent(device.id)} · ${device.model || device.platform}`.slice(0, 300), ip, createdAt: now, lastSeenAt: now };
+    db.panelSessions.push(row);
+    session.panelSessionId = row.id;
+  }
+  const panel: Session = { sid: row.id, userId: user.id, companyId: user.companyId, name: user.name, email: user.email, role: user.role };
+  return {
+    mode: "manager" as const,
+    accessToken: signSession(panel, MOBILE_ACCESS_TTL_SECONDS),
+    accessExpiresIn: MOBILE_ACCESS_TTL_SECONDS,
+    refreshToken,
+    sessionId: session.id,
+    deviceId: device.id,
+    user: { id: user.id, name: user.name, role: user.role, branchIds: user.branchIds || [], photoDataUrl: user.photoDataUrl },
+    company: { id: company.id, name: company.name },
+  };
+}
+
+type DeviceInput = z.infer<typeof deviceSchema>;
+/** Qurilma kimniki: xodim yoki (xodim profili yo‘q) rahbar. */
+type DeviceOwner = { kind: "employee"; employee: Employee } | { kind: "manager"; user: User };
+const ownsDevice = (d: MobileDevice, owner: DeviceOwner) =>
+  owner.kind === "employee" ? d.employeeId === owner.employee.id : !d.employeeId && d.userId === owner.user.id;
+
+/**
+ * Qurilmani hisobga bog‘lash — faollashtirish kodi va login uchun umumiy qoida (updateDb ichida):
+ *  - shu hisobning o‘sha telefoni (qayta o‘rnatish/qayta kirish) — o‘sha qurilma yozuvi ishlatiladi;
+ *  - telefonda boshqa hisob kirgan bo‘lsa — u shu telefondan chiqariladi (hisobi o‘zgarmaydi);
+ *  - hisobning boshqa faol telefoni bo‘lsa — u o‘chiriladi, yangisi darhol ishlaydi (HR tasdig‘isiz).
+ */
+function bindDevice(db: Database, owner: DeviceOwner, key: { spki: string; fingerprint: string }, input: DeviceInput, actor: string) {
+  const now = new Date().toISOString();
+  const companyId = owner.kind === "employee" ? owner.employee.companyId : owner.user.companyId!;
+  const keyOwner = db.mobileDevices.find((d) => d.keyFingerprint === key.fingerprint && d.status === "ACTIVE");
+  if (keyOwner && ownsDevice(keyOwner, owner)) {
+    keyOwner.lastSeenAt = now;
+    keyOwner.appVersion = input.appVersion || keyOwner.appVersion;
+    return { device: keyOwner, reused: true, replaced: 0 };
+  }
+  if (keyOwner) {
+    revokeDevice(db, keyOwner, actor, "Telefonda boshqa xodim kirdi");
+    securityLog(db, companyId, actor, "Telefonda avval boshqa xodim kirgan edi — u shu telefondan chiqarildi", keyOwner.employeeId || keyOwner.userId || "", {
+      platform: input.platform,
+      ...(owner.kind === "employee" ? { newEmployeeId: owner.employee.id } : { newUserId: owner.user.id }),
+    });
+  }
+  if (owner.kind === "employee") for (const r of db.deviceChangeRequests) if (r.employeeId === owner.employee.id && r.status === "PENDING") r.status = "CANCELLED";
+  const previous = db.mobileDevices.filter((d) => d.status === "ACTIVE" && ownsDevice(d, owner));
+  for (const d of previous) revokeDevice(db, d, actor, "Yangi telefonga o‘tildi");
+  if (previous.length && owner.kind === "employee")
+    db.notifications.unshift({
+      id: randomUUID(),
+      companyId,
+      employeeId: owner.employee.id,
+      title: "Ilova yangi telefonda ulandi",
+      body: `Staffora ilovasi ${input.model || input.platform} telefoniga ulandi. Eski telefondagi ilovadan chiqildi. Siz qilmagan bo‘lsangiz — HR’ga xabar bering.`,
+      type: "SECURITY",
+      read: false,
+      createdAt: now,
+    });
+  const device: MobileDevice = {
+    id: randomUUID(),
+    companyId,
+    employeeId: owner.kind === "employee" ? owner.employee.id : "",
+    ...(owner.kind === "manager" ? { userId: owner.user.id } : {}),
+    publicKey: key.spki,
+    keyFingerprint: key.fingerprint,
+    platform: input.platform,
+    model: input.model,
+    osVersion: input.osVersion,
+    appVersion: input.appVersion,
+    status: "ACTIVE",
+    createdAt: now,
+    lastSeenAt: now,
+  };
+  db.mobileDevices.push(device);
+  return { device, reused: false, replaced: previous.length };
+}
+
+/* ------------------------------------------- login: urinishlar va 2FA --- */
+/**
+ * Xato urinishlar hisoblagichi: oynada `max` ta xato → `lockMs` qulf. Map qo‘shilish tartibida saqlanadi
+ * (yangi oyna — oxiriga ko‘chadi), shuning uchun eskirganlari boshidan arzon tozalanadi (to‘liq aylanishsiz).
+ */
+function failureCounter(max: number, windowMs: number, lockMs: number) {
+  const rows = new Map<string, { count: number; first: number; lockedUntil?: number }>();
+  const prune = (now: number) => {
+    for (const [key, row] of rows) {
+      if (now - row.first <= windowMs + lockMs) break;
+      rows.delete(key);
+    }
+    while (rows.size > 20_000) rows.delete(rows.keys().next().value as string);
+  };
+  return {
+    /** Qulf qolgan vaqti (ms), qulf yo‘q bo‘lsa — 0. */
+    remaining(key: string) {
+      const row = rows.get(key);
+      if (!row?.lockedUntil) return 0;
+      const left = row.lockedUntil - Date.now();
+      if (left > 0) return left;
+      rows.delete(key);
+      return 0;
+    },
+    /** Xatoni qayd etadi; aynan shu xatoda qulf tushgan bo‘lsa — true. */
+    fail(key: string) {
+      const now = Date.now();
+      prune(now);
+      let row = rows.get(key);
+      if (!row || now - row.first > windowMs) {
+        rows.delete(key);
+        row = { count: 0, first: now };
+      }
+      row.count += 1;
+      const lockedNow = row.count >= max && !row.lockedUntil;
+      if (lockedNow) row.lockedUntil = now + lockMs;
+      rows.set(key, row);
+      return lockedNow;
+    },
+    clear: (key: string) => void rows.delete(key),
+    reset: () => rows.clear(),
+  };
+}
+/**
+ * Parol tanlashga qarshi: (login + telefon kaliti) bo‘yicha 8 xato → 15 daqiqa qulf; login bo‘yicha umumiy
+ * chegara (barcha telefonlardan) — 50 xato / 15 daqiqa. Hisobning o‘z ishonchli (faol) telefoni umumiy qulfdan
+ * o‘tadi — begona odam boshqa telefondan ataylab xato yozib egasini qulflab qo‘ya olmaydi.
+ */
+export const LOGIN_MAX_FAILURES = 8;
+export const LOGIN_GLOBAL_MAX_FAILURES = Number(process.env.MOBILE_LOGIN_GLOBAL_MAX_FAILURES) || 50;
+const LOGIN_LOCK_MS = 15 * 60_000;
+const loginPerDevice = failureCounter(LOGIN_MAX_FAILURES, LOGIN_LOCK_MS, LOGIN_LOCK_MS);
+const loginPerAccount = failureCounter(LOGIN_GLOBAL_MAX_FAILURES, LOGIN_LOCK_MS, LOGIN_LOCK_MS);
+/** 2FA: foydalanuvchi bo‘yicha 10 ta noto‘g‘ri kod (barcha telefonlardan) → 15 daqiqa qulf. */
+const twoFactorFailures = failureCounter(10, LOGIN_LOCK_MS, LOGIN_LOCK_MS);
+/** Testlar uchun: login qulflarini tozalash. */
+export const resetLoginGuards = () => {
+  loginPerDevice.reset();
+  loginPerAccount.reset();
+  twoFactorFailures.reset();
+  twoFactorCodes.clear();
+};
+/** Mavjud bo‘lmagan login uchun ham bcrypt ishlaydi — javob vaqti bo‘yicha login borligini bilib bo‘lmasin. */
+let dummyHash: Promise<string> | undefined;
+const dummy = () => (dummyHash ||= bcrypt.hash("staffora-login-timing-guard", 12));
+
+/** Rahbar Telegram 2FA: 5 xonali kod, 5 daqiqa, 5 urinish — foydalanuvchi + telefon kaliti bo‘yicha. */
+const twoFactorCodes = new Map<string, { hash: string; expiresAt: number; attempts: number }>();
+const twoFactorHash = (key: string, code: string) => sha256(`staffora-mobile-2fa:${key}:${code}`);
 
 /** Bir martalik faollashtirish kodi yaratadi (eski faol kodlari bekor qilinadi). */
 export function createActivationCode(db: Database, employee: Employee, source: "MINI_APP" | "HR", createdBy: string) {
@@ -143,11 +310,27 @@ export function createMobilePublicRouter() {
   const router = Router();
   const strict = rateLimit({ windowMs: 60_000, limit: Number(process.env.MOBILE_ACTIVATION_RATE_LIMIT) || 10, standardHeaders: true, legacyHeaders: false, message: { message: "Juda ko‘p urinish. Bir daqiqadan keyin qayta urinib ko‘ring." } });
   const normal = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: true, legacyHeaders: false });
+  // Login: bitta IP’dan (ofis Wi‑Fi) bir nechta xodim kirishi mumkin — chegara kengroq; parol tanlashga qarshi — login qulfi.
+  const loginLimit = rateLimit({
+    windowMs: 60_000,
+    limit: Number(process.env.MOBILE_LOGIN_RATE_LIMIT || process.env.MOBILE_ACTIVATION_RATE_LIMIT) || 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { code: "LOGIN_LOCKED", message: "Juda ko‘p urinish. Bir daqiqadan keyin qayta urinib ko‘ring." },
+  });
 
-  /** Faollashtirish/holat uchun challenge — hali ro‘yxatdan o‘tmagan kalit uchun. */
+  // Challenge arzon (xotiradagi nonce) va endi login uchun ham kerak — ofisdagi bitta IP’dan ko‘p xodim kiradi.
+  const challengeLimit = rateLimit({
+    windowMs: 60_000,
+    limit: Number(process.env.MOBILE_CHALLENGE_RATE_LIMIT || process.env.MOBILE_ACTIVATION_RATE_LIMIT) || 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { message: "Juda ko‘p urinish. Bir daqiqadan keyin qayta urinib ko‘ring." },
+  });
+  /** Faollashtirish/login/holat uchun challenge — hali ro‘yxatdan o‘tmagan kalit uchun. */
   router.post(
     "/mobile/activation/challenge",
-    strict,
+    challengeLimit,
     route(async (req, res) => {
       const { publicKey } = z.object({ publicKey: z.string().min(80).max(120) }).parse(req.body);
       const { fingerprint } = normalizePublicKey(publicKey);
@@ -192,56 +375,172 @@ export function createMobilePublicRouter() {
         if (company?.status === "SUSPENDED") throw httpError("Kompaniya hisobi to‘xtatilgan.", 403, "COMPANY_SUSPENDED");
 
         code.usedAt = now.toISOString();
-        const keyOwner = db.mobileDevices.find((d) => d.keyFingerprint === key.fingerprint && d.status === "ACTIVE");
-        // Shu xodimning o‘sha telefoni (qayta o‘rnatish/qayta kirish) — yangi sessiya.
-        if (keyOwner && keyOwner.employeeId === employee.id) {
-          keyOwner.lastSeenAt = now.toISOString();
-          keyOwner.appVersion = input.appVersion || keyOwner.appVersion;
-          const { session, refreshToken } = issueSession(db, employee, keyOwner);
-          securityLog(db, employee.companyId, nameOf(employee), "Mobil ilovaga qayta kirildi (o‘sha qurilma)", employee.id, { platform: keyOwner.platform });
-          return { kind: "session" as const, out: tokens(employee, keyOwner, session, refreshToken) };
-        }
-        // Telefonda boshqa xodim kirgan edi — u shu telefondan chiqariladi (uning hisobi o‘zgarmaydi,
-        // o‘z kodi bilan istalgan telefonda qayta kira oladi). Davomat baribir Face ID bilan.
-        if (keyOwner) {
-          revokeDevice(db, keyOwner, nameOf(employee), "Telefonda boshqa xodim kirdi");
-          securityLog(db, employee.companyId, nameOf(employee), "Telefonda avval boshqa xodim kirgan edi — u shu telefondan chiqarildi", keyOwner.employeeId, { platform: input.platform, newEmployeeId: employee.id });
-        }
-        // Yangi telefon: HR so‘rovisiz — kod Telegram orqali xodimning o‘ziga berilgan. Eski telefon o‘chiriladi.
-        for (const r of db.deviceChangeRequests) if (r.employeeId === employee.id && r.status === "PENDING") r.status = "CANCELLED";
-        const previous = db.mobileDevices.filter((d) => d.employeeId === employee.id && d.status === "ACTIVE");
-        for (const d of previous) revokeDevice(db, d, nameOf(employee), "Yangi telefonga o‘tildi");
-        if (previous.length)
-          db.notifications.unshift({
-            id: randomUUID(),
-            companyId: employee.companyId,
-            employeeId: employee.id,
-            title: "Ilova yangi telefonda ulandi",
-            body: `Staffora ilovasi ${input.model || input.platform} telefoniga ulandi. Eski telefondagi ilovadan chiqildi. Siz qilmagan bo‘lsangiz — HR’ga xabar bering.`,
-            type: "SECURITY",
-            read: false,
-            createdAt: now.toISOString(),
-          });
-        const device: MobileDevice = {
-          id: randomUUID(),
-          companyId: employee.companyId,
-          employeeId: employee.id,
-          publicKey: key.spki,
-          keyFingerprint: key.fingerprint,
-          platform: input.platform,
-          model: input.model,
-          osVersion: input.osVersion,
-          appVersion: input.appVersion,
-          status: "ACTIVE",
-          createdAt: now.toISOString(),
-          lastSeenAt: now.toISOString(),
-        };
-        db.mobileDevices.push(device);
-        const { session, refreshToken } = issueSession(db, employee, device);
-        securityLog(db, employee.companyId, nameOf(employee), "Mobil ilova faollashtirildi (ishonchli qurilma)", employee.id, { platform: device.platform, model: device.model, source: code.source });
+        // Yangi telefon: HR so‘rovisiz — kod Telegram orqali xodimning o‘ziga berilgan. Eski telefon o‘chiriladi;
+        // telefonda boshqa xodim kirgan bo‘lsa — u shu telefondan chiqariladi. Davomat baribir Face ID bilan.
+        const { device, reused } = bindDevice(db, { kind: "employee", employee }, key, input, nameOf(employee));
+        const { session, refreshToken } = issueSession(db, device);
+        if (reused) securityLog(db, employee.companyId, nameOf(employee), "Mobil ilovaga qayta kirildi (o‘sha qurilma)", employee.id, { platform: device.platform });
+        else securityLog(db, employee.companyId, nameOf(employee), "Mobil ilova faollashtirildi (ishonchli qurilma)", employee.id, { platform: device.platform, model: device.model, source: code.source });
         return { kind: "session" as const, out: tokens(employee, device, session, refreshToken) };
       }));
       res.status(201).json(result.out);
+    }),
+  );
+
+  /**
+   * Login + parol bilan kirish (barcha xodimlar va rahbarlar uchun yagona yo‘l):
+   *   login = <nom>@staffora.uz, parol — xodimniki (staffCredentials) yoki direktorniki (panel paroli);
+   *   telefon kaliti /mobile/activation/challenge nonce’ini imzolaydi: "staffora:login:<nonce>:<login>".
+   * Xodim — xodim sessiyasi (check-in/out); xodim profili yo‘q rahbar — rahbar sessiyasi (faqat panel).
+   * Qurilma qoidasi /mobile/activate bilan bir xil (bitta hisob — bitta faol telefon).
+   * Himoya: IP chegarasi; login+telefon bo‘yicha 8 xato → 15 daqiqa qulf; login bo‘yicha umumiy 50 xato (faol telefon
+   * bundan mustasno); Telegram 2FA yoqilgan rahbarga 5 xonali kod (foydalanuvchi bo‘yicha 10 xato → qulf).
+   */
+  router.post(
+    "/mobile/auth/login",
+    loginLimit,
+    route(async (req, res) => {
+      const input = deviceSchema
+        .extend({
+          login: z.string().max(120),
+          password: z.string().max(200),
+          nonce: z.string().min(10).max(80),
+          signature: z.string().min(40).max(200),
+          code: z.string().trim().max(12).optional(),
+        })
+        .parse(req.body);
+      const check = checkLoginInput(input.login);
+      if (!check.ok) throw httpError(check.error, 400, "LOGIN_INVALID");
+      const login = check.login;
+      const key = normalizePublicKey(input.publicKey);
+      if (!consumeChallenge(input.nonce, key.fingerprint, "activate")) throw httpError("Tasdiqlash muddati tugadi — qayta urinib ko‘ring.", 401, "CHALLENGE");
+      const typed = input.login.trim().toLowerCase();
+      const signed = [typed, login].some((context) => verifyDeviceSignature(key.spki, signedMessage("login", input.nonce, context), input.signature));
+      if (!signed) throw httpError("Qurilma imzosi yaroqsiz.", 401, "SIGNATURE");
+      const lockedText = (ms: number) => `Juda ko‘p noto‘g‘ri urinish. ${Math.ceil(ms / 60_000)} daqiqadan keyin qayta urinib ko‘ring.`;
+      const deviceKey = `${login}|${key.fingerprint}`;
+      const deviceLocked = loginPerDevice.remaining(deviceKey);
+      if (deviceLocked) throw httpError(lockedText(deviceLocked), 429, "LOGIN_LOCKED");
+
+      const db = await readDb();
+      const credential = credentialByLogin(db, login);
+      const panelUser = credential ? undefined : db.users.find((u) => u.role !== "SUPER_ADMIN" && u.mobileLogin && normalizeLogin(u.mobileLogin) === login);
+      // Shu hisobning hozir faol telefoni — umumiy (login bo‘yicha) qulf unga ta’sir qilmaydi.
+      const trusted = db.mobileDevices.some(
+        (d) =>
+          d.keyFingerprint === key.fingerprint &&
+          d.status === "ACTIVE" &&
+          (credential
+            ? d.employeeId === credential.employeeId
+            : Boolean(panelUser && ((!d.employeeId && d.userId === panelUser.id) || (panelUser.employeeId && d.employeeId === panelUser.employeeId)))),
+      );
+      const accountLocked = loginPerAccount.remaining(login);
+      if (accountLocked && !trusted) throw httpError(lockedText(accountLocked), 429, "LOGIN_LOCKED");
+      const hash = credential?.passwordHash || panelUser?.passwordHash;
+      const ok = hash && input.password ? await bcrypt.compare(input.password, hash) : (await bcrypt.compare(input.password || "x", await dummy()), false);
+      if (!ok) {
+        const lockedDevice = loginPerDevice.fail(deviceKey);
+        const lockedAccount = loginPerAccount.fail(login);
+        if ((lockedDevice || lockedAccount) && (credential || panelUser))
+          await updateDb((next) =>
+            securityLog(
+              next,
+              credential?.companyId || panelUser!.companyId || "",
+              "Tizim",
+              lockedAccount
+                ? `Ilovaga kirish ${LOGIN_GLOBAL_MAX_FAILURES} marta noto‘g‘ri parol bilan urinildi — login boshqa telefonlar uchun 15 daqiqaga qulflandi`
+                : `Ilovaga bitta telefondan ${LOGIN_MAX_FAILURES} marta noto‘g‘ri parol bilan urinildi — o‘sha telefon 15 daqiqaga qulflandi`,
+              credential?.employeeId || panelUser!.id,
+              { login, platform: input.platform, model: input.model },
+            ),
+          ).catch(() => undefined);
+        throw httpError("Login yoki parol noto‘g‘ri.", 401, "LOGIN_FAILED");
+      }
+
+      // Kim sifatida kiradi: xodim logini → xodim; direktor logini — xodimga bog‘langan bo‘lsa o‘sha xodim, aks holda rahbar.
+      const telegramOf = (u: User) => (u.telegramId && !u.telegramId.startsWith("dev") ? u.telegramId : undefined);
+      let employee = credential ? db.employees.find((e) => e.id === credential.employeeId && e.companyId === credential.companyId) : undefined;
+      if (panelUser) {
+        if (panelUser.blockedAt) throw httpError("Hisobingiz bloklangan. Administratorga murojaat qiling.", 403, "ACCOUNT_BLOCKED");
+        employee = db.employees.find(
+          (e) => e.companyId === panelUser.companyId && e.status === "ACTIVE" && (e.id === panelUser.employeeId || (telegramOf(panelUser) && e.telegramId === telegramOf(panelUser))),
+        );
+        if (!employee && !MANAGER_ROLES.has(panelUser.role)) throw httpError("Bu hisob bilan ilovaga kirib bo‘lmaydi.", 403, "NOT_MANAGER");
+      }
+      if (credential && (!employee || employee.status !== "ACTIVE")) throw httpError("Xodim profili faol emas. HR bilan bog‘laning.", 403, "EMPLOYEE_INACTIVE");
+      const companyId = employee?.companyId || panelUser?.companyId;
+      const company = db.companies.find((c) => c.id === companyId);
+      if (!company) throw httpError("Kompaniya topilmadi.", 403, "COMPANY_SUSPENDED");
+      if (company.status === "SUSPENDED") throw httpError("Kompaniya hisobi to‘xtatilgan.", 403, "COMPANY_SUSPENDED");
+
+      // Telegram 2FA: panel hisobida yoqilgan bo‘lsa (direktor yoki xodimga bog‘langan rahbar) — kod bilan.
+      const secondFactor = panelUser || (employee ? managerUserOf(db, employee) : undefined);
+      if (secondFactor?.twoFactorEnabled && !secondFactor.blockedAt) {
+        // Kod rahbarning Telegram’iga (bo‘lmasa — xodimning o‘z Telegram’iga) boradi; hech biri bo‘lmasa — 2FA o‘tkazib yuborilmaydi.
+        const target = telegramOf(secondFactor) || (employee?.telegramId && !employee.telegramId.startsWith("dev") ? employee.telegramId : undefined);
+        if (!target)
+          throw httpError("Ikki bosqichli kirish yoqilgan, lekin Telegram ulanmagan. Panelda Telegram’ni ulang yoki administratorga murojaat qiling.", 403, "TWO_FACTOR_UNAVAILABLE");
+        const codeLocked = twoFactorFailures.remaining(secondFactor.id);
+        if (codeLocked) throw httpError(`Juda ko‘p noto‘g‘ri kod. ${Math.ceil(codeLocked / 60_000)} daqiqadan keyin qayta urinib ko‘ring.`, 429, "CODE_LOCKED");
+        const slot = `${secondFactor.id}:${key.fingerprint}`;
+        if (!input.code) {
+          const code = String(randomInt(0, 100_000)).padStart(5, "0");
+          if (twoFactorCodes.size > 1000) for (const [k, v] of twoFactorCodes) if (v.expiresAt < Date.now()) twoFactorCodes.delete(k);
+          twoFactorCodes.set(slot, { hash: twoFactorHash(slot, code), expiresAt: Date.now() + 5 * 60_000, attempts: 0 });
+          const sent = await sendTelegramMessage(
+            target,
+            `🔐 Staffora ilovasiga kirish kodi: <code>${code}</code>\n\nKod 5 daqiqa amal qiladi. Uni hech kimga bermang.\nKirishga siz urinmagan bo‘lsangiz — darhol parolingizni o‘zgartiring.`,
+          ).catch(() => false);
+          if (!sent) {
+            twoFactorCodes.delete(slot);
+            throw httpError("Tasdiqlash kodini Telegram’ga yuborib bo‘lmadi. Keyinroq urinib ko‘ring.", 503, "CODE_NOT_SENT");
+          }
+          return res.json({ requires2fa: true, message: "Telegram’ga 5 xonali kod yuborildi. Kodni kiriting." });
+        }
+        const row = twoFactorCodes.get(slot);
+        if (!row || row.expiresAt < Date.now()) {
+          twoFactorCodes.delete(slot);
+          throw httpError("Kod muddati tugagan. Qaytadan kiring.", 410, "CODE_EXPIRED");
+        }
+        row.attempts += 1;
+        if (row.attempts > 5) {
+          twoFactorCodes.delete(slot);
+          throw httpError("Juda ko‘p noto‘g‘ri urinish. Qaytadan kiring.", 429, "CODE_LOCKED");
+        }
+        if (!safeEqualHex(row.hash, twoFactorHash(slot, input.code.replace(/\D/g, "")))) {
+          if (twoFactorFailures.fail(secondFactor.id)) twoFactorCodes.delete(slot);
+          throw httpError(`Kod noto‘g‘ri. Yana ${5 - row.attempts} ta urinish qoldi.`, 400, "CODE_INVALID");
+        }
+        twoFactorCodes.delete(slot);
+        twoFactorFailures.clear(secondFactor.id);
+      }
+      loginPerDevice.clear(deviceKey);
+      loginPerAccount.clear(login);
+
+      const ip = String(req.ip || "").replace(/^::ffff:/, "");
+      const out = await updateDb((next) => {
+        if (employee) {
+          const fresh = next.employees.find((e) => e.id === employee!.id && e.companyId === employee!.companyId && e.status === "ACTIVE");
+          if (!fresh) throw httpError("Xodim profili faol emas. HR bilan bog‘laning.", 403, "EMPLOYEE_INACTIVE");
+          const { device, reused } = bindDevice(next, { kind: "employee", employee: fresh }, key, input, nameOf(fresh));
+          const { session, refreshToken } = issueSession(next, device);
+          securityLog(next, fresh.companyId, nameOf(fresh), reused ? "Mobil ilovaga login bilan qayta kirildi (o‘sha qurilma)" : "Mobil ilovaga login bilan kirildi (ishonchli qurilma)", fresh.id, {
+            platform: device.platform,
+            model: device.model,
+          });
+          return tokens(fresh, device, session, refreshToken);
+        }
+        const user = next.users.find((u) => u.id === panelUser!.id);
+        const freshCompany = user && next.companies.find((c) => c.id === user.companyId);
+        if (!user || user.blockedAt) throw httpError("Hisobingiz bloklangan. Administratorga murojaat qiling.", 403, "ACCOUNT_BLOCKED");
+        if (!freshCompany || freshCompany.status === "SUSPENDED") throw httpError("Kompaniya hisobi to‘xtatilgan.", 403, "COMPANY_SUSPENDED");
+        const { device } = bindDevice(next, { kind: "manager", user }, key, input, user.name);
+        const { session, refreshToken } = issueSession(next, device);
+        user.lastLoginAt = new Date().toISOString();
+        next.auditLogs.unshift(audit(freshCompany.id, user.name, "Rahbar mobil ilovaga login bilan kirdi", "user", user.id, undefined, { deviceId: device.id, platform: device.platform }));
+        return managerTokens(next, user, freshCompany, device, session, refreshToken, ip);
+      });
+      res.status(201).json(out);
     }),
   );
 
@@ -263,7 +562,7 @@ export function createMobilePublicRouter() {
         if (!device || !employee) return { status: "REJECTED" };
         // Tasdiqlangandan keyin sessiya faqat bir marta beriladi (so‘rov qayta ishlatilmaydi).
         if (db.mobileSessions.some((s) => s.deviceId === device.id)) throw httpError("Bu so‘rov bo‘yicha kirish allaqachon berilgan.", 409, "ALREADY_ISSUED");
-        const { session, refreshToken } = issueSession(db, employee, device);
+        const { session, refreshToken } = issueSession(db, device);
         return { status: "APPROVED", ...tokens(employee, device, session, refreshToken) };
       });
       res.json(result);
@@ -306,16 +605,41 @@ export function createMobilePublicRouter() {
         }
         if (session.refreshHash !== hash) throw httpError("Sessiya yaroqsiz.", 401, "SESSION_INVALID");
         if (session.expiresAt < new Date().toISOString()) throw httpError("Sessiya muddati tugagan. Qayta kiring.", 401, "SESSION_EXPIRED");
+        const rotate = () => {
+          const refreshToken = newSecret(32);
+          const now = new Date();
+          session.prevRefreshHash = session.refreshHash;
+          session.refreshHash = sha256(refreshToken);
+          session.lastUsedAt = now.toISOString();
+          session.expiresAt = new Date(now.getTime() + REFRESH_TTL_MS).toISOString();
+          device.lastSeenAt = now.toISOString();
+          return refreshToken;
+        };
+        // Rahbar rejimi (xodim profili yo‘q direktor): panel hisobi va panel sessiyasi tekshiriladi.
+        if (!session.employeeId && session.userId) {
+          const close = (reason: string) => Object.assign(session, { revokedAt: new Date().toISOString(), revokeReason: reason });
+          const user = db.users.find((u) => u.id === session.userId);
+          if (!user) {
+            close("Foydalanuvchi o‘chirilgan");
+            return fail("Sessiya topilmadi. Qayta kiring.", 401, "SESSION_INVALID");
+          }
+          if (user.blockedAt) {
+            close("Hisob bloklangan");
+            return fail("Hisobingiz bloklangan. Administratorga murojaat qiling.", 403, "ACCOUNT_BLOCKED");
+          }
+          const company = db.companies.find((c) => c.id === user.companyId);
+          if (!MANAGER_ROLES.has(user.role) || !company) throw httpError("Rahbar huquqi topilmadi.", 403, "NOT_MANAGER");
+          if (company.status === "SUSPENDED") throw httpError("Kompaniya hisobi to‘xtatilgan.", 403, "COMPANY_SUSPENDED");
+          const panel = session.panelSessionId ? db.panelSessions.find((s) => s.id === session.panelSessionId) : undefined;
+          if (!panel || panel.revokedAt) {
+            close("Panel sessiyasi yopilgan");
+            return fail("Bu qurilmadan chiqarildingiz. Qayta kiring.", 401, "SESSION_INVALID");
+          }
+          return managerTokens(db, user, company, device, session, rotate(), String(req.ip || "").replace(/^::ffff:/, ""));
+        }
         const employee = db.employees.find((e) => e.id === session.employeeId && e.status === "ACTIVE");
         if (!employee) throw httpError("Xodim profili faol emas.", 403, "EMPLOYEE_INACTIVE");
-        const refreshToken = newSecret(32);
-        const now = new Date();
-        session.prevRefreshHash = session.refreshHash;
-        session.refreshHash = sha256(refreshToken);
-        session.lastUsedAt = now.toISOString();
-        session.expiresAt = new Date(now.getTime() + REFRESH_TTL_MS).toISOString();
-        device.lastSeenAt = now.toISOString();
-        return tokens(employee, device, session, refreshToken);
+        return tokens(employee, device, session, rotate());
       }));
       res.json(out);
     }),
@@ -330,6 +654,9 @@ export function createMobilePublicRouter() {
       await updateDb((db) => {
         const session = db.mobileSessions.find((s) => s.id === sessionId && s.refreshHash === sha256(refreshToken));
         if (session && !session.revokedAt) Object.assign(session, { revokedAt: new Date().toISOString(), revokeReason: "Chiqish" });
+        // Rahbar rejimi: unga bog‘langan panel sessiyasi ham yopiladi (access token darhol ishlamay qoladi).
+        const panel = session?.panelSessionId ? db.panelSessions.find((s) => s.id === session.panelSessionId) : undefined;
+        if (panel && !panel.revokedAt) panel.revokedAt = new Date().toISOString();
       });
       res.json({ ok: true });
     }),

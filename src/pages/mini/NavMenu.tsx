@@ -34,7 +34,8 @@ export function NavMenu<K extends string>({ items, value, onSelect }: { items: N
             aria-selected={on}
             tabIndex={on ? 0 : -1}
             className={`nm-key${on ? " on" : ""}`}
-            onClick={() => !on && onSelect(key)}
+            // Tanlangan tabga qayta bosish ham uzatiladi — ota komponent ichki ekrandan tab boshiga qaytaradi.
+            onClick={() => onSelect(key)}
             onKeyDown={(e) => onKey(e, i)}
           >
             <span className="nm-icon">
