@@ -3362,6 +3362,133 @@ a.tp-stat:active {
   color: var(--muted);
   font-size: 11.5px;
 }
+/* Xodim kartasi: bosh harflar, holat nuqtasi, ikki ustunli qatorlar */
+.sai-profile-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--line-2);
+}
+.sai-profile-head > div {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.sai-profile-head b {
+  overflow: hidden;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sai-profile-head small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.sai-initials {
+  display: grid;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--brand-50);
+  color: var(--brand);
+  font-size: 13px;
+  font-weight: 700;
+}
+.sai-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--ink-2);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.sai-state::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  content: "";
+}
+.sai-state.green::before {
+  background: var(--green);
+}
+.sai-state.amber::before {
+  background: var(--amber);
+}
+.sai-state.red::before {
+  background: var(--red);
+}
+.sai-state.blue::before {
+  background: var(--brand);
+}
+.sai-profile dl {
+  margin: 0;
+  padding: 2px 12px;
+}
+.sai-profile dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+  font-size: 12.5px;
+}
+.sai-profile dl > div + div {
+  border-top: 1px solid var(--line-2);
+}
+.sai-profile dt {
+  flex: none;
+  color: var(--muted);
+}
+.sai-profile dd {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 540;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.sai-link {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--brand);
+  font-weight: 600;
+  text-decoration: none;
+}
+.sai-link:hover {
+  background: var(--brand-50);
+}
+/* Keyingi qadam tugmalari — javob ostida, sokin */
+.sai-next {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.sai-next button {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 99px;
+  background: var(--surface);
+  color: var(--brand);
+  font-size: 12px;
+  font-weight: 560;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s var(--spring);
+}
+.sai-next button.person {
+  color: var(--ink-2);
+}
+.sai-next button:hover {
+  border-color: var(--brand-soft);
+  background: var(--brand-50);
+}
+.sai-next button:active {
+  transform: scale(0.97);
+}
 .md > * + * {
   margin-top: 8px;
 }

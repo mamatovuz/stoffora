@@ -36,7 +36,15 @@ import {
 } from "./registration";
 import { resolveWebAppUrl } from "./telegram";
 import { referenceFromPhoto } from "./face-reference";
-import { processChat } from "./ai/routes";
+import { handleTelegramAiCallback, handleTelegramAiText, sendAiWelcome, type TgAiTarget } from "./ai/telegram";
+
+/** Kompaniya botidagi Telegram foydalanuvchisi → panel foydalanuvchisi (AI yoqilgan bo‘lsa). */
+async function aiTarget(companyId: string, token: string, chatId: string, telegramId: string): Promise<TgAiTarget | undefined> {
+  const db = await readDb();
+  if (!db.aiConfigs.some((row) => row.companyId === companyId && row.enabled)) return undefined;
+  const user = db.users.find((row) => row.companyId === companyId && String(row.telegramId || "") === telegramId && !row.blockedAt);
+  return user ? { token, companyId, chatId, user: { id: user.id, companyId, name: user.name, email: user.email, role: user.role } } : undefined;
+}
 
 /*
  * Kompaniya boti: har bir kompaniya o‘z bot tokenini panel sozlamalarida kiritadi.
@@ -118,6 +126,7 @@ export async function startCompanyBot(companyId: string) {
       { command: "start", description: "Bosh sahifa / ro‘yxatdan o‘tish" },
       { command: "id", description: "Telegram ID ni bilish" },
       { command: "cancel", description: "Anketani bekor qilish" },
+      { command: "ai", description: "Staffora AI — rahbarlar uchun" },
     ]);
     if (ok) await bot.api.setChatMenuButton({ menu_button: { type: "web_app", text: "Staffora", web_app: { url: webAppUrl } } });
     // START bosishdan oldingi oynada kompaniya nomi ko‘rinadi (bot nomi o‘zgartirilmaydi).
@@ -406,8 +415,22 @@ export function attachHandlers(bot: Bot, companyId: string) {
     await ask(ctx, companyId, draft!.id);
   });
 
+  bot.command("ai", async (ctx) => {
+    if (!ctx.from || !ctx.chat) return;
+    const target = await aiTarget(companyId, ctx.api.token, String(ctx.chat.id), String(ctx.from.id));
+    if (target) return void (await sendAiWelcome(target));
+    await ctx.reply("Staffora AI rahbarlar uchun: panelga kirgan foydalanuvchi Telegram ID sini profilida kiritsa, shu yerda savol bera oladi.");
+  });
+
   bot.on("callback_query:data", async (ctx) => {
     const data = ctx.callbackQuery.data;
+    if (data.startsWith("ai:")) {
+      const chatId = ctx.chat?.id ?? ctx.callbackQuery.message?.chat.id;
+      const target = chatId !== undefined ? await aiTarget(companyId, ctx.api.token, String(chatId), String(ctx.from.id)) : undefined;
+      if (!target) return void (await ctx.answerCallbackQuery({ text: "Staffora AI bu hisob uchun yoqilmagan." }));
+      await handleTelegramAiCallback(target, { id: ctx.callbackQuery.id, data, messageId: ctx.callbackQuery.message?.message_id });
+      return;
+    }
     if (data.startsWith("hr:")) return handleHrDecision(ctx, companyId, data);
     if (data.startsWith("rq:")) return void (await (await import("./request-actions")).handleRequestCallback(ctx, companyId));
     if (!data.startsWith("rg:")) return void (await ctx.answerCallbackQuery());
@@ -509,20 +532,9 @@ export function attachHandlers(bot: Bot, companyId: string) {
     if (ctx.message.text.startsWith("/")) return;
     const draft = await activeDraft(companyId, String(ctx.from.id));
     if (!draft) {
-      const db = await readDb();
-      const user = db.users.find((row) => row.companyId === companyId && String(row.telegramId || "") === String(ctx.from.id) && !row.blockedAt);
-      const aiEnabled = db.aiConfigs.some((row) => row.companyId === companyId && row.enabled);
-      if (user && aiEnabled) {
-        try {
-          await ctx.replyWithChatAction("typing");
-          const existing = db.aiConversations.filter((row) => row.companyId === companyId && row.userId === user.id && row.channel === "TELEGRAM" && row.telegramChatId === String(ctx.chat.id)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
-          const req = { session: { userId: user.id, companyId, name: user.name, email: user.email, role: user.role } } as AuthedRequest;
-          const result = await processChat(req, ctx.message.text, existing?.id, "TELEGRAM");
-          await updateDb((next) => { const conversation = next.aiConversations.find((row) => row.id === result.conversationId); if (conversation) conversation.telegramChatId = String(ctx.chat.id); });
-          await ctx.reply(result.message.text.slice(0, 4000));
-        } catch (error) {
-          await ctx.reply(`⚠️ Staffora AI: ${error instanceof Error ? error.message.slice(0, 240) : "so‘rov bajarilmadi"}`);
-        }
+      const target = await aiTarget(companyId, ctx.api.token, String(ctx.chat.id), String(ctx.from.id));
+      if (target) {
+        await handleTelegramAiText(target, ctx.message.text);
         return;
       }
       await ctx.reply("Boshlash uchun /start bosing. Rahbarlar Staffora AI’dan foydalanish uchun Telegram hisobini panelda ulashi mumkin.", { reply_markup: webAppKeyboard("📲 Staffora'ni ochish") });

@@ -5,23 +5,24 @@ import { api, del, errorText, post } from "../api";
 import { useAuth } from "../auth";
 import mark from "../assets/staffora-mark.svg";
 import { Markdown } from "./Markdown";
-import type { AiCard } from "@/lib/ai/types";
+import type { AiCard, AiSuggestion } from "@/lib/ai/types";
 
 /*
  * Staffora AI — pastki o‘ng burchakdagi yumaloq tugma (Staffora belgisi) va chat oynasi.
- * O‘qish savollari darhol bazadan javob beradi (hisobot kartasi bilan); o‘zgartirish buyruqlari
- * tasdiqlash kartasini ko‘rsatadi va faqat «Tasdiqlash»dan keyin bajariladi.
+ * O‘qish savollari darhol bazadan javob beradi (hisobot yoki xodim kartasi bilan); har javob ostida
+ * keyingi qadam tugmalari (Telegram botidagi bilan bir xil). O‘zgartirish buyruqlari tasdiqlash
+ * kartasini ko‘rsatadi va faqat «Tasdiqlash»dan keyin bajariladi.
  */
-type Message = { id: string; role: "USER" | "ASSISTANT"; text: string; card?: AiCard; createdAt: string };
+type Message = { id: string; role: "USER" | "ASSISTANT"; text: string; card?: AiCard; suggestions?: AiSuggestion[]; createdAt: string };
 type Conversation = { id: string; title: string; updatedAt: string };
 type PendingAction = { id: string; name: string; level: "WRITE" | "SENSITIVE"; summary: string; confirmationToken: string };
 type ChatResult = { conversationId: string; message: Message; pendingAction?: PendingAction | null };
 type ActionResult = { status: string; result?: { message?: string; verified?: boolean } };
 type AiStatus = { enabled: boolean; configured: boolean; ready: boolean; canManage: boolean; providers: string[]; currentModel?: string; lastError?: string };
 
-const ASK = ["Bugungi davomatni ko‘rsat", "Bugun kechikkan xodimlarni chiqar", "Kelmagan xodimlar kim?", "Filiallar bo‘yicha statistikani ko‘rsat", "O‘tgan hafta hisobotini tayyorla", "Ish grafiklarini ko‘rsat"];
-/** Amal namunalari — yuborilmaydi, maydonga yoziladi (foydalanuvchi qiymatni o‘zgartiradi). */
-const DO = ["ID E-1001 bugun 08:30 da keldi", "ID E-1001 oyligini 5 000 000 so‘m qil", "«Kechki smena» grafigini 14:00–23:00 qilib yarat"];
+const ASK = ["Bugungi davomatni ko‘rsat", "Bugun kechikkan xodimlar", "Bugun kelmagan xodimlar", "Filiallar statistikasi", "O‘tgan hafta hisoboti", "Bu oy eng ko‘p kechikkanlar"];
+/** Namunalar — yuborilmaydi, maydonga yoziladi (foydalanuvchi ism/qiymatni o‘zgartiradi). */
+const DO = ["Valiyev familiyali xodim bormi?", "ID E-1001 kim?", "ID E-1001 bugun 08:30 da keldi", "ID E-1001 oyligini 5 000 000 so‘m qil"];
 const PROVIDER: Record<string, string> = { OPENAI: "OpenAI", GEMINI: "Gemini", ANTHROPIC: "Claude", GROQ: "Groq", STAFFORA: "Staffora" };
 const clock = (iso: string) => new Date(iso).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tashkent" });
 
@@ -301,7 +302,7 @@ export function StafforaAI() {
                         </button>
                       ))}
                     </div>
-                    <small className="sai-label">Buyruq namunalari</small>
+                    <small className="sai-label">Qidiruv va buyruq namunalari</small>
                     <div className="sai-chips do">
                       {DO.map((prompt) => (
                         <button
@@ -318,7 +319,7 @@ export function StafforaAI() {
                     </div>
                   </div>
                 )}
-                {messages.map((m) =>
+                {messages.map((m, index) =>
                   m.role === "USER" ? (
                     <div key={m.id} className="sai-msg user">
                       <div className="sai-bubble">{m.text}</div>
@@ -332,7 +333,17 @@ export function StafforaAI() {
                           {/* Karta bo‘lsa, matndan faqat sarlavha — raqamlar kartada (matn Telegram va tarix uchun to‘liq saqlanadi). */}
                           <Markdown text={m.card ? m.text.split("\n")[0] : m.text} />
                         </div>
-                        {m.card && <ResultCard card={m.card} />}
+                        {m.card && <ResultCard card={m.card} onNavigate={() => setOpen(false)} />}
+                        {/* Keyingi qadam — faqat oxirgi javob ostida (eski javoblarda tugmalar chalg‘itmasin). */}
+                        {index === messages.length - 1 && !busy && !pending && m.suggestions?.length ? (
+                          <div className="sai-next" aria-label="Keyingi savollar">
+                            {m.suggestions.map((s) => (
+                              <button key={s.key || s.prompt} type="button" className={s.key?.startsWith("e:") ? "person" : ""} onClick={() => void send(undefined, s.prompt)}>
+                                {s.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                         <time>{clock(m.createdAt)}</time>
                       </div>
                     </div>
@@ -423,7 +434,35 @@ export function StafforaAI() {
   );
 }
 
-function ResultCard({ card }: { card: AiCard }) {
+function ResultCard({ card, onNavigate }: { card: AiCard; onNavigate: () => void }) {
+  if (card.kind === "profile")
+    return (
+      <div className="sai-card sai-profile">
+        <div className="sai-profile-head">
+          <span className="sai-initials" aria-hidden>
+            {card.initials}
+          </span>
+          <div>
+            <b>{card.title}</b>
+            {card.subtitle && <small>{card.subtitle}</small>}
+          </div>
+          {card.status && <span className={`sai-state ${card.status.tone}`}>{card.status.text}</span>}
+        </div>
+        <dl>
+          {card.fields.map((f) => (
+            <div key={f.label}>
+              <dt>{f.label}</dt>
+              <dd>{f.value}</dd>
+            </div>
+          ))}
+        </dl>
+        {card.link && (
+          <Link className="sai-more sai-link" to={card.link} onClick={onNavigate}>
+            Profilni ochish <ChevronRight size={13} />
+          </Link>
+        )}
+      </div>
+    );
   if (card.kind === "stats")
     return (
       <div className="sai-card">

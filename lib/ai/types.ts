@@ -54,13 +54,48 @@ export interface AiMessage {
   actionId?: string;
   /** Real ma’lumotdan tuzilgan hisobot kartasi (web chatda jadval/statistika sifatida ko‘rsatiladi). */
   card?: AiCard;
+  /** Keyingi qadam tugmalari (saytda chip, Telegram’da inline tugma). */
+  suggestions?: AiSuggestion[];
   createdAt: string;
 }
 
-/** AI javobidagi tuzilgan natija: ko‘rsatkichlar yoki jadval (raqamlar faqat bazadan). */
+export type AiTone = "green" | "amber" | "red" | "blue" | "gray";
+
+/** AI javobidagi tuzilgan natija: ko‘rsatkichlar, jadval yoki xodim kartasi (raqamlar faqat bazadan). */
 export type AiCard =
-  | { kind: "stats"; title: string; subtitle?: string; items: { label: string; value: string; tone?: "green" | "amber" | "red" | "blue" | "gray" }[] }
-  | { kind: "table"; title: string; subtitle?: string; columns: string[]; rows: string[][]; more?: number };
+  | { kind: "stats"; title: string; subtitle?: string; items: { label: string; value: string; tone?: AiTone }[] }
+  | { kind: "table"; title: string; subtitle?: string; columns: string[]; rows: string[][]; more?: number }
+  | {
+      kind: "profile";
+      title: string;
+      subtitle?: string;
+      /** Ism-familiya bosh harflari (rasm o‘rnida). */
+      initials: string;
+      status?: { text: string; tone: AiTone };
+      fields: { label: string; value: string }[];
+      /** Panel ichidagi sahifa (masalan /employees/<id>). */
+      link?: string;
+    };
+
+/**
+ * Tugma: `prompt` — bosilganda AI’ga yuboriladigan matn. `key` — Telegram callback uchun qisqa
+ * kalit (64 bayt chegarasi): `k:late`, `e:<employeeId>` kabi.
+ */
+export type AiSuggestion = { label: string; prompt: string; key?: string };
+
+/** Tezkor savollar: sayt chiplari va Telegram tugmalari bir xil ro‘yxatdan. */
+export const AI_QUICK = {
+  today: { label: "Bugungi davomat", prompt: "Bugungi davomatni ko‘rsat" },
+  late: { label: "Kechikkanlar", prompt: "Bugun kechikkan xodimlar" },
+  absent: { label: "Kelmaganlar", prompt: "Bugun kelmagan xodimlar" },
+  branches: { label: "Filiallar", prompt: "Filiallar statistikasi" },
+  week: { label: "Haftalik hisobot", prompt: "O‘tgan hafta hisoboti" },
+  rank: { label: "Oy reytingi", prompt: "Bu oy eng ko‘p kechikkanlar" },
+  leave: { label: "Ta’til so‘rovlari", prompt: "Kutilayotgan ta’til so‘rovlari" },
+  schedules: { label: "Ish grafiklari", prompt: "Ish grafiklarini ko‘rsat" },
+} as const;
+export type AiQuickKey = keyof typeof AI_QUICK;
+export const quick = (key: AiQuickKey): AiSuggestion => ({ ...AI_QUICK[key], key: `k:${key}` });
 
 export type AiActionLevel = "READ" | "WRITE" | "SENSITIVE" | "FORBIDDEN";
 export interface AiActionExecution {
