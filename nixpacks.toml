@@ -1,0 +1,6 @@
+# Railway (Nixpacks) o‘rnatish bosqichi.
+# Build vositalari (vite, tsup, typescript, tailwind) devDependencies’da. Build paytida NODE_ENV=production
+# bo‘lsa, npm (7+, ayniqsa 11) ularni o‘rnatmaydi → «sh: vite: not found». Shu sababli aniq kiritamiz.
+# Qolgan bosqichlar (Node versiyasi, build, start) — standart va railway.json bo‘yicha.
+[phases.install]
+cmds = ["npm ci --include=dev"]
