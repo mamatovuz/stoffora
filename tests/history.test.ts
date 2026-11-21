@@ -21,6 +21,10 @@ async function get(url: string) {
 }
 
 beforeAll(async () => {
+  // Sanalar qattiq yozilgan (2026-09), rasmlar esa bugundan 62 kun saqlanadi —
+  // soatni muzlatamiz, aks holda test kalendar o‘tishi bilan o‘z-o‘zidan sinadi.
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-15T07:00:00Z"));
   dir = mkdtempSync(path.join(tmpdir(), "staffora-hist-"));
   process.env.SQLITE_PATH = path.join(dir, "test.sqlite");
   vi.resetModules();
@@ -64,6 +68,7 @@ beforeAll(async () => {
   close = () => server.close();
 });
 afterAll(() => {
+  vi.useRealTimers();
   close?.();
   try {
     rmSync(dir, { recursive: true, force: true });
