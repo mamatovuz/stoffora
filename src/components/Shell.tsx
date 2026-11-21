@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
@@ -146,6 +146,16 @@ export function Shell() {
   const { user, refresh } = useAuth();
   const [pageKey, setPageKey] = useState(0);
   const location = useLocation();
+  const tabsRef = useRef<HTMLElement>(null);
+  // Telefonda bo‘lim tablari suriladi: faol tab ko‘rinmay qolmasin (masalan «Belgilash so‘rovlari»)
+  useEffect(() => {
+    const nav = tabsRef.current;
+    const active = nav?.querySelector<HTMLElement>("a.active");
+    if (!nav || !active || nav.scrollWidth <= nav.clientWidth) return;
+    const navBox = nav.getBoundingClientRect();
+    const box = active.getBoundingClientRect();
+    nav.scrollLeft += box.left - navBox.left - (navBox.width - box.width) / 2;
+  }, [location.pathname]);
   const [palette, setPalette] = useState(false);
   const [lang, setLang] = useState<Lang>(() => storedLang() || "uz");
   useEffect(() => {
@@ -617,7 +627,7 @@ export function Shell() {
       )}
       <main id="main-content" className="tn-main" tabIndex={-1}>
         {sectionTabs && (
-          <nav className="tn-tabs" aria-label={current?.label || "Tizim"}>
+          <nav ref={tabsRef} className="tn-tabs" aria-label={current?.label || "Tizim"}>
             {sectionTabs.map(([path, label]) => (
               <NavLink key={path} to={path} end className={({ isActive }) => (isActive ? "active" : "")}>
                 {label}
