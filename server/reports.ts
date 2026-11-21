@@ -30,12 +30,12 @@ export const leftDuringMonth = (e: Employee, month: string) =>
  * Bo‘shagan xodim oyligi bo‘shagan kunigacha bo‘lgan ish kunlariga proporsional; bo‘shatishda
  * qo‘lda to‘langan summa (SETTLEMENT) oy oxiridagi to‘lovdan ayriladi.
  */
-export function payrollRows(db: Database, tenant: string, month: string) {
+export function payrollRows(db: Database, tenant: string, month: string, onlyEmployeeId?: string) {
   const [y, m] = month.split("-").map(Number);
   const monthEnd = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`;
   // Keyingi oylarda ishga kiradigan xodim bu oy qaydnomasiga kirmaydi.
   return db.employees
-    .filter((e) => e.companyId === tenant && (e.status === "ACTIVE" || leftDuringMonth(e, month)) && (!e.startDate || e.startDate <= monthEnd))
+    .filter((e) => (!onlyEmployeeId || e.id === onlyEmployeeId) && e.companyId === tenant && (e.status === "ACTIVE" || leftDuringMonth(e, month)) && (!e.startDate || e.startDate <= monthEnd))
     .map((e) => employeePayrollRow(db, e, month));
 }
 
