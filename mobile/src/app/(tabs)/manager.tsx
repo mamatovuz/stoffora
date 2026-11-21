@@ -17,7 +17,7 @@ import { dateUz, dayTitle, duration, tashkentClock, tashkentIsoDate, timeAgo } f
 import { can, managerAuth, mcall, type ManagerAuth } from "@/lib/manager";
 import { typo, useTheme } from "@/lib/theme";
 import type { HomeData } from "@/lib/types";
-import { useData } from "@/lib/useData";
+import { readCached, useData, writeCached } from "@/lib/useData";
 import { useSession } from "@/lib/session";
 
 type MView = "desk" | "today" | "requests" | "map" | "grid" | "week" | "money" | "devices" | "admin";
@@ -67,10 +67,33 @@ const name = (e: { firstName: string; lastName: string }) => `${e.firstName} ${e
 type ExtraKey = "week" | "money" | "devices" | "announce" | "fine" | "scan";
 
 /** Rahbar paneli — Mini App’dagi «Rahbar» bilan bir xil: bugungi holat, so‘rovlar, filial xaritasi, haftalik xulosa. */
+/*
+ * Oxirgi ko‘rinish telefonda saqlanadi (lib/useData disk keshi, hisobga bog‘langan): ilova qayta ochilganda
+ * panel darhol oxirgi holat bilan chiqadi, yangisi fonda keladi. Token saqlanmaydi — faqat ko‘rsatiladigan ma’lumot.
+ */
+const SNAPSHOT_KEY = "manager:snapshot";
+type Snapshot = {
+  auth: Omit<ManagerAuth, "token">;
+  date: string;
+  day: Day | null;
+  pending: Pending[];
+  notices: LateNotice[];
+  branches: Branch[];
+  analytics: Analytics | null;
+  trends: TrendRow[] | null;
+  expiring: { id: string; title: string; expiresAt: string; status: string; employeeId: string; employeeName: string; branchName: string }[];
+  updatedAt: string;
+};
+
 export default function Manager() {
   const { c } = useTheme();
   const { mode } = useSession();
-  const [auth, setAuth] = useState<ManagerAuth | null>(null);
+  // Bugungi kunga tegishli saqlangan ko‘rinish (kecha saqlangani bugungi holat sifatida ko‘rsatilmaydi).
+  const [snap] = useState(() => {
+    const saved = readCached<Snapshot>(SNAPSHOT_KEY);
+    return saved && saved.date === tashkentIsoDate() ? saved : undefined;
+  });
+  const [auth, setAuth] = useState<ManagerAuth | null>(snap ? { ...snap.auth, token: "" } : null);
   const params = useLocalSearchParams<{ view?: MView; t?: string; filter?: string }>();
   const [picked, setView] = useState<MView>(params.view || "desk");
   // «Boshqaruv» ichidagi bo‘lim (xodimlar, ish haqi, grafiklar…).
@@ -84,7 +107,7 @@ export default function Manager() {
     const f = asFilter(params.filter);
     if (f) setFilter(f);
   }
-  const [day, setDay] = useState<Day | null>(null);
+  const [day, setDay] = useState<Day | null>(snap?.day ?? null);
   // Boshqa kun (‹ ›) — alohida yuklanadi; bugun — umumiy yangilanish bilan.
   const [dayDate, setDayDate] = useState(tashkentIsoDate());
   const [other, setOther] = useState<{ date: string; day: Day } | null>(null);
@@ -103,26 +126,33 @@ export default function Manager() {
   const home = useData<HomeData>(mode === "employee" ? "/mini/home" : null, { refetchOnFocus: false });
   const [overtimeOff, setOvertimeOff] = useState<boolean | null>(null);
   const noOvertime = home.data?.features?.overtime === false || overtimeOff === true;
-  const [allPending, setPending] = useState<Pending[]>([]);
+  const [allPending, setPending] = useState<Pending[]>(snap?.pending ?? []);
   const pending = useMemo(() => (noOvertime ? allPending.filter((p) => p.kind !== "overtime") : allPending), [allPending, noOvertime]);
   const overtimeChecked = useRef(false);
-  const [notices, setNotices] = useState<LateNotice[]>([]);
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [notices, setNotices] = useState<LateNotice[]>(snap?.notices ?? []);
+  const [branches, setBranches] = useState<Branch[]>(snap?.branches ?? []);
+  const [analytics, setAnalytics] = useState<Analytics | null>(snap?.analytics ?? null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [branch, setBranch] = useState("");
-  const [trends, setTrends] = useState<TrendRow[] | null>(null);
+  const [trends, setTrends] = useState<TrendRow[] | null>(snap?.trends ?? null);
   // Ommaviy tasdiqlash (Mini App’dagidek): belgilab, bir bosishda tasdiqlash.
   const [selecting, setSelecting] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [announcing, setAnnouncing] = useState(false);
   const [fining, setFining] = useState(false);
-  const [expiring, setExpiring] = useState<{ id: string; title: string; expiresAt: string; status: string; employeeId: string; employeeName: string; branchName: string }[]>([]);
+  const [expiring, setExpiring] = useState<Snapshot["expiring"]>(snap?.expiring ?? []);
   const [moneyKey, setMoneyKey] = useState(0);
-  const [updatedAt, setUpdatedAt] = useState("");
+  const [updatedAt, setUpdatedAt] = useState(snap?.updatedAt ?? "");
+  // Server javobidan keyin (updatedAt yangilanadi) — ko‘rinish keyingi ochilish uchun saqlanadi.
+  const fresh = useRef(false);
+  useEffect(() => {
+    if (!fresh.current || !auth) return;
+    const { token: _token, ...shown } = auth;
+    writeCached(SNAPSHOT_KEY, { auth: shown, date: tashkentIsoDate(), day, pending: allPending, notices, branches, analytics, trends, expiring, updatedAt } satisfies Snapshot);
+  }, [auth, day, allPending, notices, branches, analytics, trends, expiring, updatedAt]);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
@@ -168,6 +198,7 @@ export default function Manager() {
       setNotices(n);
       setBranches(b);
       setError("");
+      fresh.current = true;
       setUpdatedAt(new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Tashkent" }));
       if (can(role, "employees.view") || can(role, "attendance.view")) void mcall<typeof expiring>("/documents/expiring").then(setExpiring).catch(() => setExpiring([]));
       if (can(role, "dashboard.view")) void mcall<Analytics>(`/analytics?month=${month}`).then(setAnalytics).catch(() => undefined);

@@ -88,7 +88,9 @@ export function advanceWindowMessage(window: ReturnType<typeof advanceWindow>) {
 
 /** Xodimning shu oydagi ish haqi holati (bugungi kungacha). */
 export function salarySnapshot(db: Database, employee: Employee, month = tashkentIsoDate().slice(0, 7)) {
-  const row = payrollRows(db, employee.companyId, month).find((r) => r.employee.id === employee.id);
+  // Faqat shu xodimning qatori (ilgari butun kompaniya qaydnomasi hisoblanib, bittasi olinardi —
+  // 300 xodimda ~50 ms, har ochilishda). Qaydnomaga kirish sharti payrollRows bilan bir xil.
+  const row = payrollRows(db, employee.companyId, month, employee.id)[0];
   const workingDays = workingDaysInMonth(db, employee, month);
   const closed = closedPeriod(db, employee.companyId, month);
   const frozen = closed?.lines.find((l) => l.employeeId === employee.id);

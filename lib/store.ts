@@ -673,6 +673,11 @@ export async function readDb(): Promise<Database> {
   return ensureLoaded();
 }
 
+/** Yuklangan bo‘lsa — xotiradagi holat (sinxron; yuklanmagan bo‘lsa undefined). Faqat o‘qish uchun. */
+export function peekDb(): Database | undefined {
+  return state;
+}
+
 /** Ma’lumot o‘zgarganda oshadi — hisoblangan indekslar keshini bekor qilish uchun. */
 export function dataVersion() {
   return version;

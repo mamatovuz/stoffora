@@ -145,7 +145,12 @@ function buildHome(db: Database, employee: Employee) {
   );
   return {
     employee,
-    company: db.companies.find((item) => item.id === employee.companyId),
+    // Faqat kerakli maydonlar: to‘liq kompaniya obyekti (bot tokeni shifri, sozlamalar, anketa…)
+    // har bir xodimga va har ochilishda yuborilmaydi. Ilovalar faqat `name` ni ishlatadi.
+    company: (() => {
+      const company = db.companies.find((item) => item.id === employee.companyId);
+      return company ? { id: company.id, name: company.name, slug: company.slug, status: company.status, timezone: company.timezone } : undefined;
+    })(),
     branch: db.branches.find((item) => item.id === employee.branchId) || null,
     department:
       db.departments.find((item) => item.id === employee.departmentId) ||

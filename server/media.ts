@@ -1,6 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
-import { readDb } from "../lib/store";
+import { dataVersion, peekDb, readDb } from "../lib/store";
 
 /*
  * Rasmlar (xodim va panel foydalanuvchisi) JSON javoblarida base64 ko‘rinishida
@@ -31,6 +31,26 @@ export function mediaUrl(kind: Kind, id: string, photo: string) {
   return `/api/media/${kind}/${id}.jpg?v=${version}&s=${sign(kind, id, version)}`;
 }
 
+/*
+ * Rasm egasi — rasmning o‘zi bo‘yicha (xotiradagi bazadan). Ko‘p javoblar rasmni yig‘ma obyektga
+ * qo‘yadi ({ employeeId, name, photoDataUrl } — `employeeNo`/`role` yo‘q): ilgari ular base64 holida
+ * ketardi (ma’lumotnoma 300 xodimda ~12 MB, /trends ~2 MB). Satrlar bazadagi o‘sha obyektlar —
+ * Map kaliti sifatida xeshi bir marta hisoblanadi; jadval faqat ma’lumot o‘zgarganda qayta quriladi.
+ */
+let owners: { db: object; version: number; map: Map<string, { kind: Kind; id: string }> } | undefined;
+function ownerOf(photo: string) {
+  const db = peekDb();
+  if (!db) return undefined;
+  const version = dataVersion();
+  if (!owners || owners.db !== db || owners.version !== version) {
+    const map = new Map<string, { kind: Kind; id: string }>();
+    for (const e of db.employees) if (e.photoDataUrl && !map.has(e.photoDataUrl)) map.set(e.photoDataUrl, { kind: "employee", id: e.id });
+    for (const u of db.users) if (u.photoDataUrl && !map.has(u.photoDataUrl)) map.set(u.photoDataUrl, { kind: "user", id: u.id });
+    owners = { db, version, map };
+  }
+  return owners.map.get(photo);
+}
+
 /** Javobdagi obyektlarni aylanib, base64 rasmlarni URL bilan almashtiradi (asl obyektlar o‘zgarmaydi). */
 function transform(value: unknown, depth = 0): unknown {
   if (depth > 8 || value === null || typeof value !== "object") return value;
@@ -55,6 +75,10 @@ function transform(value: unknown, depth = 0): unknown {
       const kind: Kind | undefined =
         typeof source.employeeNo === "string" ? "employee" : "role" in source ? "user" : undefined;
       if (id && kind) next = mediaUrl(kind, id, field);
+      else {
+        const owner = ownerOf(field);
+        if (owner) next = mediaUrl(owner.kind, owner.id, field);
+      }
     } else if (field && typeof field === "object") next = transform(field, depth + 1);
     if (next !== field) {
       copy ||= { ...source };
