@@ -4458,3 +4458,92 @@ a.tp-stat:active {
 :root:has(.sai-fab) .fb-savebar {
   padding-right: 96px;
 }
+
+/* ================================================================
+   Telefon / planshet: dashboard sahifalari bo‘yicha audit tuzatishlari
+   (360 / 390 / 768 px). Oldingi qoidalardan keyin turishi kerak.
+   ================================================================ */
+
+/* Segment (filtr tablari) hech qachon kartadan/sahifadan chiqib ketmasin —
+   sig‘masa ichida suriladi (Ta’til sahifasi 768px’da butun sahifani 1062px’ga kengaytirardi). */
+.segmented {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+@media (max-width: 720px) {
+  /* Jadval → kartochka: «.table td» umumiy 12px padding’i kartochka qatorlarini
+     44px’ga cho‘zib yuborardi; ixcham qatorlar va qiymat o‘ngga tekislanadi. */
+  .table.table-cards td {
+    padding: 4px 0;
+    text-align: right;
+  }
+  .table.table-cards td[data-label]::before {
+    flex: none;
+    text-align: left;
+  }
+  .table.table-cards td > * {
+    min-width: 0;
+  }
+  .table.table-cards td:first-child {
+    padding-bottom: 8px;
+    text-align: left;
+  }
+  .table.table-cards td.actions {
+    padding-top: 8px;
+  }
+  /* Belgilash katagi ism ustiga tushmasin */
+  .table.table-cards tr:has(td.check-col) td:nth-child(2) {
+    padding-right: 30px;
+  }
+
+  /* Qidiruv va filtrlar telefonda to‘liq kenglikda */
+  .filters .input-icon .input {
+    width: 100%;
+  }
+  .filters .select,
+  .filters > .input {
+    flex: 1 1 140px;
+    min-width: 0;
+    max-width: none !important;
+  }
+
+  /* Statistika raqami: keyingi «.stat strong {24px}» qoidasi telefon o‘lchamini bekor qilardi —
+     «212 723 748 so‘m» raqam o‘rtasidan bo‘linardi. Endi faqat bo‘shliqda (so‘m oldidan) o‘tadi. */
+  .stat strong {
+    font-size: 20px;
+    overflow-wrap: normal;
+    word-break: normal;
+    line-height: 1.2;
+  }
+
+  /* Rag‘batlantirish yetakchilari: ism 5 harfga qisqarib qolardi — izoh ism ostiga tushadi */
+  .reward-row {
+    flex-wrap: wrap;
+    padding: 10px 14px;
+    row-gap: 4px;
+  }
+  .reward-row .person {
+    flex: 1 1 150px;
+  }
+  .reward-streak {
+    margin-left: auto;
+  }
+  .reward-streak small {
+    white-space: normal;
+    text-align: right;
+  }
+}
+@media (max-width: 380px) {
+  .stat strong {
+    font-size: 18px;
+  }
+}
+
+/* Planshet: jadval gorizontal suriladi, lekin ism ustuni «Akmal Y…» bo‘lib siqilmasin */
+@media (min-width: 721px) and (max-width: 1180px) {
+  .table:not(.ic-matrix) td .person {
+    min-width: 170px;
+  }
+}
