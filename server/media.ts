@@ -79,6 +79,11 @@ function transform(value: unknown, depth = 0): unknown {
         const owner = ownerOf(field);
         if (owner) next = mediaUrl(owner.kind, owner.id, field);
       }
+    } else if (typeof field === "string" && field.length > 200 && field.startsWith("data:image")) {
+      // Boshqa nomdagi maydonlar ({ photo }, { avatar } …): faqat bazadagi profil rasmi bo‘lsa almashtiriladi
+      // (masalan tabel qatori `employee.photo` — 300 xodimda ~13 MB edi). Belgi rasmlari (selfi) tegilmaydi.
+      const owner = ownerOf(field);
+      if (owner) next = mediaUrl(owner.kind, owner.id, field);
     } else if (field && typeof field === "object") next = transform(field, depth + 1);
     if (next !== field) {
       copy ||= { ...source };

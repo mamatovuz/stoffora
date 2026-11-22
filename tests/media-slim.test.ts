@@ -45,6 +45,15 @@ describe("slimPhotos", () => {
     expect(out.award.photoDataUrl).toMatch(/^\/api\/media\/employee\/e1\.jpg\?v=/);
     expect(out.inbox[0].photoDataUrl).toMatch(/^\/api\/media\/user\/u1\.jpg\?v=/);
   });
+  it("boshqa nomdagi maydon (tabel: employee.photo) ham URL’ga almashadi, selfi esa yo‘q", () => {
+    const selfie = `data:image/jpeg;base64,${Buffer.alloc(600, 3).toString("base64")}`;
+    const out = send({ rows: [{ employee: { id: "e1", name: "A B", photo } }], marks: [{ photo: selfie }] }) as {
+      rows: { employee: { photo: string } }[];
+      marks: { photo: string }[];
+    };
+    expect(out.rows[0].employee.photo).toMatch(/^\/api\/media\/employee\/e1\.jpg\?v=/);
+    expect(out.marks[0].photo).toBe(selfie);
+  });
   it("bazada yo‘q rasm o‘zgarmaydi", () => {
     const other = `data:image/jpeg;base64,${Buffer.alloc(30, 1).toString("base64")}`;
     expect(send({ id: "x", photoDataUrl: other }).photoDataUrl).toBe(other);

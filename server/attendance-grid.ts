@@ -8,6 +8,7 @@ import type { Database, Employee } from "../lib/types";
 import { createWorkbook, drawHeader, fill, palette, sendWorkbook, tones, type Tone } from "./excel";
 import { monthPlan, type DayState } from "./month-plan";
 import { monthLabel } from "./payroll-routes";
+import { memo } from "./memo";
 
 /*
  * Umumiy tabel (Verifix’dagidek): barcha xodimlar × oy kunlari bitta jadvalda.
@@ -292,7 +293,10 @@ export function registerAttendanceGrid(
     route(async (req, res) => {
       const db = await readDb();
       const { month, branch } = params(req);
-      res.json(attendanceGrid(db, deps.companyId(req), month, { scope: deps.branchScope(req, db), branchId: branch }));
+      const tenant = deps.companyId(req);
+      const scope = deps.branchScope(req, db);
+      const scopeKey = scope ? [...scope].sort() : null;
+      res.json(memo("attendance/grid", [tenant, month, branch || "", scopeKey], () => attendanceGrid(db, tenant, month, { scope, branchId: branch })));
     }),
   );
   app.get(

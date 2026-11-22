@@ -175,6 +175,8 @@ export function createPayrollRouter() {
       const settings = normalizePayrollSettings(db.companies.find((c) => c.id === tenant)?.payroll);
       // «Qo‘shimcha ish uchun to‘lash» o‘chiq — kechroq qolish hech narsani o‘zgartirmaydi: ro‘yxat ham yo‘q.
       if (!settings.overtimePay) return res.json({ month, closed: Boolean(closedPeriod(db, tenant, month)), disabled: true, rows: [] });
+      // Ilova faqat «to‘lanadimi?» ni so‘raydi (?summary=1) — oy bo‘yi minglab qator yuborilmaydi.
+      if (req.query.summary === "1") return res.json({ month, closed: Boolean(closedPeriod(db, tenant, month)), disabled: false, rows: [] });
       // Filial rahbari faqat o‘z filiallaridagi xodimlarni ko‘radi.
       const scope = req.session!.role === "BRANCH_MANAGER" ? new Set(db.users.find((u) => u.id === req.session!.userId)?.branchIds || []) : null;
       const employees = new Map(db.employees.filter((e) => e.companyId === tenant && (!scope || scope.has(e.branchId))).map((e) => [e.id, e]));

@@ -1,40 +1,40 @@
 import { Platform, useColorScheme, type TextStyle } from "react-native";
 
 /*
- * Mini App bilan bir xil ranglar va tuzilma. iOS’da — Apple uslubi (guruhlangan ro‘yxatlar,
- * ingichka ajratgichlar, SF shrift, katta sarlavhalar); Android’da — Material uslubiga yaqin
- * (biroz kattaroq radius, soyalar, Roboto).
+ * Staffora mobil dizayn tokenlari — minimal, tinch va bir xil: iOS va Android’da bitta palitra
+ * (sayt bilan bir xil brend ko‘ki), soyasiz tekis kartalar, yumshoq kulrang fon, bitta urg‘u rangi.
+ * Holat ranglari (yashil · sariq · qizil · binafsha) faqat kichik nuqta, ikonka yoki raqamda.
  */
 
 export const ios = Platform.OS === "ios";
 
 const light = {
-  bg: ios ? "#F2F2F7" : "#F2F3F5",
+  bg: "#F4F5F7",
   card: "#FFFFFF",
   ink: "#0F172A",
-  muted: ios ? "#8A8A8E" : "#6B7280",
-  line: ios ? "rgba(60,60,67,0.18)" : "rgba(15,23,42,0.1)",
-  tint: "rgba(15,23,42,0.05)",
-  accent: ios ? "#007AFF" : "#2563EB",
+  muted: "#6B7280",
+  line: "rgba(15,23,42,0.08)",
+  tint: "rgba(15,23,42,0.045)",
+  accent: "#2563EB",
   accentInk: "#FFFFFF",
-  success: ios ? "#34C759" : "#16A34A",
-  warn: ios ? "#FF9500" : "#D97706",
-  danger: ios ? "#FF3B30" : "#DC2626",
-  violet: "#8B5CF6",
-  overlay: "rgba(0,0,0,0.4)",
+  success: "#16A34A",
+  warn: "#D97706",
+  danger: "#DC2626",
+  violet: "#7C3AED",
+  overlay: "rgba(15,23,42,0.36)",
 };
 const dark: typeof light = {
-  bg: "#000000",
-  card: ios ? "#1C1C1E" : "#181B20",
-  ink: "#F2F2F7",
-  muted: ios ? "#8E8E93" : "#94A3B8",
-  line: ios ? "rgba(84,84,88,0.6)" : "rgba(148,163,184,0.18)",
-  tint: "rgba(148,163,184,0.12)",
-  accent: ios ? "#0A84FF" : "#3B82F6",
+  bg: "#0B0C0E",
+  card: "#16181B",
+  ink: "#F3F4F6",
+  muted: "#9CA3AF",
+  line: "rgba(255,255,255,0.08)",
+  tint: "rgba(255,255,255,0.06)",
+  accent: "#3B82F6",
   accentInk: "#FFFFFF",
-  success: ios ? "#30D158" : "#22C55E",
-  warn: ios ? "#FF9F0A" : "#F59E0B",
-  danger: ios ? "#FF453A" : "#EF4444",
+  success: "#22C55E",
+  warn: "#F59E0B",
+  danger: "#EF4444",
   violet: "#A78BFA",
   overlay: "rgba(0,0,0,0.6)",
 };
@@ -46,7 +46,8 @@ export function useTheme() {
   return { c, dark: scheme === "dark" };
 }
 
-export const radius = { card: ios ? 16 : 20, button: ios ? 14 : 16, tile: ios ? 14 : 16 };
+/** Bir xil burchaklar: karta → tugma → katak. */
+export const radius = { card: 18, button: 14, tile: 16 };
 
 /**
  * Yagona shrift shkalasi — rahbar paneli va ro‘yxatlar shu o‘lchamlardan foydalanadi
@@ -54,7 +55,7 @@ export const radius = { card: ios ? 16 : 20, button: ios ? 14 : 16, tile: ios ? 
  */
 export const typo: Record<"title" | "body" | "bodyStrong" | "sub" | "caption" | "stat" | "time", TextStyle> = {
   /** Karta sarlavhasi */
-  title: { fontSize: 17, fontWeight: "700" },
+  title: { fontSize: 17, fontWeight: "700", letterSpacing: -0.2 },
   /** Asosiy matn, qator nomi */
   body: { fontSize: 15 },
   bodyStrong: { fontSize: 15, fontWeight: "600" },
@@ -63,13 +64,13 @@ export const typo: Record<"title" | "body" | "bodyStrong" | "sub" | "caption" | 
   /** Raqam ostidagi yozuv, kichik belgi */
   caption: { fontSize: 12, fontWeight: "500" },
   /** Katta raqam (statistika) */
-  stat: { fontSize: 24, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  stat: { fontSize: 24, fontWeight: "700", letterSpacing: -0.5, fontVariant: ["tabular-nums"] },
   /** Vaqt (09:12) */
-  time: { fontSize: 20, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  time: { fontSize: 20, fontWeight: "700", letterSpacing: -0.3, fontVariant: ["tabular-nums"] },
 };
 export const font = {
   family: ios ? undefined : "sans-serif",
-  title: ios ? 34 : 26,
+  title: 30,
 };
-/** Android kartalariga yengil soya (iOS’da guruhlangan ro‘yxat soyasiz). */
-export const elevation = ios ? {} : { elevation: 1, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } };
+/** Kartalar soyasiz (minimal): oq karta kulrang fonda o‘zi ajralib turadi. Eski chaqiruvlar uchun qoldirilgan. */
+export const elevation = {};

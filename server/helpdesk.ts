@@ -13,6 +13,7 @@ import type { AuthedRequest, EmployeeSession } from "./auth";
 import { notifyEmployee } from "./integrations/hooks";
 import { documentInputSchema, documentStatus, saveDocument } from "./documents";
 import { sendTelegramMessage } from "./telegram";
+import { memo } from "./memo";
 
 /*
  * Xodim ↔ HR aloqasi va rahbar vositalari:
@@ -608,33 +609,35 @@ export function createHelpdeskRouter() {
       const tenant = tenantOf(auth);
       const db = await readDb();
       const scope = scopeOf(auth, db);
-      const index = dataIndexes(db);
-      const today = tashkentIsoDate();
-      const dates = Array.from({ length: 29 }, (_, i) => tashkentIsoDate(new Date(Date.now() - (28 - i) * 86_400_000)));
-      const rows: { employeeId: string; name: string; branch?: string; photoDataUrl?: string; alerts: TrendAlert[] }[] = [];
-      for (const employee of db.employees) {
-        if (employee.companyId !== tenant || employee.status !== "ACTIVE" || (scope && !scope.has(employee.branchId))) continue;
-        const leaves = (index.approvedLeaveByEmployee.get(employee.id) || []) as Database["leaveRequests"];
-        const days: TrendDay[] = dates
-          .filter((date) => date >= employee.startDate)
-          .map((date) => {
-            const record = index.attendanceByKey.get(`${employee.id}|${date}`);
-            const onLeave = leaves.some((l) => l.startDate <= date && l.endDate >= date);
-            return {
-              date,
-              workday: dayPlan(db, employee, date).enabled && !onLeave,
-              checkIn: record?.checkIn,
-              lateMinutes: record?.lateMinutes,
-              earlyLeaveMinutes: record?.earlyLeaveMinutes,
-              flagged: Boolean(record?.flags?.length && !record.flagsReviewedBy),
-            };
-          });
-        const alerts = detectTrends(days, today);
-        if (alerts.length)
-          rows.push({ employeeId: employee.id, name: nameOf(employee), branch: db.branches.find((b) => b.id === employee.branchId)?.name, photoDataUrl: employee.photoDataUrl, alerts });
-      }
-      rows.sort((a, b) => b.alerts[0].severity - a.alerts[0].severity || b.alerts.length - a.alerts.length);
-      res.json(rows.slice(0, 50));
+      res.json(memo("trends", [tenant, scope ? [...scope].sort() : null], () => {
+        const index = dataIndexes(db);
+        const today = tashkentIsoDate();
+        const dates = Array.from({ length: 29 }, (_, i) => tashkentIsoDate(new Date(Date.now() - (28 - i) * 86_400_000)));
+        const rows: { employeeId: string; name: string; branch?: string; photoDataUrl?: string; alerts: TrendAlert[] }[] = [];
+        for (const employee of db.employees) {
+          if (employee.companyId !== tenant || employee.status !== "ACTIVE" || (scope && !scope.has(employee.branchId))) continue;
+          const leaves = (index.approvedLeaveByEmployee.get(employee.id) || []) as Database["leaveRequests"];
+          const days: TrendDay[] = dates
+            .filter((date) => date >= employee.startDate)
+            .map((date) => {
+              const record = index.attendanceByKey.get(`${employee.id}|${date}`);
+              const onLeave = leaves.some((l) => l.startDate <= date && l.endDate >= date);
+              return {
+                date,
+                workday: dayPlan(db, employee, date).enabled && !onLeave,
+                checkIn: record?.checkIn,
+                lateMinutes: record?.lateMinutes,
+                earlyLeaveMinutes: record?.earlyLeaveMinutes,
+                flagged: Boolean(record?.flags?.length && !record.flagsReviewedBy),
+              };
+            });
+          const alerts = detectTrends(days, today);
+          if (alerts.length)
+            rows.push({ employeeId: employee.id, name: nameOf(employee), branch: db.branches.find((b) => b.id === employee.branchId)?.name, photoDataUrl: employee.photoDataUrl, alerts });
+        }
+        rows.sort((a, b) => b.alerts[0].severity - a.alerts[0].severity || b.alerts.length - a.alerts.length);
+        return rows.slice(0, 50);
+      }));
     }),
   );
 

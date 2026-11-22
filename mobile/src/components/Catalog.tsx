@@ -5,8 +5,8 @@ import { useTheme } from "@/lib/theme";
 import { Icon, haptic, type IconName } from "./ui";
 
 /*
- * «Katalog» ko‘rinishi (Bo‘limlar va Rahbar → Boshqaruv): qalin guruh sarlavhasi, ostida 4 ustunli
- * katakcha — och ko‘k yumaloq kvadrat, ichida to‘q ko‘k belgi, pastida 2 qatorgacha yozuv.
+ * «Katalog» ko‘rinishi (Bo‘limlar va Rahbar → Boshqaruv): kichik guruh sarlavhasi, ostida 4 ustunli
+ * katakcha — och kulrang yumaloq kvadrat, ichida ko‘k belgi, pastida 2 qatorgacha yozuv.
  * Ortiqcha izoh yo‘q: belgi va nom yetarli.
  */
 
@@ -15,7 +15,7 @@ export type CatalogGroup = { title: string; items: CatalogItem[] };
 
 /** Bitta katak. `onOpen` barqaror (useCallback) bo‘lsa — o‘zgarmagan kataklar qayta chizilmaydi. */
 const Tile = memo(function Tile({ item, onOpen }: { item: CatalogItem; onOpen: (key: string) => void }) {
-  const { c, dark } = useTheme();
+  const { c } = useTheme();
   return (
     <Pressable
       onPress={() => {
@@ -28,8 +28,8 @@ const Tile = memo(function Tile({ item, onOpen }: { item: CatalogItem; onOpen: (
     >
       {({ pressed }) => (
         <>
-          <View style={[st.box, { backgroundColor: dark ? `${c.accent}2E` : `${c.accent}17` }, pressed && st.pressed]}>
-            <Icon name={item.icon} size={28} color={c.accent} />
+          <View style={[st.box, { backgroundColor: c.tint }, pressed && st.pressed]}>
+            <Icon name={item.icon} size={25} color={c.accent} />
             {item.badge ? (
               <View style={[st.badge, { backgroundColor: c.danger, borderColor: c.card }]}>
                 <Text style={st.badgeText}>{item.badge > 99 ? "99+" : String(item.badge)}</Text>
@@ -69,10 +69,10 @@ export function Catalog({ groups, onOpen }: { groups: CatalogGroup[]; onOpen: (k
 
 const st = StyleSheet.create({
   group: { gap: 12 },
-  title: { fontSize: 20, fontWeight: "700", letterSpacing: -0.2, marginLeft: 2 },
+  title: { fontSize: 15, fontWeight: "600", marginLeft: 4 },
   grid: { flexDirection: "row", flexWrap: "wrap", rowGap: 14 },
   tile: { width: "25%", alignItems: "center", gap: 8, paddingHorizontal: 2 },
-  box: { width: 64, height: 64, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  box: { width: 58, height: 58, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   pressed: { opacity: 0.6, transform: [{ scale: 0.95 }] },
   label: { fontSize: 12.5, lineHeight: 16, fontWeight: "500", textAlign: "center" },
   badge: { position: "absolute", top: -5, right: -5, minWidth: 20, height: 20, borderRadius: 10, paddingHorizontal: 5, borderWidth: 2, alignItems: "center", justifyContent: "center" },
