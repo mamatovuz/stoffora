@@ -1,15 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import type { Database, Role } from "../../lib/types";
+import type { AnnouncementTarget, Database, Role } from "../../lib/types";
 import { canAny } from "../../lib/permissions";
 import type { AiActionLevel } from "../../lib/ai/types";
 import { audit } from "../../lib/store";
 import { calculateAttendance } from "../../lib/attendance";
 import { dayPlan } from "../../lib/schedule";
 import { assertMonthOpen } from "../payroll-workflow";
+import { offboard } from "../people";
+import { targetEmployees, targetLabel } from "../integrations/announce";
 import { branchIn, dateIn, explicitReference, nameMatches, numberReference, queryWords, searchEmployees, STATE_LABEL } from "./search";
 
-export type ActionContext = { db: Database; companyId: string; userId: string; userName: string; role: Role };
+/**
+ * `branchScope` — filial rahbari uchun ruxsat etilgan filiallar (null/undefined — cheklov yo‘q).
+ * AI orqali ham rahbar faqat o‘z filiali xodimlarini o‘zgartira oladi va xabar yubora oladi.
+ */
+export type ActionContext = { db: Database; companyId: string; userId: string; userName: string; role: Role; branchScope?: Set<string> | null };
 type Definition = { level: AiActionLevel; permission: string | string[]; schema: z.ZodTypeAny; summary: (payload: any, ctx: ActionContext) => string; execute: (payload: any, ctx: ActionContext) => unknown };
 export type PlannedAction = { name: string; payload: Record<string, unknown>; missing?: string[] };
 
@@ -23,7 +29,19 @@ function employeeByRef(ctx: ActionContext, reference: string) {
   const ref = reference.trim().toLocaleLowerCase("uz");
   const employee = ctx.db.employees.find((item) => item.companyId === ctx.companyId && (item.id.toLocaleLowerCase("uz") === ref || item.employeeNo.toLocaleLowerCase("uz") === ref));
   if (!employee) throw Object.assign(new Error(`ID yoki xodim raqami “${reference}” bo‘yicha xodim topilmadi.`), { status: 404 });
+  if (ctx.branchScope && !ctx.branchScope.has(employee.branchId)) throw Object.assign(new Error(`${fullName(employee)} sizning filialingizda emas — bu xodim uchun amal bajarib bo‘lmaydi.`), { status: 403 });
   return employee;
+}
+
+/** Filial: ID yoki nomi bo‘yicha (katta-kichik harf, «filiali» so‘zisiz). */
+function branchByRef(ctx: ActionContext, reference: string) {
+  const key = (v: string) => v.toLocaleLowerCase("uz").replace(/[‘’`ʻʼ']/g, "'").replace(/\bfilial\p{L}*/gu, "").replace(/\s+/g, " ").trim();
+  const ref = key(reference);
+  const rows = ctx.db.branches.filter((b) => b.companyId === ctx.companyId);
+  const branch = rows.find((b) => b.id === reference.trim()) || rows.find((b) => key(b.name) === ref) || (ref.length >= 3 ? rows.find((b) => key(b.name).includes(ref) || ref.includes(key(b.name))) : undefined);
+  if (!branch) throw Object.assign(new Error(`“${reference}” nomli filial topilmadi.`), { status: 404 });
+  if (ctx.branchScope && !ctx.branchScope.has(branch.id)) throw Object.assign(new Error(`${branch.name} filiali sizga biriktirilmagan.`), { status: 403 });
+  return branch;
 }
 
 const verified = (message: string, data: Record<string, unknown>) => ({ verified: true, message, ...data });
@@ -115,6 +133,39 @@ function monthOf(c: ActionContext, employeeId: string, month: string) {
   };
 }
 
+function announcementAudience(p: { target: "ALL" | "BRANCHES" | "EMPLOYEES"; branches: string[]; employees: string[] }, c: ActionContext) {
+  let target: AnnouncementTarget;
+  if (p.target === "EMPLOYEES" || (p.employees.length && !p.branches.length)) {
+    if (!p.employees.length) throw Object.assign(new Error("Qaysi xodimlarga yuborishni ayting (ID yoki xodim raqami)."), { status: 422 });
+    target = { type: "EMPLOYEES", ids: [...new Set(p.employees.map((ref) => employeeByRef(c, ref).id))] };
+  } else if (p.target === "BRANCHES" || p.branches.length) {
+    if (!p.branches.length) throw Object.assign(new Error("Qaysi filialga yuborishni ayting."), { status: 422 });
+    target = { type: "BRANCHES", ids: [...new Set(p.branches.map((ref) => branchByRef(c, ref).id))] };
+  } else if (c.branchScope) {
+    // Filial rahbarining «hammaga»si — faqat o‘z filiallari.
+    target = { type: "BRANCHES", ids: [...c.branchScope] };
+  } else target = { type: "ALL", ids: [] };
+  const recipients = targetEmployees(c.db, c.companyId, target);
+  if (!recipients.length) throw Object.assign(new Error("Bu auditoriyada faol xodim yo‘q — xabar yuborilmadi."), { status: 422 });
+  return { target, recipients };
+}
+
+function leaveOf(p: { leaveId?: string; employeeId?: string }, c: ActionContext) {
+  const pending = c.db.leaveRequests.filter((l) => l.companyId === c.companyId && (p.leaveId ? l.id === p.leaveId : l.status === "PENDING"));
+  let rows = pending;
+  if (!p.leaveId) {
+    if (!p.employeeId) throw Object.assign(new Error("Qaysi xodimning ta’til so‘rovi? ID yoki ismini ayting."), { status: 422 });
+    const employee = employeeByRef(c, p.employeeId);
+    rows = pending.filter((l) => l.employeeId === employee.id);
+    if (rows.length > 1) throw Object.assign(new Error(`${fullName(employee)} da ${rows.length} ta kutilayotgan so‘rov bor — qaysi biri ekanini (sana) ayting.`), { status: 409 });
+  }
+  const leave = rows[0];
+  if (!leave) throw Object.assign(new Error("Kutilayotgan ta’til so‘rovi topilmadi."), { status: 404 });
+  if (leave.status !== "PENDING") throw Object.assign(new Error("Bu so‘rov bo‘yicha qaror allaqachon qabul qilingan."), { status: 409 });
+  const employee = employeeByRef(c, leave.employeeId);
+  return { leave, employee };
+}
+
 export const ACTIONS: Record<string, Definition> = {
   find_employees: {
     level: "READ",
@@ -124,7 +175,7 @@ export const ACTIONS: Record<string, Definition> = {
     execute: (p, c) => {
       const { branches, positions } = lookups(c);
       const today = new Map(rosterOf(c, todayDate()).map((r) => [r.employeeId, r]));
-      return searchEmployees(c.db, c.companyId, p.query, p.limit).map(({ employee: e, exact }) => {
+      return searchEmployees(c.db, c.companyId, p.query, p.limit).filter(({ employee }) => !c.branchScope || c.branchScope.has(employee.branchId)).map(({ employee: e, exact }) => {
         const r = today.get(e.id);
         return {
           id: e.id,
@@ -311,6 +362,130 @@ export const ACTIONS: Record<string, Definition> = {
   create_branch: { level: "WRITE", permission: "branches.edit", schema: z.object({ name: z.string().trim().min(2).max(100), address: z.string().trim().min(3).max(250), latitude: z.number().min(-90).max(90), longitude: z.number().min(-180).max(180), radiusMeters: z.number().int().min(30).max(5000).default(150), scheduleId: z.string().uuid(), manager: z.string().trim().max(100).default("") }), summary: (p) => `${p.name} filiali yaratiladi (${p.address})`, execute: (p, c) => { if (!c.db.schedules.some((s) => s.id === p.scheduleId && s.companyId === c.companyId)) throw Object.assign(new Error("Ish grafigi topilmadi."), { status: 422 }); const row = { id: id(), companyId: c.companyId, name: p.name, address: p.address, latitude: p.latitude, longitude: p.longitude, radiusMeters: p.radiusMeters, manager: p.manager, status: "ACTIVE" as const, scheduleId: p.scheduleId }; c.db.branches.push(row); c.db.auditLogs.unshift(audit(c.companyId, c.userName, `AI: filial yaratildi — ${row.name}`, "branch", row.id)); return row; } },
   update_branch: { level: "WRITE", permission: "branches.edit", schema: z.object({ branchId: z.string().uuid(), name: z.string().trim().min(2).max(100).optional(), address: z.string().trim().min(3).max(250).optional(), status: z.enum(["ACTIVE", "INACTIVE"]).optional(), manager: z.string().trim().max(100).optional() }), summary: (p, c) => `${c.db.branches.find((b) => b.id === p.branchId)?.name || "Filial"} ma’lumotlari yangilanadi`, execute: (p, c) => { const row = c.db.branches.find((b) => b.id === p.branchId && b.companyId === c.companyId); if (!row) throw Object.assign(new Error("Filial topilmadi."), { status: 404 }); Object.assign(row, p); c.db.auditLogs.unshift(audit(c.companyId, c.userName, `AI: filial yangilandi — ${row.name}`, "branch", row.id)); return row; } },
   update_work_schedule: { level: "WRITE", permission: "branches.edit", schema: z.object({ scheduleId: z.string().uuid(), start: z.string().regex(/^\d{2}:\d{2}$/), end: z.string().regex(/^\d{2}:\d{2}$/), effectiveDate: z.string().date(), dayNumbers: z.array(z.number().int().min(0).max(6)).min(1) }), summary: (p) => `Ish vaqti ${p.start}–${p.end}, ${p.effectiveDate} dan`, execute: (p, c) => { if (p.effectiveDate < today()) throw Object.assign(new Error("Grafik o‘tgan sanadan kuchga kiritilmaydi."), { status: 422 }); const source = c.db.schedules.find((s) => s.id === p.scheduleId && s.companyId === c.companyId); if (!source) throw Object.assign(new Error("Grafik topilmadi."), { status: 404 }); const clone = { ...source, id: id(), name: `${source.name} · ${p.effectiveDate}`, days: source.days.map((d) => p.dayNumbers.includes(d.day) ? { ...d, start: p.start, end: p.end } : { ...d }) }; c.db.schedules.push(clone); for (const branch of c.db.branches.filter((b) => b.companyId === c.companyId && b.scheduleId === source.id)) branch.scheduleId = clone.id; c.db.auditLogs.unshift(audit(c.companyId, c.userName, `AI: yangi grafik ${clone.name}`, "schedule", clone.id)); return clone; } },
+  get_work_schedule: {
+    level: "READ",
+    permission: ["attendance.view", "employees.view"],
+    schema: z.object({}),
+    summary: () => "Ish grafiklari",
+    execute: (_p, c) => c.db.schedules.filter((s) => s.companyId === c.companyId).map((s) => ({ id: s.id, name: s.name, type: s.type, graceMinutes: s.graceMinutes, days: s.days })),
+  },
+  list_branches: {
+    level: "READ",
+    permission: ["attendance.view", "employees.view", "announcements.create"],
+    schema: z.object({}),
+    summary: () => "Filiallar ro‘yxati",
+    execute: (_p, c) =>
+      c.db.branches
+        .filter((b) => b.companyId === c.companyId && (!c.branchScope || c.branchScope.has(b.id)))
+        .map((b) => ({ id: b.id, name: b.name, address: b.address, status: b.status, employees: c.db.employees.filter((e) => e.companyId === c.companyId && e.status === "ACTIVE" && e.branchId === b.id).length })),
+  },
+  /*
+   * Ishdan chiqish (ketish) vaqtini qayd etadi: «ID 1001 ga bugun 12:00 da chiqish qilib qo‘y».
+   * Kelish qayd etilmagan bo‘lsa — checkIn ham berilishi kerak (yoki grafik boshlanishi olinmaydi: to‘qimaymiz).
+   */
+  set_checkout: {
+    level: "WRITE",
+    permission: "attendance.edit",
+    schema: z.object({ employeeId: z.string().trim().min(1).max(100), date: z.string().date().default(today), checkOut: clock, checkIn: clock.optional(), note: z.string().trim().max(500).optional() }),
+    summary: (p, c) => {
+      const employee = employeeByRef(c, p.employeeId);
+      return `${fullName(employee)} (${employee.employeeNo}) ${p.date} kuni ${p.checkIn ? `${p.checkIn} da kelgan va ` : ""}${p.checkOut} da ishdan chiqqan deb belgilanadi`;
+    },
+    execute: (p, c) => {
+      const employee = employeeByRef(c, p.employeeId);
+      const row = c.db.attendance.find((item) => item.companyId === c.companyId && item.employeeId === employee.id && item.date === p.date);
+      const checkIn = p.checkIn || row?.checkIn;
+      if (!checkIn) throw Object.assign(new Error(`${fullName(employee)} ${p.date} kuni kelish qayd etilmagan. Kelish vaqtini ham ayting — masalan: “ID ${employee.employeeNo} bugun 09:00 da keldi, ${p.checkOut} da chiqdi”.`), { status: 422 });
+      if (p.checkOut <= checkIn) throw Object.assign(new Error(`Chiqish vaqti (${p.checkOut}) kelish vaqtidan (${checkIn}) keyin bo‘lishi kerak.`), { status: 422 });
+      ACTIONS.set_attendance.execute({ employeeId: employee.id, date: p.date, checkIn, checkOut: p.checkOut, note: p.note }, c);
+      const saved = c.db.attendance.find((item) => item.companyId === c.companyId && item.employeeId === employee.id && item.date === p.date)!;
+      return verified(`Bajarildi va tekshirildi: ${fullName(employee)} ${saved.date} kuni ${saved.checkIn}–${saved.checkOut} (ishdan ${saved.checkOut} da chiqdi).`, { attendanceId: saved.id, employeeId: employee.id, date: saved.date, checkIn: saved.checkIn, checkOut: saved.checkOut, status: saved.status });
+    },
+  },
+  /* Ishdan bo‘shatish — paneldagi kabi offboarding bilan (telefon, sessiyalar, kutilayotgan so‘rovlar). */
+  dismiss_employee: {
+    level: "SENSITIVE",
+    permission: "employees.edit",
+    schema: z.object({ employeeId: z.string().trim().min(1).max(100), date: z.string().date().default(today), reason: z.string().trim().max(300).optional() }),
+    summary: (p, c) => {
+      const employee = employeeByRef(c, p.employeeId);
+      if (employee.status === "DISMISSED") throw Object.assign(new Error(`${fullName(employee)} allaqachon ishdan bo‘shatilgan.`), { status: 409 });
+      return `${fullName(employee)} (${employee.employeeNo}) ${p.date} sanasidan ishdan bo‘shatiladi${p.reason ? ` — sabab: ${p.reason}` : ""}. Telefon va sessiyalari bekor qilinadi`;
+    },
+    execute: (p, c) => {
+      const employee = employeeByRef(c, p.employeeId);
+      if (employee.status === "DISMISSED") throw Object.assign(new Error(`${fullName(employee)} allaqachon ishdan bo‘shatilgan.`), { status: 409 });
+      employee.status = "DISMISSED";
+      employee.dismissedAt = p.date;
+      employee.dismissReason = p.reason || undefined;
+      employee.updatedAt = new Date().toISOString();
+      const result = offboard(c.db, employee, p.date, c.userName);
+      c.db.auditLogs.unshift(audit(c.companyId, c.userName, `AI: xodim ishdan bo‘shatildi (${p.date}) — ${fullName(employee)}`, "employee", employee.id, undefined, { reason: p.reason, offboarding: result.done }));
+      const saved = employeeByRef({ ...c, branchScope: null }, employee.id);
+      return verified(`Bajarildi va tekshirildi: ${fullName(saved)} ${p.date} sanasidan ishdan bo‘shatildi.${result.done.length ? `\n${result.done.map((x: string) => `- ${x}`).join("\n")}` : ""}`, { employeeId: saved.id, status: saved.status, dismissedAt: saved.dismissedAt });
+    },
+  },
+  /*
+   * Xabar (e’lon) yuborish: hammaga, filial(lar)ga yoki aniq xodimlarga. Ilovadagi bildirishnoma +
+   * push (dispetcher yangi bildirishnomalarni telefonga o‘zi yuboradi). Filial rahbari — faqat o‘z filiallariga.
+   */
+  send_announcement: {
+    level: "WRITE",
+    permission: "announcements.create",
+    schema: z.object({
+      message: z.string().trim().min(2).max(3500),
+      title: z.string().trim().min(3).max(200).optional(),
+      target: z.enum(["ALL", "BRANCHES", "EMPLOYEES"]).default("ALL"),
+      branches: z.array(z.string().trim().min(1).max(120)).max(50).default([]),
+      employees: z.array(z.string().trim().min(1).max(100)).max(200).default([]),
+    }),
+    summary: (p, c) => {
+      const { target, recipients } = announcementAudience(p, c);
+      return `«${p.message.length > 140 ? `${p.message.slice(0, 140)}…` : p.message}» xabari yuboriladi → ${targetLabel(c.db, c.companyId, target)} (${recipients.length} xodim)`;
+    },
+    execute: (p, c) => {
+      const { target, recipients } = announcementAudience(p, c);
+      const at = new Date().toISOString();
+      const title = p.title || "Rahbariyatdan xabar";
+      const value: Database["announcements"][number] = {
+        id: id(),
+        companyId: c.companyId,
+        title,
+        message: p.message,
+        audience: targetLabel(c.db, c.companyId, target),
+        channel: ["STAFFORA"],
+        target,
+        createdBy: c.userName,
+        scheduledAt: at,
+        status: "SENT",
+        report: { staffora: { recipients: recipients.length, delivered: recipients.length } },
+      };
+      for (const employee of recipients)
+        c.db.notifications.unshift({ id: id(), companyId: c.companyId, employeeId: employee.id, title: `📢 ${title}`, body: p.message, type: "ANNOUNCEMENT", read: false, createdAt: at, announcementId: value.id, go: "notifs" });
+      c.db.announcements.unshift(value);
+      c.db.auditLogs.unshift(audit(c.companyId, c.userName, `AI: xabar yuborildi — ${value.audience}`, "announcement", value.id, undefined, { audience: value.audience, recipients: recipients.length }));
+      return verified(`Bajarildi: xabar ${value.audience} ga yuborildi (${recipients.length} xodim, ilova bildirishnomasi va push).`, { announcementId: value.id, recipients: recipients.length, audience: value.audience });
+    },
+  },
+  /* Ta’til so‘rovini tasdiqlash / rad etish (so‘rov ID si yoki xodimning yagona kutilayotgan so‘rovi). */
+  decide_leave: {
+    level: "WRITE",
+    permission: "leave.approve",
+    schema: z.object({ leaveId: z.string().trim().min(1).max(100).optional(), employeeId: z.string().trim().min(1).max(100).optional(), status: z.enum(["APPROVED", "REJECTED"]) }),
+    summary: (p, c) => {
+      const { leave, employee } = leaveOf(p, c);
+      return `${fullName(employee)} ning ${leave.startDate} – ${leave.endDate} ta’til so‘rovi ${p.status === "APPROVED" ? "tasdiqlanadi" : "rad etiladi"}`;
+    },
+    execute: (p, c) => {
+      const { leave, employee } = leaveOf(p, c);
+      const before = leave.status;
+      leave.status = p.status;
+      leave.decidedBy = c.userName;
+      c.db.auditLogs.unshift(audit(c.companyId, c.userName, `AI: ta’til so‘rovi ${p.status}`, "leave", leave.id, { status: before }, { status: p.status }));
+      c.db.notifications.unshift({ id: id(), companyId: c.companyId, employeeId: employee.id, title: p.status === "APPROVED" ? "Ta’til so‘rovingiz tasdiqlandi" : "Ta’til so‘rovingiz rad etildi", body: `${leave.startDate} – ${leave.endDate}`, type: "LEAVE", read: false, createdAt: new Date().toISOString(), go: `leave_${leave.id}` });
+      return verified(`Bajarildi: ${fullName(employee)} ning ${leave.startDate} – ${leave.endDate} ta’til so‘rovi ${p.status === "APPROVED" ? "tasdiqlandi ✅" : "rad etildi ❌"}.`, { leaveId: leave.id, status: leave.status });
+    },
+  },
 };
 
 export const actionCatalog = () => Object.entries(ACTIONS).map(([name, d]) => ({ name, level: d.level, permission: d.permission }));
@@ -339,8 +514,21 @@ export function detectReadAction(message: string) {
 /* «Ko‘rsatib ber», «chiqarib ber», «ma’lumot ber», «tahlil qil» — o‘qish so‘rovlari, yozish emas. */
 const READ_PHRASE = /(ko['‘’`]?rsat|chiqar|top|ayt|qidir|izla|tayyorla|hisobla|sana|tushuntir|yubor|ma['‘’`]?lumot|javob|xabar|maslahat|tavsiya)\p{L}*\s+ber\p{L}*/gu;
 const READ_QIL = /(tahlil|xulosa|hisob-?kitob|taqqos\p{L}*|solishtir\p{L}*|reyting|ro['‘’`]?yxat)\s+qil\p{L}*/gu;
+/* Aniq amal niyatlari — «ber»/«qil» so‘zlarisiz ham yozish so‘rovi. */
+const APOS = "['‘’`ʻʼ]?";
+export const DISMISS_INTENT = new RegExp(`(ishdan\\s+(bo${APOS}shat(?!il)|chiqar(?!il)|hayda|olib\\s+tashla|ol(ing|ib)?\\b)|bo${APOS}shat(?!il)\\p{L}*|\\buvol\\s+qil|haydab\\s+yubor)`, "u");
+export const SEND_INTENT = new RegExp(`(xabar|habar|e${APOS}lon|bildirishnoma|sms|ogohlantirish)[\\s\\S]*(yubor|jo${APOS}nat|tarqat)(?!il)|(yubor|jo${APOS}nat|tarqat)(?!il)\\p{L}*\\s+[\\s\\S]*(xabar|habar|e${APOS}lon|bildirishnoma)`, "u");
+export const CHECKOUT_INTENT = /(chiqish|chiqdi(?!mi)|chiqib\s+ket|chiqqan|ketdi(?!mi)|ketgan(?!mi)|ketish\s+vaqt|уход|ушёл|ушел)/u;
+const CHECKIN_INTENT = /(keldi(?!mi)|kelgan\s+deb|kelish\s+vaqt)/u;
+const LEAVE_DECISION = new RegExp(`(ta${APOS}til|otpusk|отпуск)[\\s\\S]*(tasdiqla|rad\\s+et|qabul\\s+qil)`, "u");
+const hasClock = (text: string) => /(?:^|\D)([01]?\d|2[0-3])[:.]([0-5]\d)(?=\D|$)/.test(text);
+
 export function looksLikeWriteRequest(message: string) {
-  const text = message.toLocaleLowerCase("uz").replace(READ_PHRASE, " ").replace(READ_QIL, " ");
+  const raw = message.toLocaleLowerCase("uz");
+  if (DISMISS_INTENT.test(raw) || SEND_INTENT.test(raw) || LEAVE_DECISION.test(raw)) return true;
+  // «ID 001 bugun 08:30 da keldi», «12:00 da chiqdi» — savol («…mi?») emas, buyruq.
+  if (hasClock(raw) && !/\?\s*$/.test(raw) && (CHECKOUT_INTENT.test(raw) || CHECKIN_INTENT.test(raw))) return true;
+  const text = raw.replace(READ_PHRASE, " ").replace(READ_QIL, " ");
   return /(kirit|qo['‘’]?sh|yarat|o['‘’]?zgartir|yangila|belgila|biriktir|tayinla|qilib qo['‘’]?y|qil\b|ber\b|yoz\b)/i.test(text);
 }
 
@@ -421,22 +609,95 @@ function monthShift(month: string, by: number) {
 }
 
 function employeeReference(text: string) {
-  return text.match(/(?:xodim|hodim)?\s*(?:id|ID|raqam)(?:si|li|lik|i)?\s*[:#-]?\s*([a-zA-Z0-9_-]{1,100})/u)?.[1] || text.match(/#([a-zA-Z0-9_-]{1,100})/)?.[1];
+  return (
+    // «1001 idlik odamga», «E-1001 ID li xodim»
+    text.match(/(?:^|[\s,.;:(])([A-Za-z]{0,3}-?\d[\w-]{0,39})\s*-?\s*(?:id|ID|Id)(?:li|lik|lig|dagi|si|ga|ni)?\p{L}*(?=[\s,.!?;:]|$)/u)?.[1] ||
+    // «ID 1001», «raqami 1001»
+    text.match(/(?:^|[\s,.;:(])(?:xodim|hodim)?\s*(?:id|ID|Id|raqam)(?:si|li|lik|i)?\s*[:#-]?\s*([a-zA-Z0-9_-]*\d[a-zA-Z0-9_-]*)/u)?.[1] ||
+    text.match(/#([a-zA-Z0-9_-]{1,100})/)?.[1]
+  );
+}
+
+/** Buyruqdagi xodim: aniq ID/raqam, keyin (kontekst bo‘lsa) xodim raqami yoki yagona ism mosligi. */
+function employeeIn(message: string, ctx?: ActionContext, allowNames = true) {
+  const ref = employeeReference(message) || explicitReference(message);
+  if (ref || !ctx) return ref;
+  // Vaqt va sanalar xodim raqami deb olinmasin («12:00» → «12»).
+  const cleaned = message.replace(/\b\d{1,2}[:.]\d{2}\b/g, " ").replace(/\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}[./]\d{1,2}[./]\d{4}\b/g, " ");
+  const byNumber = numberReference(ctx.db, ctx.companyId, cleaned);
+  if (byNumber) return byNumber.id;
+  if (!allowNames) return undefined;
+  const named = nameMatches(ctx.db, ctx.companyId, cleaned);
+  const top = named.hits.filter((h) => h.score === named.hits[0]?.score);
+  return top.length === 1 ? top[0].employee.id : undefined;
+}
+
+/** Xabar matni: qo‘shtirnoq ichida, «xabar: …» dan keyin yoki «… deb xabar yubor» dan oldin. */
+function announcementBody(message: string, ctx?: ActionContext, branchName?: string) {
+  const quoted = message.match(/[“"«]([^”"»]{2,3500})[”"»]/)?.[1];
+  if (quoted) return quoted.trim();
+  const colon = message.match(/(?:xabar|habar|e['‘’`ʻʼ]?lon|matn)\p{L}*[^:\n]{0,60}:\s*([\s\S]{2,3500})$/iu)?.[1];
+  if (colon) return colon.trim();
+  let body = message.match(/^([\s\S]{2,3500}?)\s+deb\s+(?:\S+\s+){0,5}?(?:xabar|habar|e['‘’`ʻʼ]?lon|bildirishnoma|sms|yubor|jo['‘’`ʻʼ]?nat)/iu)?.[1];
+  if (!body) return undefined;
+  if (branchName) body = body.replace(new RegExp(`(?:(?:ana\\s*)?shu\\s+)?${branchName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?:\\s+filial\\p{L}*|\\p{L}*)?[,\\s]*`, "iu"), " ");
+  body = body
+    .replace(/^\s*(?:(?:ana\s*)?shu\s+)?(?:\S+\s+)?filial\p{L}*\s+(?:xodimlariga\s+)?/iu, branchName ? "" : "$&")
+    .replace(/^\s*(?:hammaga|barchaga|hamma\s+xodimlarga|barcha\s+xodimlarga|xodimlarga)[,\s]+/iu, "")
+    .replace(/^\s*(?:bugun|ertaga)?\s*$/u, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  void ctx;
+  return body.length >= 2 ? body : undefined;
 }
 
 function timesIn(text: string) {
   return Array.from(text.matchAll(/(?:^|\D)([01]?\d|2[0-3])[:.\s]([0-5]\d)(?=\D|$)/g), (match) => `${match[1].padStart(2, "0")}:${match[2]}`);
 }
 
-export function planDeterministicAction(message: string): PlannedAction | undefined {
-  const text = message.toLocaleLowerCase("uz"), employeeId = employeeReference(message);
+export function planDeterministicAction(message: string, ctx?: ActionContext): PlannedAction | undefined {
+  const text = message.toLocaleLowerCase("uz");
+  const dateOf = () => dateIn(message) || today();
+  const NEED_EMPLOYEE = "xodim ID yoki xodim raqami";
+  // 1) Ishdan bo‘shatish.
+  if (DISMISS_INTENT.test(text)) {
+    const employeeId = employeeIn(message, ctx);
+    const reason = message.match(/(?:sabab(?:i)?|chunki)\s*[:\-–]?\s*(.{2,300})$/iu)?.[1]?.trim();
+    return { name: "dismiss_employee", payload: { employeeId, date: dateOf(), ...(reason ? { reason } : {}) }, missing: employeeId ? [] : [NEED_EMPLOYEE] };
+  }
+  // 2) Xabar / e’lon yuborish: hammaga, filialga yoki aniq xodimga.
+  if (SEND_INTENT.test(text)) {
+    const branch = ctx ? branchIn(ctx.db, ctx.companyId, message) : undefined;
+    const body = announcementBody(message, ctx, branch?.name);
+    const toAll = /(hammaga|barchaga|hamma\s+xodim|barcha\s+xodim|butun\s+kompaniya)/u.test(text);
+    const employeeRef = toAll || branch ? undefined : employeeReference(message);
+    const payload: Record<string, unknown> = { message: body };
+    if (employeeRef) Object.assign(payload, { target: "EMPLOYEES", employees: [employeeRef] });
+    else if (branch && !toAll) Object.assign(payload, { target: "BRANCHES", branches: [branch.id] });
+    else payload.target = "ALL";
+    const filialWord = /filial/u.test(text) && !branch && !toAll;
+    return { name: "send_announcement", payload, missing: [...(!body ? ["xabar matni (masalan: “Ertaga 9:00 da yig‘ilish” deb xabar yubor)"] : []), ...(filialWord ? ["filial nomi"] : [])] };
+  }
+  // 3) Ta’til so‘rovini tasdiqlash / rad etish.
+  if (LEAVE_DECISION.test(text)) {
+    const employeeId = employeeIn(message, ctx);
+    return { name: "decide_leave", payload: { employeeId, status: /rad\s+et/u.test(text) ? "REJECTED" : "APPROVED" }, missing: employeeId ? [] : [NEED_EMPLOYEE] };
+  }
+  const employeeId = employeeIn(message, ctx);
+  // 4) Ishdan chiqish vaqti: «1001 idlik xodimga bugun 12:00 da chiqish qilib qo‘y».
+  if (CHECKOUT_INTENT.test(text) && hasClock(text) && looksLikeWriteRequest(text) && !/oyli[kg]|maosh|grafik/.test(text)) {
+    const times = timesIn(message);
+    const both = /(keldi|kelgan|kelish)/u.test(text) && times.length >= 2;
+    const payload = both ? { employeeId, date: dateOf(), checkIn: times[0], checkOut: times[1] } : { employeeId, date: dateOf(), checkOut: times[times.length - 1] };
+    return { name: "set_checkout", payload, missing: employeeId ? [] : [NEED_EMPLOYEE] };
+  }
   if (/oyli[kg]|maosh/.test(text) && looksLikeWriteRequest(text)) {
     const candidates = Array.from(message.matchAll(/\d[\d\s.,]*/g)).map((match) => Number(match[0].replace(/\D/g, ""))).filter(Number.isFinite).sort((a, b) => b - a);
     const baseSalary = candidates[0];
     return { name: "set_employee_salary", payload: { employeeId, baseSalary }, missing: [...(!employeeId ? ["xodim ID yoki xodim raqami"] : []), ...(baseSalary === undefined ? ["oylik summasi"] : [])] };
   }
-  if (/(ishga keldi|davomat|kelgan deb|kelish vaqt)/.test(text) && looksLikeWriteRequest(text)) {
-    const checkIn = timesIn(message)[0], date = message.match(/\b\d{4}-\d{2}-\d{2}\b/)?.[0] || today();
+  if ((/(ishga keldi|davomat|kelgan deb|kelish vaqt)/.test(text) || (CHECKIN_INTENT.test(text) && hasClock(text))) && looksLikeWriteRequest(text)) {
+    const checkIn = timesIn(message)[0], date = dateOf();
     return { name: "set_attendance", payload: { employeeId, date, checkIn }, missing: [...(!employeeId ? ["xodim ID yoki xodim raqami"] : []), ...(!checkIn ? ["kelish vaqti (masalan, 08:00)"] : [])] };
   }
   if (/grafik/.test(text) && /(qo['‘’]?sh|yarat)/.test(text)) {

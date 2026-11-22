@@ -64,7 +64,7 @@ const FILTERS: Filter[] = ["ALL", "IN", "LATE", "ABSENT", "NOT_YET", "ON_LEAVE",
 const asFilter = (value?: string): Filter | undefined => (value && (FILTERS as string[]).includes(value) ? (value as Filter) : undefined);
 const name = (e: { firstName: string; lastName: string }) => `${e.firstName} ${e.lastName}`;
 /** «Boshqaruv» katalogidagi qo‘shimcha (AdminViews’dan tashqari) bo‘limlar va tezkor amallar. */
-type ExtraKey = "week" | "money" | "devices" | "announce" | "fine" | "scan";
+type ExtraKey = "ai" | "week" | "money" | "devices" | "announce" | "fine" | "scan";
 
 /** Rahbar paneli — Mini App’dagi «Rahbar» bilan bir xil: bugungi holat, so‘rovlar, filial xaritasi, haftalik xulosa. */
 /*
@@ -343,6 +343,7 @@ export default function Manager() {
   const canDashboard = can(role, "dashboard.view");
   const adminExtra = useMemo<{ key: ExtraKey; label: string; hint: string; icon: IconName; group?: "quick" }[]>(() => [
     // Tezkor amallar — avval «Umumiy»da edi, endi «Boshqaruv» katalogida.
+    { key: "ai", label: "Staffora AI", hint: "", icon: "sparkles-outline", group: "quick" },
     ...(canAnnounce ? [{ key: "announce" as const, label: "Tezkor e’lon", hint: "", icon: "megaphone-outline" as const, group: "quick" as const }] : []),
     ...(canFine ? [{ key: "fine" as const, label: "Jarima", hint: "", icon: "hammer-outline" as const, group: "quick" as const }] : []),
     { key: "scan", label: "ID tekshirish", hint: "", icon: "qr-code-outline", group: "quick" },
@@ -352,6 +353,7 @@ export default function Manager() {
   ], [canAnnounce, canFine, canDashboard, canMoney, canDevices]);
   const hasAdmin = adminExtra.length > 0 || adminItemsFor(role).length > 0;
   const openAdmin = useCallback((key: string) => {
+    if (key === "ai") return router.push("/ai");
     if (key === "announce") return setAnnouncing(true);
     if (key === "fine") return setFining(true);
     if (key === "scan") return router.push("/badge-scan");
@@ -380,6 +382,11 @@ export default function Manager() {
     <Screen
       title="Rahbar"
       subtitle={`${auth.company.name}${updatedAt ? ` · ${updatedAt}` : ""}`}
+      right={
+        <Pressable accessibilityLabel="Staffora AI" hitSlop={10} onPress={() => router.push("/ai")} style={{ width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: c.violet + "1F" }}>
+          <Icon name="sparkles" size={20} color={c.violet} />
+        </Pressable>
+      }
       refreshing={loading}
       onRefresh={load}
     >
