@@ -44,7 +44,7 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: c.accent,
-        tabBarInactiveTintColor: ios ? "#8E8E93" : c.muted,
+        tabBarInactiveTintColor: c.muted,
         tabBarLabelStyle: { fontSize: ios ? 10.5 : 12, fontWeight: ios ? "500" : "600" },
         sceneStyle: { backgroundColor: c.bg },
       }}

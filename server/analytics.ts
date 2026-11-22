@@ -6,6 +6,7 @@ import { tashkentIsoDate } from "../lib/format";
 import type { Database } from "../lib/types";
 import type { AuthedRequest } from "./auth";
 import { datesBetween, dayStatus } from "./reports";
+import { memo } from "./memo";
 
 /*
  * Rahbar uchun tahlil: filiallar reytingi, intizomlilar va ko‘p kechikuvchilar,
@@ -138,7 +139,7 @@ export function createAnalyticsRouter() {
       const db = await readDb();
       const user = db.users.find((u) => u.id === req.session!.userId);
       const scope = req.session!.role === "BRANCH_MANAGER" ? new Set(user?.branchIds || []) : null;
-      res.json(companyAnalytics(db, tenant, month, scope));
+      res.json(memo("analytics", [tenant, month, scope ? [...scope].sort() : null], () => companyAnalytics(db, tenant, month, scope)));
     }),
   );
   return router;

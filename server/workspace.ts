@@ -13,6 +13,7 @@ import { financeSummary } from "./finance";
 import { closedPeriod } from "./payroll-routes";
 import { lateCoverage, normalizePayrollSettings } from "../lib/payroll";
 import { MANUAL_STEPS } from "./people";
+import { memo } from "./memo";
 
 /*
  * Ish stoli (har bir rol uchun):
@@ -325,6 +326,37 @@ function tomorrowReadiness(db: Database, employees: Employee[], date: string, re
   return { date, planned, onLeave, required: required || undefined, shortage: required ? Math.max(0, required - planned) : 0 };
 }
 
+/** Umumiy ko‘rinish hisobi (memo bilan keshlanadi — server/memo.ts). */
+function overviewOf(db: Database, tenant: string, role: Role, scope: Set<string> | null) {
+  const today = tashkentIsoDate();
+  const now = tashkentClock();
+  const at = todayBranchOf(db, today);
+  // Filial rahbari: o‘z filiali xodimlari va boshqa filialdan kelib, uning filialida keldi qilganlar.
+  const employees = db.employees.filter((e) => e.companyId === tenant && e.status === "ACTIVE" && (!scope || scope.has(e.branchId) || scope.has(at(e))));
+  const { stat } = todayStats(db, employees, today, now);
+  const branches = db.branches
+    .filter((b) => b.companyId === tenant && b.status !== "INACTIVE" && (!scope || scope.has(b.id)))
+    .map((b) => {
+      const s = todayStats(db, employees.filter((e) => at(e) === b.id), today, now).stat;
+      return { id: b.id, name: b.name, ...s, rate: s.planned ? Math.round(((s.came) / Math.max(1, s.planned - s.notYet)) * 100) : 100 };
+    })
+    .filter((b) => b.planned)
+    .sort((a, b) => a.rate - b.rate);
+  // So‘nggi 14 kun: kelmagan va kechikkanlar dinamikasi.
+  const trend = Array.from({ length: 14 }, (_, i) => {
+    const date = addDays(today, i - 13);
+    const s = todayStats(db, employees, date, date === today ? now : "23:59").stat;
+    return { date, came: s.came, late: s.late, absent: s.absent, planned: s.planned };
+  });
+  const money = canAny(role, ["payroll.view", "payroll.edit"]) ? financeSummary(db, tenant, today.slice(0, 7)) : null;
+  return {
+    today: { employees: employees.length, ...stat },
+    money: money && { net: money.net, advance: money.advance, bonus: money.bonus, fine: money.fine, overtime: money.overtime, base: money.base, trend: money.trend.map((t) => ({ month: t.month, net: t.net })) },
+    branches,
+    trend,
+  };
+}
+
 /* ======================================================= Action Center === */
 type Action = { level: "red" | "orange" | "yellow" | "info"; text: string; count: number; link?: string; view?: string };
 
@@ -469,33 +501,7 @@ export function createWorkspaceRouter() {
       const role = req.session!.role;
       if (!can(role, "attendance.view")) return res.status(403).json({ message: "Bu amal uchun ruxsat yetarli emas." });
       const scope = scopeOf(db, req);
-      const today = tashkentIsoDate();
-      const now = tashkentClock();
-      const at = todayBranchOf(db, today);
-      // Filial rahbari: o‘z filiali xodimlari va boshqa filialdan kelib, uning filialida keldi qilganlar.
-      const employees = db.employees.filter((e) => e.companyId === tenant && e.status === "ACTIVE" && (!scope || scope.has(e.branchId) || scope.has(at(e))));
-      const { stat } = todayStats(db, employees, today, now);
-      const branches = db.branches
-        .filter((b) => b.companyId === tenant && b.status !== "INACTIVE" && (!scope || scope.has(b.id)))
-        .map((b) => {
-          const s = todayStats(db, employees.filter((e) => at(e) === b.id), today, now).stat;
-          return { id: b.id, name: b.name, ...s, rate: s.planned ? Math.round(((s.came) / Math.max(1, s.planned - s.notYet)) * 100) : 100 };
-        })
-        .filter((b) => b.planned)
-        .sort((a, b) => a.rate - b.rate);
-      // So‘nggi 14 kun: kelmagan va kechikkanlar dinamikasi.
-      const trend = Array.from({ length: 14 }, (_, i) => {
-        const date = addDays(today, i - 13);
-        const s = todayStats(db, employees, date, date === today ? now : "23:59").stat;
-        return { date, came: s.came, late: s.late, absent: s.absent, planned: s.planned };
-      });
-      const money = canAny(role, ["payroll.view", "payroll.edit"]) ? financeSummary(db, tenant, today.slice(0, 7)) : null;
-      res.json({
-        today: { employees: employees.length, ...stat },
-        money: money && { net: money.net, advance: money.advance, bonus: money.bonus, fine: money.fine, overtime: money.overtime, base: money.base, trend: money.trend.map((t) => ({ month: t.month, net: t.net })) },
-        branches,
-        trend,
-      });
+      res.json(memo("workspace/overview", [tenant, role, scope ? [...scope].sort() : null], () => overviewOf(db, tenant, role, scope)));
     }),
   );
 

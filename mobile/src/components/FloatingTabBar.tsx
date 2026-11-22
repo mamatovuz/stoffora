@@ -41,7 +41,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: Props) {
     return o.href !== null && style?.display !== "none";
   });
   const activeKey = state.routes[state.index]?.key;
-  const inactive = ios ? "#8E8E93" : c.muted;
+  const inactive = c.muted;
 
   return (
     <View style={[st.bar, { paddingBottom: Math.max(insets.bottom, 8), borderTopColor: c.line }]}>
@@ -66,6 +66,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: Props) {
             focused={focused}
             title={options.title || ""}
             color={focused ? c.accent : inactive}
+            pill={`${c.accent}${dark ? "26" : "14"}`}
             badge={options.tabBarBadge}
             badgeColor={c.danger}
             badgeBorder={c.card}
@@ -87,9 +88,11 @@ function TabKey({
   badgeColor,
   badgeBorder,
   icon,
+  pill,
   onPress,
   onLongPress,
 }: {
+  pill: string;
   focused: boolean;
   title: string;
   color: string;
@@ -117,7 +120,8 @@ function TabKey({
       accessibilityLabel={badge ? `${title}, ${badge}` : title}
       style={({ pressed }) => [st.key, pressed && { opacity: 0.55 }]}
     >
-      <Animated.View style={{ transform: [{ scale: pop }] }}>
+      {/* Tanlangan bo‘lim — ikonka ortida yumshoq «tabletka» (rang emas, faqat ohang). */}
+      <Animated.View style={[st.pill, focused && { backgroundColor: pill }, { transform: [{ scale: pop }] }]}>
         {icon?.({ focused, color, size: ICON })}
         {badge ? (
           <View pointerEvents="none" style={[st.badge, { backgroundColor: badgeColor, borderColor: badgeBorder }]}>
@@ -143,8 +147,9 @@ const st = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
-  key: { flex: 1, minHeight: TAB_BAR_SPACE - 8, alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: 2 },
+  key: { flex: 1, minHeight: TAB_BAR_SPACE - 8, alignItems: "center", justifyContent: "center", gap: 2, paddingHorizontal: 2 },
+  pill: { width: 52, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
   label: { fontSize: 11, letterSpacing: 0 },
-  badge: { position: "absolute", top: -4, right: -10, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", borderWidth: 2 },
+  badge: { position: "absolute", top: -3, right: 2, minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 4, alignItems: "center", justifyContent: "center", borderWidth: 2 },
   badgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 });

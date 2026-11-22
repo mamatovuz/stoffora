@@ -258,7 +258,7 @@ function SalaryCard({ data }: { data: Salary }) {
   return (
     <Card onPress={() => go("/salary")} style={{ gap: 12 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
-        <View style={[st.tileIcon, { backgroundColor: `${c.accent}12` }]}>
+        <View style={[st.tileIcon, { backgroundColor: c.tint }]}>
           <Icon name="wallet-outline" size={19} color={c.accent} />
         </View>
         <View style={{ flex: 1 }}>
@@ -331,13 +331,13 @@ const st = StyleSheet.create({
   dotText: { color: "#fff", fontSize: 10.5, fontWeight: "700" },
   statusRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
-  clock: { fontSize: 56, fontWeight: "700", letterSpacing: -2, marginTop: 16, fontVariant: ["tabular-nums"] },
+  clock: { fontSize: 56, fontWeight: "600", letterSpacing: -2.5, marginTop: 16, fontVariant: ["tabular-nums"] },
   meta: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, maxWidth: "50%" },
   times: { flexDirection: "row", gap: 16, marginBottom: 18 },
   timeCell: { flex: 1, paddingVertical: 2, gap: 2 },
   timeLabel: { fontSize: 12, fontWeight: "500" },
   timeValue: { fontSize: 24, fontWeight: "700", letterSpacing: -0.5, fontVariant: ["tabular-nums"] },
   done: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, height: 54, borderRadius: radius.button },
-  tileIcon: { width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  tileIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center" },
   bar: { height: 6, borderRadius: 3, overflow: "hidden" },
 });

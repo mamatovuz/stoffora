@@ -45,7 +45,7 @@ export function Screen({
   const { c } = useTheme();
   const insets = useSafeAreaInsets();
   const head = title ? (
-    <View style={[s.head, { paddingTop: insets.top + (ios ? 6 : 12) }]}>
+    <View style={[s.head, { paddingTop: insets.top + 10 }]}>
       <View style={{ flex: 1 }}>
         <Text style={[s.title, { color: c.ink }]} numberOfLines={1}>
           {title}
@@ -87,7 +87,7 @@ export function Card({ children, style, onPress }: { children: ReactNode; style?
         haptic.select();
         onPress();
       }}
-      style={({ pressed }) => [base, pressed && { opacity: ios ? 0.7 : 0.92, transform: [{ scale: 0.99 }] }]}
+      style={({ pressed }) => [base, pressed && { opacity: 0.85, transform: [{ scale: 0.99 }] }]}
       android_ripple={{ color: c.tint }}
     >
       {children}
@@ -98,7 +98,7 @@ export function Card({ children, style, onPress }: { children: ReactNode; style?
 /** Guruh sarlavhasi (iOS: kichik kulrang harflar). */
 export function GroupTitle({ children }: { children: ReactNode }) {
   const { c } = useTheme();
-  return <Text style={[s.groupTitle, { color: c.muted }]}>{ios ? String(children).toUpperCase() : children}</Text>;
+  return <Text style={[s.groupTitle, { color: c.muted }]}>{children}</Text>;
 }
 
 /** iOS «Settings» qatori: belgi, matn, o‘ngda qiymat va «›». */
@@ -148,7 +148,7 @@ export function Row({
             {label}
           </Text>
           {sub ? (
-            <Text style={{ color: c.muted, fontSize: 12.5, marginTop: 1 }} numberOfLines={2}>
+            <Text style={{ color: c.muted, fontSize: 13, marginTop: 2 }} numberOfLines={2}>
               {sub}
             </Text>
           ) : null}
@@ -159,7 +159,7 @@ export function Row({
           </Text>
         ) : null}
         {right}
-        {onPress && !right ? <Icon name="chevron-forward" size={17} color={ios ? "#C4C4C7" : c.muted} /> : null}
+        {onPress && !right ? <Icon name="chevron-forward" size={16} color={c.muted} style={{ opacity: 0.6 }} /> : null}
       </View>
     </Pressable>
   );
@@ -197,9 +197,9 @@ export function Button({
       style={({ pressed }) => [
         s.button,
         { backgroundColor: bg, height: big ? 56 : 50, borderRadius: radius.button },
-        tone === "ghost" && { borderWidth: StyleSheet.hairlineWidth, borderColor: c.line, backgroundColor: c.card },
+        tone === "ghost" && { borderWidth: 1, borderColor: c.line, backgroundColor: c.card },
         (disabled || busy) && { opacity: 0.55 },
-        pressed && { transform: [{ scale: 0.98 }], opacity: 0.85 },
+        pressed && { transform: [{ scale: 0.985 }], opacity: 0.88 },
         style,
       ]}
     >
@@ -216,7 +216,7 @@ export function Hint({ icon = "information-circle", tone = "info", children, onP
   return (
     <Pressable disabled={!onPress} onPress={onPress} style={[s.hint, { backgroundColor: c.card }]}>
       <Icon name={icon} size={18} color={color} />
-      <Text style={{ flex: 1, color: c.ink, fontSize: 13.5, lineHeight: 19 }}>{children}</Text>
+      <Text style={{ flex: 1, color: c.ink, fontSize: 14, lineHeight: 20 }}>{children}</Text>
       {onPress ? <Icon name="chevron-forward" size={16} color={c.muted} /> : null}
     </Pressable>
   );
@@ -240,11 +240,11 @@ export function Empty({ icon = "file-tray-outline", title, text, action }: { ico
   const { c } = useTheme();
   return (
     <View style={s.empty}>
-      <View style={[s.emptyIcon, { backgroundColor: `${c.accent}14` }]}>
-        <Icon name={icon} size={28} color={c.accent} />
+      <View style={[s.emptyIcon, { backgroundColor: c.tint }]}>
+        <Icon name={icon} size={26} color={c.muted} />
       </View>
-      <Text style={{ color: c.ink, fontSize: 16, fontWeight: "600", textAlign: "center" }}>{title}</Text>
-      {text ? <Text style={{ color: c.muted, fontSize: 13.5, textAlign: "center", lineHeight: 19 }}>{text}</Text> : null}
+      <Text style={{ color: c.ink, fontSize: 16, fontWeight: "600", textAlign: "center", letterSpacing: -0.2 }}>{title}</Text>
+      {text ? <Text style={{ color: c.muted, fontSize: 14, textAlign: "center", lineHeight: 20 }}>{text}</Text> : null}
       {action}
     </View>
   );
@@ -262,9 +262,9 @@ export function Loading() {
 export function ErrorBox({ text, onRetry }: { text: string; onRetry?: () => void }) {
   const { c } = useTheme();
   return (
-    <View style={[s.hint, { backgroundColor: `${c.danger}14`, alignItems: "center" }]}>
+    <View style={[s.hint, { backgroundColor: c.card, alignItems: "center" }]}>
       <Icon name="alert-circle" size={18} color={c.danger} />
-      <Text style={{ flex: 1, color: c.ink, fontSize: 13.5 }}>{text}</Text>
+      <Text style={{ flex: 1, color: c.ink, fontSize: 14, lineHeight: 20 }}>{text}</Text>
       {onRetry ? (
         <Pressable onPress={onRetry} hitSlop={10}>
           <Text style={{ color: c.accent, fontWeight: "600" }}>Qayta</Text>
@@ -282,11 +282,11 @@ export function Sheet({ visible, title, subtitle, onClose, children }: { visible
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: c.overlay }]} onPress={onClose} accessibilityLabel="Yopish" />
       <KeyboardAvoidingView behavior={ios ? "padding" : undefined} style={s.sheetWrap}>
-        <View style={[s.sheet, { backgroundColor: ios ? c.bg : c.card, paddingBottom: insets.bottom + 16 }]}>
+        <View style={[s.sheet, { backgroundColor: c.bg, paddingBottom: insets.bottom + 16 }]}>
           <View style={[s.grabber, { backgroundColor: c.line }]} />
           <View style={s.sheetHead}>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: c.ink, fontSize: 18, fontWeight: "700" }}>{title}</Text>
+              <Text style={{ color: c.ink, fontSize: 19, fontWeight: "700", letterSpacing: -0.3 }}>{title}</Text>
               {subtitle ? <Text style={{ color: c.muted, fontSize: 13, marginTop: 2 }}>{subtitle}</Text> : null}
             </View>
             <Pressable onPress={onClose} hitSlop={12} style={[s.sheetClose, { backgroundColor: c.tint }]} accessibilityLabel="Yopish">
@@ -327,7 +327,7 @@ export function Segmented<T extends string>({ value, options, onChange, quiet }:
         style={({ pressed }) => [
           quiet ? s.segQuiet : s.segItem,
           fit && { flex: 1 },
-          !quiet && on && { backgroundColor: dark ? "#3A3A3C" : c.card, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 3, shadowOffset: { width: 0, height: 1 }, elevation: 1 },
+          !quiet && on && { backgroundColor: dark ? "#2A2D31" : c.card, shadowColor: "#0F172A", shadowOpacity: dark ? 0 : 0.06, shadowRadius: 2, shadowOffset: { width: 0, height: 1 } },
           quiet && { borderBottomColor: on ? c.accent : "transparent" },
           pressed && !on && { opacity: 0.55 },
         ]}
@@ -339,7 +339,7 @@ export function Segmented<T extends string>({ value, options, onChange, quiet }:
       </Pressable>
     );
   });
-  const track = quiet ? [s.segQuietTrack, { borderBottomColor: c.line }] : [s.seg, { backgroundColor: dark ? "rgba(118,118,128,0.24)" : "rgba(118,118,128,0.12)" }];
+  const track = quiet ? [s.segQuietTrack, { borderBottomColor: c.line }] : [s.seg, { backgroundColor: c.tint }];
   if (fit) return <View style={[track, { flexDirection: "row" }]}>{items}</View>;
   return (
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={track}>
@@ -350,30 +350,30 @@ export function Segmented<T extends string>({ value, options, onChange, quiet }:
 
 export const s = StyleSheet.create({
   pad: { paddingHorizontal: 16 },
-  head: { flexDirection: "row", alignItems: "flex-end", gap: 12, paddingBottom: 6 },
-  title: { fontSize: ios ? 34 : 26, fontWeight: ios ? "700" : "600", letterSpacing: ios ? 0.2 : 0 },
-  subtitle: { fontSize: 14, marginTop: 2 },
+  head: { flexDirection: "row", alignItems: "flex-end", gap: 12, paddingBottom: 8 },
+  title: { fontSize: 30, fontWeight: "700", letterSpacing: -0.6 },
+  subtitle: { fontSize: 14, marginTop: 3 },
   card: { borderRadius: radius.card, padding: 16, overflow: "hidden" },
-  groupTitle: { fontSize: ios ? 12.5 : 13.5, fontWeight: ios ? "400" : "600", marginTop: 14, marginBottom: -2, marginLeft: ios ? 16 : 4, letterSpacing: ios ? 0.2 : 0 },
-  row: { flexDirection: "row", alignItems: "center", paddingLeft: 16, minHeight: ios ? 46 : 54 },
-  rowIcon: { width: 29, height: 29, borderRadius: 7, alignItems: "center", justifyContent: "center", marginRight: 12 },
+  groupTitle: { fontSize: 13, fontWeight: "600", marginTop: 16, marginBottom: -4, marginLeft: 4 },
+  row: { flexDirection: "row", alignItems: "center", paddingLeft: 16, minHeight: 52 },
+  rowIcon: { width: 24, height: 24, alignItems: "center", justifyContent: "center", marginRight: 14 },
   rowBody: { flex: 1, flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "stretch", paddingRight: 14, paddingVertical: 10 },
-  rowLabel: { fontSize: 16 },
+  rowLabel: { fontSize: 15.5 },
   rowValue: { fontSize: 15, maxWidth: "50%" },
   button: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 18 },
-  buttonText: { fontSize: 16.5, fontWeight: "600" },
-  hint: { flexDirection: "row", gap: 10, padding: 13, borderRadius: radius.card, alignItems: "flex-start" },
+  buttonText: { fontSize: 16, fontWeight: "600", letterSpacing: -0.1 },
+  hint: { flexDirection: "row", gap: 10, padding: 14, borderRadius: radius.card, alignItems: "flex-start" },
   badge: { flexDirection: "row", alignItems: "center", gap: 5, paddingVertical: 2, alignSelf: "flex-start", flexShrink: 1 },
   badgeDot: { width: 7, height: 7, borderRadius: 4 },
   empty: { alignItems: "center", gap: 10, paddingVertical: 40, paddingHorizontal: 24 },
-  emptyIcon: { width: 60, height: 60, borderRadius: 20, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  emptyIcon: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 4 },
   sheetWrap: { flex: 1, justifyContent: "flex-end", pointerEvents: "box-none" },
-  sheet: { borderTopLeftRadius: ios ? 14 : 24, borderTopRightRadius: ios ? 14 : 24, paddingHorizontal: 16, paddingTop: 8 },
+  sheet: { borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 16, paddingTop: 8 },
   grabber: { alignSelf: "center", width: 36, height: 5, borderRadius: 3, marginBottom: 10 },
   sheetHead: { flexDirection: "row", alignItems: "flex-start", gap: 12, marginBottom: 14 },
   sheetClose: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center" },
-  seg: { flexDirection: "row", padding: 3, borderRadius: 11 },
-  segItem: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  seg: { flexDirection: "row", padding: 3, borderRadius: 12 },
+  segItem: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 9, alignItems: "center", justifyContent: "center" },
   segQuietTrack: { flexDirection: "row", borderBottomWidth: StyleSheet.hairlineWidth },
   segQuiet: { paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 2, marginBottom: -StyleSheet.hairlineWidth, alignItems: "center" },
 });

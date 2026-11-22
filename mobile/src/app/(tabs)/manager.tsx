@@ -189,7 +189,7 @@ export default function Manager() {
       // Direktor: qo‘shimcha ish so‘rovi kelsa — kompaniyada u to‘lanadimi, bir marta tekshiriladi.
       if (!overtimeChecked.current && list.some((p) => p.kind === "overtime") && (can(role, "attendance.edit") || can(role, "payroll.edit"))) {
         overtimeChecked.current = true;
-        void mcall<{ disabled?: boolean }>(`/overtime?month=${month}`)
+        void mcall<{ disabled?: boolean }>(`/overtime?month=${month}&summary=1`)
           .then((r) => setOvertimeOff(Boolean(r.disabled)))
           .catch(() => undefined);
       }
