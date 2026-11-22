@@ -148,7 +148,8 @@ describe("mobil ilova: login + parol bilan kirish", () => {
     expect(wrong.body.code).toBe("LOGIN_FAILED");
     expect(wrong.body.message).toBe("Login yoki parol noto‘g‘ri.");
     expect((await login(phoneX, "hech.kim", "Valiyev2027")).body.code).toBe("LOGIN_FAILED");
-    expect((await login(phoneX, "x@gmail.com", "Valiyev2027")).body.code).toBe("LOGIN_INVALID");
+    expect((await login(phoneX, "x@gmail.com", "Valiyev2027")).body.code).toBe("LOGIN_FAILED");
+    expect((await login(phoneX, "ali valiyev", "Valiyev2027")).body.code).toBe("LOGIN_INVALID");
     const res = await login(phoneX, "ali.valiyev@staffora.uz", "Valiyev2027");
     expect(res.status).toBe(201);
     expect(res.body).toMatchObject({ mode: "employee", employee: { id: "a", firstName: "Ali", companyId: "c1" } });
@@ -251,6 +252,37 @@ describe("direktor: mobil ilova logini va rahbar rejimi", () => {
 
     expect((await call("POST", "/api/mobile/auth/logout", { sessionId: next.body.sessionId, refreshToken: next.body.refreshToken })).status).toBe(200);
     expect((await call("GET", "/api/panel/ping", undefined, next.body.accessToken)).status).toBe(401);
+  });
+
+  it("to‘g‘ri parol rad etilmaydi: panel emaili, oxiridagi bo‘sh joy, bog‘langan xodim paroli", async () => {
+    const p = phone();
+    // Panel emaili (staffora.uz emas) + panel paroli → rahbar sessiyasi.
+    const byEmail = await login(p, "Boss@Firma.uz", "Direktor2026");
+    expect(byEmail.status).toBe(201);
+    expect(byEmail.body).toMatchObject({ mode: "manager", user: { id: "u1" } });
+    // Klaviatura qo‘shgan bo‘sh joy.
+    expect((await login(phone(), "direktor", "Direktor2026 ")).status).toBe(201);
+    // Begona email / noto‘g‘ri parol — baribir rad.
+    expect((await login(phone(), "boss@firma.uz", "Valiyev2027")).body.code).toBe("LOGIN_FAILED");
+    expect((await login(phone(), "nobody@firma.uz", "Direktor2026")).body.code).toBe("LOGIN_FAILED");
+
+    // Direktor xodim sifatida ham ro‘yxatdan o‘tgan (Bobur, Mini App paroli boshqa): ikkala parol ham ishlaydi.
+    await store.updateDb((db) => {
+      db.users.find((u) => u.id === "u1")!.employeeId = "b";
+    });
+    const set = await call("POST", "/api/mini/account", { login: "bobur.q", password: "Bobur2026x" }, miniToken("b"));
+    expect(set.status).toBe(200);
+    const panelPassword = await login(phone(), "bobur.q", "Direktor2026");
+    expect(panelPassword.status).toBe(201);
+    expect(panelPassword.body).toMatchObject({ mode: "employee", employee: { id: "b" } });
+    const employeePassword = await login(phone(), "direktor", "Bobur2026x");
+    expect(employeePassword.status).toBe(201);
+    expect(employeePassword.body).toMatchObject({ mode: "employee", employee: { id: "b" } });
+    // Boshqa xodimning paroli direktor loginiga yaramaydi.
+    expect((await login(phone(), "direktor", "Valiyev2027")).body.code).toBe("LOGIN_FAILED");
+    await store.updateDb((db) => {
+      delete db.users.find((u) => u.id === "u1")!.employeeId;
+    });
   });
 
   it("bloklangan direktor kira olmaydi; Telegram 2FA yoqilgan bo‘lsa — 5 xonali kod", async () => {

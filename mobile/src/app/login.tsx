@@ -35,6 +35,7 @@ const ERRORS: Record<string, string> = {
   COMPANY_SUSPENDED: "Kompaniya hisobi to‘xtatilgan.",
   ACCOUNT_BLOCKED: "Hisob bloklangan. Administrator bilan bog‘laning.",
 };
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const failText = (e: unknown, fallback: string) => (e instanceof ApiError && e.code && ERRORS[e.code] && !e.body?.message ? ERRORS[e.code] : errorText(e, fallback));
 
 export default function Login() {
@@ -52,13 +53,16 @@ export default function Login() {
   const [twoFactor, setTwoFactor] = useState<{ login: string; message: string } | null>(null);
   const passwordRef = useRef<TextInput>(null);
 
-  const live = liveLoginProblem(login);
+  // Panel emaili (boss@gmail.com) ham qabul qilinadi — direktor panel paroli bilan kiradi.
+  const typedEmail = EMAIL_RE.test(login.trim());
+  const live = typedEmail ? null : liveLoginProblem(login);
   const shownLoginError = live || loginError;
   const typedDomain = login.includes("@");
 
   const submit = async () => {
     if (busy) return;
-    const check = checkLoginInput(login);
+    const parsed = checkLoginInput(login);
+    const check = !parsed.ok && typedEmail ? { ok: true as const, login: login.trim().toLowerCase() } : parsed;
     if (!check.ok) {
       haptic.warning();
       setLoginError(check.error);
