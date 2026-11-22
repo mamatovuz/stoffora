@@ -4,7 +4,7 @@ import { rateLimit } from "express-rate-limit";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { checkLoginInput } from "../lib/staff-login";
-import { credentialByLogin, normalizeLogin } from "../lib/staff-credentials";
+import { credentialByLogin, credentialOfEmployee, normalizeLogin } from "../lib/staff-credentials";
 import { desiredStaffRole, syncStaffRoles } from "../lib/staff-roles";
 import { audit, readDb, updateDb } from "../lib/store";
 import { can } from "../lib/permissions";
@@ -280,6 +280,68 @@ export const resetLoginGuards = () => {
 let dummyHash: Promise<string> | undefined;
 const dummy = () => (dummyHash ||= bcrypt.hash("staffora-login-timing-guard", 12));
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Login kimniki va qaysi parollar qabul qilinadi. Bitta odamning ikki paroli bo‘lishi mumkin: xodim paroli
+ * (Mini App → «Ilovaga kirish» yoki bot anketasi) va panel paroli (direktor/rahbar). Ilgari faqat loginning
+ * «o‘z» paroli tekshirilardi — direktor panel parolini yozsa (yoki aksincha) to‘g‘ri parol ham
+ * «Login yoki parol noto‘g‘ri» berardi. Endi o‘sha odamning ikkala paroli ham qabul qilinadi; begona
+ * hisobning paroli hech qachon qo‘shilmaydi (bog‘lanish: User.employeeId / autoRole yoki Telegram ID).
+ *   emailOnly — login o‘rniga panel emaili yozilgan (staffora.uz bo‘lmagan domen): faqat panel hisobi.
+ */
+export function loginAccounts(db: Database, login: string, options: { emailOnly?: boolean } = {}) {
+  const usable = (u: User) => u.role !== "SUPER_ADMIN" && Boolean(u.companyId) && !u.blockedAt;
+  let credential = options.emailOnly ? undefined : credentialByLogin(db, login);
+  if (!credential && !options.emailOnly) {
+    // Xodimda login nusxasi bor, lekin qidiruv jadvalida katta-kichik harf farqi qolgan bo‘lsa.
+    const owner = db.employees.find((e) => e.login && normalizeLogin(e.login) === login);
+    const row = owner && credentialOfEmployee(db, owner.id);
+    if (row && normalizeLogin(row.login) === login) credential = row;
+  }
+  const matchesUser = (u: User) =>
+    (!options.emailOnly && u.mobileLogin && normalizeLogin(u.mobileLogin) === login) || normalizeLogin(u.email) === login;
+  let panelUser: User | undefined;
+  let linkedManager: User | undefined;
+  let linkedCredential: typeof credential;
+  if (credential) {
+    const employee = db.employees.find((e) => e.id === credential!.employeeId && e.companyId === credential!.companyId);
+    // Shu xodimga bog‘langan panel hisobi (User.employeeId yoki Telegram ID) — o‘sha odam.
+    const telegram = employee?.telegramId && !employee.telegramId.startsWith("dev") ? employee.telegramId : undefined;
+    linkedManager =
+      employee &&
+      db.users.find((u) => usable(u) && u.companyId === employee.companyId && (u.employeeId === employee.id || Boolean(telegram && u.telegramId === telegram)));
+  } else {
+    panelUser = db.users.find((u) => u.role !== "SUPER_ADMIN" && matchesUser(u));
+    if (panelUser && !panelUser.blockedAt) {
+      const telegram = panelUser.telegramId && !panelUser.telegramId.startsWith("dev") ? panelUser.telegramId : undefined;
+      const employee = db.employees.find(
+        (e) => e.companyId === panelUser!.companyId && (e.id === panelUser!.employeeId || Boolean(telegram && e.telegramId === telegram)),
+      );
+      linkedCredential = employee && credentialOfEmployee(db, employee.id);
+    }
+  }
+  const hashes = [credential?.passwordHash, panelUser?.passwordHash, linkedManager?.passwordHash, linkedCredential?.passwordHash].filter(
+    (hash, index, list): hash is string => typeof hash === "string" && hash.startsWith("$2") && list.indexOf(hash) === index,
+  );
+  return { credential, panelUser, hashes };
+}
+
+/**
+ * Parol xeshlardan biriga mos keladimi. Klaviatura yoki parol menejeri oxiriga qo‘shgan bo‘sh joy
+ * (xodim parolida bo‘sh joy bo‘lmaydi) — ikkinchi urinishda olib tashlanadi. Hisob topilmasa ham
+ * bcrypt bir marta ishlaydi (vaqt bo‘yicha login mavjudligini bilib bo‘lmasin).
+ */
+export async function passwordMatches(password: string, hashes: string[]) {
+  if (!password || !hashes.length) {
+    await bcrypt.compare(password || "x", await dummy());
+    return false;
+  }
+  const variants = [password, password.trim()].filter((value, index, list) => value && list.indexOf(value) === index);
+  for (const hash of hashes) for (const value of variants) if (await bcrypt.compare(value, hash)) return true;
+  return false;
+}
+
 /** Rahbar Telegram 2FA: 5 xonali kod, 5 daqiqa, 5 urinish — foydalanuvchi + telefon kaliti bo‘yicha. */
 const twoFactorCodes = new Map<string, { hash: string; expiresAt: number; attempts: number }>();
 const twoFactorHash = (key: string, code: string) => sha256(`staffora-mobile-2fa:${key}:${code}`);
@@ -410,8 +472,11 @@ export function createMobilePublicRouter() {
         })
         .parse(req.body);
       const check = checkLoginInput(input.login);
-      if (!check.ok) throw httpError(check.error, 400, "LOGIN_INVALID");
-      const login = check.login;
+      const typedLogin = normalizeLogin(input.login);
+      // Direktor panel emailini (masalan, boss@gmail.com) yozsa ham kira oladi — panel paroli bilan.
+      const asEmail = !check.ok && EMAIL_RE.test(typedLogin);
+      if (!check.ok && !asEmail) throw httpError(check.error, 400, "LOGIN_INVALID");
+      const login = check.ok ? check.login : typedLogin;
       const key = normalizePublicKey(input.publicKey);
       if (!consumeChallenge(input.nonce, key.fingerprint, "activate")) throw httpError("Tasdiqlash muddati tugadi — qayta urinib ko‘ring.", 401, "CHALLENGE");
       const typed = input.login.trim().toLowerCase();
@@ -423,8 +488,7 @@ export function createMobilePublicRouter() {
       if (deviceLocked) throw httpError(lockedText(deviceLocked), 429, "LOGIN_LOCKED");
 
       const db = await readDb();
-      const credential = credentialByLogin(db, login);
-      const panelUser = credential ? undefined : db.users.find((u) => u.role !== "SUPER_ADMIN" && u.mobileLogin && normalizeLogin(u.mobileLogin) === login);
+      const { credential, panelUser, hashes } = loginAccounts(db, login, { emailOnly: asEmail });
       // Shu hisobning hozir faol telefoni — umumiy (login bo‘yicha) qulf unga ta’sir qilmaydi.
       const trusted = db.mobileDevices.some(
         (d) =>
@@ -436,9 +500,10 @@ export function createMobilePublicRouter() {
       );
       const accountLocked = loginPerAccount.remaining(login);
       if (accountLocked && !trusted) throw httpError(lockedText(accountLocked), 429, "LOGIN_LOCKED");
-      const hash = credential?.passwordHash || panelUser?.passwordHash;
-      const ok = hash && input.password ? await bcrypt.compare(input.password, hash) : (await bcrypt.compare(input.password || "x", await dummy()), false);
+      const ok = await passwordMatches(input.password, hashes);
       if (!ok) {
+        // Railway loglarida sababni ko‘rish uchun (parol va login yozilmaydi).
+        console.warn(`[mobile-login] rad etildi: ${hashes.length ? "parol mos kelmadi" : "bunday login topilmadi"} (${asEmail ? "email" : "login"}, ${credential ? "xodim" : panelUser ? "panel" : "—"})`);
         const lockedDevice = loginPerDevice.fail(deviceKey);
         const lockedAccount = loginPerAccount.fail(login);
         if ((lockedDevice || lockedAccount) && (credential || panelUser))
