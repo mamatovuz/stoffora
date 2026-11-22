@@ -40,7 +40,7 @@ export const resetManager = () => {
 };
 
 /** Panel API chaqiruvi (Bearer). 401 bo‘lsa — sessiya yangilanib bir marta qayta urinadi. */
-export async function mcall<T>(path: string, body?: unknown, method = body === undefined ? "GET" : "POST", retry = true): Promise<T> {
+export async function mcall<T>(path: string, body?: unknown, method = body === undefined ? "GET" : "POST", retry = true, timeoutMs = 20_000): Promise<T> {
   const auth = await managerAuth();
   let response: Response;
   try {
@@ -48,14 +48,14 @@ export async function mcall<T>(path: string, body?: unknown, method = body === u
       method,
       headers: { authorization: `Bearer ${auth.token}`, accept: "application/json", ...(body !== undefined ? { "content-type": "application/json" } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(20_000),
+      signal: AbortSignal.timeout(timeoutMs),
     });
   } catch {
     throw new ApiError("Server bilan aloqa yo‘q.", 0, "NETWORK");
   }
   if (response.status === 401 && retry) {
     await managerAuth(true);
-    return mcall<T>(path, body, method, false);
+    return mcall<T>(path, body, method, false, timeoutMs);
   }
   const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
   if (!response.ok) throw new ApiError(String(data.message || `So‘rov bajarilmadi (${response.status}).`), response.status, data.code as string | undefined, data);
